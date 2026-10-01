@@ -19,26 +19,36 @@ pub const IDENTITY_SEED_LEN: usize = 32;
 pub const SIGNATURE_LEN: usize = 64;
 
 /// Decodes 32 bytes as an Ed25519 public key under the rules of
-/// `docs/PROTOCOL.md` section 10.1: the bytes decode to a curve point,
-/// encoding that point again gives the same bytes, the point is not of
-/// small order, and it has no torsion component.
+/// `docs/PROTOCOL.md` section 10.1. A key is valid only when all three hold:
 ///
-/// The last condition means the key lies in the prime-order subgroup, which
-/// is where every honestly generated key is. It is the test Tor applies to
-/// the key in an onion address, and Monolith applies it to identity keys as
-/// well, so that one definition of "valid key" serves both.
+/// 1. the compressed Edwards encoding decompresses to a point;
+/// 2. the point is torsion-free;
+/// 3. the point is not of small order.
 ///
-/// On this curve every non-canonical encoding of a point happens to be a
-/// point of small order or one with a torsion component, so the last two
-/// conditions already reject it. The comparison of the encoding is kept
-/// because it states the rule itself and does not rest on that fact.
+/// Neither of the last two is enough alone. The identity element is
+/// torsion-free, so only the third condition rejects it. A point with a
+/// torsion component that is not itself of small order passes the third,
+/// so only the second rejects it. Together they say that the key is a
+/// point of the prime-order subgroup other than the identity element,
+/// which is what every honestly generated key is.
+///
+/// This is stricter than Ed25519 verification, which accepts any point that
+/// decompresses. Monolith generates its own identity keys and needs no
+/// compatibility with keys made elsewhere. The same rule serves the key in
+/// an onion address, where the second condition is the test Tor applies.
+///
+/// A valid key has exactly one encoding. On this curve every non-canonical
+/// encoding of a point is a point of small order or one with a torsion
+/// component, so the conditions above already reject it. The comparison of
+/// the encoding below is kept as a direct statement of that property; it
+/// does not change which keys are valid.
 pub(crate) fn decode_key(bytes: &[u8; 32]) -> Result<VerifyingKey, IdentityError> {
     let key = VerifyingKey::from_bytes(bytes).map_err(|_| IdentityError::InvalidKey)?;
     let point = key.to_edwards();
-    if point.compress().to_bytes() != *bytes {
+    if !point.is_torsion_free() || point.is_small_order() {
         return Err(IdentityError::InvalidKey);
     }
-    if key.is_weak() || !point.is_torsion_free() {
+    if point.compress().to_bytes() != *bytes {
         return Err(IdentityError::InvalidKey);
     }
     Ok(key)
@@ -272,13 +282,129 @@ mod tests {
         assert_eq!(public, again);
     }
 
+    /// The eight points of small order, in canonical encoding: orders 1, 2,
+    /// 4, 4, 8, 8, 8, 8.
+    const SMALL_ORDER: [[u8; 32]; 8] = [
+        IDENTITY_ELEMENT,
+        ORDER_TWO,
+        [0; 32],
+        {
+            let mut bytes = [0_u8; 32];
+            bytes[31] = 0x80;
+            bytes
+        },
+        [
+            0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
+            0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
+            0x6d, 0x53, 0xfc, 0x05,
+        ],
+        [
+            0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
+            0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
+            0x6d, 0x53, 0xfc, 0x85,
+        ],
+        [
+            0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10,
+            0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77,
+            0x92, 0xac, 0x03, 0x7a,
+        ],
+        [
+            0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10,
+            0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77,
+            0x92, 0xac, 0x03, 0xfa,
+        ],
+    ];
+
+    /// y = 2. No point of the curve has this y coordinate.
+    const NOT_A_POINT: [u8; 32] = {
+        let mut bytes = [0_u8; 32];
+        bytes[0] = 2;
+        bytes
+    };
+
+    /// Decompresses bytes with the curve library alone, without the checks
+    /// of this crate.
+    fn decompress(bytes: &[u8; 32]) -> Option<VerifyingKey> {
+        VerifyingKey::from_bytes(bytes).ok()
+    }
+
     #[test]
-    fn rejects_small_order_keys() {
-        for bytes in [IDENTITY_ELEMENT, ORDER_TWO] {
+    fn key_validity_malformed_compressed_point() {
+        // Decompression itself fails, so there is no point to examine.
+        assert!(decompress(&NOT_A_POINT).is_none());
+        assert_eq!(
+            IdentityPublicKey::from_bytes(&NOT_A_POINT).err(),
+            Some(IdentityError::InvalidKey)
+        );
+    }
+
+    #[test]
+    fn key_validity_small_order_point() {
+        for bytes in SMALL_ORDER {
+            let decoded = decompress(&bytes).unwrap().to_edwards();
+            assert!(decoded.is_small_order(), "the constant is what it claims");
             assert_eq!(
                 IdentityPublicKey::from_bytes(&bytes).err(),
                 Some(IdentityError::InvalidKey)
             );
+        }
+        // All eight are distinct.
+        for (index, bytes) in SMALL_ORDER.iter().enumerate() {
+            assert_eq!(
+                SMALL_ORDER.iter().position(|other| other == bytes),
+                Some(index)
+            );
+        }
+    }
+
+    #[test]
+    fn key_validity_identity_point() {
+        // The identity element is in the prime-order subgroup, so the
+        // torsion test alone lets it through. The small-order test is what
+        // rejects it.
+        let decoded = decompress(&IDENTITY_ELEMENT).unwrap().to_edwards();
+        assert!(decoded.is_torsion_free());
+        assert!(decoded.is_small_order());
+        assert_eq!(
+            IdentityPublicKey::from_bytes(&IDENTITY_ELEMENT).err(),
+            Some(IdentityError::InvalidKey)
+        );
+    }
+
+    #[test]
+    fn key_validity_point_with_a_torsion_component() {
+        // An honest key plus each point of small order other than the
+        // identity element. None of the sums is of small order, so the
+        // small-order test alone lets them through. The torsion test is
+        // what rejects them.
+        let honest = decompress(
+            IdentitySecretKey::from_seed(&[7; 32])
+                .public_key()
+                .as_bytes(),
+        )
+        .unwrap()
+        .to_edwards();
+        for torsion in SMALL_ORDER.iter().skip(1) {
+            let mixed = honest + decompress(torsion).unwrap().to_edwards();
+            assert!(!mixed.is_small_order());
+            assert!(!mixed.is_torsion_free());
+            let bytes = mixed.compress().to_bytes();
+            assert_eq!(
+                IdentityPublicKey::from_bytes(&bytes).err(),
+                Some(IdentityError::InvalidKey)
+            );
+        }
+    }
+
+    #[test]
+    fn key_validity_generated_point() {
+        for seed in [[0_u8; 32], [7; 32], [0xff; 32], RFC8032_SEED] {
+            let public = IdentitySecretKey::from_seed(&seed).public_key();
+            let decoded = decompress(public.as_bytes()).unwrap().to_edwards();
+            assert!(decoded.is_torsion_free());
+            assert!(!decoded.is_small_order());
+            assert_eq!(decoded.compress().to_bytes(), *public.as_bytes());
+            assert_eq!(IdentityPublicKey::from_bytes(public.as_bytes()), Ok(public));
         }
     }
 
@@ -309,27 +435,6 @@ mod tests {
         let mut negative_zero = IDENTITY_ELEMENT;
         negative_zero[31] = 0x80;
         assert!(IdentityPublicKey::from_bytes(&negative_zero).is_err());
-    }
-
-    #[test]
-    fn rejects_keys_with_a_torsion_component() {
-        // An honest key plus the point of order 2: a canonical point that is
-        // not of small order, but outside the prime-order subgroup.
-        let honest = ed25519_dalek::VerifyingKey::from_bytes(
-            IdentitySecretKey::from_seed(&[7; 32])
-                .public_key()
-                .as_bytes(),
-        )
-        .unwrap()
-        .to_edwards();
-        let torsion = ed25519_dalek::VerifyingKey::from_bytes(&ORDER_TWO)
-            .unwrap()
-            .to_edwards();
-        let mixed = (honest + torsion).compress().to_bytes();
-        assert_eq!(
-            IdentityPublicKey::from_bytes(&mixed).err(),
-            Some(IdentityError::InvalidKey)
-        );
     }
 
     #[test]

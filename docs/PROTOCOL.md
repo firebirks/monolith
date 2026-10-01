@@ -631,20 +631,36 @@ Fingerprints are compared out of band. A display name is never a substitute.
 
 ### 10.1 Valid keys and signatures
 
-A 32-byte string is a valid key if all of these hold:
+A 32-byte string is a valid Monolith Ed25519 public key only when all of
+these hold:
 
-- it decodes to a point on the curve;
-- encoding that point again gives the same 32 bytes;
-- the point is not of small order;
-- the point has no torsion component: multiplying it by the order of the
-  prime-order subgroup gives the identity element.
+1. it is a compressed Edwards encoding that decompresses to a point of the
+   curve;
+2. the point is torsion-free: multiplying it by the order of the
+   prime-order subgroup gives the identity element;
+3. the point is not of small order.
 
-Together they say that the key is a canonical encoding of a point in the
-prime-order subgroup other than the identity element, which is what every
-honestly generated key is. The last condition is the test Tor applies to
-the key in an onion address.
+Neither of the last two is sufficient alone. The identity element is
+torsion-free, and only condition 3 rejects it. A point with a torsion
+component that is not itself of small order passes condition 3, and only
+condition 2 rejects it. The seven other points of small order fail both.
+Together the conditions say that the key is a point of the prime-order
+subgroup other than the identity element, which is what every honestly
+generated key is.
 
-The same definition is used for identity keys and for onion service keys.
+A valid key has exactly one encoding: every non-canonical encoding of a
+point of this curve is a point of small order or one with a torsion
+component, so the conditions reject it.
+
+This is deliberately stricter than Ed25519 signature verification, which
+accepts every point that decompresses. Monolith generates its identity
+keys itself and does not need to accept identity keys made by other
+software.
+
+The same rule is used for identity keys and for the Ed25519 master public
+key of an Onion Service, as it appears in a contact card and in a v3 onion
+address. Condition 2 is the test Tor applies to that key.
+
 Honest key generation never produces a point with a torsion component. If
 such points were accepted, the holder of one secret could present up to
 eight public keys, the honest one plus each point of small order, and
@@ -1109,11 +1125,18 @@ implementation rejects it.
 
 Key validity (section 10.1), as rules for building the inputs:
 
+- a string that does not decompress is rejected, for example y = 2
+  (`02` followed by 31 zero bytes);
+- each of the eight points of small order is rejected, the identity
+  element among them;
+- a valid key plus any point of small order other than the identity
+  element is rejected;
 - every 32-byte string whose y coordinate is p + k for k from 0 to 18, with
-  either sign bit, is rejected;
-- the identity element with the sign bit set is rejected;
-- a valid key plus the point of order 2 is rejected, both as an identity
-  key and as an onion service key.
+  either sign bit, is rejected, and so is the identity element with the
+  sign bit set;
+- a key derived from a seed is accepted.
+
+Each holds for identity keys and for onion service keys alike.
 
 ### 16.2 Vectors still to be produced
 

@@ -87,9 +87,12 @@ not need to be unpredictable, but one source is simpler to audit than two.
 - Verification uses strict rules everywhere (`verify_strict`): the signature
   scalar must be canonical, and public keys or R values of small order are
   rejected. Plain RFC 8032 verification accepts some of these and is not
-  used. A public key must also be canonically encoded and lie in the
-  prime-order subgroup, for identity keys as for onion service keys;
-  PROTOCOL.md section 10.1 gives the exact tests.
+  used.
+- A public key is valid only if it decompresses, is torsion-free and is
+  not of small order (PROTOCOL.md section 10.1). Both of the last two
+  tests are needed: the identity element is torsion-free. The rule applies
+  to identity keys and to onion service keys, and is stricter than what
+  signature verification requires, on purpose.
 - The identity key is distinct from the Onion Service key and from every
   Noise key. A contact card that names its own identity key as an endpoint
   is not signed and not accepted (PROTOCOL.md section 11.2). Compromise of the Onion Service key lets an attacker receive

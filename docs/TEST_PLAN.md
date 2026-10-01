@@ -69,11 +69,13 @@ Identity (T-ID)
 2. No code path replaces a pinned key.
 3. Two contacts with identical display names remain distinct.
 
-Keys and signatures (T-KEY): every encoding with y at or above the field
-prime; the second encoding of the identity element; small-order points;
-keys with a torsion component, as identity keys and as onion service keys;
-a signature that the plain verification equation accepts and strict
-verification rejects (PROTOCOL.md 16.1).
+Keys and signatures (T-KEY): a malformed compressed point; each of the
+eight small-order points; the identity element, which is torsion-free and
+must still be rejected; a valid key plus each small-order point, which is
+not of small order and must still be rejected; generated keys; every
+encoding with y at or above the field prime; all of it for identity keys
+and for onion service keys; a signature that the plain verification
+equation accepts and strict verification rejects (PROTOCOL.md 16.1).
 
 Contact cards (T-CARD): valid cards of both sizes; every single-bit flip is
 rejected; reserved flag bits; epoch zero; wrong version; trailing bytes;
