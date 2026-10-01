@@ -1,0 +1,18 @@
+[package]
+name = "monolith-cli"
+description = "Command-line front end for Monolith"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "monolith"
+path = "src/main.rs"
+
+[dependencies]
+monolith-core.workspace = true
+monolith-protocol.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,67 @@
+# cargo-deny policy. Run with: cargo deny check
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+# Advisories may be ignored only with a written reason and a review date.
+ignore = []
+
+[licenses]
+# Licences accepted for dependencies. Adding one is a reviewed change.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.93
+# The list is a policy, not a mirror of what is in use today.
+unused-allowed-license = "allow"
+
+[licenses.private]
+# Workspace crates are unpublished and carry no licence field yet.
+ignore = true
+
+[bans]
+# One version of each crate, in particular of each cryptographic crate.
+multiple-versions = "deny"
+wildcards = "deny"
+# Workspace crates refer to each other by path, without a version.
+allow-wildcard-paths = true
+
+# Crates that would break an invariant just by being linked. See
+# docs/SECURITY_INVARIANTS.md.
+deny = [
+    # S16, S29, S32: nothing fetches, previews or opens anything.
+    { crate = "reqwest", reason = "no HTTP client (S16, S32)" },
+    { crate = "hyper", reason = "no HTTP client (S16, S32)" },
+    { crate = "ureq", reason = "no HTTP client (S16, S32)" },
+    { crate = "curl", reason = "no HTTP client (S16, S32)" },
+    { crate = "isahc", reason = "no HTTP client (S16, S32)" },
+    { crate = "open", reason = "nothing is opened automatically (S16)" },
+    { crate = "opener", reason = "nothing is opened automatically (S16)" },
+    { crate = "webbrowser", reason = "nothing is opened automatically (S16)" },
+    { crate = "image", reason = "no image decoding of peer data (S16)" },
+    # S3: no resolver.
+    { crate = "hickory-resolver", reason = "no DNS resolution (S3)" },
+    { crate = "trust-dns-resolver", reason = "no DNS resolution (S3)" },
+    { crate = "dns-lookup", reason = "no DNS resolution (S3)" },
+    # S17: one randomness source.
+    { crate = "fastrand", reason = "not a CSPRNG (S17)" },
+    { crate = "oorandom", reason = "not a CSPRNG (S17)" },
+    # Reviewed case by case; see docs/adr/0002 and 0005.
+    { crate = "openssl-sys", reason = "no OpenSSL without an ADR" },
+    { crate = "native-tls", reason = "no OpenSSL without an ADR" },
+    { crate = "ring", reason = "session crypto uses the pure-Rust resolver (ADR 0002)" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

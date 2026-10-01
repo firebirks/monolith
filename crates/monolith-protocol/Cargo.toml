@@ -1,0 +1,13 @@
+[package]
+name = "monolith-protocol"
+description = "Wire protocol types, limits and session state for Monolith"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+monolith-identity.workspace = true
+
+[lints]
+workspace = true

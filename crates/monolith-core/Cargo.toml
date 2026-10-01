@@ -1,0 +1,16 @@
+[package]
+name = "monolith-core"
+description = "Application core of Monolith: contacts, sessions and policy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+monolith-identity.workspace = true
+monolith-protocol.workspace = true
+monolith-storage.workspace = true
+monolith-tor.workspace = true
+
+[lints]
+workspace = true

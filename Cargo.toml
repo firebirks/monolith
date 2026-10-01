@@ -1,0 +1,58 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/monolith-identity",
+    "crates/monolith-protocol",
+    "crates/monolith-tor",
+    "crates/monolith-storage",
+    "crates/monolith-core",
+    "crates/monolith-cli",
+    "crates/monolith-desktop",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+# Oldest supported compiler. 1.85 is the first release with the 2024 edition
+# and the rustc version shipped in Debian 13, the base of the Tails and Whonix
+# releases we target. See docs/ARCHITECTURE.md before raising it.
+rust-version = "1.85"
+# Nothing in this workspace may be published without explicit authorization.
+publish = false
+
+[workspace.dependencies]
+monolith-identity = { path = "crates/monolith-identity" }
+monolith-protocol = { path = "crates/monolith-protocol" }
+monolith-tor = { path = "crates/monolith-tor" }
+monolith-storage = { path = "crates/monolith-storage" }
+monolith-core = { path = "crates/monolith-core" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# Peer input must never be able to reach a panic. These lints remove the
+# usual ways of writing one by accident.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_sign_loss = "deny"
+# Output goes through the logging layer, which redacts. The CLI crate opts
+# out for its own stdout.
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
+[profile.release]
+# Integer overflow is a bug in every Monolith crate. Trap it instead of
+# wrapping silently.
+overflow-checks = true
