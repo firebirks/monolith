@@ -4,10 +4,24 @@
 //! follow that document; if the two disagree, the document wins and the code
 //! is wrong.
 //!
-//! Phase 0 contains the limits table, the message type registry and the
-//! session state gate. Framing, encoding, decoding and the cryptographic
-//! session are not implemented yet.
+//! This crate is the protocol core. It does no I/O and no session
+//! cryptography: it encodes and decodes, validates, and decides. Every
+//! decoder takes bytes and returns a value or a [`ProtocolError`]; none of
+//! them allocates from a length a peer declared before checking it, and
+//! none of them panics on any input.
+//!
+//! What is here:
+//!
+//! - [`limits`]: every size, count, rate and timeout.
+//! - [`codec`]: bounded readers and writers for the fixed-layout encoding.
+//!
+//! What is not here: the handshake, the identity proof and frame encryption.
+//! The session layer is not decided; see `docs/adr/0002-session-protocol.md`.
 
+// Tests build their own inputs and do arithmetic and indexing on them.
+#![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
+
+pub mod codec;
 pub mod limits;
 
 mod error;

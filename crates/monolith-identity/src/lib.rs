@@ -10,6 +10,9 @@
 //! caller supplies. Key generation arrives with the randomness source in a
 //! later phase.
 
+// Tests build their own inputs and do arithmetic and indexing on them.
+#![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
+
 pub mod base32;
 pub mod redact;
 

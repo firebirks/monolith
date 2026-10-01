@@ -73,6 +73,16 @@ pub const MAX_FRAME_CIPHERTEXT_LEN: usize = MAX_FRAME_PLAINTEXT_LEN + AEAD_TAG_L
 /// Smallest value the frame length prefix may carry.
 pub const MIN_FRAME_CIPHERTEXT_LEN: usize = MIN_FRAME_PLAINTEXT_LEN + AEAD_TAG_LEN;
 
+/// Largest value the 16-bit frame length prefix can carry.
+pub const MAX_FRAME_LENGTH_VALUE: usize = 65_535;
+
+/// Bytes the session layer adds to each frame.
+///
+/// Provisional: 16 is the authentication tag of the session candidate that
+/// is written up. Framing code takes the overhead as a parameter. See
+/// `docs/adr/0002-session-protocol.md`.
+pub const FRAME_SESSION_OVERHEAD_LEN: usize = AEAD_TAG_LEN;
+
 /// Length of the header inside the plaintext: message type and body length.
 pub const MESSAGE_HEADER_LEN: usize = 4;
 
@@ -151,6 +161,23 @@ pub const CONTACT_CARD_BASE_LEN: usize = CONTACT_CARD_FIXED_LEN + CONTACT_CARD_E
 pub const MAX_CONTACT_CARD_LEN: usize = CONTACT_CARD_FIXED_LEN
     + MAX_ACTIVE_ENDPOINTS * CONTACT_CARD_ENDPOINT_LEN
     + INVITATION_CAPABILITY_LEN;
+
+/// Length of an AuthProof body: identity key, feature bits, signature.
+/// Provisional, like the session layer it belongs to.
+pub const AUTH_PROOF_BODY_LEN: usize = 32 + 8 + SIGNATURE_LEN;
+
+/// Largest body of a message that is legal before a session is confirmed.
+/// That message is a ContactRequest: a card without invitation, the
+/// presence byte and invitation capability, a display name and an
+/// introduction.
+pub const MAX_UNCONFIRMED_BODY_LEN: usize = CONTACT_CARD_FIXED_LEN
+    + MAX_ACTIVE_ENDPOINTS * CONTACT_CARD_ENDPOINT_LEN
+    + 1
+    + INVITATION_CAPABILITY_LEN
+    + FIELD_LENGTH_PREFIX_LEN
+    + MAX_DISPLAY_NAME_LEN
+    + FIELD_LENGTH_PREFIX_LEN
+    + MAX_INTRODUCTION_TEXT_LEN;
 
 /// Largest textual contact card accepted from the user, in characters. The
 /// longest valid card is 258 characters; the margin is for whitespace, which
@@ -488,6 +515,15 @@ const _: () = {
     assert!(CONTACT_CARD_BASE_LEN == 139);
     assert!(MAX_CONTACT_CARD_LEN == 155);
     assert!(MAX_CONTACT_CARD_LEN <= MAX_MESSAGE_BODY_LEN);
+
+    assert!(MAX_UNCONFIRMED_BODY_LEN == 800);
+    assert!(AUTH_PROOF_BODY_LEN == 104);
+    assert!(AUTH_PROOF_BODY_LEN <= MAX_UNCONFIRMED_BODY_LEN);
+    // With the working padding block, every message before confirmation
+    // fits in one block.
+    assert!(MAX_UNCONFIRMED_BODY_LEN + MESSAGE_HEADER_LEN <= FRAME_PADDING_BLOCK_LEN);
+    assert!(FRAME_PADDING_BLOCK_LEN > MESSAGE_HEADER_LEN);
+    assert!(FRAME_PADDING_BLOCK_LEN + FRAME_SESSION_OVERHEAD_LEN <= MAX_FRAME_LENGTH_VALUE);
 
     assert!(MAX_UNKNOWN_SESSIONS < MAX_INBOUND_HANDSHAKES);
     assert!(MAX_INBOUND_HANDSHAKES < MAX_CONTACT_SESSIONS);

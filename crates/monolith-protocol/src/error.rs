@@ -2,6 +2,8 @@
 
 use core::fmt;
 
+use monolith_identity::IdentityError;
+
 /// Why input from a peer was rejected.
 ///
 /// The variants carry no peer-controlled data, so an error can be logged or
@@ -40,6 +42,10 @@ pub enum ProtocolError {
     ForbiddenCharacter,
     /// A field held a value that its type does not allow.
     InvalidValue,
+    /// A public key failed validation.
+    InvalidKey,
+    /// Text that should be an encoded structure could not be decoded.
+    InvalidEncoding,
     /// A signature did not verify.
     BadSignature,
     /// An endpoint binding did not have a greater epoch than the pinned one.
@@ -70,6 +76,8 @@ impl fmt::Display for ProtocolError {
             Self::InvalidUtf8 => "invalid UTF-8",
             Self::ForbiddenCharacter => "forbidden character",
             Self::InvalidValue => "invalid value",
+            Self::InvalidKey => "invalid key",
+            Self::InvalidEncoding => "invalid encoding",
             Self::BadSignature => "bad signature",
             Self::StaleEpoch => "stale endpoint epoch",
             Self::LimitExceeded => "limit exceeded",
@@ -80,3 +88,16 @@ impl fmt::Display for ProtocolError {
 }
 
 impl core::error::Error for ProtocolError {}
+
+impl From<IdentityError> for ProtocolError {
+    fn from(error: IdentityError) -> Self {
+        match error {
+            IdentityError::InvalidKey => Self::InvalidKey,
+            IdentityError::InvalidSignature => Self::BadSignature,
+            IdentityError::InvalidBase32 => Self::InvalidEncoding,
+            // IdentityError is non-exhaustive. Anything else is a value its
+            // type does not allow.
+            _ => Self::InvalidValue,
+        }
+    }
+}
