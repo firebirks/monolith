@@ -315,10 +315,13 @@ interface must not suggest otherwise.
 - It cannot hide a conversation from the two parties having it.
 - It does not promise secure deletion on SSDs or modern filesystems.
 - Reachability of the Onion Service reveals presence. Anyone who holds the
-  contact card can test whether the user is online. Version 1 uses one
-  Onion Service for all contacts, so every contact, and everyone a card was
-  leaked to, can do this until the endpoint is rotated. Designs that give
-  each contact its own endpoint reduce this; they are not in version 1.
+  contact card can attempt a connection and observe whether the endpoint is
+  reachable. Monolith does not hide endpoint availability from card
+  holders. Version 1 uses one Onion Service for all contacts, so every
+  contact, and everyone a card was leaked to, can do this until the
+  endpoint is rotated. The identity model allows a set of endpoints per
+  identity (PROTOCOL.md 11.4), which leaves room for per-contact or
+  rotating endpoints later; none of that is in version 1.
 - Endpoint rotation cannot notify contacts if every endpoint they know has
   disappeared before a signed update reached them. The recovery is a new
   contact card handed over out of band.

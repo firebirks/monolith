@@ -682,8 +682,10 @@ The "1" in the prefix is the version of the text encoding. A corrupted card
 fails signature verification; no separate checksum is needed.
 
 A contact card is sensitive: whoever holds it can try to connect to the
-user's Onion Service. Cards and QR codes are produced locally and are never
-uploaded anywhere.
+user's Onion Service, and can tell from the attempt whether that endpoint
+is reachable at the moment. Monolith does not hide endpoint availability
+from anyone who holds the card. Cards and QR codes are produced locally and
+are never uploaded anywhere.
 
 ### 11.4 Endpoint sets and epochs
 

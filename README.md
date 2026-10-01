@@ -28,7 +28,8 @@ skeleton. Nothing here has been audited. Do not rely on it for anything.
 - It does not defend against an adversary who can watch both ends of a
   connection, or against a compromised computer.
 - It cannot make a received file safe to open.
-- It does not hide from a contact that you are online.
+- It does not hide whether you are online. Anyone who holds your contact
+  card can try to connect and so see whether your endpoint is reachable.
 - It has no groups, calls, read receipts, typing indicators, link previews
   or offline delivery.
 - It is not compatible with TorChat or any other messenger.
