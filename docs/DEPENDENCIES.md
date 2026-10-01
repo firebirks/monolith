@@ -127,6 +127,8 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 - Maintained by the dalek-cryptography organization. Already in the tree
   through `ed25519-dalek` and `curve25519-dalek`; adding it as a direct
   dependency adds no code to the build.
+- Monolith enables none of its features. `curve25519-dalek` enables
+  `const-generics`, so that one is on in the build.
 - Review: in the main scope of the 2019 Quarkslab audit of the dalek
   libraries.
 - Advisories: none.
