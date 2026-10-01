@@ -8,9 +8,11 @@ codec, text rules, contact cards, message bodies, frames, session logic and
 the duplicate rule; property tests in `tests/properties.rs` of both crates;
 eight fuzz targets under `fuzz/`. Of the identifiers below, these are
 covered at the level the protocol core allows: T-FRAME-1 to 6, T-FIELD,
-T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ENDPOINT-1, T-CONTACT-2, 4
-and 5, T-DUP-1 to 3 and 7, T-ORACLE-1 to 5. The rest need the core, the
-session layer, Tor or storage, and are not written yet.
+T-KEY, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ENDPOINT-1,
+T-CONTACT-2, 4 and 5 (with two sessions wired to each other), T-DUP-1 to 3
+and 7, T-ORACLE-1, 3, 4 and 5, and the first half of T-ORACLE-7.
+T-ORACLE-2 holds by construction. The rest need the core, the session
+layer, Tor or storage, and are not written yet.
 
 ## 1. Principles
 
@@ -61,7 +63,9 @@ Identity (T-ID)
 
 1. An endpoint that does not prove the pinned identity, at handshake
    message 2 or in its proof, is a hard failure and raises the mismatch
-   event.
+   event. The proof half is covered in the session logic: an outbound
+   session ends when the proof names any identity but the dialed one, or
+   the local one.
 2. No code path replaces a pinned key.
 3. Two contacts with identical display names remain distinct.
 

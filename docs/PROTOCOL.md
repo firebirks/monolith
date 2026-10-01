@@ -186,14 +186,18 @@ In terms of them:
   one block, which is where "exactly 1040" comes from.
 
 A pair of values is usable only if P is larger than the 4-byte message
-header, P + T is at most 65535, and the largest message that is legal
-before confirmation fits in the largest plaintext. An implementation
-refuses any other pair.
+header, P + T is at most 65535, and the largest plaintext can hold every
+message other than a FileChunk at its largest size. The largest of those is
+a ChatMessage of 16402 bytes. An implementation refuses any other pair.
+
+A FileChunk is cut to the frame: a full chunk carries as much data as the
+largest body holds after the 16-byte transfer identifier and the 2-byte
+length, and never more than 64490 bytes.
 
 The limits 1040, 64528, 64512, 64508 and 64490 elsewhere in this document
 are these rules evaluated for P = 1024 and T = 16. An implementation takes
 P and T as parameters, so that changing either is a change of two numbers
-and not of the decoder.
+and not of the frame decoder.
 
 Padding hides the exact length of short messages from anyone who can see
 ciphertext lengths on the path between the application and Tor. It is not a
@@ -323,6 +327,9 @@ Receiving, in `AuthenticatedUnknown`:
 Before any of this, a ContactRequest is checked against the proven identity
 (section 8.3). That check does not depend on the record of the peer.
 
+A peer sends at most one ContactRequest on a session. A second one before
+the session is confirmed is a protocol violation.
+
 A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 
 ## 7. Session states
@@ -339,7 +346,7 @@ A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 | IdentityAuth | Encrypted channel, identities not yet proven | AuthProof |
 | AuthenticatedUnknown | Peer's identity proven; contact relationship not confirmed on this session | ContactRequest, ContactAccept, Close |
 | AuthenticatedContact | Both sides hold each other as accepted contacts and have said so on this session | everything except AuthProof |
-| Closing | Close sent or received | none |
+| Closing | Close sent; the stream is being shut down | none |
 | Closed | Terminal | none |
 
 A session never moves backwards, and every session passes through
@@ -350,9 +357,13 @@ A session never moves backwards, and every session passes through
 A session enters `AuthenticatedUnknown` only for the identity that the
 AuthProof received on it named. The session logic refuses to be told that
 identities are proven if no AuthProof arrived, or if the proven identity is
-not the one the proof named.
+not the one the proof named; either ends the session. It also ends the
+session when the proof names the local identity, and, on a session the
+local side opened, when it names any identity other than the one that was
+dialed (section 6.2).
 
-After a Close was sent or received, the receiver stops reading from the
+A Close that is received ends the session at once: the receiver goes to
+`Closed`. After a Close was sent or received, a side stops reading from the
 stream. Bytes still in flight are dropped without being decoded.
 
 A session leaves `AuthenticatedUnknown` within `UNKNOWN_SESSION_TIMEOUT`,
@@ -549,18 +560,23 @@ Every text field rejects:
 - U+0009, U+000A and U+000D are rejected.
 - Bidirectional controls are rejected: U+061C, U+200E, U+200F, U+202A to
   U+202E, U+2066 to U+2069.
-- Zero-width and invisible format characters are rejected: U+00AD, U+034F,
-  U+180E, U+200B to U+200D, U+2060 to U+2065, U+206A to U+206F, U+FEFF,
-  U+FFF9 to U+FFFB, U+1D173 to U+1D17A, U+E0000 to U+E007F.
-- Characters that are drawn as nothing or as a blank without being format
-  characters or whitespace are rejected: U+115F, U+1160, U+3164, U+FFA0
-  (Hangul fillers), U+17B4, U+17B5 (Khmer inherent vowels), U+2800 (blank
-  braille pattern), U+FFFC (object replacement character).
-- Variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF) are allowed.
-  Emoji and some scripts need them, and they do not hide text. The list
-  above is a list of known invisible characters, not a proof that two
-  names that look the same are the same; section 10 is what identifies a
-  contact.
+- Code points with the Unicode property Default_Ignorable_Code_Point are
+  rejected, except variation selectors. As of Unicode 16 that is, next to
+  the bidirectional controls above: U+00AD, U+034F, U+115F, U+1160, U+17B4,
+  U+17B5, U+180E, U+200B to U+200D, U+2060 to U+2065, U+206A to U+206F,
+  U+3164, U+FEFF, U+FFA0, U+FFF0 to U+FFF8, U+1BCA0 to U+1BCA3, U+1D173 to
+  U+1D17A, U+E0000 to U+E00FF, U+E01F0 to U+E0FFF. The list is fixed in
+  this document; it does not change with the Unicode tables of a build.
+- Variation selectors are allowed: U+180B to U+180D, U+180F, U+FE00 to
+  U+FE0F, U+E0100 to U+E01EF. Emoji and some scripts need them, and they
+  do not hide text.
+- A few characters that are not ignorable by default but are drawn as
+  nothing or as a blank are rejected: U+2800 (blank braille pattern),
+  U+FFF9 to U+FFFB (interlinear annotation), U+FFFC (object replacement
+  character).
+- These rules remove the known ways to hide characters in a name. They do
+  not make two names that look the same be the same; section 10 is what
+  identifies a contact.
 - U+0020 is the only whitespace character allowed. Every other character
   with the Unicode White_Space property is rejected, and the text must not
   begin or end with U+0020.
@@ -806,8 +822,9 @@ requested or accepted are handled by section 6.4.
    already pending, or if the queue holds `MAX_PENDING_CONTACT_REQUESTS`
    entries. A ContactAccept is dropped.
 
-The Close is sent before the decision is taken, so that the work of taking
-it happens after the last thing the sender can observe.
+The Close is written and the stream closed before the decision is taken,
+so that the work of taking it happens after the last thing the sender can
+observe.
 
 If no message arrives within `UNKNOWN_FIRST_MESSAGE_TIMEOUT`, the session
 is closed. When `MAX_UNKNOWN_SESSIONS` such sessions exist and another peer
@@ -931,8 +948,9 @@ user did not accept.
 - FileAccept and FileReject must name a pending offer made by the peer.
 - FileChunk is valid only from the offerer, only after FileAccept, and only
   while bytes remain. Every chunk must carry exactly
-  `min(MAX_FILE_CHUNK_LEN, bytes remaining)` bytes. Chunks are sequential;
-  there is no offset field.
+  `min(full chunk, bytes remaining)` bytes, where a full chunk is the size
+  section 5.1 gives for the frame parameters, 64490 bytes for the working
+  values. Chunks are sequential; there is no offset field.
 - The offerer sends FileComplete after the last chunk, with the SHA-256 of
   the whole file. It is valid only when exactly `size` bytes have been
   received.

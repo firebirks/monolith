@@ -87,10 +87,12 @@ not need to be unpredictable, but one source is simpler to audit than two.
 - Verification uses strict rules everywhere (`verify_strict`): the signature
   scalar must be canonical, and public keys or R values of small order are
   rejected. Plain RFC 8032 verification accepts some of these and is not
-  used. A public key must also be canonically encoded; PROTOCOL.md section
-  10.1 gives the exact tests.
+  used. A public key must also be canonically encoded and lie in the
+  prime-order subgroup, for identity keys as for onion service keys;
+  PROTOCOL.md section 10.1 gives the exact tests.
 - The identity key is distinct from the Onion Service key and from every
-  Noise key. Compromise of the Onion Service key lets an attacker receive
+  Noise key. A contact card that names its own identity key as an endpoint
+  is not signed and not accepted (PROTOCOL.md section 11.2). Compromise of the Onion Service key lets an attacker receive
   connections at that address; it does not let the attacker pass the
   identity proof.
 

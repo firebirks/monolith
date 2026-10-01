@@ -174,10 +174,12 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Mechanism: handshake records have fixed sizes and are read into fixed
   arrays. A transport frame is read by first reading its 2-byte length,
   rejecting values outside the range allowed in the current state, and then
-  filling a buffer whose size is fixed by the state: one padding block
-  before a session is confirmed, one maximum frame after. No allocation
-  size is derived from peer input.
-- Tests: T-FRAME-1 to T-FRAME-6, fuzz target `frame_decoder`.
+  filling a buffer for exactly that length. The length was checked first,
+  so the buffer is never larger than the limit of the state: one padding
+  block before a session is confirmed, one maximum frame after. No other
+  allocation size comes from peer input.
+- Tests: T-FRAME-1 to T-FRAME-6, fuzz targets `frame_stream` and
+  `frame_plaintext`.
 
 ### S11. Every protocol field has an explicit maximum
 
@@ -254,7 +256,7 @@ Test area names refer to `docs/TEST_PLAN.md`.
   a file whose name Monolith generates. The final name is chosen by the user
   in a save dialog (or derived from the sanitized display name inside a
   directory the user chose) and created with exclusive-create semantics.
-- Tests: T-FILE-NAME-*, fuzz target `filename`.
+- Tests: T-FILE-NAME-*, fuzz target `text_fields`.
 
 ### S15. Remote text is data, never markup or code
 
@@ -302,8 +304,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Mechanism: types that hold secrets, message content, onion addresses,
   identity keys, fingerprints, filenames, capabilities and isolation tokens
   do not derive `Debug` and do not implement `Display`. Their hand-written
-  `Debug` prints `[redacted]`. Error types carry no peer data. See
-  `monolith_identity::redact`.
+  `Debug` prints `[redacted]`, or sizes and a type name where that is all
+  there is to say. A type that is made only of such types may derive
+  `Debug`, because the fields print themselves. Error types carry no peer
+  data. See `monolith_identity::redact`.
 - Tests: unit tests per type, T-LOG-1 (run the malicious-peer suite with
   logging at maximum verbosity and search the output for every secret and
   every peer-supplied string used by the suite).
