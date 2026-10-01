@@ -1,0 +1,32 @@
+## onion-grater profile for Monolith on Tails.
+##
+## DRAFT. Not yet run on Tails. See docs/PLATFORM_TAILS.md, open items T1, T2.
+##
+## Install as /etc/onion-grater.d/monolith.yml (root, mode 0644). The filter
+## reads profiles on every new client connection; no restart is needed.
+##
+## The profile matches the unconfined executable /usr/bin/monolith run by the
+## live user. It must not overlap with any other profile: onion-grater
+## requires exactly one match per client.
+##
+## Allowed: one status query, and creating and removing Onion Services with
+## virtual port 29170 mapped to 127.0.0.1:29170. Nothing else. No event is
+## allowed: Tor's HS_DESC events cover every Onion Service on the system, not
+## only Monolith's. Keep this file in sync with docs/TOR_CONTROL_SURFACE.md.
+
+---
+- name: monolith
+  apparmor-profiles:
+    - '/usr/bin/monolith'
+  users:
+    - 'amnesia'
+  commands:
+    GETINFO:
+      - 'status/circuit-established'
+    ADD_ONION:
+      ## New service. Tor returns the key once; Monolith keeps it.
+      - 'NEW:ED25519-V3 Flags=MaxStreamsCloseCircuit MaxStreams=8 PoWDefensesEnabled=1 Port=29170,29170'
+      ## Service from a key Tor returned earlier.
+      - 'ED25519-V3:[A-Za-z0-9+/]{86}== Flags=MaxStreamsCloseCircuit MaxStreams=8 PoWDefensesEnabled=1 Port=29170,29170'
+    DEL_ONION:
+      - '[a-z2-7]{56}'

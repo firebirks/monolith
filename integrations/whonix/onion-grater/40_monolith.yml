@@ -1,0 +1,44 @@
+## onion-grater profile for Monolith on Whonix-Gateway.
+##
+## DRAFT. Not yet run on Whonix. See docs/PLATFORM_WHONIX.md, open item W1.
+##
+## Install on the Gateway as
+##   /usr/share/doc/onion-grater-merger/examples/40_monolith.yml
+## and enable with
+##   sudo onion-grater-add 40_monolith
+## or copy it to /usr/local/etc/onion-grater-merger.d/40_monolith.yml and
+## restart onion-grater.
+##
+## On Whonix all enabled profiles are merged into one filter for every
+## Workstation behind this Gateway. This profile adds exactly: creating and
+## removing Onion Services with virtual port 29170 that point at port 29170
+## of the Workstation that asked. GETINFO status/circuit-established is
+## already in the Whonix default profile.
+##
+## No event is added. Tor's HS_DESC events cover every Onion Service on the
+## Gateway; passing them would show each Workstation the addresses of
+## services created from the others.
+##
+## The three qualifier keys below follow the profiles shipped with Whonix so
+## that this file merges with them. Only 'hosts' is evaluated on Whonix.
+##
+## No pattern uses '.*' or '.+'. Keep this file in sync with
+## docs/TOR_CONTROL_SURFACE.md.
+
+---
+- exe-paths:
+    - '*'
+  users:
+    - '*'
+  hosts:
+    - '*'
+  commands:
+    ADD_ONION:
+      ## New service. Tor returns the key once; Monolith keeps it.
+      - pattern:     'NEW:ED25519-V3 Flags=MaxStreamsCloseCircuit MaxStreams=8 PoWDefensesEnabled=1 Port=29170,29170'
+        replacement: 'NEW:ED25519-V3 Flags=MaxStreamsCloseCircuit MaxStreams=8 PoWDefensesEnabled=1 Port=29170,{client-address}:29170'
+      ## Service from a key Tor returned earlier.
+      - pattern:     'ED25519-V3:([A-Za-z0-9+/]{86}==) Flags=MaxStreamsCloseCircuit MaxStreams=8 PoWDefensesEnabled=1 Port=29170,29170'
+        replacement: 'ED25519-V3:{} Flags=MaxStreamsCloseCircuit MaxStreams=8 PoWDefensesEnabled=1 Port=29170,{client-address}:29170'
+    DEL_ONION:
+      - '[a-z2-7]{56}'
