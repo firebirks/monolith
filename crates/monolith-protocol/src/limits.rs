@@ -127,14 +127,29 @@ pub const MAX_PROFILE_TEXT_LEN: usize = 1024;
 /// Largest filename in a file offer.
 pub const MAX_FILENAME_LEN: usize = 255;
 
-/// Length of a binary contact card without an invitation capability.
-pub const CONTACT_CARD_BASE_LEN: usize = 138;
+/// Most endpoints one contact card may state. The card format and its
+/// signature already describe a set of endpoints; version 1 allows one.
+pub const MAX_ACTIVE_ENDPOINTS: usize = 1;
 
-/// Length of a binary contact card with an invitation capability.
-pub const MAX_CONTACT_CARD_LEN: usize = CONTACT_CARD_BASE_LEN + INVITATION_CAPABILITY_LEN;
+/// Length of the fixed fields of a binary contact card: version, identity
+/// key, epoch, endpoint count, flags and signature.
+pub const CONTACT_CARD_FIXED_LEN: usize = 1 + 32 + 8 + 1 + 1 + SIGNATURE_LEN;
+
+/// Length of one endpoint in a binary contact card.
+pub const CONTACT_CARD_ENDPOINT_LEN: usize = 32;
+
+/// Length of a binary contact card with one endpoint and no invitation
+/// capability.
+pub const CONTACT_CARD_BASE_LEN: usize = CONTACT_CARD_FIXED_LEN + CONTACT_CARD_ENDPOINT_LEN;
+
+/// Length of the longest binary contact card: every endpoint slot used and
+/// an invitation capability.
+pub const MAX_CONTACT_CARD_LEN: usize = CONTACT_CARD_FIXED_LEN
+    + MAX_ACTIVE_ENDPOINTS * CONTACT_CARD_ENDPOINT_LEN
+    + INVITATION_CAPABILITY_LEN;
 
 /// Largest textual contact card accepted from the user, in characters. The
-/// longest valid card is 257 characters; the margin is for whitespace, which
+/// longest valid card is 258 characters; the margin is for whitespace, which
 /// is removed wherever it occurs.
 pub const MAX_CONTACT_CARD_TEXT_LEN: usize = 512;
 
@@ -460,8 +475,9 @@ const _: () = {
     assert!(MAX_MESSAGE_BODY_LEN == 64_508);
     assert!(MAX_FILE_CHUNK_LEN == 64_490);
 
-    assert!(CONTACT_CARD_BASE_LEN == 138);
-    assert!(MAX_CONTACT_CARD_LEN == 154);
+    assert!(MAX_ACTIVE_ENDPOINTS >= 1 && MAX_ACTIVE_ENDPOINTS <= 255);
+    assert!(CONTACT_CARD_BASE_LEN == 139);
+    assert!(MAX_CONTACT_CARD_LEN == 155);
     assert!(MAX_CONTACT_CARD_LEN <= MAX_MESSAGE_BODY_LEN);
 
     assert!(MAX_UNKNOWN_SESSIONS < MAX_INBOUND_HANDSHAKES);

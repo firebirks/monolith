@@ -77,7 +77,7 @@ not need to be unpredictable, but one source is simpler to audit than two.
   | Prefix | Total length of signed input | Defined in |
   | --- | --- | --- |
   | `MONOLITH-AUTH-V1` | 155 bytes | PROTOCOL.md 6.1 |
-  | `MONOLITH-CONTACT-CARD-V1` | 98 or 114 bytes | PROTOCOL.md 11.1 |
+  | `MONOLITH-CONTACT-CARD-V1` | 99 or 115 bytes with one endpoint | PROTOCOL.md 11.1.1 |
 
   The prefixes differ and no input of one kind has the length of the other,
   so a signature made for one purpose cannot be presented for the other.

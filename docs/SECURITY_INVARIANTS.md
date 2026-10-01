@@ -205,8 +205,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 - Mechanism: contact cards and identity proofs are fixed-layout byte
   strings with no optional ordering, no maps and no variable-width integers.
-  The verifier checks the signature over the received bytes, not over a
-  re-serialization.
+  The decoder accepts exactly one encoding of each value and rejects
+  trailing bytes. The bytes that are signed are produced by a dedicated
+  function, separate from the transport encoder, so a change to the
+  transport layout cannot change what a signature covers.
 - Tests: T-CARD-* (bit flips, trailing bytes, non-canonical base32),
   property tests.
 

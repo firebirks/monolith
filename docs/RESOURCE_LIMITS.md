@@ -51,11 +51,12 @@ contact session.
 | `MAX_DISPLAY_NAME_LEN` | 128 bytes | 128 | Additionally at most 64 scalar values. |
 | `MAX_PROFILE_TEXT_LEN` | 1024 | 2048 | No use for more in v1. |
 | `MAX_FILENAME_LEN` | 255 | 255 | |
-| `MAX_CONTACT_CARD_LEN` | 154 | 8192 | Fixed layout: 138 bytes, or 154 with an invitation capability. |
-| endpoint update | 138 | 4096 | An endpoint update is a contact card without a capability. |
+| `MAX_ACTIVE_ENDPOINTS` | 1 | - | Endpoints in one contact card. The format allows a set; version 1 allows one member. |
+| `MAX_CONTACT_CARD_LEN` | 155 | 8192 | Fixed layout: 139 bytes with one endpoint, or 155 with an invitation capability. |
+| endpoint update | 139 | 4096 | An endpoint update is a contact card without a capability. |
 | `MAX_FILE_CHUNK_LEN` | 64490 | 65536 | A 64 KiB chunk cannot fit in a frame that is itself capped at 64 KiB. This is the largest chunk that fills a maximum frame. |
 | handshake record | 32 / 96 / 64 | 8192 | Fixed sizes. |
-| `MAX_CONTACT_CARD_TEXT_LEN` | 512 chars | - | Input bound for the textual card parser; the longest valid card is 257 characters, and whitespace may be mixed in. |
+| `MAX_CONTACT_CARD_TEXT_LEN` | 512 chars | - | Input bound for the textual card parser; the longest valid card is 258 characters, and whitespace may be mixed in. |
 | `MAX_FILE_SIZE` | 4 GiB | - | Largest size accepted in an offer. The field is 64 bits wide. With no resume and bounded session lifetime, larger files are out of scope for version 1. |
 | `DEFAULT_MAX_FILE_SIZE` | 1 GiB | - | Local policy, configurable up to `MAX_FILE_SIZE`. |
 

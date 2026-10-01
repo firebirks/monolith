@@ -1,6 +1,6 @@
 # ADR 0001: Identity model
 
-Status: proposed, pending Phase 0 review
+Status: accepted for Phase 1
 Date: 2026-10-01
 
 ## Context
@@ -30,18 +30,27 @@ service from per-contact endpoint services.
    identity, whatever name comes with it. A pinned key is never replaced
    automatically; there is no trust-on-first-use renewal.
 
-4. The binding from identity to endpoint is a contact card: a fixed-layout
-   structure signed by the identity key, carrying the Onion Service public
-   key and a monotonic epoch (`PROTOCOL.md` section 11). The card stores the
-   32-byte service key, not the address string, so only version 3 services
-   can be expressed and a checksum cannot be wrong.
+4. An identity has a set of endpoints, not one endpoint:
+
+       identity -> endpoint set, as of an epoch
+
+   The binding is a contact card: a fixed-layout structure signed by the
+   identity key, carrying a monotonic epoch, a count and that many Onion
+   Service public keys (`PROTOCOL.md` section 11). The card stores 32-byte
+   service keys, not address strings, so only version 3 services can be
+   expressed and a checksum cannot be wrong.
+
+   Version 1 sets `MAX_ACTIVE_ENDPOINTS` to 1 and rejects any other count.
+   The count is in the format and in the signed bytes from the start, so
+   raising the maximum later does not change the identity model or the
+   signature construction.
 
 5. An endpoint update is the same structure with a greater epoch, accepted
    only from the pinned identity over an authenticated session or by manual
-   import. There is no separate update format and no `previous_epoch`
-   field. Rollback protection needs only "strictly greater than the pinned
-   epoch"; a second field would add a second thing to validate without
-   adding protection.
+   import. It replaces the whole pinned set. There is no separate update
+   format and no `previous_epoch` field. Rollback protection needs only
+   "strictly greater than the pinned epoch"; a second field would add a
+   second thing to validate without adding protection.
 
 6. The fingerprint is SHA-256 over a prefix, a key-type byte and the public
    key, shown in base32. A 52-character full form and a 24-character
@@ -54,7 +63,7 @@ service from per-contact endpoint services.
    and not part of the contact card.
 
 9. Version 1 publishes one Onion Service per identity, shared by all
-   contacts.
+   contacts. This is a limit of version 1, not of the model.
 
 ## Consequences
 
@@ -65,10 +74,19 @@ service from per-contact endpoint services.
 - The identity key is online in every session. There is no offline root
   key. A stolen identity key means impersonation until contacts are told
   out of band; version 1 has no revocation.
-- One endpoint for all contacts means every card holder can observe
-  presence. Per-contact endpoints, as in Gosling and Briar, would reduce
-  that at the cost of one Onion Service per contact and a more complex
-  introduction step. Deferred beyond version 1.
+- One endpoint for all contacts means that anyone who holds the contact
+  card can try to connect and so observe whether the endpoint is reachable.
+  Monolith does not hide endpoint availability from card holders, and the
+  documentation must not suggest it does.
+- What the set model leaves room for, none of it implemented: rotation with
+  an overlap of old and new endpoint, migration endpoints, temporary
+  endpoints, and endpoints given to one contact only, as in Gosling and
+  Briar. Per-contact endpoints need no extra field, because epochs only
+  have to increase as seen by each receiver; they cost one Onion Service
+  per contact and a more complex introduction step.
+- What was deliberately not added: endpoint types, per-endpoint flags,
+  priorities, audiences. They can come with the feature that needs them,
+  as a new card version.
 - A QR code and a text form carry the card. A URL handler is not
   registered.
 

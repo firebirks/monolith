@@ -327,12 +327,12 @@ All sizes are body sizes. "States" lists where the message may be received.
 | 0x0002 | Close | 0 | Unknown, Contact |
 | 0x0003 | Ping | 8 | Contact |
 | 0x0004 | Pong | 8 | Contact |
-| 0x0010 | ContactRequest | 143 to 799 | Unknown, Contact |
+| 0x0010 | ContactRequest | 144 to 800 | Unknown, Contact |
 | 0x0011 | ContactAccept | 0 | Unknown, Contact |
 | 0x0020 | ChatMessage | 19 to 16402 | Contact |
 | 0x0021 | MessageAck | 16 | Contact |
 | 0x0030 | Profile | 4 to 1156 | Contact |
-| 0x0031 | EndpointUpdate | 138 | Contact |
+| 0x0031 | EndpointUpdate | 139 | Contact |
 | 0x0040 | FileOffer | 27 to 281 | Contact |
 | 0x0041 | FileAccept | 16 | Contact |
 | 0x0042 | FileReject | 16 | Contact |
@@ -369,7 +369,7 @@ answered within `PONG_TIMEOUT` ends the session.
 
 ### 8.3 ContactRequest (0x0010)
 
-    [138]        card           the sender's contact card, no capability
+    [139]        card           the sender's contact card, no capability
     u8           has_capability 0x00 or 0x01
     [16]         capability     present only if has_capability is 0x01
     text<0..128> display_name
@@ -443,7 +443,7 @@ assigned. A Profile equal to the stored one causes no event.
 
 ### 8.8 EndpointUpdate (0x0031)
 
-    [138] card   the sender's contact card, no capability
+    [139] card   the sender's contact card, no capability
 
 `card` must be a valid contact card whose identity key equals the sender's
 proven identity. The receiver compares it with what it has pinned for this
@@ -451,10 +451,10 @@ contact:
 
 - greater epoch: recorded as a pending endpoint change. In version 1 the
   change takes effect after the user confirms it;
-- same epoch and same onion service key: nothing to do. This is the normal
+- same epoch and the same endpoint set: nothing to do. This is the normal
   case;
-- same epoch and a different onion service key: the owner signed two
-  bindings with one epoch. Ignored, and reported to the user as an anomaly;
+- same epoch and a different endpoint set: the owner signed two statements
+  with one epoch. Ignored, and reported to the user as an anomaly;
 - lower epoch: ignored and counted.
 
 Nothing but a greater epoch ever changes the pinned endpoint.
@@ -561,34 +561,35 @@ applies to the key in an onion address.
 
 ## 11. Contact card
 
-A contact card binds an identity to the Onion Service where it can be
-reached.
+A contact card is a signed statement by an identity: "as of this epoch, I
+can be reached at this set of endpoints".
 
 ### 11.1 Binary form
+
+With n = `endpoint_count`:
 
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 1 | version = 0x01 |
 | 1 | 32 | identity_public_key |
-| 33 | 32 | onion_service_key |
-| 65 | 8 | endpoint_epoch (`u64`, at least 1) |
-| 73 | 1 | flags |
-| 74 | 0 or 16 | invitation_capability |
-| 74 or 90 | 64 | signature |
+| 33 | 8 | endpoint_epoch (`u64`, at least 1) |
+| 41 | 1 | endpoint_count (n) |
+| 42 | 32 x n | endpoints: one onion_service_key each |
+| 42 + 32n | 1 | flags |
+| 43 + 32n | 0 or 16 | invitation_capability |
+| then | 64 | signature |
 
-Total: 138 bytes without a capability, 154 with one.
+`endpoint_count` is at least 1 and at most `MAX_ACTIVE_ENDPOINTS`. In
+version 1 that maximum is 1, so every valid card has exactly one endpoint
+and is 139 bytes long without a capability, 155 with one. The endpoints in
+a card are distinct.
 
 `flags`: bit 0 set means `invitation_capability` is present. Bits 1 to 7 are
 zero; a card with any of them set is invalid.
 
-`signature` is an Ed25519 signature by `identity_public_key` over
-
-    "MONOLITH-CONTACT-CARD-V1" || card[0 .. length - 64]
-
-that is, over every preceding byte of the card.
-
-`onion_service_key` is the 32-byte Ed25519 public key of an Onion Service
-v3. The address is derived from it as the Tor specification defines:
+An `onion_service_key` is the 32-byte Ed25519 public key of an Onion
+Service v3. The address is derived from it as the Tor specification
+defines:
 
     checksum = SHA3-256(".onion checksum" || onion_service_key || 0x03)[0..2]
     address  = base32(onion_service_key || checksum || 0x03) || ".onion"
@@ -596,27 +597,55 @@ v3. The address is derived from it as the Tor specification defines:
 Storing the key instead of the address means a card cannot carry a wrong
 checksum or version byte. Only version 3 services can be expressed.
 
+### 11.1.1 Signed bytes
+
+`signature` is an Ed25519 signature by `identity_public_key` over the
+signed bytes of the card. The signed bytes are defined here, field by
+field, and not by reference to the transport layout:
+
+    "MONOLITH-CONTACT-CARD-V1"   24 bytes
+    version                       1 byte
+    identity_public_key          32 bytes
+    endpoint_epoch                8 bytes, big-endian
+    endpoint_count                1 byte
+    endpoints                    32 bytes each, in card order
+    flags                         1 byte
+    invitation_capability         0 or 16 bytes
+
+In version 1 these are the bytes of the binary form up to the signature,
+after the prefix. An implementation still builds them with a function of
+its own, separate from the transport encoder, so that a later change to
+the transport layout cannot change what a signature means. With one
+endpoint the signed bytes are 99 or 115 bytes long.
+
 ### 11.2 Validation
 
 In this order; the first failure rejects the card:
 
-1. Length is 138 or 154.
+1. Length is at least the size of the fixed fields.
 2. `version` is 0x01.
-3. `flags` has no reserved bit set, and the length matches bit 0.
-4. `endpoint_epoch` is at least 1.
-5. `identity_public_key` is a valid identity key (section 10.1).
-6. `onion_service_key` is a valid onion service key (section 10.1).
-7. The signature is valid (section 10.1).
+3. `endpoint_epoch` is at least 1.
+4. `endpoint_count` is between 1 and `MAX_ACTIVE_ENDPOINTS`.
+5. `flags` has no reserved bit set.
+6. The length is exactly what `endpoint_count` and `flags` imply. There are
+   no trailing bytes.
+7. `identity_public_key` is a valid identity key (section 10.1).
+8. Every endpoint is a valid onion service key (section 10.1), and no two
+   are equal.
+9. The signature is valid (section 10.1) over the signed bytes built from
+   the decoded fields.
 
-The signature is checked over the received bytes. Nothing is re-encoded.
+The decoder accepts exactly one encoding of a card, so the signed bytes
+built from the decoded fields are determined by the received bytes and by
+nothing else.
 
 ### 11.3 Text form
 
     "MONOLITH1:" || base32(card)
 
 Base32 uses the RFC 4648 alphabet without padding. The canonical form is
-upper case, which lets a QR code use alphanumeric mode. The longest card is
-257 characters.
+upper case, which lets a QR code use alphanumeric mode. The longest card in
+version 1 is 258 characters.
 
 Parsing: input longer than `MAX_CONTACT_CARD_TEXT_LEN` characters is
 rejected. ASCII space, tab, CR and LF are removed wherever they occur.
@@ -631,14 +660,34 @@ A contact card is sensitive: whoever holds it can try to connect to the
 user's Onion Service. Cards and QR codes are produced locally and are never
 uploaded anywhere.
 
-### 11.4 Endpoint epochs
+### 11.4 Endpoint sets and epochs
 
-The owner of an identity keeps a counter. Each time it binds the identity to
-a different Onion Service it increments the counter and signs a new card.
+An identity has a set of endpoints, not one endpoint. The model is
 
-A receiver pins, per contact, the identity key, the onion service key and
-the epoch. A card signed by the pinned identity replaces the pinned endpoint
-only if its epoch is strictly greater, and only when it arrives
+    identity -> endpoint set, as of an epoch
+
+and version 1 limits the set to one member (`MAX_ACTIVE_ENDPOINTS` = 1).
+The count field, the signed bytes and the epoch rule are already those of a
+set, so that these can be supported later by raising the maximum, without
+a new identity model or a new signature format:
+
+- rotation, with the old and the new endpoint both valid for a while;
+- endpoints used during a migration;
+- temporary endpoints, which a later statement drops again;
+- endpoints given to one contact only. This needs no extra field: epochs
+  only have to increase as seen by each receiver, so an identity can sign
+  different statements for different contacts.
+
+None of these is implemented in version 1, and a version 1 card with more
+than one endpoint is invalid.
+
+The owner of an identity keeps a counter. Each time its endpoint set changes
+it increments the counter and signs a new card. A card always states the
+whole set; there is no "add" or "remove".
+
+A receiver pins, per contact, the identity key, the endpoint set and the
+epoch. A card signed by the pinned identity replaces the pinned set only if
+its epoch is strictly greater, and only when it arrives
 
 - in an EndpointUpdate on an authenticated session with that contact, or
 - as a card the user imports by hand.

@@ -15,7 +15,7 @@ Sources were read on 2026-10-01.
 | 1 | Noise XX with an Ed25519 transcript proof, or TLS 1.3 | Not decided. Four constructions are compared in ADR 0002: Noise XX with a transcript proof, Noise NN with a transcript proof, a certified persistent static key, and TLS 1.3 with pinned raw public keys. The decision is due before Phase 2 and needs a cryptographer's review. | ADR 0002, CRYPTOGRAPHY.md |
 | 2 | Canonical wire encoding | Fixed-layout binary, hand-written encoders and decoders, no serialization framework. One valid encoding per structure. | ADR 0003, PROTOCOL.md 2, 5 |
 | 3 | Fingerprint encoding | SHA-256 over a prefix, a key-type byte and the key; base32; 52 characters full, 24 compact. | PROTOCOL.md 10 |
-| 4 | Contact card format | 138 bytes, or 154 with an invitation; signed; text form `MONOLITH1:` plus base32. | PROTOCOL.md 11 |
+| 4 | Contact card format | A signed statement of an identity's endpoint set at an epoch. With the one endpoint that version 1 allows: 139 bytes, or 155 with an invitation. Text form `MONOLITH1:` plus base32. | PROTOCOL.md 11 |
 | 5 | Invitation capability | 16 random bytes in the card. Three modes; invitation-only by default; up to 16 valid at once; revocable; mismatches are dropped with no distinguishable reply. | PROTOCOL.md 12 |
 | 6 | Duplicate-session resolution | After confirmation only. Same initiator: newer wins. Different initiators: the session initiated by the smaller identity key is preferred; if it is the older one it is probed first and loses if it is dead. | PROTOCOL.md 14 |
 | 7 | Maximum sizes and budgets | One table per category; worst-case memory about 119 MiB. | RESOURCE_LIMITS.md |
@@ -80,7 +80,11 @@ Protocol and cryptography
     frame maximum is 64528 bytes and a chunk carries 64490.
 14. Handshake record of up to 8 KiB. The handshake records are fixed at 32,
     96 and 64 bytes.
-15. Contact card of up to 8 KiB. It is exactly 138 or 154 bytes.
+15. Contact card of up to 8 KiB. It is exactly 139 or 155 bytes in version 1.
+15a. One endpoint per identity. The card now states a set of endpoints with
+    a count, limited to one in version 1, so that rotation with overlap,
+    migration, temporary and per-contact endpoints do not need a new
+    identity model later.
 16. Suggested text limits were lowered: chat 16 KiB, introduction 512
     bytes, profile text 1 KiB (RESOURCE_LIMITS.md 2).
 17. `ContactReject`. Not a message. Rejection is silent so that it cannot be
