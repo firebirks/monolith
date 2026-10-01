@@ -1,8 +1,8 @@
 # Architecture
 
-Status: Phase 1. The protocol core is being implemented; everything that
-touches the network, session cryptography or the disk is still design.
-This document describes the structure the phases build.
+Status: Phase 2. The protocol core and the session layer are implemented;
+everything that touches the network or the disk is still design. This
+document describes the structure the phases build.
 
 ## 1. Shape
 
@@ -14,20 +14,24 @@ layer.
             \             /
              v           v
             monolith-core
-            /     |      \
-           v      v       v
-     protocol  storage   tor (TorBackend trait)
-         |        |        |
-         v        v        +-- SystemTorBackend
-       identity <-+        +-- MockTorBackend
-                           +-- (future) ArtiBackend
+          /    |      |     \
+         v     |      v      v
+     session   |   storage   tor (TorBackend trait)
+         |     |      |        |
+         v     v      |        +-- SystemTorBackend
+        protocol      |        +-- MockTorBackend
+            |         |        +-- (future) ArtiBackend
+            v         |
+         identity <---+
 
-Dependencies point downwards only.
+Dependencies point downwards only. `monolith-core` does not use
+`monolith-session` yet; that comes with Phase 3.
 
 | Crate | Owns | Must not |
 | --- | --- | --- |
-| `monolith-identity` | identity and endpoint key types, fingerprints, signing and verification, redaction wrappers, the CSPRNG wrapper | know about sessions, Tor or files |
-| `monolith-protocol` | limits, frame and message encoding, contact cards, the session state machine, the cryptographic session | open sockets, touch files, know which Tor is used |
+| `monolith-identity` | identity, transport and endpoint public key types, fingerprints, signing and verification, redaction wrappers | know about sessions, Tor or files; draw randomness |
+| `monolith-protocol` | limits, frame and message encoding, contact cards, the session state machine | do cryptography other than verifying a card; open sockets, touch files, know which Tor is used |
+| `monolith-session` | the handshake, the encrypted session, the transport secret key, every call to the Noise library, the random source | open sockets, touch files, read a clock, know about contacts beyond the record it is handed |
 | `monolith-tor` | the `TorBackend` trait and its implementations: SOCKS5 client, control client, listener | know about identities' meaning, messages or contacts |
 | `monolith-storage` | the vault, the message store, transfer files | change contact or session state on its own, interpret peer input |
 | `monolith-core` | contacts, sessions, queues, policy, budgets, the command and event interface | contain UI code, socket code or file formats |
@@ -36,9 +40,12 @@ Dependencies point downwards only.
 
 Three boundaries are enforced by dependencies, not by convention:
 
-- Only `monolith-tor` links a networking crate. Protocol code is sans-IO: it
-  consumes and produces byte buffers, which also makes it directly
-  fuzzable.
+- Only `monolith-tor` links a networking crate. Protocol and session code
+  is sans-IO: it consumes and produces byte buffers, and takes the time as
+  an argument, which also makes it directly fuzzable.
+- Only `monolith-session` links the Noise library and the crates behind
+  it. Contact logic, storage and front ends see plaintext messages on one
+  side and opaque bytes for the stream on the other.
 - Only `monolith-storage` writes files. Reads outside it are limited to a
   fixed list: configuration files, `/etc/os-release` and the Whonix marker
   files for platform detection, Tor's cookie file where cookie
@@ -54,12 +61,13 @@ Every byte from a peer passes these stages in order. A failure at any stage
 closes the session.
 
     bounded        frame length checked against the limit for the state
+    counted        the session's age, frame and byte limits
     decrypted      authenticated decryption of the frame
     framed         header, padding and body length checked
     gated          message type legal in the current session state
     parsed         the body, by type
     validated      field rules: ranges, UTF-8, text rules, signatures
-    authenticated  the session's proven identity is who may send this
+    authenticated  the identity the handshake established is who may send this
     authorized     local policy: contact state, block list, budgets, rates
     applied        state change or event to the front end
 
@@ -173,9 +181,10 @@ switch.
 ## 8. What is not sent to peers
 
 No operating system, distribution, Tails or Whonix indication, architecture,
-locale, hostname, username, toolkit, build hash or version string. Protocol
-negotiation exposes the major version and feature bits, nothing else.
-Timestamps are not transmitted.
+locale, hostname, username, toolkit, build hash or version string. Nothing
+is negotiated: the protocol version is a label that both sides hash into
+the handshake and that never appears on the wire. Timestamps are not
+transmitted.
 
 ## 9. Security-sensitive changes
 
@@ -247,7 +256,7 @@ the platform's packaging.
 | --- | --- |
 | 0 | Design, specifications, workspace skeleton. This phase. |
 | 1 | Protocol core without cryptography or Tor: framing, encoding, identity types, contact cards, state machine; unit, property and fuzz tests. |
-| 2 | Cryptographic session: Noise handshake, identity proof, test vectors, hostile-handshake tests. |
+| 2 | Cryptographic session: Noise XK handshake, the contact card as certificate of the transport key, encrypted frames, session limits, test vectors, hostile-handshake tests. |
 | 3 | System Tor: SOCKS5, control client, mock backend, two-node CLI chat. |
 | 4 | Contacts and queue: acceptance, pinning, vault, duplicate resolution, reconnect scheduling. |
 | 5 | File transfer. |

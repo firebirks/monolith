@@ -1,6 +1,7 @@
 # Test plan
 
-Status: the protocol core has tests; everything else is a plan.
+Status: the protocol core and the session layer have tests; everything
+else is a plan.
 
 What exists after Phase 1: unit tests in `monolith-identity` and
 `monolith-protocol` for keys, signatures, fingerprints, base32, the field
@@ -11,8 +12,18 @@ covered at the level the protocol core allows: T-FRAME-1 to 6, T-FIELD,
 T-KEY, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ENDPOINT-1,
 T-CONTACT-2, 4 and 5 (with two sessions wired to each other), T-DUP-1 to 3
 and 7, T-ORACLE-1, 3, 4 and 5, and the first half of T-ORACLE-7.
-T-ORACLE-2 holds by construction. The rest need the core, the session
-layer, Tor or storage, and are not written yet.
+T-ORACLE-2 holds by construction.
+
+What Phase 2 added: tests in `monolith-session` for the resolver, the
+handshake and the encrypted session (section 3a); known-answer tests that
+reproduce the vectors of PROTOCOL.md section 16.1; a harness of two
+sessions connected in memory, with fixed keys; property tests over real
+handshakes; three more fuzz targets. In the protocol core: the transport
+key, the contact card with the transport key, and the stale-card rule.
+Covered now: T-XKEY, T-VEC, T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH,
+T-LIMIT, T-ORACLE-8 for bytes, and the handshake cases of T-MAL.
+
+The rest need the core, Tor or storage, and are not written yet.
 
 ## 1. Principles
 
@@ -23,8 +34,14 @@ layer, Tor or storage, and are not written yet.
 - Protocol code is sans-IO, so the same decoder runs under unit tests,
   property tests and fuzzers without a network.
 - CI never uses the public Tor network.
-- Tests that need reduced limits get them through test-only constructors,
-  not by changing `limits.rs`.
+- Tests that need reduced limits get them from `SessionLimits::new`, which
+  can only lower a limit, not by changing `limits.rs`.
+- The specification is tested, not only the library: expected bytes come
+  from an implementation that shares no code with Monolith, and a test
+  compares the constants in the test code with the text of PROTOCOL.md.
+- Tests that need a handshake to run the same way twice fix the ephemeral
+  keys. That is possible only inside the tests of the session crate and in
+  fuzz builds.
 
 ## 2. Levels and tools
 
@@ -45,8 +62,9 @@ Frames (T-FRAME)
 1. Length below the minimum is rejected before any read.
 2. Length above the maximum is rejected before any read.
 3. Length not congruent to 16 modulo 1024 is rejected.
-4. In `IdentityAuth` and `AuthenticatedUnknown`, any length other than 1040
-   is rejected.
+4. In `AuthenticatedUnknown`, any length other than 1040 is rejected.
+   Before that state every length is rejected: no frame exists before the
+   peer is authenticated.
 5. Padding longer than necessary, or non-zero, is rejected.
 6. `body_length` larger than the plaintext is rejected.
 
@@ -62,9 +80,9 @@ contact store.
 Identity (T-ID)
 
 1. An endpoint that does not prove the pinned identity, at handshake
-   message 2 or in its proof, is a hard failure and raises the mismatch
-   event. The proof half is covered in the session logic: an outbound
-   session ends when the proof names any identity but the dialed one, or
+   message 2, is a hard failure and raises the mismatch event. Covered in
+   the session layer (T-HS-PIN) and again in the session logic: an outbound
+   session ends when it is told of any identity but the dialed one, or of
    the local one.
 2. No code path replaces a pinned key.
 3. Two contacts with identical display names remain distinct.
@@ -77,19 +95,28 @@ encoding with y at or above the field prime; all of it for identity keys
 and for onion service keys; a signature that the plain verification
 equation accepts and strict verification rejects (PROTOCOL.md 16.1).
 
+Transport keys (T-XKEY): the five points of small order; every value from
+the field prime upwards; every key with the top bit set; the comparison
+with the prime at every byte; the Montgomery form of an Ed25519 key
+against values computed outside the code; a property test of validity
+against the rule stated with integers.
+
 Contact cards (T-CARD): valid cards of both sizes; every single-bit flip is
 rejected; reserved flag bits; epoch zero; wrong version; trailing bytes;
 invalid curve points; small-order keys; a validly signed card whose
-endpoint is not a valid key, or is the identity key; text form in lower
-and mixed case, with whitespace, with a wrong prefix, with non-zero
+endpoint is not a valid key, or is the identity key; a validly signed card
+whose transport key is not a valid key, or is the identity key or an
+endpoint key in Montgomery form; the order of those checks; text form in
+lower and mixed case, with whitespace, with a wrong prefix, with non-zero
 trailing bits, over length.
 
-Endpoint epochs (T-ENDPOINT)
+Card epochs (T-ENDPOINT)
 
 1. Greater epoch from the pinned identity is accepted as pending; the same
-   epoch with the same endpoint is a no-op; the same epoch with another
-   endpoint is reported as an anomaly; a lower epoch is ignored; a card
-   signed by another key is rejected; the pinned epoch never decreases.
+   epoch with the same transport key and endpoint is a no-op; the same
+   epoch with another transport key or endpoint is reported as an anomaly;
+   a lower epoch is ignored; a card signed by another key is rejected; the
+   pinned epoch never decreases.
 
 Text (T-TEXT): invalid UTF-8; each forbidden code point class per field;
 bidirectional controls in names and filenames; zero-width characters and
@@ -148,6 +175,10 @@ Duplicate sessions (T-DUP)
 Randomness (T-RNG)
 
 1. A failing CSPRNG source makes key generation fail; there is no fallback.
+   Covered for the handshake's key object: a source that fails leaves no
+   key behind.
+2. The operating system source fills its whole buffer; two generated keys
+   differ; two handshakes with fresh randomness differ in every message.
 
 Tor control (T-CTRL)
 
@@ -166,6 +197,97 @@ Logging (T-LOG)
 1. The hostile-peer suite runs at maximum verbosity; the output contains
    none of the secrets and none of the peer-supplied strings used.
 
+## 3a. Session layer
+
+These are in `monolith-session`. A hostile peer is played with the Noise
+library directly, so that it can send what the types of the crate would
+never produce.
+
+Known answers (T-VEC): the handshake between the two parties of PROTOCOL.md
+16.1 with the ephemeral keys given there produces the three messages, the
+handshake hash and the first frames of each side that the document states.
+The constants in the test are searched for in the text of the document.
+X25519 against RFC 7748, the cipher against values computed outside the
+code with the Noise nonce, SHA-256 and the HMAC built on it against the
+standard vectors.
+
+Handshake (T-HS)
+
+1. An invalid public key: each point of small order and a key with the top
+   bit set, as the ephemeral key of message 1 and of message 2, and as the
+   transport key in message 3.
+2. Malformed messages: constant bytes of each message size; a payload of
+   another size in message 3. Truncated and oversized messages cannot be
+   presented: a message is taken as an array of its exact size, and the
+   reader takes that many bytes from the stream and no more.
+3. One bit changed in every byte of every message; a property test over
+   arbitrary bits; arbitrary bytes, also behind a valid ephemeral key.
+4. Replay: message 1 to a new responder, which answers with a new key;
+   message 3 to that responder; message 2 to a new initiator; message 3
+   again on the established session.
+5. Reflection: message 1 to its sender as message 2; message 2 to a
+   responder as message 1; an initiator's message to a responder of the
+   same party.
+6. Another label, no prologue, another identity in the prologue, the
+   identity in front of the label; a responder under another label.
+7. A handshake that stalls at each step ends at `HANDSHAKE_TIMEOUT`, and
+   not before.
+8. Two handshakes with randomness from the operating system complete and
+   differ.
+9. No long-term key, signature or endpoint appears in a handshake message,
+   and message 1 does not depend on who sends it.
+
+Outbound pinning (T-HS-PIN): an endpoint with its own keys cannot read
+message 1; a forged message 2 and a genuine message 2 of another handshake
+are refused with `IdentityMismatch`; a party cannot dial its own identity.
+
+Identity binding (T-BIND)
+
+1. A card that names another party's transport key: the party that holds
+   the key refuses message 1. The same handshake is accepted if the
+   responder puts the card's identity into its prologue, which shows that
+   the prologue is what stops it.
+2. In message 3: a valid card of the key holder is accepted from anybody;
+   somebody else's card, a card with the key rewritten, a card of an
+   identity that names another key, bytes that are not a card, the front
+   of a card with an invitation, and a card of the responder's own
+   identity are refused.
+3. The local side cannot be built from a card and a transport key that do
+   not belong together.
+
+Stale cards (T-STALE): the standing of an inbound peer for every record
+and every relation between the presented and the pinned card; a retired
+transport key against a contact that knows the new one; a newer card keeps
+the contact and is reported as a pending change.
+
+Frames on a session (T-FRAME-AUTH)
+
+1. Messages of every type cross a confirmed session in both directions;
+   frame sizes are those of the specification; any fragmentation of the
+   stream gives the same messages.
+2. A changed byte, in the ciphertext, the tag or the length prefix, ends
+   the session; nothing is delivered from that frame or after it.
+3. A dropped, repeated or reordered frame ends the session.
+4. A frame of another session, and a frame sent back to its sender, are
+   rejected.
+5. Nothing is processed after a Close was sent or received; a Close is
+   produced once.
+6. An application message before confirmation is not sent and, if a peer
+   sends one, ends the session.
+7. A card of another identity inside a frame that authenticates ends the
+   session; the local side does not send one.
+8. A frame that authenticates and is malformed inside ends the session.
+
+Session limits (T-LIMIT): with reduced limits, the frame limit, the byte
+limit and the age limit each stop sending, leave room for a Close, and end
+the session at the receiver when a peer goes past them; a transfer extends
+the age limit to its own bound and no further; a limit above the
+protocol's cannot be set.
+
+Two-party harness: two sessions connected in memory carry out what the
+session logic tells them. Everything one side writes is recorded, so that
+"the peer sees the same thing" is compared byte for byte.
+
 ## 4. Property tests
 
 - Encode then decode is the identity for every message type.
@@ -183,6 +305,17 @@ Logging (T-LOG)
   pair of identity keys and any interleaving.
 - Filename sanitization output never contains a separator and is never
   empty.
+- The standing of an inbound peer follows the table of PROTOCOL.md 6.2 for
+  every record and every pair of presented and pinned card.
+- Any bit changed in any handshake message makes the handshake fail.
+- A stream of frames split at arbitrary points delivers the messages that
+  were sent, in order.
+- A byte changed anywhere in a stream of frames delivers nothing from the
+  frame it is in or after it.
+- Arbitrary bytes fed to a session never reach the application.
+- The two directions of a session do not depend on each other.
+- A session never sends more frames or bytes than its limits, whatever is
+  sent, and a Close always fits.
 
 Random bytes almost never pass the first check of a decoder, so a property
 stated over random bytes mostly tests that check. The properties start from
@@ -206,13 +339,22 @@ Targets in `fuzz/`:
 | `frame_stream` | byte stream split at arbitrary points | exists |
 | `text_fields` | bytes, against every text type and the save-name suggestion | exists |
 | `session_sequence` | sequence of messages and local events against a session | exists |
-| `preamble`, `handshake_record` | bytes | with the session layer |
+| `handshake_responder` | a stream from an initiator, raw or the genuine one with damage | exists |
+| `handshake_initiator` | a stream from a responder, raw or the genuine one with damage | exists |
+| `session_frames` | operations on two connected sessions: send, deliver, change, drop, repeat, inject, close | exists |
 | `socks_reply`, `control_reply` | bytes | with the Tor backend |
 | `vault_header` | bytes | with storage |
 
 Seed inputs for every target are in `fuzz/seeds/`. They are generated by
-the test `fuzz_seeds` in `monolith-protocol`, which also fails when a
-committed seed no longer matches the current formats.
+the test `fuzz_seeds` in `monolith-protocol` and, for the three session
+targets, by the test `seeds` in `monolith-session`. Both fail when a
+committed seed no longer matches what the current code produces.
+
+The session targets run real handshakes with fixed ephemeral keys, so that
+an input behaves the same way on every run. The contact card changed in
+Phase 2, so the seeds that contain a card were regenerated; the other
+Phase 1 seeds changed only where the removed message type shifted a
+selector.
 
 The existing targets have had short smoke runs only. Long runs with a kept
 corpus are not done; see `fuzz/README.md`.
@@ -249,9 +391,13 @@ Run against a real session over `MockTorBackend`:
 - traversal and device names as filenames;
 - wrong file size, too many chunks, premature completion;
 - stale endpoint epoch;
-- a proof for another session, a proof with the wrong role, a proof by the
-  wrong key;
+- a handshake message of another session, a handshake message sent back to
+  its sender, a card that does not belong to the key holder;
 - an identity mismatch on an outbound session.
+
+The handshake and frame cases of this list are covered without a network
+in the session layer (section 3a). The cases that need the core's budgets
+and queues come with Phase 4.
 
 Each case asserts the outcome (session closed or input ignored), that no
 event reached the front end unless specified, and that budgets held.
@@ -286,11 +432,13 @@ peer and when it closes.
 | T-ORACLE-5 | Profile, EndpointUpdate and application messages are never emitted before confirmation, for any class | session logic, Phase 1 |
 | T-ORACLE-6 | With the budget for strangers exhausted, the four non-contact classes are treated identically | core, Phase 4 |
 | T-ORACLE-7 | Blocking or deleting an accepted contact during a session: the peer sees Close, then the behavior of the no-record class | first half in the session logic, Phase 1; the later sessions in core, Phase 4 |
-| T-ORACLE-8 | On the wire, over the mock transport: frame counts and byte counts are equal across the four non-contact classes. Response times are recorded and compared only for gross differences | integration, Phase 4 |
+| T-ORACLE-8 | On the wire: frame counts and byte counts are equal across the non-contact classes. Response times are recorded and compared only for gross differences | bytes: session layer, Phase 2, where everything one side writes is identical for no record, declined, blocked, and a contact with a stale or conflicting card; over the mock transport and with times: integration, Phase 4 |
 
-Handshake completion and the identity proof are the same for every class by
-construction of whichever session layer is chosen; a test for that is added
-with Phase 2.
+The handshake is the same for every class by construction: the responder's
+handshake functions take no record of the peer, and the record is first
+looked at when the handshake is complete. The class "a contact that
+presented a stale or conflicting card" was added in Phase 2 and is part of
+T-ORACLE-1 and T-ORACLE-8.
 
 These tests do not claim constant-time behavior. They check that the cases
 cannot be told apart by what is sent.
@@ -445,12 +593,18 @@ Scheduled: fuzzing of every target for a fixed time, with the corpus
 cached. Dependency updates are reviewed by a person; nothing is merged
 automatically.
 
+Mutation testing is done by hand before a phase is called done: a list of
+single faults in the checks that matter (a comparison removed, a bound
+moved, a check skipped) is applied one at a time, and each has to make a
+test fail. A fault in authentication logic that no test notices blocks the
+phase.
+
 ## 15. Exit criteria
 
 | Phase | Before it is called done |
 | --- | --- |
 | 1 | T-FRAME, T-FIELD, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ORACLE-1 to 5 pass; property tests in place; fuzz targets for every decoder run clean for a fixed budget |
-| 2 | handshake test vectors committed; T-MAL handshake cases pass; proofs fail in every relay and replay case |
+| 2 | handshake test vectors committed and reproduced; T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH and T-LIMIT pass; no mutation of an authentication check survives; fuzz targets for the handshake and for encrypted frames run clean for a fixed budget |
 | 3 | T-SOCKS, T-CTRL pass; T-NET-1 passes; two-node chat over a private Tor network |
 | 4 | T-CONTACT, T-ID, T-DUP, T-CONFIRM, T-ORACLE-6 to 8, T-CRASH, T-INJ pass |
 | 5 | T-FILE passes; transfer fuzzing clean |

@@ -19,12 +19,20 @@ the message and frame formats, the session state machine, contact
 confirmation, and the duplicate-session rule. No network I/O, no Tor, no
 session cryptography and no storage encryption are part of Phase 1.
 
+Implemented in Phase 2: the session layer. Noise XK with a transport key
+certified in the contact card, through `snow` with a resolver over the
+current crates (ADR 0002); the contact card with the transport key; the
+handshake, the encrypted frames and the session limits, in the crate
+`monolith-session`. A caller without the contact card gets no reply from
+the handshake; with it, it learns that the key holder is live. Public keys
+are never access control. The rules that bind the handshake to identities
+are Monolith's own and have no external review (F-R2). No network I/O, no
+Tor and no storage encryption are part of Phase 2.
+
 Provisional, and not to be built on yet:
 
 | Area | State | Decided where |
 | --- | --- | --- |
-| Session cryptography | decided: Noise XK with a transport key certified in the contact card, through `snow` with a resolver over the current crates | ADR 0002 |
-| Probing behavior of the handshake | a caller without the contact card gets no reply; with it, it learns that the key holder is live. Public keys are never access control | ADR 0002 |
 | Tails Onion Service integration | blocked on experiments on a current Tails | PLATFORM_TAILS.md 3.4 |
 | Whonix isolation and firewall integration | measures specified, untested | PLATFORM_WHONIX.md 4.5 |
 | Vault KDF parameters | proposed, benchmark pending | STORAGE.md 3.3 |
@@ -79,10 +87,10 @@ Decided at the start of Phase 2, in ADR 0002:
 
 | # | Question | Answer | Where |
 | --- | --- | --- | --- |
-| 1 | Noise XX with an Ed25519 transcript proof, or TLS 1.3 | Not decided. Four constructions are compared in ADR 0002: Noise XX with a transcript proof, Noise NN with a transcript proof, a certified persistent static key, and TLS 1.3 with pinned raw public keys. The decision is due before Phase 2 and needs a cryptographer's review. | ADR 0002, CRYPTOGRAPHY.md |
+| 1 | Noise XX with an Ed25519 transcript proof, or TLS 1.3 | Neither. Noise XK with an X25519 transport key that the identity certifies in its contact card. ADR 0002 compares it with Noise XX and Noise NN with a transcript proof and with TLS 1.3 with raw public keys. A cryptographer's review of the binding rules is still wanted. | ADR 0002, CRYPTOGRAPHY.md |
 | 2 | Canonical wire encoding | Fixed-layout binary, hand-written encoders and decoders, no serialization framework. One valid encoding per structure. | ADR 0003, PROTOCOL.md 2, 5 |
 | 3 | Fingerprint encoding | SHA-256 over a prefix, a key-type byte and the key; base32; 52 characters full, 24 compact. | PROTOCOL.md 10 |
-| 4 | Contact card format | A signed statement of an identity's endpoint set at an epoch. With the one endpoint that version 1 allows: 139 bytes, or 155 with an invitation. Text form `MONOLITH1:` plus base32. | PROTOCOL.md 11 |
+| 4 | Contact card format | A signed statement of an identity's transport key and endpoint set at an epoch. With the one endpoint that version 1 allows: 171 bytes, or 187 with an invitation. Text form `MONOLITH1:` plus base32. | PROTOCOL.md 11 |
 | 5 | Invitation capability | 16 random bytes in the card. Three modes; invitation-only by default; up to 16 valid at once; revocable; mismatches are dropped with no distinguishable reply. | PROTOCOL.md 12 |
 | 6 | Duplicate-session resolution | After confirmation only. Same initiator: newer wins. Different initiators: the session initiated by the smaller identity key is preferred; if it is the older one it is probed first and loses if it is dead. | PROTOCOL.md 14 |
 | 7 | Maximum sizes and budgets | One table per category; worst-case memory about 119 MiB. | RESOURCE_LIMITS.md |
@@ -151,9 +159,9 @@ Protocol and cryptography
     contact card with a greater epoch; the extra field adds no protection.
 13. File chunk of up to 64 KiB in a frame of up to 64 KiB. Cannot fit. The
     frame maximum is 64528 bytes and a chunk carries 64490.
-14. Handshake record of up to 8 KiB. The handshake records are fixed at 32,
-    96 and 64 bytes.
-15. Contact card of up to 8 KiB. It is exactly 139 or 155 bytes in version 1.
+14. Handshake record of up to 8 KiB. The handshake messages are fixed at
+    48, 48 and 235 bytes.
+15. Contact card of up to 8 KiB. It is exactly 171 or 187 bytes in version 1.
 15a. One endpoint per identity. The card now states a set of endpoints with
     a count, limited to one in version 1, so that rotation with overlap,
     migration, temporary and per-contact endpoints do not need a new
@@ -183,11 +191,15 @@ Dependencies and tooling
 22. `minicbor` does not enforce canonical decoding, which is why CBOR was
     not chosen.
 23. `snow` was described as unaudited. It was audited in 2024; the finding
-    that it does not clear keys is still open. The session library is not
-    chosen.
+    that it does not clear keys is still open. It is the session library,
+    used without its own crypto (ADR 0002, F-R1).
 23a. The prologue binding was described as if it kept probers out. It does
-    not: the identity key is public data. It is now described as
-    opportunistic probing resistance.
+    not: the keys a caller needs are public data. It is described as
+    probing resistance, never as access control.
+23c. An identity proof signed inside the channel, a preamble with a version
+    and feature bits. All three are gone: the handshake authenticates a
+    transport key that the contact card certifies, and the version is a
+    label in the handshake prologue.
 23b. `ring` was banned in `deny.toml`. The ban is removed; a cryptographic
     library is not excluded for containing C or assembly.
 24. Toolchain. The minimum supported Rust version is 1.85.1 and is separate

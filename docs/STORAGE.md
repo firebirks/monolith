@@ -11,7 +11,7 @@ Three kinds of state, kept apart:
 
 | State | Contents | Where |
 | --- | --- | --- |
-| Identity and contacts | identity key, Onion Service key, endpoint epoch, invitations, contacts with pinned keys and endpoints, block and declined lists, verification marks, settings that are not secret | the vault |
+| Identity and contacts | identity key, transport key, Onion Service key, card epoch, invitations, contacts with their pinned cards (identity key, transport key, endpoints, epoch), block and declined lists, verification marks, settings that are not secret | the vault |
 | Messages | chat history, outbound queue, per-contact duplicate windows | the message store, if enabled |
 | Runtime | sessions, session keys, isolation tokens, pending requests and offers, UI queue, partial downloads | memory; partial downloads in temporary files |
 
@@ -48,7 +48,7 @@ contain nothing sensitive (S18).
 
 An attacker who obtains the storage medium, or a copy of the data directory,
 but not the passphrase (adversary J in the threat model). They must not
-learn the identity key, the Onion Service key, who the contacts are, or any
+learn the identity key, the transport key, the Onion Service key, who the contacts are, or any
 message, and must not be able to modify the state without detection.
 
 Not addressed:

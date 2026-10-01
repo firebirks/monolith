@@ -10,16 +10,17 @@ comparison.
 
 The values are starting points chosen by analysis, not measurement. Phase 9
 benchmarks may move them. Lowering a limit is a compatible change only for
-limits marked "local"; the others are part of the wire protocol.
+limits marked "local"; the others are part of the wire protocol. The cost
+of the handshake in section 11.1 is measured.
 
 ## 1. Wire sizes (protocol)
 
 | Constant | Value | Notes |
 | --- | --- | --- |
-| `PREAMBLE_LEN` | 8 | fixed |
-| `HANDSHAKE_MSG1_LEN` | 32 | fixed, one ephemeral key |
-| `HANDSHAKE_MSG2_LEN` | 96 | fixed |
-| `HANDSHAKE_MSG3_LEN` | 64 | fixed |
+| `HANDSHAKE_PROLOGUE_LEN` | 51 | not sent: the label of 19 bytes and the responder's identity key, hashed into the handshake by both sides |
+| `HANDSHAKE_MSG1_LEN` | 48 | fixed: an ephemeral key and a tag |
+| `HANDSHAKE_MSG2_LEN` | 48 | fixed: an ephemeral key and a tag |
+| `HANDSHAKE_MSG3_LEN` | 235 | fixed: the initiator's transport key and its contact card, each encrypted, each with a tag |
 | `FRAME_LENGTH_PREFIX_LEN` | 2 | big-endian |
 | `FRAME_PADDING_BLOCK_LEN` | 1024 | plaintext is a multiple of this; provisional value, see ADR 0003 |
 | `MIN_FRAME_CIPHERTEXT_LEN` | 1040 | one block plus tag |
@@ -28,20 +29,20 @@ limits marked "local"; the others are part of the wire protocol.
 | `MESSAGE_HEADER_LEN` | 4 | type and body length |
 | `MAX_MESSAGE_BODY_LEN` | 64508 | |
 
-The preamble and handshake sizes belong to the session layer candidate
-that is currently written up and are provisional (ADR 0002). With that
-candidate, the handshake has no variable-size record. A peer that has not completed the
-handshake can make Monolith read at most 8 + 96 bytes (as initiator) or
-8 + 32 + 64 bytes (as responder).
+The handshake has no variable-size message, no length field and no
+preamble (ADR 0002). A peer that has not completed the handshake can make
+Monolith read at most 48 bytes (as initiator) or 48 + 235 bytes (as
+responder), and the second of those only after a first message that
+verified. Each message is read into an array of exactly its size.
 
 The frame ceiling follows from the session cipher: a Noise message is at most
 65535 bytes. 63 padding blocks plus the tag is the largest multiple that fits.
 
-State-dependent ceiling: in `IdentityAuth` and `AuthenticatedUnknown` the only
-legal messages (AuthProof, ContactRequest, ContactAccept, Close) fit in one
-padding block, so in those states the frame length must be exactly 1040.
-A peer gets the full frame size only after the session is confirmed as a
-contact session.
+State-dependent ceiling: in `AuthenticatedUnknown` the only legal messages
+(ContactRequest, ContactAccept, Close) fit in one padding block, so in that
+state the frame length must be exactly 1040. Before that state no frame is
+accepted at all. A peer gets the full frame size only after the session is
+confirmed as a contact session.
 
 ## 2. Field sizes (protocol)
 
@@ -53,11 +54,11 @@ contact session.
 | `MAX_PROFILE_TEXT_LEN` | 1024 | 2048 | No use for more in v1. |
 | `MAX_FILENAME_LEN` | 255 | 255 | |
 | `MAX_ACTIVE_ENDPOINTS` | 1 | - | Endpoints in one contact card. The format allows a set; version 1 allows one member. |
-| `MAX_CONTACT_CARD_LEN` | 155 | 8192 | Fixed layout: 139 bytes with one endpoint, or 155 with an invitation capability. |
-| endpoint update | 139 | 4096 | An endpoint update is a contact card without a capability. |
+| `MAX_CONTACT_CARD_LEN` | 187 | 8192 | Fixed layout: 171 bytes with one endpoint, or 187 with an invitation capability. |
+| endpoint update | 171 | 4096 | An endpoint update is a contact card without a capability. |
 | `MAX_FILE_CHUNK_LEN` | 64490 | 65536 | A 64 KiB chunk cannot fit in a frame that is itself capped at 64 KiB. This is the largest chunk that fills a maximum frame. |
-| handshake record | 32 / 96 / 64 | 8192 | Fixed sizes. |
-| `MAX_CONTACT_CARD_TEXT_LEN` | 512 bytes | - | Input bound for the textual card parser; the longest valid card is 258 characters, and whitespace may be mixed in. |
+| handshake message | 48 / 48 / 235 | 8192 | Fixed sizes. |
+| `MAX_CONTACT_CARD_TEXT_LEN` | 512 bytes | - | Input bound for the textual card parser; the longest valid card is 310 characters, and whitespace may be mixed in. |
 | `MAX_FILE_SIZE` | 4 GiB | - | Largest size accepted in an offer. The field is 64 bits wide. With no resume and bounded session lifetime, larger files are out of scope for version 1. |
 | `DEFAULT_MAX_FILE_SIZE` | 1 GiB | - | Local policy, configurable up to `MAX_FILE_SIZE`. |
 
@@ -80,6 +81,23 @@ the session cipher is a 64-bit counter, so the frame limit leaves a factor of
 alone would allow more than 2^40 bytes, so the byte limit is the one that
 binds for bulk transfer: 1 TiB per direction per session.
 
+How the limits are applied, by the session object itself:
+
+- The earliest limit that is reached ends the session: age, frames in one
+  direction, or ciphertext bytes in one direction.
+- Frames and bytes are counted per direction. The bytes are the ciphertext
+  of each frame, tag included, without the 2-byte length prefix. Plaintext
+  is always less than that, so the byte limit bounds it as well.
+- Sending: a message is refused when, after it, no room would be left for
+  a Close. One frame and 1040 bytes are kept back for the Close, which is
+  the only thing that can still be sent at the limit.
+- Receiving: a frame that arrives beyond a limit is a protocol violation.
+  The stream is closed and nothing is sent.
+- The age is measured from the moment the handshake completed, on each
+  side's own clock.
+- A local configuration can lower the limits. Nothing can raise them above
+  the values in the table.
+
 A session that reaches 24 hours while a file transfer is active stays open
 until the transfer ends, starts no new transfer, and is closed at 48 hours
 whatever happens. A 4 GiB file needs under 50 KiB/s to finish in a day.
@@ -89,7 +107,7 @@ whatever happens. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | Constant | Value | Purpose |
 | --- | --- | --- |
 | `CONNECT_TIMEOUT` | 120 s | Outbound stream through Tor. Onion connections need a descriptor fetch, an introduction and a rendezvous. |
-| `HANDSHAKE_TIMEOUT` | 30 s | From stream open to an authenticated state. Covers five messages over an established circuit. This is the slowloris bound for unauthenticated streams. |
+| `HANDSHAKE_TIMEOUT` | 30 s | From stream open to an authenticated state. Covers three messages over an established circuit. This is the slowloris bound for unauthenticated streams: a handshake message that arrives later is refused, and a peer that sends a valid first message and then nothing holds its pending handshake for this long. |
 | `UNKNOWN_SESSION_TIMEOUT` | 20 s | Longest time in `AuthenticatedUnknown`, measured from authentication. |
 | `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | 10 s | A peer with no contact record must send its first message within this time. |
 | `DUPLICATE_PROBE_TIMEOUT` | 10 s | Liveness probe of an older session during duplicate resolution. |
@@ -262,7 +280,8 @@ Memory that a peer can influence, with every budget full:
 | Item | Bound |
 | --- | --- |
 | Contact sessions: 256 x (read buffer + write buffer, one frame each) | about 32 MiB |
-| Unauthenticated and unconfirmed sessions: about 4 KiB each | under 1.1 MiB |
+| Pending handshakes: 16 x about 3 KiB (section 11.1) | about 48 KiB |
+| Unconfirmed sessions: one frame of one block each, plus about 2 KiB of session state | under 1 MiB |
 | Outbound message queue | 64 MiB |
 | UI event queue: 256 x 16.4 KiB | about 4.1 MiB |
 | Duplicate windows: 1000 contacts x 16 KiB | about 15.6 MiB |
@@ -296,9 +315,60 @@ Other resources:
   `DEFAULT_MAX_FILE_SIZE` each are in progress. The vault is capped at
   16 MiB. The history store quota is defined with the history store
   (ADR 0005, open item).
-- CPU: an inbound handshake costs five X25519 operations, one Ed25519
-  signature and one verification, well under a millisecond. At the inbound
-  rate limit that is a fraction of a percent of one core.
+- CPU: an inbound handshake costs three X25519 operations, two fixed-base
+  multiplications and the validation of one contact card, about a third of
+  a millisecond (section 11.1). At the inbound rate limit that is a
+  fraction of a percent of one core.
+
+### 11.1 Cost of a handshake
+
+Measured with a throwaway program that is not in the repository, on one
+development machine, release build, one core, with the key types and the
+resolver of `monolith-session`. The numbers say what the order of
+magnitude is. They are not a benchmark, and other hardware will differ.
+
+What a responder does for one inbound stream, by how far the peer gets:
+
+| The peer sends | Asymmetric operations | Time | Reply |
+| --- | --- | --- | --- |
+| nothing, or fewer than 48 bytes | one fixed-base multiplication, when the handshake object is created | 0.02 ms | none; closed at `HANDSHAKE_TIMEOUT` |
+| 48 bytes whose key is not valid | the same | 0.02 ms | none |
+| 48 bytes that fail authentication | plus one X25519 | 0.07 ms | none |
+| a first message that verifies, which needs the contact card | plus one key generation and one more X25519 | 0.13 ms | 48 bytes |
+| then a valid third message | plus one X25519, one Ed25519 verification and the subgroup checks of two keys | 0.18 ms more | none; the session exists |
+
+An initiator spends about 0.08 ms on the first message and 0.10 ms between
+the second and the third. A complete handshake costs both sides together
+about 0.5 ms. Sealing and opening one frame of one block takes about
+0.004 ms.
+
+Memory and bytes:
+
+| Item | Value |
+| --- | --- |
+| Bytes on the wire for a handshake | 48 + 48 + 235 = 331 |
+| State of one pending inbound handshake | about 2.7 KiB: an object of 2072 bytes and 665 bytes on the heap |
+| The same after a valid first message | unchanged |
+| Peak heap while the third message is processed | 275 bytes more |
+| Allocations for a whole inbound handshake | 15, none sized by anything the peer sent |
+| State of one session, without frame buffers | about 2 KiB |
+
+Consequences:
+
+- A caller without the contact card can cost a responder one X25519
+  operation per stream, 0.07 ms, and gets nothing back. At
+  `INBOUND_CONNECTION_RATE`, 120 per minute, that is under 10 ms of
+  processor time per minute.
+- A caller with the contact card can make the responder do the full
+  handshake, about 0.3 ms, and can hold a pending handshake of 2.7 KiB for
+  30 seconds. `MAX_INBOUND_HANDSHAKES` bounds the second at 16 x 2.7 KiB.
+- The invitation capability is looked at only inside a ContactRequest,
+  after a complete handshake. A holder of a card who tries capabilities
+  pays a full handshake and one request per attempt, and is bounded by
+  `UNKNOWN_SESSION_RATE`, 12 per minute, and by the budget for unknown
+  sessions. Every attempt is answered with the same Close.
+- The responder does no signature and no work proportional to anything in
+  a message.
 
 ## 12. What the limits do not prevent
 
@@ -308,6 +378,11 @@ stops. Tor's proof-of-work defense, where it is active, and the cap on
 streams per circuit act before Monolith sees a stream; see
 `docs/TOR_INTEGRATION.md`. Monolith does not claim to defeat targeted denial
 of service against an Onion Service.
+
+The budgets and rates of sections 5 and 6 are enforced by the application
+core, which comes with a later phase. The session layer enforces what
+belongs to one stream: the message sizes, the handshake timeout, the frame
+ceiling of the state, and the session limits of section 3.
 
 An attacker who also holds a contact card can complete handshakes with
 throwaway identities and keep `UNKNOWN_SESSION_RATE` exhausted. Contact

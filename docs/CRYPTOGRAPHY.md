@@ -1,9 +1,10 @@
 # Cryptography
 
-Status: the design is decided. The session layer is Noise XK with a
-transport key that the identity certifies in the contact card (ADR 0002).
-Sections 4 to 8 describe it. The storage design (section 9) is specified
-separately and belongs to a later phase.
+Status: the session layer is decided and implemented. It is Noise XK with
+a transport key that the identity certifies in the contact card (ADR
+0002). Sections 4 to 8 describe it, and the crate `monolith-session`
+implements it. The storage design (section 9) is specified separately and
+belongs to a later phase.
 
 Monolith defines no primitive, no key exchange and no key schedule of its
 own. It uses the Noise Protocol Framework and Ed25519 as specified, and
@@ -62,13 +63,19 @@ the operation fails; there is no fallback generator. Non-cryptographic
 generators are banned by `deny.toml`, and will be banned by lint once code
 exists that could call one (S17).
 
-The ephemeral keys of a handshake are generated inside the session crate
-from the same source. In production there is no way to supply them from
-outside.
+The source is read through `getrandom`, in the session crate and nowhere
+else. The ephemeral keys of a handshake are generated there: the Noise
+library asks the resolver for random bytes, and the resolver reads the
+operating system source. In production there is no way to supply them
+from outside.
 
 Tests that need a reproducible handshake fix the ephemeral keys. The means
-to do that exists only in test builds of the session crate. No feature of
-a production crate enables it.
+to do that is a second random source in the resolver that returns fixed
+bytes. It is compiled only into the tests of the session crate and into
+builds made with `--cfg fuzzing`, which is what `cargo fuzz` passes and
+nothing else does. It is not a cargo feature, so no crate in a dependency
+tree can switch it on. The test hook of the Noise library's builder for
+fixed ephemeral keys is not used at all.
 
 Jitter for reconnect timing and ping intervals uses the operating system
 source as well. It does not need to be unpredictable, but one source is
@@ -422,7 +429,13 @@ Monolith manages them, the Onion Service private keys.
   non-strict `verify` in Monolith crates.
 - Test vectors with fixed keys are committed for every signed structure
   and for a complete handshake (PROTOCOL.md section 16). They were
-  produced by an implementation that shares no code with Monolith.
+  produced by an implementation that shares no code with Monolith, and
+  the session crate has to reproduce them byte for byte.
+- Every public key that enters a Diffie-Hellman operation passes one
+  function in the resolver, which applies PROTOCOL.md section 10.2 and
+  refuses an all-zero result.
+- A handshake step consumes the object of the step before it. A step that
+  fails leaves nothing to retry with and produces nothing to send.
 
 ## 11. Open points
 

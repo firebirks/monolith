@@ -22,9 +22,11 @@ service from per-contact endpoint services.
    identity. It is separate from the Onion Service key and from every key
    used in the session handshake.
 
-2. The identity key only signs. It signs identity proofs and contact cards,
-   each under its own fixed prefix (`CRYPTOGRAPHY.md` section 3). It is
-   never used for Diffie-Hellman.
+2. The identity key only signs, and it signs one thing: contact cards,
+   under a fixed prefix (`PROTOCOL.md` section 11.1.1). It is never used
+   for Diffie-Hellman and is not needed while a session runs. Sessions are
+   authenticated by a separate X25519 transport key that the identity
+   states in its card (ADR 0002).
 
 3. Contacts pin the identity public key. A different key is a different
    identity, whatever name comes with it. A pinned key is never replaced
@@ -96,7 +98,8 @@ service from per-contact endpoint services.
 - One key for identity and for the Noise static key (Ed25519 converted to
   X25519). Rejected: the Noise specification advises against using a static
   key outside Noise, and using one key in two algorithms is the kind of
-  composition this project avoids.
+  composition this project avoids. A contact card that shows this
+  conversion is invalid (`PROTOCOL.md` section 11.2).
 - An offline root identity that certifies device keys. More machinery than
   version 1 needs; could be added later without changing the pinning rule,
   as a new card version.

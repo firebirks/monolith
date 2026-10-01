@@ -47,4 +47,6 @@ Out of scope, because the design does not claim to defend against them
 - vulnerabilities in Tails, Whonix or Tor; report those upstream.
 
 Design flaws are as welcome as implementation bugs, in particular anything
-concerning the identity proof described in `docs/CRYPTOGRAPHY.md`.
+concerning the rules that bind the session handshake to identities
+(`docs/CRYPTOGRAPHY.md` section 5.2). They are Monolith's own and have had
+no external review.

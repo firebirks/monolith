@@ -153,8 +153,8 @@ implementing that derivation.
 - Never a wildcard address.
 
 The listener is reachable by local processes without going through Tor. That
-is acceptable because the listener gives nothing to a party that cannot pass
-the handshake and identity proof, and because every budget in
+is acceptable because the listener gives nothing to a party that cannot
+complete the handshake, and because every budget in
 `RESOURCE_LIMITS.md` applies to local connections as well. It is the reason
 application-layer authentication is mandatory even when traffic can only
 arrive from Tor.

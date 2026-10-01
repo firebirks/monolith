@@ -61,10 +61,11 @@ Option B for everything on the wire and for the vault payload.
   have a maximum in the specification. A body must be consumed exactly;
   trailing bytes are an error.
 - Signed structures are verified over the received bytes.
-- Extensibility: a major version in the preamble for incompatible changes;
-  feature bits in AuthProof for compatible ones. A new message type may be
-  sent only to a peer that advertised the feature. There are no ignorable
-  types in version 1, so an unknown type is always an error.
+- Extensibility: none in band. The protocol version is a label in the
+  handshake prologue (ADR 0002); a later version or an extension is a new
+  label. There is no preamble, no version field and no feature bits. There
+  are no ignorable types in version 1, so an unknown type is always an
+  error.
 - Text encoding of contact cards: a fixed prefix and unpadded base32, which
   is case-insensitive, safe to copy and compact in a QR code. The card's
   signature detects corruption.

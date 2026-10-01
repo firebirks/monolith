@@ -5,13 +5,16 @@ peer. A change that weakens one of them is a security change and needs the
 review described in `docs/ARCHITECTURE.md` section 9.
 
 The invariants are grouped by topic, so the numbers are not in order.
-S29 to S33 were added after the first list was written.
+S29 to S37 were added after the first list was written.
 
-Implemented so far, in the protocol core: the frame and field bounds of
+Implemented so far. In the protocol core: the frame and field bounds of
 S10, S11 and S26, the state gate of S19, the single encoding of S30, the
-text and filename rules behind S14, S15 and S20, the message logic of
-S7, S23 and S24, and the card check of S33. Everything that involves the network, session
-cryptography, storage or a user interface is still a planned mechanism.
+text and filename rules behind S14, S15 and S20, the message logic of S7,
+S23 and S24, the card check of S33 and the stale-card rule of S36. In the
+session layer: the pinning of S9, the handshake bounds of S10, the
+randomness of S17, the redaction of S18 for its own types, the typed
+session of S19 and S21, and S34, S35 and S37. Everything that involves
+the network, storage or a user interface is still a planned mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single
@@ -114,25 +117,56 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S9. Identity changes for an existing contact are never accepted silently
 
-- Mechanism: the pinned key is part of the handshake prologue, and the key
-  proven in AuthProof is compared with it. An endpoint that does not hold
-  the pinned key fails at handshake message 2 or at the proof; either way
-  the session ends and the user gets a warning. There is no API that
-  replaces a pinned key; the user must delete the contact and add the new
+- Mechanism: an outbound handshake has one input that names the peer, the
+  pinned card. `HandshakeInitiator::start` puts the identity key of that
+  card into the prologue and its transport key into the Noise pre-message.
+  An endpoint that does not hold that transport key, or that is another
+  identity by its own account, cannot produce a message 2 that verifies.
+  The initiator then stops with `IdentityMismatch`. It has sent 48 bytes
+  that carry nothing of its identity, and it sends nothing more. There is
+  no function that continues such a handshake and no parameter that makes
+  the check optional. The session logic holds the dialed identity and
+  refuses to be authenticated as any other, so a session never turns into
+  one with an unknown or a different peer. There is no API that replaces a
+  pinned identity key; the user must delete the contact and add the new
   identity as a new contact.
 - Tests: T-ID-1 (mismatch is a hard failure), T-ID-2 (no code path updates a
-  pinned key).
+  pinned key), T-HS-PIN (`tests::handshake`: an endpoint without the
+  transport key, a second message from another handshake, a card that
+  names another party's transport key).
 
-### S33. The identity key and the Onion Service key are never the same key
+### S33. The three keys of an identity are never the same key
 
-- Mechanism: key separation. The two keys are generated independently and
-  held in different types (`IdentityPublicKey`, `OnionServiceKey`). A
-  contact card in which an endpoint is byte for byte the identity key is
-  rejected by `ContactCard::decode`, and `ContactCard::sign` returns an
-  error instead of signing one, so the protocol never carries a statement
-  that one key serves both domains.
-- Tests: T-CARD (a validly signed card whose endpoint is the identity
-  key; signing such a card).
+- Mechanism: key separation. The identity key, the transport key and the
+  Onion Service key are generated independently and held in different
+  types (`IdentityPublicKey`, `TransportPublicKey`, `OnionServiceKey`).
+  The identity key signs contact cards and nothing else; no session code
+  holds it. A contact card in which an endpoint is byte for byte the
+  identity key, or in which the transport key is the Montgomery form of
+  the identity key or of an endpoint key, is rejected by
+  `ContactCard::decode`, and `ContactCard::sign` returns an error instead
+  of signing one, so the protocol never carries a statement that one key
+  serves two domains. The check catches reuse that a card can show; it
+  cannot catch keys derived from one secret by other means.
+- Tests: T-CARD (validly signed cards with each coincidence; signing such
+  cards), fuzz target `contact_card`.
+
+### S36. A card that is older than the pinned one, or contradicts it, never opens a contact session
+
+- Mechanism: the stale-card rule. On an inbound session the standing of
+  the peer comes from one function, `PeerRecord::admit`, which takes the
+  local record with the pinned card and the card the peer presented. A
+  lower epoch, or the same epoch with another transport key or endpoint
+  set, gives the standing `StaleCard`, which the session logic treats on
+  the same code path as an identity that is not a contact. `InboundPeer`
+  cannot be turned into a session without that function. The same
+  comparison, `evaluate_card`, decides what an EndpointUpdate means;
+  nothing but a greater epoch changes what is pinned.
+- Residual: a party with no record of the identity, or one that has pinned
+  only the older card, has nothing to compare with.
+- Tests: T-STALE (`session::tests`, `tests::contacts`: a retired transport
+  key against a contact that knows the new one; the property test of the
+  standing table).
 
 ### S20. The display name is never a security identifier
 
@@ -149,14 +183,19 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S21. Connection state is tied to the cryptographic identity
 
-- Mechanism: the session table is keyed by the identity key verified in
-  AuthProof. A session has no entry in it before `IdentityAuth` completes.
-  `Session` keeps the proven identity, cannot be authenticated without an
-  AuthProof that named it, and treats a card of any other identity inside
-  a message as a violation.
-- Tests: T-DUP-*, `session::tests` (authentication without a proof, a
-  proof that named another identity, foreign cards in ContactRequest and
-  EndpointUpdate for every standing).
+- Mechanism: the session table is keyed by the identity key the handshake
+  established. A session has no entry in it before the handshake is
+  complete and the card checks have passed. `AuthenticatedSession` can be
+  obtained only from a completed handshake, holds the card that stands for
+  the peer for its whole life, and has no function that changes it. A
+  card inside a message that does not belong to that peer is a violation:
+  another identity always, and in a ContactRequest also another card than
+  the one of the handshake.
+- Tests: T-DUP-*, `session::tests` (authentication before the handshake is
+  complete, as the local identity, as another identity than the dialed
+  one; foreign cards in ContactRequest and EndpointUpdate for every
+  standing), `tests::frames` (a card of another identity on a real
+  session).
 
 ### S22. Duplicate-connection handling happens only after authentication
 
@@ -171,10 +210,13 @@ Test area names refer to `docs/TEST_PLAN.md`.
   a peer it holds as an accepted contact, ContactRequest to a peer the user
   has requested, and Close. To any other peer it sends only Close. A first
   message from a blocked, declined, already pending or capability-less
-  identity, or to a full queue, is answered the same way in every case:
-  Close, with no other reply.
+  identity, from a contact that presented a stale card, or to a full
+  queue, is answered the same way in every case: Close, with no other
+  reply. The handshake before it does not look at any record of the peer.
 - Tests: T-CONFIRM-1, T-ORACLE-1 to T-ORACLE-8 (the cases cannot be told
-  apart by what is sent; equal timing is not claimed), T-BLOCK-1.
+  apart by what is sent; equal timing is not claimed), T-BLOCK-1,
+  `tests::contacts` (what one side writes is byte for byte the same in
+  every such case).
 
 ### S24. No protocol operation answers questions about other peers
 
@@ -188,15 +230,18 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S10. Every network read has a strict upper bound before allocation
 
-- Mechanism: handshake records have fixed sizes and are read into fixed
-  arrays. A transport frame is read by first reading its 2-byte length,
+- Mechanism: the three handshake messages have fixed sizes, 48, 48 and 235
+  bytes, and the handshake functions take them as arrays of exactly that
+  size; `MessageBuffer` collects exactly that many bytes from the stream
+  and not one more. A transport frame is read by first reading its 2-byte length,
   rejecting values outside the range allowed in the current state, and then
   filling a buffer for exactly that length. The length was checked first,
   so the buffer is never larger than the limit of the state: one padding
   block before a session is confirmed, one maximum frame after. No other
   allocation size comes from peer input.
-- Tests: T-FRAME-1 to T-FRAME-6, fuzz targets `frame_stream` and
-  `frame_plaintext`.
+- Tests: T-FRAME-1 to T-FRAME-6, fuzz targets `frame_stream`,
+  `frame_plaintext`, `handshake_responder`, `handshake_initiator` and
+  `session_frames`.
 
 ### S11. Every protocol field has an explicit maximum
 
@@ -208,14 +253,20 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S19. Application data is accepted only in an authenticated state
 
-- Mechanism: `MessageType::may_be_received_in(SessionState)` is evaluated
-  for every frame before its body is parsed, and again by
+- Mechanism: before a peer is authenticated there is nothing that could
+  take a frame. The handshake types have no function for frames; only
+  `AuthenticatedSession` has, and only a completed handshake yields one.
+  On a session, `MessageType::may_be_received_in(SessionState)` is
+  evaluated for every frame before its body is parsed, and again by
   `Session::receive`, which is the only producer of the `Deliver` action
-  and produces it in `AuthenticatedContact` alone. The application-side
-  handler type that can only be constructed for a confirmed session comes
-  with `monolith-core`.
+  and produces it in `AuthenticatedContact` alone. In the other direction
+  `AuthenticatedSession::send` encrypts a message only if the session
+  logic allows it in the current state. The application-side handler type
+  that can only be constructed for a confirmed session comes with
+  `monolith-core`.
 - Tests: `message::tests`, T-PROTO-STATE (arbitrary event sequences in the
-  property tests and in the `session_sequence` fuzz target).
+  property tests and in the `session_sequence` fuzz target), `tests::frames`
+  (a chat message before confirmation, sent and received).
 
 ### S26. The parser never buffers an attacker-controlled amount of data
 
@@ -236,7 +287,7 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S30. Signed structures have exactly one valid encoding
 
-- Mechanism: contact cards and identity proofs are fixed-layout byte
+- Mechanism: contact cards are fixed-layout byte
   strings with no optional ordering, no maps and no variable-width integers.
   The decoder accepts exactly one encoding of each value and rejects
   trailing bytes. The bytes that are signed are produced by a dedicated
@@ -307,14 +358,19 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S17. Cryptographic randomness comes only from a CSPRNG
 
-- Mechanism: one function in `monolith-identity` wraps the operating system
-  CSPRNG. Non-cryptographic generator crates are banned by `deny.toml`; a
-  `clippy::disallowed_methods` entry for `rand::thread_rng` and similar
-  follows when such a crate could enter the tree. A failure of the OS
-  source is a fatal error, not a fallback. The session library draws its
-  ephemeral keys from the OS source through its own code path
-  (CRYPTOGRAPHY.md section 2).
-- Tests: lint in CI, T-RNG-1.
+- Mechanism: the operating system source is read through `getrandom` in
+  one crate, `monolith-session`, in two places: `TransportSecretKey::generate`
+  and the random source that the resolver hands to the Noise library for
+  the ephemeral keys of a handshake. Nothing else in the workspace draws
+  randomness, and no other generator crate is a dependency of a product
+  build. Non-cryptographic generator crates are banned by `deny.toml`. A
+  failure of the source fails the operation; there is no fallback. A
+  handshake with fixed ephemeral keys can be built only in the tests of
+  that crate and in a build made with `--cfg fuzzing`; no cargo feature
+  enables it, so it cannot be switched on through a dependency.
+- Tests: `resolver::tests` (the source fills its buffer, two keys differ,
+  a failing source leaves no key), `tests::handshake` (two handshakes
+  differ in every message), T-RNG-1.
 
 ### S18. Secrets and sensitive values do not appear in ordinary logs
 
@@ -324,10 +380,52 @@ Test area names refer to `docs/TEST_PLAN.md`.
   `Debug` prints `[redacted]`, or sizes and a type name where that is all
   there is to say. A type that is made only of such types may derive
   `Debug`, because the fields print themselves. Error types carry no peer
-  data. See `monolith_identity::redact`.
+  data. See `monolith_identity::redact`. The handshake and session types
+  print `[redacted]`; a session prints its state and its frame counters.
+  The session crate has no logging at all and returns no key material from
+  any function.
 - Tests: unit tests per type, T-LOG-1 (run the malicious-peer suite with
   logging at maximum verbosity and search the output for every secret and
   every peer-supplied string used by the suite).
+
+### S34. Session keys and ephemeral keys never leave the session objects
+
+- Mechanism: the ephemeral private key, the chaining key and the cipher
+  keys of a session exist only inside the Noise state that a handshake or
+  session object owns. No function of `monolith-session` returns them, no
+  type that holds them can be serialized or cloned, and the crate has no
+  storage and no logging. There is no resumption, no pre-shared key and no
+  ticket, so nothing of one session is input to another. The transport
+  private key is the only secret that outlives a session; it is held in a
+  type that erases it on drop and is passed to the Noise library by
+  reference.
+- Residual: erasure is best effort, and the Noise library does not erase
+  what it holds itself (`CRYPTOGRAPHY.md` section 8).
+- Tests: review of the public API of `monolith-session`; `Debug` tests of
+  every type.
+
+### S35. A failure tells the peer nothing but that the stream closed
+
+- Mechanism: the handshake functions return a message to send or an error,
+  never both. `AuthenticatedSession::receive` returns an error and no
+  frame. The protocol has no error message, and Close has an empty body
+  and is not sent after a violation. What went wrong is a value for local
+  use that carries no data from the peer; the caller closes the stream.
+- Tests: T-ORACLE-4, `tests::handshake` and `tests::frames` (every failure
+  returns an error and nothing to write), fuzz targets `handshake_responder`
+  and `session_frames`.
+
+### S37. A session ends at its limits, and the limits can only be lowered
+
+- Mechanism: `AuthenticatedSession` counts frames and ciphertext bytes in
+  each direction and knows when it was established. `send` refuses every
+  message but Close once the age, frame or byte limit is reached, and
+  always leaves room for one Close. `receive` treats a frame beyond a limit
+  as a violation. `SessionLimits::new` returns nothing for a value above
+  the protocol's. There is no rekey and no way to reset a counter; a new
+  session is a new handshake.
+- Tests: T-LIMIT (`tests::frames` with reduced limits, the property test
+  that a session never sends more than its limits).
 
 ## Platform
 

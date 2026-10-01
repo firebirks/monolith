@@ -6,10 +6,11 @@ cards talk to each other directly, each running an Onion Service. There is
 no server and no account.
 
 Status: early development. There is no working messenger in this repository
-yet. The protocol core (encoding, contact cards, session state logic) is
-being implemented. The session cryptography, the Tor integration and the
-Tails and Whonix integration are provisional designs and are not
-implemented. Nothing here has been audited. Do not rely on it for anything.
+yet. The protocol core (encoding, contact cards, session state logic) and
+the session layer (the handshake and the encrypted frames) are implemented
+as libraries that do no I/O. The Tor integration, storage and the Tails
+and Whonix integration are designs and are not implemented. Nothing here
+has been audited. Do not rely on it for anything.
 
 ## What it is
 
@@ -46,7 +47,7 @@ The full list of limits is in `docs/THREAT_MODEL.md`, section 6.
 | `docs/THREAT_MODEL.md` | Adversaries, defenses, limits |
 | `docs/SECURITY_INVARIANTS.md` | Properties that must always hold |
 | `docs/PROTOCOL.md` | Wire protocol |
-| `docs/CRYPTOGRAPHY.md` | Primitives, handshake, identity proof |
+| `docs/CRYPTOGRAPHY.md` | Primitives, handshake, how keys are bound to identities |
 | `docs/TOR_INTEGRATION.md` | How Monolith uses Tor |
 | `docs/TOR_CONTROL_SURFACE.md` | Every Tor control command used |
 | `docs/PLATFORM_TAILS.md` | Tails |
@@ -79,6 +80,7 @@ Checks run in CI:
     crates/monolith-identity   identity keys, signatures, fingerprints
     crates/monolith-protocol   limits, encoding, contact cards, messages,
                                frames, session logic
+    crates/monolith-session    handshake and encrypted session
     crates/monolith-tor        Tor backend interface (no implementation)
     crates/monolith-storage    storage policy types (no implementation)
     crates/monolith-core       application core (types only)
@@ -86,7 +88,8 @@ Checks run in CI:
     crates/monolith-desktop    desktop front end (placeholder)
     integrations/tails         Tails control port profile (draft)
     integrations/whonix        Whonix profile and firewall rule (draft)
-    fuzz/                      fuzz targets for the protocol core
+    fuzz/                      fuzz targets for the protocol core and the
+                               session layer
     docs/                      specifications and decision records
 
 ## Security

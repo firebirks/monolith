@@ -9,7 +9,8 @@ Invariant numbers (S1 and so on) refer to `SECURITY_INVARIANTS.md`.
 ## 1. What is protected
 
 - Message and file content between two contacts.
-- The identity private key and the Onion Service private key.
+- The identity private key, the transport private key and the Onion
+  Service private key.
 - The contact list: who the user's contacts are, and that two given
   identities are contacts of each other.
 - The user's network location, to the extent Tor protects it.
@@ -25,8 +26,10 @@ Invariant numbers (S1 and so on) refer to `SECURITY_INVARIANTS.md`.
 - Tor works as designed, within its own threat model. Monolith adds nothing
   to Tor's anonymity and must not subtract from it.
 - The cryptographic primitives in `CRYPTOGRAPHY.md` are sound, and the
-  implementations used are correct. The session construction and its
-  implementation are not chosen yet (ADR 0002).
+  implementations used are correct. The session layer is Noise XK through
+  the `snow` library. The rules that bind its keys to Monolith identities
+  (`CRYPTOGRAPHY.md` section 5.2) are Monolith's own composition and have
+  had no external review.
 - The user keeps the storage passphrase secret and exchanges contact cards
   over a channel that suits their own situation.
 - A peer is hostile until it has been bounded, parsed, validated,
@@ -52,27 +55,31 @@ Can open streams to the Onion Service and send arbitrary bytes.
 
 With the address alone, and no contact card:
 
-- Under the handshake candidate currently written up, it does not complete
-  the normal handshake and is not handed an identity proof, because
-  completing it requires the responder's identity key. This is
-  opportunistic probing resistance, not access control. The identity key is
-  public data: anyone who obtains it, from a contact card or anywhere else,
-  is past this point. The session design is provisional (ADR 0002), and
-  some of the candidates show the identity key to any party that connects.
-- It learns that the service is reachable and that it answers the Monolith
-  preamble. Both are inherent in running a service at a known address.
-- If it holds a list of candidate identity keys, it can test which of them
-  is served at the address, because the responder's second handshake
-  message is authenticated under a hash that includes the identity key. It
-  cannot learn a key that is not on its list.
+- It gets no reply at all. The first handshake message is authenticated
+  under the responder's transport key and identity key, which are in the
+  contact card and nowhere else. A first message made without them fails,
+  and the stream is closed without a byte being sent. This is probing
+  resistance, not access control: both keys are public data, and anyone who
+  obtains a card, from the user or from someone the user gave it to, is
+  past this point.
+- It learns that something accepts connections at the address. That is
+  inherent in running a service at a known address. Nothing in the
+  exchange names the protocol. What it can observe is a service that
+  takes 48 bytes and closes the stream, which is a behavior someone who
+  knows Monolith can recognize.
+- It costs the responder one X25519 operation per attempt, within the
+  budget for unauthenticated streams (C).
 
-With the contact card (address, identity key, possibly an invitation):
+With the contact card (address, identity key, transport key, possibly an
+invitation):
 
-- It can authenticate as an identity of its choice and send one contact
-  request (S7). It receives the responder's identity proof, which tells it
-  that the identity on the card is live at that address, and nothing else:
-  no profile, no contact information, no acceptance or rejection signal
-  (S23).
+- Its first message is answered. That tells it that the holder of the
+  transport key is live at that address. The answer is 48 bytes that
+  contain no signature and nothing it could show to a third party as
+  evidence.
+- It can complete the handshake with a card of its own, as an identity of
+  its choice, and send one contact request (S7). It gets no profile, no
+  contact information, and no signal of acceptance or rejection (S23).
 - A request without a currently valid invitation is dropped in the default
   mode. The peer cannot tell.
 - It cannot find out its standing. An identity that is unknown, blocked,
@@ -80,6 +87,8 @@ With the contact card (address, identity key, possibly an invitation):
   order, and there is no response that names a reason (PROTOCOL.md 12.1).
   This is about what is sent. Response times are not equalized and are not
   claimed to be.
+- It cannot use the card to pose as the user: that needs the transport
+  private key.
 
 Residual: presence. Whoever holds the card can tell when the user is online
 by connecting. See section 6.
@@ -93,11 +102,13 @@ send an endpoint update.
 - Cannot exceed the per-contact limits; exceeding them ends the session.
 - Cannot make a file arrive without acceptance (S13), choose where it is
   written (S14), or have it opened (S16).
-- Cannot change its own pinned identity (S9) or roll back its endpoint.
+- Cannot change its own pinned identity (S9), and cannot roll back its
+  endpoint or its transport key: a card older than the pinned one is not
+  accepted, in an update or in a handshake (S36).
 - Cannot learn anything about other contacts (S24).
 - Can sign an endpoint binding that names an Onion Service it does not
   control. Monolith will dial it after the user confirms; the handshake
-  fails because that service cannot prove the contact's identity. The
+  fails because that service does not hold the contact's transport key. The
   effect is connection attempts on the normal reconnect schedule to an
   address of the contact's choosing, through Tor, for as long as the user
   keeps the contact.
@@ -109,7 +120,13 @@ Residual: everything a conversation partner can do by nature.
 ### C. Many Tor connections to the Onion Service
 
 - Unauthenticated streams are limited in number and in time; the oldest is
-  evicted for a new one. All handshake records are fixed-size.
+  evicted for a new one. All handshake messages are fixed-size: 48, 48 and
+  235 bytes.
+- What one stream can cost before it is authenticated is bounded: one
+  X25519 operation for a first message that fails; two more operations,
+  one key generation and one pending handshake for one that verifies,
+  which needs the contact card; one signature verification after a valid
+  third message. A pending handshake ends at `HANDSHAKE_TIMEOUT`.
 - The inbound rate is capped globally. Beyond the cap, streams are closed
   at accept.
 - Tor's proof-of-work defense and a per-circuit stream cap are requested
@@ -133,24 +150,37 @@ against an Onion Service.
 
 ### E. Replay
 
-- Within a session: cipher nonces are counters.
-- Across sessions: an identity proof is bound to the handshake hash and is
-  useless in any other session.
+- Within a session: cipher nonces are counters. A frame that is repeated,
+  dropped or reordered fails authentication and ends the session.
+- Across sessions: every key of a session depends on a fresh ephemeral key
+  of each side. A recorded handshake message does not fit another
+  handshake, and a recorded frame does not decrypt in another session. A
+  recorded first message gets an answer from a new responder, because it
+  contains nothing of the responder's; whoever replays it cannot read the
+  answer or continue.
 - Chat messages resent after a reconnect are dropped by identifier. The
   record of identifiers is in memory unless history is enabled, so after a
   restart of the receiver a resent message can be delivered twice.
-- An old contact card cannot replace a newer endpoint (strictly increasing
-  epoch).
+- An old contact card cannot replace a newer one (strictly increasing
+  epoch), and presented in a handshake to a party that has pinned a newer
+  one it does not open a contact session (S36).
 - An invitation capability can be used by anyone who holds it. That is its
   definition; it is revocable and it authenticates nobody.
 
 ### F. Identity or profile impersonation
 
-- An identity is a key. A peer proves possession by signing the session
-  transcript. Nothing a peer claims about itself is believed (S20, S21).
-- An endpoint that does not prove a known contact's pinned key is a hard
-  failure with a warning (S9). Monolith cannot tell a replaced identity
-  from a service that is not Monolith at all, and says so.
+- An identity is a key. In a signed contact card it vouches for a
+  transport key, and a peer proves in the handshake that it holds that
+  transport key. Nothing a peer claims about itself is believed (S20, S21).
+- A card says that an identity vouches for a key. It does not say that the
+  key holder is that identity. An identity that signs a card naming another
+  party's transport key gets no session out of it: the responder puts its
+  own identity key into the handshake, and the first message fails
+  (`CRYPTOGRAPHY.md` section 5.2, rule F2).
+- An endpoint that does not prove a known contact's pinned keys is a hard
+  failure with a warning (S9). Monolith cannot tell an impostor from a
+  contact that replaced its transport key, or from a service that is not
+  Monolith at all, and says so.
 - A stranger using a contact's display name is shown as an unknown identity
   with its own fingerprint. Names are not unique and are never matched.
 - Out-of-band verification compares the fingerprint. Verified and
@@ -182,9 +212,11 @@ As a third party on the network:
   depends on other strangers alone.
 - There is no back-connection to an address supplied by a peer (S8).
 
-As someone who took over A's Onion Service key but not A's identity key: an
-initiator reveals its identity only after the responder proved the expected
-one. The attacker sees that connections arrive, not from whom.
+As someone who took over A's Onion Service key but not A's transport key:
+an initiator reveals its identity only after the responder proved that it
+holds the transport key. The attacker sees that connections arrive, not
+from whom, and what it records does not become readable if it obtains the
+transport key later.
 
 As a contact of both A and B: it sees when each is online. It does not see
 their sessions with each other.
@@ -223,7 +255,7 @@ secure deletion.
 
 Within the Tor threat model. A relay sees no content: Onion Service traffic
 is encrypted end to end by Tor and again by the session layer. A relay
-cannot impersonate a peer; that would need the identity key. Guards and
+cannot impersonate a peer; that would need the peer's transport key. Guards and
 directory relays see what Tor lets them see.
 
 ### L. Observer capable of traffic timing or correlation
@@ -273,7 +305,29 @@ Gateway's merged profile allows, to which Monolith's profile adds the same
 thing for the Workstation's own port. On other Linux systems there is no
 such limit.
 
-### Q. Supply chain
+### Q. Someone who obtained one private key of an identity
+
+An identity has three keys with three jobs (`CRYPTOGRAPHY.md` section 3).
+What each of them is worth alone:
+
+- The Onion Service key: the holder can answer at the address. It cannot
+  complete a handshake, so it learns that connections arrive and not from
+  whom, and it can keep the real service from being reached.
+- The transport key: the holder can open and answer sessions as the
+  identity, towards everyone who has pinned the card that states this
+  key, and towards strangers. It cannot issue a card. The owner ends this
+  by signing a card with a greater epoch and a new transport key and
+  getting it to its contacts; a contact that has pinned the newer card no
+  longer takes the old key for a contact (S36). There is no revocation:
+  a contact that has not seen the newer card still does.
+- The identity key: the holder can sign cards, and with a card that names
+  a transport key of its own it becomes the identity for everyone. There
+  is no recovery other than telling contacts out of band.
+
+None of the three reveals past sessions. Their keys came from ephemeral
+keys that no longer exist.
+
+### R. Supply chain
 
 Dependencies are few, pinned by `Cargo.lock`, checked against the RustSec
 database and a licence and source policy in CI, and reviewed on update.
@@ -293,7 +347,7 @@ removes each class, so that the class is hard to reintroduce.
 | Communication confirmation through a spoofed ID | Behavior depended on a claimed address: "double connection" reply or a back-connection | A connection speaks only for an identity it proved. No claimed identities, no back-connection, no third-party fields (S8, S22, S24). |
 | No length limits | Reader buffered until a newline; no field limits | Fixed-size handshake, length-prefixed frames checked before reading, per-field maxima, rendering limits (S10, S11, S26). |
 | `profile_name` injection into the contact file | Line-based file assembled from peer text | Typed records, no text configuration built from peer input (S28). Names are not identifiers (S20). |
-| Predictable handshake cookie | Non-cryptographic generator | One CSPRNG source (S17). Authentication is a signature over the session transcript, not a shared random value. |
+| Predictable handshake cookie | Non-cryptographic generator | One CSPRNG source (S17). Authentication is a key exchange with a key the identity signed for, not a shared random value. |
 | Non-default Tor configuration, outdated bundled Tor | Application shipped and configured Tor | No bundled Tor, no Tor configuration (S4, S5). |
 | Links clickable without warning | Chat text rendered as active content | Plain text only; copy, never open (S15, S16). |
 | GUI impersonation with a lookalike address and the same name | Name shown as identity; contacts auto-added | Fingerprints in security-relevant UI; requests need acceptance; pinning (S9, S20). |
@@ -337,18 +391,33 @@ interface must not suggest otherwise.
   contact card handed over out of band.
 - A contact card is a capability to reach the user. Sharing it is the
   user's decision and cannot be undone except by rotating the endpoint.
-- No deniability. Identity proofs are signatures.
-- No post-quantum security.
+- Deniability is not a goal. No signature is made during a session, but
+  contact cards are signed, and nothing was designed or analyzed to let a
+  party deny a conversation.
+- No post-quantum security. Sessions recorded today can be read by whoever
+  breaks X25519 later.
 - No recovery from a stolen identity key other than telling contacts out of
-  band. There is no revocation in version 1.
+  band. A stolen transport key is replaced by issuing a new card, which
+  helps only towards contacts that receive it. There is no revocation in
+  version 1 (Q).
+- After an identity replaces its transport key, a contact that still holds
+  the previous card cannot open a session until it has the new one. It
+  gets the new card when the identity dials it, or out of band. Version 1
+  has no period in which both keys are answered.
+- The session layer binds a session to an identity, not to the onion
+  address that was dialed (PROTOCOL.md open question P2).
+- The rules that bind the handshake to identities are Monolith's own and
+  have not been reviewed by anyone outside the project.
 - No offline delivery. If the two peers are never online together, nothing
   is delivered. There is no server.
 - A decline is invisible to the requester, so a declined requester's client
   keeps retrying at a low rate.
 - On Linux without a control port filter, Monolith's user has full control
   of Tor. Monolith restricts itself, but nothing outside it does.
-- Secrets are not locked in RAM and the session library does not erase its
-  key material. On a system with unencrypted swap, key material can reach
+- Secrets are not locked in RAM. Key types erase themselves when dropped,
+  which is best effort; the Noise library does not erase what it holds
+  itself, among it the chaining key of a handshake (`CRYPTOGRAPHY.md`
+  section 8). On a system with unencrypted swap, key material can reach
   the disk.
 - Tails and Whonix integration has not been tested yet. Until it has, the
   platform documents describe intent.

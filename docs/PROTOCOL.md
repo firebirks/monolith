@@ -1,12 +1,13 @@
 # Monolith protocol, version 1
 
 Status: the protocol core (framing, messages, text rules, session states,
-contact confirmation, duplicate resolution) is implemented and accepted.
-The session layer is decided in ADR 0002: Noise XK with a transport key
-that the identity certifies in the contact card. Sections 3, 4 and 6.1 to
-6.3 specify it, and section 11 gives the contact card with the transport
-key. These parts are specified here before they are implemented; the
-implementation follows this document.
+contact confirmation, duplicate resolution) is implemented in
+`monolith-protocol`. The session layer is decided in ADR 0002: Noise XK
+with a transport key that the identity certifies in the contact card.
+Sections 3, 4 and 6.1 to 6.3 specify it, section 11 gives the contact card
+with the transport key, and `monolith-session` implements it. This
+document was written first and the implementation follows it; where the
+two disagree, the implementation is wrong.
 
 The padding block size in section 5 is a parameter whose production value
 is not decided. Open questions are listed in section 17.

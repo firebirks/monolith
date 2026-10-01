@@ -468,10 +468,10 @@ No Monolith peer has been deployed, so nothing on any network is affected.
   `PROTOCOL.md` section 16.1 with the fixed keys given there and
   produced the same three messages, the same handshake hash and the
   same first frame as the independent implementation the vectors come
-  from, and as `snow` with its stock resolver. The session crate has to
-  carry the same test, so that the build fails if the resolver ever
-  differs. A first message whose ephemeral key is a point of small
-  order was refused in the Diffie-Hellman step.
+  from, and as `snow` with its stock resolver. The session crate carries
+  the same test (`tests::vectors`), so that the build fails if the
+  resolver ever differs. A first message whose ephemeral key is a point
+  of small order was refused in the Diffie-Hellman step.
 
   What it does not solve. `snow` itself keeps the chaining key in its
   handshake state and copies of derived keys on its stack, and clears
