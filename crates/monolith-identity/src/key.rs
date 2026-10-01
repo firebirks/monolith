@@ -27,6 +27,11 @@ pub const SIGNATURE_LEN: usize = 64;
 /// is where every honestly generated key is. It is the test Tor applies to
 /// the key in an onion address, and Monolith applies it to identity keys as
 /// well, so that one definition of "valid key" serves both.
+///
+/// On this curve every non-canonical encoding of a point happens to be a
+/// point of small order or one with a torsion component, so the last two
+/// conditions already reject it. The comparison of the encoding is kept
+/// because it states the rule itself and does not rest on that fact.
 pub(crate) fn decode_key(bytes: &[u8; 32]) -> Result<VerifyingKey, IdentityError> {
     let key = VerifyingKey::from_bytes(bytes).map_err(|_| IdentityError::InvalidKey)?;
     let point = key.to_edwards();

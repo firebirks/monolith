@@ -15,6 +15,17 @@ use monolith_identity::{
 use proptest::collection::vec;
 use proptest::prelude::*;
 
+/// The definition of a valid key in `docs/PROTOCOL.md` section 10.1, stated
+/// with the curve operations directly: a point, canonically encoded, not of
+/// small order, without a torsion component.
+fn is_valid_key(bytes: &[u8; 32]) -> bool {
+    let Ok(key) = ed25519_dalek::VerifyingKey::from_bytes(bytes) else {
+        return false;
+    };
+    let point = key.to_edwards();
+    point.compress().to_bytes() == *bytes && !point.is_small_order() && point.is_torsion_free()
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(128))]
 
@@ -56,27 +67,22 @@ proptest! {
     }
 
     #[test]
-    fn identity_and_onion_keys_have_the_same_validity(bytes in any::<[u8; 32]>()) {
-        // About half of all byte strings decode to a point, and one in eight
-        // of those lies in the prime-order subgroup. Both key types accept
-        // exactly the same byte strings.
-        prop_assert_eq!(
-            IdentityPublicKey::from_bytes(&bytes).is_ok(),
-            OnionServiceKey::from_bytes(&bytes).is_ok()
-        );
-    }
-
-    #[test]
-    fn a_valid_key_with_one_flipped_bit_is_a_different_key_or_invalid(
+    fn key_validity_follows_the_definition(
+        arbitrary in any::<[u8; 32]>(),
         seed in any::<[u8; 32]>(),
         bit in 0..256_usize,
     ) {
-        let public = IdentitySecretKey::from_seed(&seed).public_key();
-        let mut bytes = *public.as_bytes();
-        bytes[bit / 8] ^= 1 << (bit % 8);
-        if let Ok(other) = IdentityPublicKey::from_bytes(&bytes) {
-            prop_assert_ne!(other, public);
-            prop_assert_eq!(other.as_bytes(), &bytes);
+        // Two kinds of input: arbitrary bytes, about half of which decode
+        // to a point and one in eight of those to a point in the prime-order
+        // subgroup, and a valid key with one bit flipped, which stays close
+        // to the valid encodings. Both key types accept a string exactly
+        // when the definition of PROTOCOL.md section 10.1 holds for it.
+        let mut flipped = *IdentitySecretKey::from_seed(&seed).public_key().as_bytes();
+        flipped[bit / 8] ^= 1 << (bit % 8);
+        for bytes in [arbitrary, flipped] {
+            let expected = is_valid_key(&bytes);
+            prop_assert_eq!(IdentityPublicKey::from_bytes(&bytes).is_ok(), expected);
+            prop_assert_eq!(OnionServiceKey::from_bytes(&bytes).is_ok(), expected);
         }
     }
 
