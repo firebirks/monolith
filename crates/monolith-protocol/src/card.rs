@@ -15,6 +15,7 @@ use monolith_identity::redact::REDACTED;
 use monolith_identity::{
     EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, Signature, base32,
 };
+use subtle::ConstantTimeEq;
 
 use crate::ProtocolError;
 use crate::codec::{Reader, Writer};
@@ -40,8 +41,21 @@ const TEXT_PREFIX: &str = "MONOLITH1:";
 /// It is an anti-spam capability: in the default mode a contact request is
 /// shown to the user only if it carries one that is currently valid. It is
 /// not an identity and authenticates nobody.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Two capabilities are compared in constant time, so that comparing a
+/// received one with the valid ones does not tell the sender how many
+/// leading bytes it got right. The type has no `Hash` and no ordering: a
+/// capability is looked up by comparing it with each valid one.
+#[derive(Clone, Copy)]
 pub struct InvitationCapability([u8; INVITATION_CAPABILITY_LEN]);
+
+impl PartialEq for InvitationCapability {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_slice().ct_eq(other.0.as_slice()).into()
+    }
+}
+
+impl Eq for InvitationCapability {}
 
 impl InvitationCapability {
     /// Wraps capability bytes. They must come from a CSPRNG.
@@ -64,12 +78,24 @@ impl fmt::Debug for InvitationCapability {
 /// The endpoints at which an identity can be reached.
 ///
 /// Never empty, never more than [`MAX_ACTIVE_ENDPOINTS`] members, and no
-/// member twice. The order is the order in the card.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// member twice. The order is the order in the card and is kept, because the
+/// signature covers it. Two sets are equal if they have the same members, in
+/// whatever order.
+#[derive(Clone, Debug)]
 pub struct EndpointSet {
     first: OnionServiceKey,
     rest: Vec<OnionServiceKey>,
 }
+
+impl PartialEq for EndpointSet {
+    fn eq(&self, other: &Self) -> bool {
+        // No member occurs twice, so equal counts and inclusion one way
+        // are enough.
+        self.count() == other.count() && self.iter().all(|endpoint| other.contains(endpoint))
+    }
+}
+
+impl Eq for EndpointSet {}
 
 impl EndpointSet {
     /// Builds a set with one endpoint.
@@ -116,6 +142,17 @@ impl EndpointSet {
     pub fn count(&self) -> usize {
         self.rest.len().saturating_add(1)
     }
+
+    /// Returns true if `endpoint` is a member of the set.
+    pub fn contains(&self, endpoint: &OnionServiceKey) -> bool {
+        self.iter().any(|member| member == endpoint)
+    }
+
+    /// Returns true if one of the endpoints is the same key as `identity`.
+    fn reuses(&self, identity: &IdentityPublicKey) -> bool {
+        self.iter()
+            .any(|endpoint| endpoint.as_bytes() == identity.as_bytes())
+    }
 }
 
 /// A verified contact card.
@@ -134,21 +171,28 @@ pub struct ContactCard {
 
 impl ContactCard {
     /// Creates and signs a card for the identity that `secret` belongs to.
+    ///
+    /// Fails if one of the endpoints is the identity key itself. The
+    /// identity key and the key of an Onion Service are never the same key
+    /// (`docs/CRYPTOGRAPHY.md`), and no receiver accepts such a card.
     pub fn sign(
         secret: &IdentitySecretKey,
         epoch: EndpointEpoch,
         endpoints: EndpointSet,
         invitation: Option<InvitationCapability>,
-    ) -> Self {
+    ) -> Result<Self, ProtocolError> {
         let identity = secret.public_key();
+        if endpoints.reuses(&identity) {
+            return Err(ProtocolError::InvalidValue);
+        }
         let message = signed_bytes(&identity, epoch, &endpoints, invitation.as_ref());
-        Self {
+        Ok(Self {
             identity,
             epoch,
             endpoints,
             invitation,
             signature: secret.sign(&message),
-        }
+        })
     }
 
     /// Returns the identity that signed the card.
@@ -245,6 +289,9 @@ impl ContactCard {
             endpoints.push(OnionServiceKey::from_bytes(raw)?);
         }
         let endpoints = EndpointSet::new(&endpoints)?;
+        if endpoints.reuses(&identity) {
+            return Err(ProtocolError::InvalidValue);
+        }
 
         let message = signed_bytes(&identity, epoch, &endpoints, invitation.as_ref());
         identity.verify(&message, &signature)?;
@@ -268,9 +315,11 @@ impl ContactCard {
 
     /// Parses and verifies the text form.
     ///
-    /// ASCII space, tab, carriage return and line feed are removed wherever
-    /// they occur. Letters are accepted in either case. Anything else that
-    /// is not part of the format rejects the input.
+    /// Input longer than [`MAX_CONTACT_CARD_TEXT_LEN`] bytes is rejected
+    /// before anything else is looked at. ASCII space, tab, carriage return
+    /// and line feed are removed wherever they occur. Letters are accepted
+    /// in either case. Anything else that is not part of the format rejects
+    /// the input.
     pub fn from_text(input: &str) -> Result<Self, ProtocolError> {
         if input.len() > MAX_CONTACT_CARD_TEXT_LEN {
             return Err(ProtocolError::FieldTooLong);
@@ -427,6 +476,128 @@ mod tests {
             EndpointSet::single(endpoint(seed.wrapping_add(100))),
             invitation.then(|| InvitationCapability::from_bytes([0xC4; 16])),
         )
+        .unwrap()
+    }
+
+    /// Builds the bytes of a card from raw fields and signs them with the
+    /// key of `seed`, without any of the checks that [`ContactCard::sign`]
+    /// and the typed fields apply.
+    fn raw_card(seed: u8, endpoint_bytes: &[u8; 32]) -> Vec<u8> {
+        let mut fields = vec![CARD_VERSION];
+        fields.extend_from_slice(secret(seed).public_key().as_bytes());
+        fields.extend_from_slice(&7_u64.to_be_bytes());
+        fields.push(1);
+        fields.extend_from_slice(endpoint_bytes);
+        fields.push(0);
+
+        let mut signed = SIGNING_PREFIX.to_vec();
+        signed.extend_from_slice(&fields);
+        let signature = secret(seed).sign(&signed);
+
+        fields.extend_from_slice(signature.as_bytes());
+        fields
+    }
+
+    #[test]
+    fn raw_card_helper_builds_valid_cards() {
+        // The helper is only useful if a card it builds from good fields is
+        // accepted, so that a rejection is due to the field under test.
+        let bytes = raw_card(1, endpoint(101).as_bytes());
+        assert_eq!(bytes, card(1, 7, false).encode());
+        assert!(ContactCard::decode(&bytes).is_ok());
+    }
+
+    #[test]
+    fn a_signed_card_with_an_invalid_endpoint_is_rejected() {
+        // The signature is good; the endpoint is not a valid onion service
+        // key. First the neutral element, then a canonical point outside
+        // the prime-order subgroup.
+        let mut neutral = [0_u8; 32];
+        neutral[0] = 1;
+        assert_eq!(
+            ContactCard::decode(&raw_card(1, &neutral)),
+            Err(ProtocolError::InvalidKey)
+        );
+
+        let mut order_two = [0xff_u8; 32];
+        order_two[0] = 0xec;
+        order_two[31] = 0x7f;
+        let honest = ed25519_dalek::VerifyingKey::from_bytes(endpoint(101).as_bytes())
+            .unwrap()
+            .to_edwards();
+        let torsion = ed25519_dalek::VerifyingKey::from_bytes(&order_two)
+            .unwrap()
+            .to_edwards();
+        let mixed = (honest + torsion).compress().to_bytes();
+        assert_eq!(
+            ContactCard::decode(&raw_card(1, &mixed)),
+            Err(ProtocolError::InvalidKey)
+        );
+
+        // Not a point at all.
+        let mut off_curve = [0_u8; 32];
+        off_curve[0] = 2;
+        assert_eq!(
+            ContactCard::decode(&raw_card(1, &off_curve)),
+            Err(ProtocolError::InvalidKey)
+        );
+    }
+
+    #[test]
+    fn an_endpoint_must_not_be_the_identity_key() {
+        let identity_key = *secret(1).public_key().as_bytes();
+        assert_eq!(
+            ContactCard::decode(&raw_card(1, &identity_key)),
+            Err(ProtocolError::InvalidValue)
+        );
+        assert_eq!(
+            ContactCard::sign(
+                &secret(1),
+                epoch(7),
+                EndpointSet::single(OnionServiceKey::from_bytes(&identity_key).unwrap()),
+                None,
+            ),
+            Err(ProtocolError::InvalidValue)
+        );
+    }
+
+    #[test]
+    fn endpoint_sets_compare_as_sets() {
+        // Version 1 cannot build a set with two members through the public
+        // constructors, so this builds them directly.
+        let ab = EndpointSet {
+            first: endpoint(1),
+            rest: vec![endpoint(2)],
+        };
+        let ba = EndpointSet {
+            first: endpoint(2),
+            rest: vec![endpoint(1)],
+        };
+        let ac = EndpointSet {
+            first: endpoint(1),
+            rest: vec![endpoint(3)],
+        };
+        assert_eq!(ab, ba);
+        assert_ne!(ab, ac);
+        assert_ne!(ab, EndpointSet::single(endpoint(1)));
+        assert_ne!(EndpointSet::single(endpoint(1)), ab);
+        assert!(ab.contains(&endpoint(2)));
+        assert!(!ab.contains(&endpoint(3)));
+        // The order is still the order of the card.
+        assert_eq!(ab.first(), &endpoint(1));
+        assert_eq!(ba.first(), &endpoint(2));
+    }
+
+    #[test]
+    fn invitation_capabilities_compare_by_value() {
+        let a = InvitationCapability::from_bytes([1; 16]);
+        let mut other = [1_u8; 16];
+        assert_eq!(a, InvitationCapability::from_bytes(other));
+        for index in 0..16 {
+            other = [1; 16];
+            other[index] ^= 0x80;
+            assert_ne!(a, InvitationCapability::from_bytes(other), "byte {index}");
+        }
     }
 
     #[test]
@@ -530,15 +701,22 @@ mod tests {
     #[test]
     fn length_must_match_the_invitation_flag() {
         // A card with the flag set but no capability bytes, and the reverse.
+        // Both fail on the length, before any key or signature is looked at.
         let without = card(1, 7, false).encode();
         let mut flag_set = without.clone();
         flag_set[74] = 0x01;
-        assert!(ContactCard::decode(&flag_set).is_err());
+        assert_eq!(
+            ContactCard::decode(&flag_set),
+            Err(ProtocolError::BadMessageLength)
+        );
 
         let with = card(1, 7, true).encode();
         let mut flag_clear = with.clone();
         flag_clear[74] = 0x00;
-        assert!(ContactCard::decode(&flag_clear).is_err());
+        assert_eq!(
+            ContactCard::decode(&flag_clear),
+            Err(ProtocolError::BadMessageLength)
+        );
     }
 
     #[test]
@@ -735,7 +913,8 @@ mod tests {
             EndpointEpoch::FIRST,
             EndpointSet::single(endpoint(2)),
             None,
-        );
+        )
+        .unwrap();
         assert_eq!(known.to_text(), KNOWN_CARD_TEXT);
         assert_eq!(ContactCard::from_text(KNOWN_CARD_TEXT).unwrap(), known);
     }
@@ -754,32 +933,25 @@ mod tests {
 
         assert_eq!(evaluate(&pinned), Ok(EndpointUpdate::Unchanged));
 
-        let newer = ContactCard::sign(
-            &secret(1),
-            epoch(6),
-            EndpointSet::single(endpoint(50)),
-            None,
-        );
+        let signed = |epoch_value: u64, endpoints: EndpointSet| {
+            ContactCard::sign(&secret(1), epoch(epoch_value), endpoints, None).unwrap()
+        };
+
+        let newer = signed(6, EndpointSet::single(endpoint(50)));
         assert_eq!(evaluate(&newer), Ok(EndpointUpdate::Newer));
 
-        let newer_same_set = ContactCard::sign(&secret(1), epoch(6), pinned_set.clone(), None);
+        let newer_same_set = signed(6, pinned_set.clone());
         assert_eq!(evaluate(&newer_same_set), Ok(EndpointUpdate::Newer));
 
-        let conflict = ContactCard::sign(
-            &secret(1),
-            epoch(5),
-            EndpointSet::single(endpoint(50)),
-            None,
-        );
+        let conflict = signed(5, EndpointSet::single(endpoint(50)));
         assert_eq!(evaluate(&conflict), Ok(EndpointUpdate::Conflict));
 
-        let stale = ContactCard::sign(
-            &secret(1),
-            epoch(4),
-            EndpointSet::single(endpoint(50)),
-            None,
-        );
+        let stale = signed(4, EndpointSet::single(endpoint(50)));
         assert_eq!(evaluate(&stale), Ok(EndpointUpdate::Stale));
+
+        // A lower epoch is stale even if it names the pinned set.
+        let stale_same_set = signed(4, pinned_set.clone());
+        assert_eq!(evaluate(&stale_same_set), Ok(EndpointUpdate::Stale));
 
         let other_identity = card(2, 9, false);
         assert_eq!(

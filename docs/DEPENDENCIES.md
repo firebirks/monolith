@@ -68,6 +68,7 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 | --- | --- | --- | --- | --- | --- |
 | `ed25519-dalek` | 2.2.0 | BSD-3-Clause | 1.81 | identity signatures, key validation | `fast`, `zeroize`; no default features |
 | `sha2` | 0.10.9 | MIT OR Apache-2.0 | not declared | identity fingerprint | no default features |
+| `subtle` | 2.6.1 | BSD-3-Clause | not declared | constant-time comparison of invitation capabilities | no default features |
 | `unicode-normalization` | 0.1.25 | MIT OR Apache-2.0 | 1.36 | NFC check of display names | no default features |
 
 `ed25519-dalek`
@@ -81,8 +82,8 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
   key), fixed in 2.0. Not applicable to 2.2.0.
 - Unsafe: none; the crate forbids it outside tests.
 - Usage rules in Monolith: verification is always `verify_strict`; keys are
-  additionally checked for canonical encoding and small order, and onion
-  service keys for a torsion component (`PROTOCOL.md` section 10.1).
+  additionally checked for canonical encoding, small order and a torsion
+  component (`PROTOCOL.md` section 10.1).
   Signing keys are built from 32 bytes supplied by the caller; the crate's
   random number feature is not enabled.
 
@@ -92,6 +93,21 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
   which uses SHA-512.
 - Advisories: RUSTSEC-2021-0100, fixed long before 0.10.
 - Unsafe: 29 lines, in the CPU-specific compression back ends.
+
+`subtle`
+
+- Maintained by the dalek-cryptography organization. Already in the tree
+  through `ed25519-dalek` and `curve25519-dalek`; adding it as a direct
+  dependency adds no code to the build.
+- Review: in the main scope of the 2019 Quarkslab audit of the dalek
+  libraries.
+- Advisories: none.
+- Unsafe: 2 uses. One is the volatile read that keeps the optimizer from
+  turning the comparison back into an early exit; the other converts a
+  constant-time ordering result.
+- Used for one thing: `InvitationCapability` equality. It is a direct
+  dependency of `monolith-protocol` because a hand-written comparison loop
+  has no such barrier against the optimizer.
 
 `unicode-normalization`
 
@@ -115,7 +131,6 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 | `crypto-common` | 0.1.7 | MIT OR Apache-2.0 | `digest` | 0 |
 | `generic-array` | 0.14.7 | MIT | `digest` | 78 |
 | `typenum` | 1.20.1 | MIT OR Apache-2.0 | `generic-array` | 0 |
-| `subtle` | 2.6.1 | BSD-3-Clause | `ed25519-dalek` | 2 |
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | `ed25519-dalek` | 17 |
 | `cpufeatures` | 0.2.17 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 9 |
 | `cfg-if` | 1.0.5 | MIT OR Apache-2.0 | several | 0 |
@@ -134,6 +149,10 @@ Build-time only: `proc-macro2`, `quote`, `syn`, `unicode-ident` (for
 | Crate | Version | Licence | MSRV | Used for |
 | --- | --- | --- | --- | --- |
 | `proptest` | 1.11.0 | MIT OR Apache-2.0 | 1.85 | property tests |
+
+`monolith-protocol` also lists `ed25519-dalek` as a development
+dependency. One test needs point arithmetic to build a key with a torsion
+component.
 
 `proptest` brings a random number stack (`rand` 0.9 and others) into test
 builds. None of it is linked into a release binary. The fuzz targets under

@@ -55,6 +55,7 @@ fn arb_card(with_invitation: bool) -> impl Strategy<Value = ContactCard> {
                 EndpointSet::single(endpoint(endpoint_seed)),
                 with_invitation.then(|| InvitationCapability::from_bytes(capability)),
             )
+            .unwrap()
         })
 }
 

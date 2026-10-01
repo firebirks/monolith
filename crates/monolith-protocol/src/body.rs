@@ -141,7 +141,9 @@ impl fmt::Debug for FileChunk {
 }
 
 /// One decoded protocol message.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// The `Debug` output is the message type and nothing of the content.
+#[derive(Clone, PartialEq, Eq)]
 pub enum Message {
     /// Identity proof. Provisional; see [`AuthProof`].
     AuthProof(Box<AuthProof>),
@@ -199,6 +201,14 @@ pub enum Message {
     FileAbort(TransferId),
 }
 
+impl fmt::Debug for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Message")
+            .field(&self.message_type())
+            .finish()
+    }
+}
+
 impl Message {
     /// Returns the type of this message.
     pub const fn message_type(&self) -> MessageType {
@@ -224,9 +234,12 @@ impl Message {
 
     /// Encodes the body of this message.
     ///
-    /// Every field of a [`Message`] is already validated, so this fails only
-    /// if a card inside the message does not fit its field, which the
-    /// constructors of the affected variants prevent.
+    /// Text fields, chunks and cards are validated by their own types. Two
+    /// things are not, because the variants that hold them have public
+    /// fields: a card inside a message must carry no invitation capability,
+    /// and the size in a file offer must not exceed [`MAX_FILE_SIZE`]. This
+    /// fails with [`ProtocolError::InvalidValue`] for a message that breaks
+    /// either rule, so such a message cannot be put on the wire.
     pub fn encode_body(&self) -> Result<Vec<u8>, ProtocolError> {
         let mut writer = Writer::new();
         match self {
@@ -431,6 +444,7 @@ mod tests {
             EndpointSet::single(endpoint),
             invitation.then(|| InvitationCapability::from_bytes([7; 16])),
         )
+        .unwrap()
     }
 
     fn transfer() -> TransferId {
@@ -722,11 +736,26 @@ mod tests {
 
     #[test]
     fn debug_output_shows_no_content() {
-        let text = format!("{:?}", samples());
-        assert!(!text.contains("hello"));
+        // Nothing but the type: no text, no nonce, no digest, no size, no
+        // identifier.
+        for message in samples() {
+            assert_eq!(
+                format!("{message:?}"),
+                format!("Message({:?})", message.message_type())
+            );
+        }
+        let request = samples().swap_remove(4);
+        let Message::ContactRequest(request) = request else {
+            panic!("sample 4 is a contact request");
+        };
+        let text = format!("{request:?}");
         assert!(!text.contains("Alice"));
-        assert!(!text.contains("notes.txt"));
         assert!(!text.contains("conference"));
+        assert!(!text.contains("5, 5"));
+        assert_eq!(
+            format!("{:?}", FileChunk::new(transfer(), vec![0xAB; 4]).unwrap()),
+            "FileChunk([redacted])"
+        );
     }
 
     #[test]

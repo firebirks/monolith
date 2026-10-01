@@ -179,8 +179,10 @@ dependencies = [
 name = "monolith-protocol"
 version = "0.0.0"
 dependencies = [
+ "ed25519-dalek",
  "monolith-identity",
  "proptest",
+ "subtle",
  "unicode-normalization",
 ]
 

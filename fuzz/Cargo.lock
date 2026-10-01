@@ -194,6 +194,7 @@ name = "monolith-protocol"
 version = "0.0.0"
 dependencies = [
  "monolith-identity",
+ "subtle",
  "unicode-normalization",
 ]
 
