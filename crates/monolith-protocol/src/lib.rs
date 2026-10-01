@@ -14,6 +14,7 @@
 //!
 //! - [`limits`]: every size, count, rate and timeout.
 //! - [`codec`]: bounded readers and writers for the fixed-layout encoding.
+//! - [`text`]: validated text fields.
 //!
 //! What is not here: the handshake, the identity proof and frame encryption.
 //! The session layer is not decided; see `docs/adr/0002-session-protocol.md`.
@@ -23,6 +24,7 @@
 
 pub mod codec;
 pub mod limits;
+pub mod text;
 
 mod error;
 mod message;
