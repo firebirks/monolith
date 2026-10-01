@@ -315,16 +315,32 @@ fn has_foreign_card(message: &Message) -> bool {
     *signer != *PEER_IDENTITY
 }
 
-/// A message of any type as the peer would send it. Now and then a message
-/// that carries a card does not carry the peer's own.
+/// A message as the peer would send it.
+///
+/// Uniformly chosen message types end almost every session at the first
+/// message, because most types are illegal before confirmation. The
+/// messages that keep a session going, and the ones that carry a card of
+/// another identity, are therefore drawn more often than the rest.
 fn arb_session_message() -> impl Strategy<Value = Message> {
-    (0..MessageType::ALL.len(), prop::bool::weighted(0.15)).prop_map(|(index, foreign)| {
-        if foreign {
-            FROM_STRANGER[index].clone()
-        } else {
-            FROM_PEER[index].clone()
-        }
-    })
+    let peer =
+        |message_type: MessageType| -> Message { FROM_PEER[type_index(message_type)].clone() };
+    let stranger =
+        |message_type: MessageType| -> Message { FROM_STRANGER[type_index(message_type)].clone() };
+    prop_oneof![
+        6 => Just(peer(MessageType::ContactAccept)),
+        6 => Just(peer(MessageType::ContactRequest)),
+        2 => Just(stranger(MessageType::ContactRequest)),
+        2 => Just(stranger(MessageType::EndpointUpdate)),
+        1 => Just(stranger(MessageType::AuthProof)),
+        8 => (0..MessageType::ALL.len()).prop_map(|index| FROM_PEER[index].clone()),
+    ]
+}
+
+fn type_index(message_type: MessageType) -> usize {
+    MessageType::ALL
+        .iter()
+        .position(|candidate| *candidate == message_type)
+        .unwrap()
 }
 
 /// Something that happens to a session after it authenticated.
@@ -339,7 +355,7 @@ enum Event {
 
 fn arb_event() -> impl Strategy<Value = Event> {
     prop_oneof![
-        12 => arb_session_message().prop_map(Event::Receive),
+        16 => arb_session_message().prop_map(Event::Receive),
         1 => Just(Event::Close),
         1 => Just(Event::Block),
         1 => Just(Event::Remove),
@@ -648,6 +664,12 @@ proptest! {
         prop_assert_eq!(ContactCard::from_text(&spaced), Ok(card));
     }
 
+}
+
+// The properties below need no signature per case and run many more cases.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1024))]
+
     // -----------------------------------------------------------------------
     // Frames
     // -----------------------------------------------------------------------
@@ -936,7 +958,6 @@ proptest! {
     fn a_session_without_identity_proof_delivers_nothing(
         messages in vec(arb_session_message(), 1..12),
         steps in 0..=2_u8,
-        standing in arb_standing(),
     ) {
         let mut session = Session::new();
         if steps >= 1 {
@@ -955,16 +976,47 @@ proptest! {
             prop_assert!(!session.state().is_authenticated());
             prop_assert_eq!(session.peer(), None);
         }
-        // The caller cannot authenticate the session as an identity that
-        // no proof on it named.
-        let stranger = identity(STRANGER);
-        let named_stranger = messages
-            .first()
-            .is_some_and(|first| matches!(first, Message::AuthProof(proof) if proof.identity == stranger));
-        let outcome = session.identities_proven(stranger, standing);
-        if !(steps == 2 && named_stranger && session.state() == SessionState::AuthenticatedUnknown) {
+    }
+
+    #[test]
+    fn a_session_is_authenticated_only_as_the_identity_its_proof_named(
+        steps in 0..=2_u8,
+        proof in proptest::option::of(any::<bool>()),
+        claim_stranger in any::<bool>(),
+        standing in arb_standing(),
+    ) {
+        // The caller says "identities proven" for the peer or for a
+        // stranger, on a session that got some way into the handshake and
+        // received a proof by the peer, by the stranger, or none. That is
+        // accepted in one case only: the handshake finished, and a proof
+        // arrived that named the identity the caller claims.
+        let mut session = Session::new();
+        if steps >= 1 {
+            session.stream_established().unwrap();
+        }
+        if steps >= 2 {
+            session.handshake_completed().unwrap();
+        }
+        let mut proof_named_stranger = None;
+        if let Some(by_stranger) = proof {
+            let message = if by_stranger { &FROM_STRANGER[0] } else { &FROM_PEER[0] };
+            if session.receive(message).is_ok() {
+                proof_named_stranger = Some(by_stranger);
+            }
+        }
+        prop_assert_eq!(proof_named_stranger.is_some(), steps == 2 && proof.is_some());
+
+        let claimed = if claim_stranger { identity(STRANGER) } else { *PEER_IDENTITY };
+        let outcome = session.identities_proven(claimed, standing);
+        if proof_named_stranger == Some(claim_stranger) {
+            prop_assert!(outcome.is_ok());
+            prop_assert_eq!(session.state(), SessionState::AuthenticatedUnknown);
+            prop_assert_eq!(session.peer(), Some(&claimed));
+            prop_assert_eq!(session.standing(), standing);
+        } else {
             prop_assert!(outcome.is_err());
             prop_assert!(!session.state().is_authenticated());
+            prop_assert_eq!(session.peer(), None);
         }
     }
 
