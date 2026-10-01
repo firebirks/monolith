@@ -16,7 +16,9 @@
 use std::sync::LazyLock;
 
 use libfuzzer_sys::fuzz_target;
-use monolith_identity::{EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
+use monolith_identity::{
+    EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, TransportPublicKey,
+};
 use monolith_protocol::body::{
     AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId,
 };
@@ -51,8 +53,11 @@ fn samples(seed: [u8; 32]) -> Vec<Message> {
             .as_bytes(),
     )
     .unwrap();
+    let mut transport = seed;
+    transport[31] &= 0x7f;
     let card = ContactCard::sign(
         &secret,
+        TransportPublicKey::from_bytes(&transport).unwrap(),
         EndpointEpoch::FIRST,
         EndpointSet::single(endpoint),
         None,

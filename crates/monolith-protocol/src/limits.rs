@@ -150,8 +150,12 @@ pub const MAX_FILENAME_LEN: usize = 255;
 pub const MAX_ACTIVE_ENDPOINTS: usize = 1;
 
 /// Length of the fixed fields of a binary contact card: version, identity
-/// key, epoch, endpoint count, flags and signature.
-pub const CONTACT_CARD_FIXED_LEN: usize = 1 + 32 + 8 + 1 + 1 + SIGNATURE_LEN;
+/// key, transport key, epoch, endpoint count, flags and signature.
+pub const CONTACT_CARD_FIXED_LEN: usize = 1 + 32 + DH_PUBLIC_KEY_LEN + 8 + 1 + 1 + SIGNATURE_LEN;
+
+/// Offset of the endpoint count in a binary contact card: after the
+/// version, the identity key, the transport key and the epoch.
+pub const CONTACT_CARD_COUNT_OFFSET: usize = 1 + 32 + DH_PUBLIC_KEY_LEN + 8;
 
 /// Length of one endpoint in a binary contact card.
 pub const CONTACT_CARD_ENDPOINT_LEN: usize = 32;
@@ -184,7 +188,7 @@ pub const MAX_UNCONFIRMED_BODY_LEN: usize = CONTACT_CARD_FIXED_LEN
     + MAX_INTRODUCTION_TEXT_LEN;
 
 /// Largest textual contact card accepted from the user, in bytes. The
-/// longest valid card is 258 bytes, all ASCII; the margin is for whitespace,
+/// longest valid card is 310 bytes, all ASCII; the margin is for whitespace,
 /// which is removed wherever it occurs.
 pub const MAX_CONTACT_CARD_TEXT_LEN: usize = 512;
 
@@ -536,11 +540,12 @@ const _: () = {
     assert!(MAX_FILE_CHUNK_LEN == 64_490);
 
     assert!(MAX_ACTIVE_ENDPOINTS >= 1 && MAX_ACTIVE_ENDPOINTS <= 255);
-    assert!(CONTACT_CARD_BASE_LEN == 139);
-    assert!(MAX_CONTACT_CARD_LEN == 155);
+    assert!(CONTACT_CARD_BASE_LEN == 171);
+    assert!(MAX_CONTACT_CARD_LEN == 187);
+    assert!(CONTACT_CARD_COUNT_OFFSET == 73);
     assert!(MAX_CONTACT_CARD_LEN <= MAX_MESSAGE_BODY_LEN);
 
-    assert!(MAX_UNCONFIRMED_BODY_LEN == 800);
+    assert!(MAX_UNCONFIRMED_BODY_LEN == 832);
     assert!(AUTH_PROOF_BODY_LEN == 104);
     assert!(AUTH_PROOF_BODY_LEN <= MAX_UNCONFIRMED_BODY_LEN);
     // With the working padding block, every message before confirmation

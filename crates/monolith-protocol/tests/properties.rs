@@ -22,7 +22,8 @@
 use std::sync::LazyLock;
 
 use monolith_identity::{
-    EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, base32,
+    EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, TransportPublicKey,
+    base32,
 };
 use monolith_protocol::body::{
     AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId,
@@ -52,18 +53,28 @@ fn endpoint(seed: [u8; 32]) -> OnionServiceKey {
     OnionServiceKey::from_bytes(identity(seed).as_bytes()).unwrap()
 }
 
+/// A transport key made from arbitrary bytes: the top bit is cleared, and
+/// the few strings that are still not a valid key give `None`. The tests of
+/// this crate need no private half for it.
+fn transport(mut bytes: [u8; 32]) -> Option<TransportPublicKey> {
+    bytes[31] &= 0x7f;
+    TransportPublicKey::from_bytes(&bytes).ok()
+}
+
 fn arb_card(with_invitation: bool) -> impl Strategy<Value = ContactCard> {
     (
+        any::<[u8; 32]>(),
         any::<[u8; 32]>(),
         any::<[u8; 32]>(),
         1..=u64::MAX,
         any::<[u8; 16]>(),
     )
         .prop_filter_map(
-            "endpoint equals identity",
-            move |(identity_seed, endpoint_seed, epoch, capability)| {
+            "keys coincide",
+            move |(identity_seed, transport_bytes, endpoint_seed, epoch, capability)| {
                 ContactCard::sign(
                     &IdentitySecretKey::from_seed(&identity_seed),
+                    transport(transport_bytes)?,
                     EndpointEpoch::new(epoch).unwrap(),
                     EndpointSet::single(endpoint(endpoint_seed)),
                     with_invitation.then(|| InvitationCapability::from_bytes(capability)),
@@ -256,6 +267,7 @@ fn samples(seed: [u8; 32]) -> Vec<Message> {
     endpoint_seed[0] ^= 0xff;
     let card = ContactCard::sign(
         &secret,
+        transport(seed).unwrap(),
         EndpointEpoch::FIRST,
         EndpointSet::single(endpoint(endpoint_seed)),
         None,
@@ -587,8 +599,8 @@ proptest! {
     fn arbitrary_bytes_do_not_panic_the_card_decoder(
         bytes in prop_oneof![
             vec(any::<u8>(), 0..200),
-            vec(any::<u8>(), 139),
-            vec(any::<u8>(), 155),
+            vec(any::<u8>(), 171),
+            vec(any::<u8>(), 187),
         ],
     ) {
         // Arbitrary bytes stop at the length or the version byte. This is a
@@ -599,6 +611,7 @@ proptest! {
     #[test]
     fn a_well_formed_card_with_another_signature_is_rejected(
         identity_seed in any::<[u8; 32]>(),
+        transport_bytes in any::<[u8; 32]>(),
         endpoint_seed in any::<[u8; 32]>(),
         epoch in 1..=u64::MAX,
         capability in proptest::option::of(any::<[u8; 16]>()),
@@ -615,8 +628,14 @@ proptest! {
         // every check and fails at the last.
         prop_assume!(identity_seed != endpoint_seed);
         let secret = IdentitySecretKey::from_seed(&identity_seed);
+        let transport_key = transport(transport_bytes);
+        prop_assume!(transport_key.is_some());
+        let transport_key = transport_key.unwrap();
+        prop_assume!(!transport_key.is_montgomery_form_of(secret.public_key().as_bytes()));
+        prop_assume!(!transport_key.is_montgomery_form_of(endpoint(endpoint_seed).as_bytes()));
         let mut bytes = vec![0x01];
         bytes.extend_from_slice(secret.public_key().as_bytes());
+        bytes.extend_from_slice(transport_key.as_bytes());
         bytes.extend_from_slice(&epoch.to_be_bytes());
         bytes.push(1);
         bytes.extend_from_slice(endpoint(endpoint_seed).as_bytes());
@@ -646,12 +665,13 @@ proptest! {
     fn a_card_with_a_forged_field_is_rejected(
         card in arb_card(true),
         other in arb_card(true),
-        field in 0..6_usize,
+        field in 0..7_usize,
     ) {
         // Every field of one valid card replaced by the same field of
         // another valid card, so that each field on its own is well formed
-        // and only the signature can tell.
-        let ranges = [1..33, 33..41, 42..74, 75..91, 91..155, 91..123];
+        // and only the signature can tell: identity key, transport key,
+        // epoch, endpoint, capability, signature, half of the signature.
+        let ranges = [1..33, 33..65, 65..73, 74..106, 107..123, 123..187, 123..155];
         let range = ranges[field].clone();
         let mut bytes = card.encode();
         let donor = other.encode();
@@ -679,7 +699,7 @@ proptest! {
 
     #[test]
     fn well_formed_text_of_arbitrary_bytes_is_not_a_card(
-        bytes in prop_oneof![vec(any::<u8>(), 139), vec(any::<u8>(), 155)],
+        bytes in prop_oneof![vec(any::<u8>(), 171), vec(any::<u8>(), 187)],
         lower in any::<bool>(),
     ) {
         // The prefix and the base32 are right, so the text parser hands

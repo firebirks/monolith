@@ -23,7 +23,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey, base32};
+use monolith_identity::{
+    EndpointEpoch, IdentitySecretKey, OnionServiceKey, TransportPublicKey, base32,
+};
 use monolith_protocol::body::{
     AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId,
 };
@@ -41,6 +43,13 @@ const PARAMS: FrameParams = FrameParams::PROVISIONAL;
 const IDENTITY_SEED: [u8; 32] = [
     0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
     0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae, 0x7f, 0x60,
+];
+
+/// Transport key in the seeds: the first public key of RFC 7748 section
+/// 6.1, as in the known-answer test of the contact card.
+const TRANSPORT_KEY: [u8; 32] = [
+    0x85, 0x20, 0xf0, 0x09, 0x89, 0x30, 0xa7, 0x54, 0x74, 0x8b, 0x7d, 0xdc, 0xb4, 0x3e, 0xf7, 0x5a,
+    0x0d, 0xbf, 0x3a, 0x0d, 0x26, 0x38, 0x1a, 0xf4, 0xeb, 0xa4, 0xa9, 0x8e, 0xaa, 0x9b, 0x4e, 0x6a,
 ];
 
 /// Session states in the order the `frame_plaintext` target selects them.
@@ -67,6 +76,7 @@ fn card(epoch: u64, invitation: bool) -> ContactCard {
     .unwrap();
     ContactCard::sign(
         &secret(),
+        TransportPublicKey::from_bytes(&TRANSPORT_KEY).unwrap(),
         EndpointEpoch::new(epoch).unwrap(),
         EndpointSet::single(endpoint),
         invitation.then(|| InvitationCapability::from_bytes([0xC4; 16])),

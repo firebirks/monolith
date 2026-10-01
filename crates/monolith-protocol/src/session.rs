@@ -450,7 +450,9 @@ pub(crate) mod testing {
 
     use std::sync::LazyLock;
 
-    use monolith_identity::{EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
+    use monolith_identity::{
+        EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, TransportPublicKey,
+    };
 
     use super::{Action, Session, Standing};
     use crate::MessageType;
@@ -472,11 +474,19 @@ pub(crate) mod testing {
         secret(seed).public_key()
     }
 
+    /// A valid X25519 public key that depends on the seed.
+    pub(crate) fn transport(seed: u8) -> TransportPublicKey {
+        let mut bytes = [seed; 32];
+        bytes[31] = 0x40;
+        TransportPublicKey::from_bytes(&bytes).unwrap()
+    }
+
     pub(crate) fn card(seed: u8) -> ContactCard {
         let endpoint =
             OnionServiceKey::from_bytes(identity(seed.wrapping_add(1)).as_bytes()).unwrap();
         ContactCard::sign(
             &secret(seed),
+            transport(seed),
             EndpointEpoch::FIRST,
             EndpointSet::single(endpoint),
             None,

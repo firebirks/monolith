@@ -403,13 +403,13 @@ impl Message {
 /// count is read first, without consuming anything, and checked against the
 /// limit; only then is the card taken from the input and verified.
 fn decode_card_without_invitation(reader: &mut Reader<'_>) -> Result<ContactCard, ProtocolError> {
-    use crate::limits::{CONTACT_CARD_ENDPOINT_LEN, CONTACT_CARD_FIXED_LEN, MAX_ACTIVE_ENDPOINTS};
-
-    /// Offset of the endpoint count inside a card: version, identity, epoch.
-    const COUNT_OFFSET: usize = 1 + 32 + 8;
+    use crate::limits::{
+        CONTACT_CARD_COUNT_OFFSET, CONTACT_CARD_ENDPOINT_LEN, CONTACT_CARD_FIXED_LEN,
+        MAX_ACTIVE_ENDPOINTS,
+    };
 
     let mut peek = Reader::new(reader.peek());
-    peek.take(COUNT_OFFSET)?;
+    peek.take(CONTACT_CARD_COUNT_OFFSET)?;
     let count = usize::from(peek.u8()?);
     if count == 0 || count > MAX_ACTIVE_ENDPOINTS {
         return Err(ProtocolError::InvalidValue);
@@ -430,7 +430,9 @@ mod tests {
     use super::*;
     use crate::card::EndpointSet;
     use crate::limits::MAX_UNCONFIRMED_BODY_LEN;
-    use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
+    use monolith_identity::{
+        EndpointEpoch, IdentitySecretKey, OnionServiceKey, TransportPublicKey,
+    };
 
     fn secret(seed: u8) -> IdentitySecretKey {
         IdentitySecretKey::from_seed(&[seed; 32])
@@ -438,8 +440,11 @@ mod tests {
 
     fn card(invitation: bool) -> ContactCard {
         let endpoint = OnionServiceKey::from_bytes(secret(9).public_key().as_bytes()).unwrap();
+        let mut transport = [1_u8; 32];
+        transport[31] = 0x40;
         ContactCard::sign(
             &secret(1),
+            TransportPublicKey::from_bytes(&transport).unwrap(),
             EndpointEpoch::new(3).unwrap(),
             EndpointSet::single(endpoint),
             invitation.then(|| InvitationCapability::from_bytes([7; 16])),
@@ -532,7 +537,7 @@ mod tests {
         assert_eq!(size(&Message::Ping([0; 8])), 8);
         assert_eq!(size(&Message::ContactAccept), 0);
         assert_eq!(size(&Message::MessageAck(id())), 16);
-        assert_eq!(size(&Message::EndpointUpdate(Box::new(card(false)))), 139);
+        assert_eq!(size(&Message::EndpointUpdate(Box::new(card(false)))), 171);
         assert_eq!(size(&Message::FileAccept(transfer())), 16);
         assert_eq!(
             size(&Message::FileComplete {
@@ -542,7 +547,7 @@ mod tests {
             48
         );
         // Smallest and largest contact request.
-        assert_eq!(size(&all[5]), 144);
+        assert_eq!(size(&all[5]), 176);
         let largest = Message::ContactRequest(Box::new(ContactRequest {
             card: card(false),
             invitation: Some(InvitationCapability::from_bytes([5; 16])),
@@ -550,7 +555,7 @@ mod tests {
             introduction: IntroductionText::new(&"b".repeat(512)).unwrap(),
         }));
         // 64 one-byte characters; the byte limit of 128 needs wider ones.
-        assert_eq!(size(&largest), 800 - 64);
+        assert_eq!(size(&largest), 832 - 64);
         let widest = Message::ContactRequest(Box::new(ContactRequest {
             card: card(false),
             invitation: Some(InvitationCapability::from_bytes([5; 16])),
@@ -701,8 +706,8 @@ mod tests {
     fn presence_byte_must_be_zero_or_one() {
         let request = &samples()[5];
         let mut body = request.encode_body().unwrap();
-        assert_eq!(body[139], 0);
-        body[139] = 2;
+        assert_eq!(body[171], 0);
+        body[171] = 2;
         assert_eq!(
             Message::decode(MessageType::ContactRequest, &body),
             Err(ProtocolError::InvalidValue)
@@ -713,9 +718,9 @@ mod tests {
     fn a_card_with_an_invitation_is_rejected_inside_messages() {
         let with_invitation = card(true);
         // The card with invitation is 16 bytes longer than the field. Its
-        // first 139 bytes do not form a valid card.
+        // first 171 bytes do not form a valid card.
         let mut body = with_invitation.encode();
-        body.truncate(139);
+        body.truncate(171);
         assert!(Message::decode(MessageType::EndpointUpdate, &body).is_err());
         assert!(Message::decode(MessageType::EndpointUpdate, &with_invitation.encode()).is_err());
         assert_eq!(

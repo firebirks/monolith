@@ -1,9 +1,14 @@
 //! Contact cards and endpoint sets.
 //!
-//! A contact card is a signed statement by an identity: "as of this epoch, I
-//! can be reached at this set of endpoints". The format is defined in
-//! `docs/PROTOCOL.md` section 11. Version 1 allows one endpoint per card;
-//! the format, the signed bytes and the epoch rule are those of a set.
+//! A contact card is a signed statement by an identity: "as of this epoch,
+//! my sessions are authenticated by this transport key, and I can be reached
+//! at this set of endpoints". The format is defined in `docs/PROTOCOL.md`
+//! section 11. Version 1 allows one endpoint per card; the format, the
+//! signed bytes and the epoch rule are those of a set.
+//!
+//! The card is the certificate of the transport key: the session handshake
+//! authenticates transport keys, and a card says which identity one belongs
+//! to (`docs/PROTOCOL.md` section 4.6).
 //!
 //! The bytes that are signed come from [`ContactCard::signed_bytes`], which
 //! is separate from the transport encoder [`ContactCard::encode`], so that a
@@ -13,7 +18,8 @@ use core::fmt;
 
 use monolith_identity::redact::REDACTED;
 use monolith_identity::{
-    EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, Signature, base32,
+    EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, Signature,
+    TransportPublicKey, base32,
 };
 use subtle::ConstantTimeEq;
 
@@ -160,6 +166,21 @@ impl EndpointSet {
     }
 }
 
+/// Returns true if `transport` is the identity key, or one of the endpoint
+/// keys, carried over to the Montgomery form. Key separation forbids that
+/// (`docs/PROTOCOL.md` section 11.2, invariant S33).
+///
+/// The endpoints are taken as raw bytes so that a decoder can apply this
+/// check before it validates them, in the order the specification gives.
+fn transport_reuses<'a>(
+    transport: &TransportPublicKey,
+    identity: &IdentityPublicKey,
+    mut endpoints: impl Iterator<Item = &'a [u8; 32]>,
+) -> bool {
+    transport.is_montgomery_form_of(identity.as_bytes())
+        || endpoints.any(|endpoint| transport.is_montgomery_form_of(endpoint))
+}
+
 /// A verified contact card.
 ///
 /// A value of this type has passed every check of `docs/PROTOCOL.md` section
@@ -168,6 +189,7 @@ impl EndpointSet {
 #[derive(Clone, PartialEq, Eq)]
 pub struct ContactCard {
     identity: IdentityPublicKey,
+    transport: TransportPublicKey,
     epoch: EndpointEpoch,
     endpoints: EndpointSet,
     invitation: Option<InvitationCapability>,
@@ -176,14 +198,18 @@ pub struct ContactCard {
 
 impl ContactCard {
     /// Creates and signs a card for the identity that `secret` belongs to.
+    /// `transport` is the X25519 key with which that identity authenticates
+    /// its sessions.
     ///
-    /// Fails if one of the endpoints is the identity key itself. That is
-    /// key separation (`docs/PROTOCOL.md` section 11.2, invariant S33): the
-    /// identity key and the master key of an Onion Service belong to
-    /// different cryptographic domains and are never the same key. No
-    /// receiver accepts such a card.
+    /// Fails if one of the endpoints is the identity key itself, or if the
+    /// transport key is the identity key or an endpoint key in Montgomery
+    /// form. That is key separation (`docs/PROTOCOL.md` section 11.2,
+    /// invariant S33): the identity key, the transport key and the master
+    /// key of an Onion Service belong to different cryptographic domains
+    /// and are never the same key. No receiver accepts such a card.
     pub fn sign(
         secret: &IdentitySecretKey,
+        transport: TransportPublicKey,
         epoch: EndpointEpoch,
         endpoints: EndpointSet,
         invitation: Option<InvitationCapability>,
@@ -192,9 +218,23 @@ impl ContactCard {
         if endpoints.reuses(&identity) {
             return Err(ProtocolError::InvalidValue);
         }
-        let message = signed_bytes(&identity, epoch, &endpoints, invitation.as_ref());
+        if transport_reuses(
+            &transport,
+            &identity,
+            endpoints.iter().map(OnionServiceKey::as_bytes),
+        ) {
+            return Err(ProtocolError::InvalidValue);
+        }
+        let message = signed_bytes(
+            &identity,
+            &transport,
+            epoch,
+            &endpoints,
+            invitation.as_ref(),
+        );
         Ok(Self {
             identity,
+            transport,
             epoch,
             endpoints,
             invitation,
@@ -207,7 +247,13 @@ impl ContactCard {
         &self.identity
     }
 
-    /// Returns the epoch of the endpoint set.
+    /// Returns the transport key the identity states in this card.
+    pub const fn transport(&self) -> &TransportPublicKey {
+        &self.transport
+    }
+
+    /// Returns the epoch of the card. It covers the transport key and the
+    /// endpoint set.
     pub const fn epoch(&self) -> EndpointEpoch {
         self.epoch
     }
@@ -232,6 +278,7 @@ impl ContactCard {
     pub fn signed_bytes(&self) -> Vec<u8> {
         signed_bytes(
             &self.identity,
+            &self.transport,
             self.epoch,
             &self.endpoints,
             self.invitation.as_ref(),
@@ -244,6 +291,7 @@ impl ContactCard {
         write_fields(
             &mut writer,
             &self.identity,
+            &self.transport,
             self.epoch,
             &self.endpoints,
             self.invitation.as_ref(),
@@ -267,6 +315,7 @@ impl ContactCard {
             return Err(ProtocolError::UnsupportedVersion);
         }
         let identity_bytes: [u8; 32] = reader.array()?;
+        let transport_bytes: [u8; 32] = reader.array()?;
         let epoch = EndpointEpoch::new(reader.u64()?).map_err(|_| ProtocolError::InvalidValue)?;
 
         let count = usize::from(reader.u8()?);
@@ -291,6 +340,10 @@ impl ContactCard {
         reader.finish()?;
 
         let identity = IdentityPublicKey::from_bytes(&identity_bytes)?;
+        let transport = TransportPublicKey::from_bytes(&transport_bytes)?;
+        if transport_reuses(&transport, &identity, endpoint_bytes.iter()) {
+            return Err(ProtocolError::InvalidValue);
+        }
         let mut endpoints: Vec<OnionServiceKey> = Vec::with_capacity(count);
         for raw in &endpoint_bytes {
             endpoints.push(OnionServiceKey::from_bytes(raw)?);
@@ -300,11 +353,18 @@ impl ContactCard {
             return Err(ProtocolError::InvalidValue);
         }
 
-        let message = signed_bytes(&identity, epoch, &endpoints, invitation.as_ref());
+        let message = signed_bytes(
+            &identity,
+            &transport,
+            epoch,
+            &endpoints,
+            invitation.as_ref(),
+        );
         identity.verify(&message, &signature)?;
 
         Ok(Self {
             identity,
+            transport,
             epoch,
             endpoints,
             invitation,
@@ -360,12 +420,14 @@ impl fmt::Debug for ContactCard {
 fn write_fields(
     writer: &mut Writer,
     identity: &IdentityPublicKey,
+    transport: &TransportPublicKey,
     epoch: EndpointEpoch,
     endpoints: &EndpointSet,
     invitation: Option<&InvitationCapability>,
 ) {
     writer.u8(CARD_VERSION);
     writer.raw(identity.as_bytes());
+    writer.raw(transport.as_bytes());
     writer.u64(epoch.get());
     // An EndpointSet holds at most MAX_ACTIVE_ENDPOINTS members, and limits.rs
     // asserts that this maximum fits in one byte.
@@ -391,6 +453,7 @@ fn write_fields(
 /// version 1.
 fn signed_bytes(
     identity: &IdentityPublicKey,
+    transport: &TransportPublicKey,
     epoch: EndpointEpoch,
     endpoints: &EndpointSet,
     invitation: Option<&InvitationCapability>,
@@ -400,6 +463,7 @@ fn signed_bytes(
     writer.raw(SIGNING_PREFIX);
     writer.u8(CARD_VERSION);
     writer.raw(identity.as_bytes());
+    writer.raw(transport.as_bytes());
     writer.u64(epoch.get());
     writer.u8(u8::try_from(endpoints.count()).unwrap_or(u8::MAX));
     for endpoint in endpoints.iter() {
@@ -416,46 +480,48 @@ fn signed_bytes(
     writer.into_bytes()
 }
 
-/// What a card from a contact means for the endpoint set pinned for it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EndpointUpdate {
-    /// The epoch is greater than the pinned one. The card's set replaces the
-    /// pinned set once the change is confirmed.
+/// What a card from a contact means for what is pinned for that contact:
+/// its transport key and its endpoint set, as of an epoch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CardChange {
+    /// The epoch is greater than the pinned one. The card replaces what is
+    /// pinned once the change is confirmed.
     Newer,
-    /// Same epoch, same set. Nothing to do; this is the normal case.
+    /// Same epoch, same transport key, same endpoint set. Nothing to do;
+    /// this is the normal case.
     Unchanged,
-    /// Same epoch, different set: the owner signed two statements with one
-    /// epoch. Nothing changes; the user is told.
+    /// Same epoch and another transport key or endpoint set: the owner
+    /// signed two statements with one epoch. Nothing changes; the user is
+    /// told.
     Conflict,
     /// The epoch is lower than the pinned one. Nothing changes.
     Stale,
 }
 
-/// Compares a card received from a contact with what is pinned for that
-/// contact. See `docs/PROTOCOL.md` section 8.8.
+/// Compares a card received from a contact with the card that is pinned for
+/// that contact. See `docs/PROTOCOL.md` sections 6.2, 8.8 and 11.4.
 ///
 /// Fails with [`ProtocolError::IdentityMismatch`] if the card was signed by
-/// another identity than the pinned one. Nothing but [`EndpointUpdate::Newer`]
-/// ever leads to a change of the pinned set.
-pub fn evaluate_endpoint_update(
-    pinned_identity: &IdentityPublicKey,
-    pinned_epoch: EndpointEpoch,
-    pinned_endpoints: &EndpointSet,
+/// another identity than the pinned one. Nothing but [`CardChange::Newer`]
+/// ever leads to a change of what is pinned. An invitation capability in
+/// either card plays no part.
+pub fn evaluate_card(
+    pinned: &ContactCard,
     card: &ContactCard,
-) -> Result<EndpointUpdate, ProtocolError> {
-    if card.identity() != pinned_identity {
+) -> Result<CardChange, ProtocolError> {
+    if card.identity() != pinned.identity() {
         return Err(ProtocolError::IdentityMismatch);
     }
-    if pinned_epoch.is_superseded_by(card.epoch()) {
-        return Ok(EndpointUpdate::Newer);
+    if pinned.epoch().is_superseded_by(card.epoch()) {
+        return Ok(CardChange::Newer);
     }
-    if card.epoch() == pinned_epoch {
-        if card.endpoints() == pinned_endpoints {
-            return Ok(EndpointUpdate::Unchanged);
+    if card.epoch() == pinned.epoch() {
+        if card.transport() == pinned.transport() && card.endpoints() == pinned.endpoints() {
+            return Ok(CardChange::Unchanged);
         }
-        return Ok(EndpointUpdate::Conflict);
+        return Ok(CardChange::Conflict);
     }
-    Ok(EndpointUpdate::Stale)
+    Ok(CardChange::Stale)
 }
 
 #[cfg(test)]
@@ -476,9 +542,18 @@ mod tests {
         EndpointEpoch::new(value).unwrap()
     }
 
+    /// A valid X25519 public key that depends on the seed. The tests of
+    /// this crate need no private half for it.
+    fn transport(seed: u8) -> TransportPublicKey {
+        let mut bytes = [seed; 32];
+        bytes[31] = 0x40;
+        TransportPublicKey::from_bytes(&bytes).unwrap()
+    }
+
     fn card(seed: u8, epoch_value: u64, invitation: bool) -> ContactCard {
         ContactCard::sign(
             &secret(seed),
+            transport(seed),
             epoch(epoch_value),
             EndpointSet::single(endpoint(seed.wrapping_add(100))),
             invitation.then(|| InvitationCapability::from_bytes([0xC4; 16])),
@@ -490,8 +565,18 @@ mod tests {
     /// key of `seed`, without any of the checks that [`ContactCard::sign`]
     /// and the typed fields apply.
     fn raw_card(seed: u8, endpoint_bytes: &[u8; 32]) -> Vec<u8> {
+        raw_card_with_transport(seed, transport(seed).as_bytes(), endpoint_bytes)
+    }
+
+    /// The same, with the transport key given as raw bytes.
+    fn raw_card_with_transport(
+        seed: u8,
+        transport_bytes: &[u8; 32],
+        endpoint_bytes: &[u8; 32],
+    ) -> Vec<u8> {
         let mut fields = vec![CARD_VERSION];
         fields.extend_from_slice(secret(seed).public_key().as_bytes());
+        fields.extend_from_slice(transport_bytes);
         fields.extend_from_slice(&7_u64.to_be_bytes());
         fields.push(1);
         fields.extend_from_slice(endpoint_bytes);
@@ -560,10 +645,136 @@ mod tests {
         assert_eq!(
             ContactCard::sign(
                 &secret(1),
+                transport(1),
                 epoch(7),
                 EndpointSet::single(OnionServiceKey::from_bytes(&identity_key).unwrap()),
                 None,
             ),
+            Err(ProtocolError::InvalidValue)
+        );
+    }
+
+    /// The Montgomery form of the Ed25519 public key of `seed`.
+    fn montgomery(seed: u8) -> [u8; 32] {
+        ed25519_dalek::VerifyingKey::from_bytes(secret(seed).public_key().as_bytes())
+            .unwrap()
+            .to_montgomery()
+            .to_bytes()
+    }
+
+    #[test]
+    fn a_signed_card_with_an_invalid_transport_key_is_rejected() {
+        // The signature is good; the transport key is not a valid X25519
+        // key. A point of small order, a value that is not below the field
+        // prime, and a key with the top bit set.
+        let mut order_eight = [0_u8; 32];
+        order_eight[..31].copy_from_slice(&[
+            0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f,
+            0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16,
+            0x5f, 0x49, 0xb8,
+        ]);
+        let mut prime = [0xff_u8; 32];
+        prime[0] = 0xed;
+        prime[31] = 0x7f;
+        let mut top_bit = *transport(1).as_bytes();
+        top_bit[31] |= 0x80;
+        for bad in [[0_u8; 32], order_eight, prime, top_bit] {
+            assert_eq!(
+                ContactCard::decode(&raw_card_with_transport(1, &bad, endpoint(101).as_bytes())),
+                Err(ProtocolError::InvalidKey)
+            );
+        }
+        // The helper builds a valid card from good fields.
+        assert!(
+            ContactCard::decode(&raw_card_with_transport(
+                1,
+                transport(9).as_bytes(),
+                endpoint(101).as_bytes()
+            ))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn the_transport_key_must_not_be_the_identity_key_in_montgomery_form() {
+        let converted = montgomery(1);
+        assert_eq!(
+            ContactCard::decode(&raw_card_with_transport(
+                1,
+                &converted,
+                endpoint(101).as_bytes()
+            )),
+            Err(ProtocolError::InvalidValue)
+        );
+        assert_eq!(
+            ContactCard::sign(
+                &secret(1),
+                TransportPublicKey::from_bytes(&converted).unwrap(),
+                epoch(7),
+                EndpointSet::single(endpoint(101)),
+                None,
+            ),
+            Err(ProtocolError::InvalidValue)
+        );
+        // The same key is fine in the card of another identity.
+        assert!(
+            ContactCard::sign(
+                &secret(2),
+                TransportPublicKey::from_bytes(&converted).unwrap(),
+                epoch(7),
+                EndpointSet::single(endpoint(101)),
+                None,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn the_transport_key_must_not_be_an_endpoint_key_in_montgomery_form() {
+        // endpoint(101) is the Ed25519 public key of seed 101.
+        let converted = montgomery(101);
+        assert_eq!(
+            ContactCard::decode(&raw_card_with_transport(
+                1,
+                &converted,
+                endpoint(101).as_bytes()
+            )),
+            Err(ProtocolError::InvalidValue)
+        );
+        assert_eq!(
+            ContactCard::sign(
+                &secret(1),
+                TransportPublicKey::from_bytes(&converted).unwrap(),
+                epoch(7),
+                EndpointSet::single(endpoint(101)),
+                None,
+            ),
+            Err(ProtocolError::InvalidValue)
+        );
+        // With another endpoint the same transport key is accepted.
+        assert!(
+            ContactCard::decode(&raw_card_with_transport(
+                1,
+                &converted,
+                endpoint(102).as_bytes()
+            ))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn key_separation_is_checked_before_the_endpoints_are_validated() {
+        // PROTOCOL.md 11.2 puts the transport key (step 8) before the
+        // endpoints (step 9). A card that fails both reports the first:
+        // the reused key, not the invalid endpoint.
+        let mut neutral = [0_u8; 32];
+        neutral[0] = 1;
+        assert_eq!(
+            ContactCard::decode(&raw_card(1, &neutral)),
+            Err(ProtocolError::InvalidKey)
+        );
+        assert_eq!(
+            ContactCard::decode(&raw_card_with_transport(1, &montgomery(1), &neutral)),
             Err(ProtocolError::InvalidValue)
         );
     }
@@ -609,12 +820,12 @@ mod tests {
 
     #[test]
     fn sizes_match_the_specification() {
-        assert_eq!(card(1, 1, false).encode().len(), 139);
-        assert_eq!(card(1, 1, true).encode().len(), 155);
+        assert_eq!(card(1, 1, false).encode().len(), 171);
+        assert_eq!(card(1, 1, true).encode().len(), 187);
         assert_eq!(card(1, 1, false).encode().len(), CONTACT_CARD_BASE_LEN);
         assert_eq!(card(1, 1, true).encode().len(), MAX_CONTACT_CARD_LEN);
-        assert_eq!(card(1, 1, false).signed_bytes().len(), 99);
-        assert_eq!(card(1, 1, true).signed_bytes().len(), 115);
+        assert_eq!(card(1, 1, false).signed_bytes().len(), 131);
+        assert_eq!(card(1, 1, true).signed_bytes().len(), 147);
     }
 
     #[test]
@@ -634,12 +845,13 @@ mod tests {
         let bytes = original.encode();
         assert_eq!(bytes[0], 0x01);
         assert_eq!(&bytes[1..33], original.identity().as_bytes());
-        assert_eq!(&bytes[33..41], &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(bytes[41], 1);
-        assert_eq!(&bytes[42..74], original.endpoints().first().as_bytes());
-        assert_eq!(bytes[74], 0x01);
-        assert_eq!(&bytes[75..91], &[0xC4; 16]);
-        assert_eq!(&bytes[91..155], original.signature().as_bytes());
+        assert_eq!(&bytes[33..65], original.transport().as_bytes());
+        assert_eq!(&bytes[65..73], &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(bytes[73], 1);
+        assert_eq!(&bytes[74..106], original.endpoints().first().as_bytes());
+        assert_eq!(bytes[106], 0x01);
+        assert_eq!(&bytes[107..123], &[0xC4; 16]);
+        assert_eq!(&bytes[123..187], original.signature().as_bytes());
     }
 
     #[test]
@@ -711,7 +923,7 @@ mod tests {
         // Both fail on the length, before any key or signature is looked at.
         let without = card(1, 7, false).encode();
         let mut flag_set = without.clone();
-        flag_set[74] = 0x01;
+        flag_set[106] = 0x01;
         assert_eq!(
             ContactCard::decode(&flag_set),
             Err(ProtocolError::BadMessageLength)
@@ -719,7 +931,7 @@ mod tests {
 
         let with = card(1, 7, true).encode();
         let mut flag_clear = with.clone();
-        flag_clear[74] = 0x00;
+        flag_clear[106] = 0x00;
         assert_eq!(
             ContactCard::decode(&flag_clear),
             Err(ProtocolError::BadMessageLength)
@@ -739,7 +951,7 @@ mod tests {
     #[test]
     fn epoch_zero_is_rejected() {
         let mut bytes = card(1, 7, false).encode();
-        bytes[33..41].copy_from_slice(&[0; 8]);
+        bytes[65..73].copy_from_slice(&[0; 8]);
         assert_eq!(
             ContactCard::decode(&bytes),
             Err(ProtocolError::InvalidValue)
@@ -750,7 +962,7 @@ mod tests {
     fn endpoint_count_must_be_exactly_one_in_version_1() {
         for count in [0_u8, 2, 3, 255] {
             let mut bytes = card(1, 7, false).encode();
-            bytes[41] = count;
+            bytes[73] = count;
             assert_eq!(
                 ContactCard::decode(&bytes),
                 Err(ProtocolError::InvalidValue),
@@ -763,7 +975,7 @@ mod tests {
     fn reserved_flag_bits_are_rejected() {
         for flags in [0x02_u8, 0x04, 0x80, 0xfe] {
             let mut bytes = card(1, 7, false).encode();
-            bytes[74] = flags;
+            bytes[106] = flags;
             assert_eq!(
                 ContactCard::decode(&bytes),
                 Err(ProtocolError::InvalidValue),
@@ -789,7 +1001,7 @@ mod tests {
         let mine = card(1, 7, false).encode();
         let other = card(2, 7, false).encode();
         let mut forged = mine.clone();
-        forged[75..].copy_from_slice(&other[75..]);
+        forged[107..].copy_from_slice(&other[107..]);
         assert_eq!(
             ContactCard::decode(&forged),
             Err(ProtocolError::BadSignature)
@@ -823,8 +1035,8 @@ mod tests {
             assert!(!text.chars().any(|c| c.is_ascii_lowercase()));
             assert_eq!(ContactCard::from_text(&text).unwrap(), original);
         }
-        assert_eq!(card(1, 7, false).to_text().len(), 233);
-        assert_eq!(card(1, 7, true).to_text().len(), 258);
+        assert_eq!(card(1, 7, false).to_text().len(), 284);
+        assert_eq!(card(1, 7, true).to_text().len(), 310);
     }
 
     #[test]
@@ -889,12 +1101,12 @@ mod tests {
 
     #[test]
     fn text_form_rejects_nonzero_trailing_bits() {
-        // 139 bytes are 1112 bits and 223 symbols, so the last symbol has
-        // three unused bits. Setting one of them must be rejected.
+        // 171 bytes are 1368 bits and 274 symbols, so the last symbol has
+        // two unused bits. Setting one of them must be rejected.
         let text = card(1, 7, false).to_text();
         let last = text.chars().last().unwrap();
         let index = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".find(last).unwrap();
-        assert_eq!(index % 8, 0, "canonical form has zero trailing bits");
+        assert_eq!(index % 4, 0, "canonical form has zero trailing bits");
         let altered = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
             .chars()
             .nth(index + 1)
@@ -908,15 +1120,23 @@ mod tests {
 
     #[test]
     fn known_answer() {
-        // Identity seed: RFC 8032 test vector 1. Endpoint: the public key of
-        // the all-0x02 seed. Epoch 1, no invitation.
+        // The card of R in docs/PROTOCOL.md section 16.1. Identity seed:
+        // RFC 8032 test vector 1. Transport key: the first public key of
+        // RFC 7748 section 6.1. Endpoint: the public key of the all-0x02
+        // seed. Epoch 1, no invitation.
         let seed: [u8; 32] = [
             0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec,
             0x2c, 0xc4, 0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03,
             0x1c, 0xae, 0x7f, 0x60,
         ];
+        let transport_key: [u8; 32] = [
+            0x85, 0x20, 0xf0, 0x09, 0x89, 0x30, 0xa7, 0x54, 0x74, 0x8b, 0x7d, 0xdc, 0xb4, 0x3e,
+            0xf7, 0x5a, 0x0d, 0xbf, 0x3a, 0x0d, 0x26, 0x38, 0x1a, 0xf4, 0xeb, 0xa4, 0xa9, 0x8e,
+            0xaa, 0x9b, 0x4e, 0x6a,
+        ];
         let known = ContactCard::sign(
             &IdentitySecretKey::from_seed(&seed),
+            TransportPublicKey::from_bytes(&transport_key).unwrap(),
             EndpointEpoch::FIRST,
             EndpointSet::single(endpoint(2)),
             None,
@@ -924,41 +1144,127 @@ mod tests {
         .unwrap();
         assert_eq!(known.to_text(), KNOWN_CARD_TEXT);
         assert_eq!(ContactCard::from_text(KNOWN_CARD_TEXT).unwrap(), known);
+        assert_eq!(hex(known.signature().as_bytes()), KNOWN_CARD_SIGNATURE);
+        assert_eq!(
+            hex(&known.signed_bytes()),
+            concat!(
+                "4d4f4e4f4c4954482d434f4e544143542d434152442d563101",
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+                "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+                "000000000000000101",
+                "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+                "00",
+            )
+        );
+    }
+
+    #[test]
+    fn known_answer_of_the_initiator_card() {
+        // The card of I in docs/PROTOCOL.md section 16.1, as it appears in
+        // the third handshake message.
+        let bytes: Vec<u8> = (0..KNOWN_INITIATOR_CARD.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&KNOWN_INITIATOR_CARD[index..index + 2], 16).unwrap())
+            .collect();
+        assert_eq!(bytes.len(), 171);
+        let decoded = ContactCard::decode(&bytes).unwrap();
+        assert_eq!(decoded.encode(), bytes);
+        assert_eq!(
+            hex(decoded.identity().as_bytes()),
+            "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+        );
+        assert_eq!(
+            hex(decoded.transport().as_bytes()),
+            "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"
+        );
+        assert_eq!(decoded.epoch(), EndpointEpoch::FIRST);
+        assert_eq!(decoded.endpoints(), &EndpointSet::single(endpoint(3)));
+        assert!(decoded.invitation().is_none());
+
+        // Signing the same fields gives the same bytes.
+        let seed: [u8; 32] = [
+            0x4c, 0xcd, 0x08, 0x9b, 0x28, 0xff, 0x96, 0xda, 0x9d, 0xb6, 0xc3, 0x46, 0xec, 0x11,
+            0x4e, 0x0f, 0x5b, 0x8a, 0x31, 0x9f, 0x35, 0xab, 0xa6, 0x24, 0xda, 0x8c, 0xf6, 0xed,
+            0x4f, 0xb8, 0xa6, 0xfb,
+        ];
+        let signed = ContactCard::sign(
+            &IdentitySecretKey::from_seed(&seed),
+            *decoded.transport(),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(endpoint(3)),
+            None,
+        )
+        .unwrap();
+        assert_eq!(signed.encode(), bytes);
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
     /// Reproduced with an independent Ed25519 implementation written from
     /// RFC 8032, following the field list of `docs/PROTOCOL.md` 11.1.1.
-    const KNOWN_CARD_TEXT: &str = "MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRUAAAAAAAAAAAAEAYCOLXB2UH2F27K2RVIZWDJR7MZS4NRKI3J3RXUJO7MD23R7E3HFAAPAOTVCXFGWOLXUJQKXMVEHXRLWB4ALO2N5O2YREPLVGZMPS7QATQKPJDFFX5FHCDFCZUYVWNCERTGPIKNJQ226UI4SPJN7T5UD2DEAA";
+    const KNOWN_CARD_TEXT: &str = "MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRVBJA6AEYSMFHKR2IW7O4WQ7POWQNX45A2JRYDL2OXJFJR2VJWTTKAAAAAAAAAAAACAMBHF3Q5KD5C5PVNI2UM3BUY7WMZOGYVENU5Y32EXPWB5NY7SNTSQAN4L47JWL3SCBZOLLAFXTZ6JK2RASOSQAL43SXXBA7ALY33GZ4R6QTXCN2RKXEPYRJ4PSJ34NEEL2XOAWXID2XQRJPDV3EHRZSDSKMAM";
+
+    const KNOWN_CARD_SIGNATURE: &str = concat!(
+        "de2f9f4d97b9083972d602de79f255a8824e9400be6e57b841f02f1bd9b3c8fa",
+        "13b89ba8aae47e229e3e49df1a422f57702d740f578452f1d7643c7321c94c03",
+    );
+
+    const KNOWN_INITIATOR_CARD: &str = concat!(
+        "013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af466",
+        "0cde9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b",
+        "4f000000000000000101ed4928c628d1c2c6eae90338905995612959273a5c63",
+        "f93636c14614ac8737d1007c98b9a384ab4a8dd22e7b752249ae282a5d4072de",
+        "c9c640f2d1d59de1844e5f3192e3263077fd11c77b5afb9f9b80d2e2d77b1648",
+        "7b43119b9746b95f2e2f0d",
+    );
 
     #[test]
-    fn endpoint_update_outcomes() {
+    fn card_change_outcomes() {
         let pinned = card(1, 5, false);
         let pinned_set = pinned.endpoints().clone();
-        let evaluate = |candidate: &ContactCard| {
-            evaluate_endpoint_update(pinned.identity(), pinned.epoch(), &pinned_set, candidate)
+        let evaluate = |candidate: &ContactCard| evaluate_card(&pinned, candidate);
+
+        assert_eq!(evaluate(&pinned), Ok(CardChange::Unchanged));
+
+        let signed = |epoch_value: u64, key: TransportPublicKey, endpoints: EndpointSet| {
+            ContactCard::sign(&secret(1), key, epoch(epoch_value), endpoints, None).unwrap()
         };
+        let other_set = || EndpointSet::single(endpoint(50));
 
-        assert_eq!(evaluate(&pinned), Ok(EndpointUpdate::Unchanged));
+        let newer = signed(6, transport(1), other_set());
+        assert_eq!(evaluate(&newer), Ok(CardChange::Newer));
 
-        let signed = |epoch_value: u64, endpoints: EndpointSet| {
-            ContactCard::sign(&secret(1), epoch(epoch_value), endpoints, None).unwrap()
-        };
+        let newer_same_content = signed(6, transport(1), pinned_set.clone());
+        assert_eq!(evaluate(&newer_same_content), Ok(CardChange::Newer));
 
-        let newer = signed(6, EndpointSet::single(endpoint(50)));
-        assert_eq!(evaluate(&newer), Ok(EndpointUpdate::Newer));
+        let newer_transport = signed(6, transport(9), pinned_set.clone());
+        assert_eq!(evaluate(&newer_transport), Ok(CardChange::Newer));
 
-        let newer_same_set = signed(6, pinned_set.clone());
-        assert_eq!(evaluate(&newer_same_set), Ok(EndpointUpdate::Newer));
+        // Same epoch: any difference in what the card states is a conflict.
+        let conflict = signed(5, transport(1), other_set());
+        assert_eq!(evaluate(&conflict), Ok(CardChange::Conflict));
+        let conflict_transport = signed(5, transport(9), pinned_set.clone());
+        assert_eq!(evaluate(&conflict_transport), Ok(CardChange::Conflict));
+        let conflict_both = signed(5, transport(9), other_set());
+        assert_eq!(evaluate(&conflict_both), Ok(CardChange::Conflict));
 
-        let conflict = signed(5, EndpointSet::single(endpoint(50)));
-        assert_eq!(evaluate(&conflict), Ok(EndpointUpdate::Conflict));
+        let stale = signed(4, transport(1), other_set());
+        assert_eq!(evaluate(&stale), Ok(CardChange::Stale));
 
-        let stale = signed(4, EndpointSet::single(endpoint(50)));
-        assert_eq!(evaluate(&stale), Ok(EndpointUpdate::Stale));
+        // A lower epoch is stale even if it states what is pinned.
+        let stale_same_content = signed(4, transport(1), pinned_set.clone());
+        assert_eq!(evaluate(&stale_same_content), Ok(CardChange::Stale));
+        let stale_transport = signed(4, transport(9), pinned_set.clone());
+        assert_eq!(evaluate(&stale_transport), Ok(CardChange::Stale));
 
-        // A lower epoch is stale even if it names the pinned set.
-        let stale_same_set = signed(4, pinned_set.clone());
-        assert_eq!(evaluate(&stale_same_set), Ok(EndpointUpdate::Stale));
+        // An invitation capability is not part of what is pinned.
+        assert_eq!(evaluate(&card(1, 5, true)), Ok(CardChange::Unchanged));
+        assert_eq!(
+            evaluate_card(&card(1, 5, true), &pinned),
+            Ok(CardChange::Unchanged)
+        );
 
         let other_identity = card(2, 9, false);
         assert_eq!(
