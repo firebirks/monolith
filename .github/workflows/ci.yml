@@ -71,6 +71,17 @@ jobs:
       - run: rustup toolchain install stable --profile minimal
       - run: cargo +stable test --workspace --locked
 
+  # The fuzz targets are a separate cargo project that needs nightly. This
+  # job only checks that they still compile; it does not fuzz.
+  fuzz-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install nightly --profile minimal
+      - run: cargo +nightly check --manifest-path fuzz/Cargo.toml --bins --locked
+
   deny:
     runs-on: ubuntu-latest
     steps:

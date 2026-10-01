@@ -1,0 +1,78 @@
+[package]
+name = "monolith-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+monolith-identity = { path = "../crates/monolith-identity" }
+monolith-protocol = { path = "../crates/monolith-protocol" }
+
+# This project is not a member of the main workspace. It needs a nightly
+# toolchain and has its own lock file.
+[workspace]
+
+[profile.release]
+debug = true
+overflow-checks = true
+
+[[bin]]
+name = "base32"
+path = "fuzz_targets/base32.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "contact_card"
+path = "fuzz_targets/contact_card.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "contact_card_text"
+path = "fuzz_targets/contact_card_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "message_body"
+path = "fuzz_targets/message_body.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "frame_plaintext"
+path = "fuzz_targets/frame_plaintext.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "frame_stream"
+path = "fuzz_targets/frame_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text_fields"
+path = "fuzz_targets/text_fields.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "session_sequence"
+path = "fuzz_targets/session_sequence.rs"
+test = false
+doc = false
+bench = false
