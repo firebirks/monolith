@@ -8,6 +8,34 @@ the document that holds it.
 
 Sources were read on 2026-10-01.
 
+## 0. Status after the Phase 0 review
+
+Phase 0 is accepted as the basis for implementing the protocol core. It is
+not a frozen design.
+
+Accepted for implementation in Phase 1: limits, error types, the binary
+encoding, contact cards and endpoint sets, fingerprints, text validation,
+the message and frame formats, the session state machine, contact
+confirmation, and the duplicate-session rule. No network I/O, no Tor, no
+session cryptography and no storage encryption are part of Phase 1.
+
+Provisional, and not to be built on yet:
+
+| Area | State | Decided where |
+| --- | --- | --- |
+| Session cryptography: Noise pattern, identity binding, or TLS | four options compared, none selected | ADR 0002 |
+| Probing behavior of the handshake | depends on the above; the prologue binding is not access control | ADR 0002 |
+| Tails Onion Service integration | blocked on experiments on a current Tails | PLATFORM_TAILS.md 3.4 |
+| Whonix isolation and firewall integration | measures specified, untested | PLATFORM_WHONIX.md 4.5 |
+| Vault KDF parameters | proposed, benchmark pending | STORAGE.md 3.3 |
+| Padding block size | mechanism decided, value not | ADR 0003 |
+| Message store | open | STORAGE.md 5 |
+| GUI toolkit | open | ADR 0006 |
+
+Decided in the review: the project is MIT licensed; the minimum supported
+Rust version is 1.85.1 and is separate from the developer toolchain; an
+identity has a set of endpoints, limited to one in version 1.
+
 ## 1. Answers
 
 | # | Question | Answer | Where |

@@ -1,8 +1,9 @@
 # Storage
 
-Status: design. No storage code exists yet. The vault (section 3) is
-specified for implementation in Phase 4. The message store (section 5) is an
-open decision.
+Status: provisional design. No storage code exists, and none is written in
+Phase 1. The vault structure (section 3) is proposed for Phase 4; its KDF
+defaults wait for measurements (section 3.3). The message store (section 5)
+is an open decision.
 
 ## 1. What is stored, and where
 

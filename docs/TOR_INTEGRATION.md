@@ -5,6 +5,10 @@ never embeds one and never configures one. This document describes how it
 talks to that Tor. Platform specifics are in `PLATFORM_TAILS.md` and
 `PLATFORM_WHONIX.md`; the control commands are in `TOR_CONTROL_SURFACE.md`.
 
+Status: provisional. Nothing here is implemented, and implementation does
+not start before the Tails preconditions in `PLATFORM_TAILS.md` section 3.4
+have been checked.
+
 Facts about Tor below were checked against the sources listed in section 11
 on 2026-10-01.
 

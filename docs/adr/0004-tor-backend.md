@@ -1,6 +1,8 @@
 # ADR 0004: Tor backend
 
-Status: proposed, pending Phase 0 review
+Status: provisional. The abstraction is accepted. The implementation is
+blocked on platform verification: the Tails checks in `PLATFORM_TAILS.md`
+section 3.4 come before any Tor code.
 Date: 2026-10-01
 
 ## Context

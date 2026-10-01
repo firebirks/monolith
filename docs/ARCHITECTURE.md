@@ -1,7 +1,8 @@
 # Architecture
 
-Status: Phase 0. The workspace contains type definitions and limits only.
-This document describes the structure the following phases build.
+Status: Phase 1. The protocol core is being implemented; everything that
+touches the network, session cryptography or the disk is still design.
+This document describes the structure the phases build.
 
 ## 1. Shape
 

@@ -5,9 +5,11 @@ communication over Tor Onion Services. Two people who have exchanged contact
 cards talk to each other directly, each running an Onion Service. There is
 no server and no account.
 
-Status: design phase. There is no working messenger in this repository yet.
-The specifications are drafts under review, and the code is a workspace
-skeleton. Nothing here has been audited. Do not rely on it for anything.
+Status: early development. There is no working messenger in this repository
+yet. The protocol core (encoding, contact cards, session state logic) is
+being implemented. The session cryptography, the Tor integration and the
+Tails and Whonix integration are provisional designs and are not
+implemented. Nothing here has been audited. Do not rely on it for anything.
 
 ## What it is
 
