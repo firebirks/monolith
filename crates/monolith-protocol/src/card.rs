@@ -42,10 +42,14 @@ const TEXT_PREFIX: &str = "MONOLITH1:";
 /// shown to the user only if it carries one that is currently valid. It is
 /// not an identity and authenticates nobody.
 ///
-/// Two capabilities are compared in constant time, so that comparing a
-/// received one with the valid ones does not tell the sender how many
-/// leading bytes it got right. The type has no `Hash` and no ordering: a
-/// capability is looked up by comparing it with each valid one.
+/// A capability has a fixed size. Two capabilities are compared with
+/// `subtle`, which looks at every byte whatever the result, so that
+/// comparing a received one with the valid ones does not tell the sender
+/// how many leading bytes it got right. That is a best-effort property of
+/// the software: it removes the early exit, and it does not promise that no
+/// timing difference exists on any compiler or hardware. The type has no
+/// `Hash` and no ordering: a capability is looked up by comparing it with
+/// each valid one.
 #[derive(Clone, Copy)]
 pub struct InvitationCapability([u8; INVITATION_CAPABILITY_LEN]);
 
@@ -148,7 +152,8 @@ impl EndpointSet {
         self.iter().any(|member| member == endpoint)
     }
 
-    /// Returns true if one of the endpoints is the same key as `identity`.
+    /// Returns true if one of the endpoints is byte for byte the same key
+    /// as `identity`, which key separation forbids.
     fn reuses(&self, identity: &IdentityPublicKey) -> bool {
         self.iter()
             .any(|endpoint| endpoint.as_bytes() == identity.as_bytes())
@@ -172,9 +177,11 @@ pub struct ContactCard {
 impl ContactCard {
     /// Creates and signs a card for the identity that `secret` belongs to.
     ///
-    /// Fails if one of the endpoints is the identity key itself. The
-    /// identity key and the key of an Onion Service are never the same key
-    /// (`docs/CRYPTOGRAPHY.md`), and no receiver accepts such a card.
+    /// Fails if one of the endpoints is the identity key itself. That is
+    /// key separation (`docs/PROTOCOL.md` section 11.2, invariant S33): the
+    /// identity key and the master key of an Onion Service belong to
+    /// different cryptographic domains and are never the same key. No
+    /// receiver accepts such a card.
     pub fn sign(
         secret: &IdentitySecretKey,
         epoch: EndpointEpoch,

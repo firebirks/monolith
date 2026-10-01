@@ -5,12 +5,12 @@ peer. A change that weakens one of them is a security change and needs the
 review described in `docs/ARCHITECTURE.md` section 9.
 
 The invariants are grouped by topic, so the numbers are not in order.
-S29 to S32 were added after the first list was written.
+S29 to S33 were added after the first list was written.
 
 Implemented so far, in the protocol core: the frame and field bounds of
 S10, S11 and S26, the state gate of S19, the single encoding of S30, the
-text and filename rules behind S14, S15 and S20, and the message logic of
-S7, S23 and S24. Everything that involves the network, session
+text and filename rules behind S14, S15 and S20, the message logic of
+S7, S23 and S24, and the card check of S33. Everything that involves the network, session
 cryptography, storage or a user interface is still a planned mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
@@ -122,6 +122,17 @@ Test area names refer to `docs/TEST_PLAN.md`.
   identity as a new contact.
 - Tests: T-ID-1 (mismatch is a hard failure), T-ID-2 (no code path updates a
   pinned key).
+
+### S33. The identity key and the Onion Service key are never the same key
+
+- Mechanism: key separation. The two keys are generated independently and
+  held in different types (`IdentityPublicKey`, `OnionServiceKey`). A
+  contact card in which an endpoint is byte for byte the identity key is
+  rejected by `ContactCard::decode`, and `ContactCard::sign` returns an
+  error instead of signing one, so the protocol never carries a statement
+  that one key serves both domains.
+- Tests: T-CARD (a validly signed card whose endpoint is the identity
+  key; signing such a card).
 
 ### S20. The display name is never a security identifier
 

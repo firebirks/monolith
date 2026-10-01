@@ -125,9 +125,13 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 - Unsafe: 2 uses. One is the volatile read that keeps the optimizer from
   turning the comparison back into an early exit; the other converts a
   constant-time ordering result.
-- Used for one thing: `InvitationCapability` equality. It is a direct
-  dependency of `monolith-protocol` because a hand-written comparison loop
-  has no such barrier against the optimizer.
+- Used for one thing: equality of `InvitationCapability`, a fixed-size
+  16-byte value. It is a direct dependency of `monolith-protocol`, declared
+  as such and not relied on through `ed25519-dalek`, because a hand-written
+  comparison loop has no such barrier against the optimizer.
+- What it gives is a best-effort software property: no early exit and a
+  barrier against the optimizer restoring one. It is not a guarantee that
+  timing side channels are impossible on every compiler and processor.
 
 `unicode-normalization`
 

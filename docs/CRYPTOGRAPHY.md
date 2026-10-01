@@ -93,11 +93,19 @@ not need to be unpredictable, but one source is simpler to audit than two.
   tests are needed: the identity element is torsion-free. The rule applies
   to identity keys and to onion service keys, and is stricter than what
   signature verification requires, on purpose.
-- The identity key is distinct from the Onion Service key and from every
-  Noise key. A contact card that names its own identity key as an endpoint
-  is not signed and not accepted (PROTOCOL.md section 11.2). Compromise of the Onion Service key lets an attacker receive
-  connections at that address; it does not let the attacker pass the
-  identity proof.
+- Key separation: the identity key is distinct from the Onion Service key
+  and from every session key. Each is generated independently from its own
+  CSPRNG output; none is derived from another or from a shared seed. The
+  identity key signs Monolith structures under Monolith's prefixes. The
+  Onion Service master key is handed to Tor, which uses it under its own
+  rules. Using one key in both domains would let a signature or a
+  compromise in one carry over to the other.
+
+  The protocol enforces what it can see: a contact card whose endpoint is
+  byte for byte the identity key is invalid, and is never signed
+  (PROTOCOL.md section 11.2, invariant S33).
+- Compromise of the Onion Service key lets an attacker receive connections
+  at that address; it does not let the attacker pass the identity proof.
 
 ## 4. Session handshake (provisional, option A)
 

@@ -746,16 +746,28 @@ In this order; the first failure rejects the card:
    no trailing bytes.
 7. `identity_public_key` is a valid identity key (section 10.1).
 8. Every endpoint is a valid onion service key (section 10.1), no two are
-   equal, and none is equal to `identity_public_key`. The identity key and
-   the key of an Onion Service are separate keys with separate uses; a card
-   that uses one key for both is rejected, and an implementation does not
-   sign one.
+   equal, and none is byte for byte equal to `identity_public_key`. The
+   last part is key separation; see below.
 9. The signature is valid (section 10.1) over the signed bytes built from
    the decoded fields.
 
 The decoder accepts exactly one encoding of a card, so the signed bytes
 built from the decoded fields are determined by the received bytes and by
 nothing else.
+
+Key separation. The Monolith identity key and the master key of a Tor
+Onion Service belong to different cryptographic domains. The first signs
+contact cards and identity proofs under Monolith's prefixes; the second is
+used by Tor, under Tor's rules, to certify the keys of a service. A key
+must never be used in both. A card in which an endpoint is the identity
+key states that it is, so the card is invalid, and an implementation
+refuses to sign one. This is an invariant of the protocol and not a
+side effect of validation: it is S33 in `SECURITY_INVARIANTS.md`.
+
+The rule catches a key that is reused on purpose or by a bug in key
+handling. It cannot catch two keys derived from one secret by different
+means; `CRYPTOGRAPHY.md` section 3 requires the two keys to be generated
+independently.
 
 ### 11.3 Text form
 
@@ -823,6 +835,11 @@ network. The user has to hand over a new card out of band.
 
 An invitation capability is 16 random bytes that the user's card may carry.
 It is an anti-spam token. It is not an identity and it authenticates nobody.
+Its size is fixed. Capabilities are compared without an early exit on the
+first difference. That is a best-effort property of the implementation,
+not a claim that no timing side channel exists on any hardware; and
+section 12.1 already excludes response times from what the protocol
+promises.
 
 Local policy has three modes:
 
