@@ -10,13 +10,24 @@
 //! reading its fields in order and then calling [`Reader::finish`], which
 //! rejects trailing bytes; that is what makes every structure have exactly
 //! one encoding.
+//!
+//! Both hold message content. Their `Debug` output states sizes only.
+
+use core::fmt;
 
 use crate::ProtocolError;
 
 /// Reads fields from a byte slice, front to back.
-#[derive(Debug)]
 pub struct Reader<'a> {
     rest: &'a [u8],
+}
+
+impl fmt::Debug for Reader<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Reader")
+            .field("remaining", &self.rest.len())
+            .finish()
+    }
 }
 
 impl<'a> Reader<'a> {
@@ -101,9 +112,17 @@ impl<'a> Reader<'a> {
 }
 
 /// Appends fields to a byte vector.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Writer {
     out: Vec<u8>,
+}
+
+impl fmt::Debug for Writer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Writer")
+            .field("len", &self.out.len())
+            .finish()
+    }
 }
 
 impl Writer {
@@ -202,6 +221,15 @@ mod tests {
         assert_eq!(reader.take(4), Err(ProtocolError::BadMessageLength));
         assert_eq!(reader.take(3), Ok(&[1_u8, 2, 3][..]));
         assert_eq!(reader.u8(), Err(ProtocolError::BadMessageLength));
+    }
+
+    #[test]
+    fn debug_output_shows_sizes_only() {
+        let reader = Reader::new(&[0xAB, 0xCD, 0xEF]);
+        assert_eq!(format!("{reader:?}"), "Reader { remaining: 3 }");
+        let mut writer = Writer::new();
+        writer.raw(&[0xAB, 0xCD]);
+        assert_eq!(format!("{writer:?}"), "Writer { len: 2 }");
     }
 
     #[test]

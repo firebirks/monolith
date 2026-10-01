@@ -128,7 +128,8 @@ impl MessageType {
                 )
             }
             // ContactRequest and ContactAccept may still arrive after
-            // confirmation when messages cross. They are ignored.
+            // confirmation when messages cross. They are validated like any
+            // other message and then change nothing.
             SessionState::AuthenticatedContact => !matches!(self, Self::AuthProof),
         }
     }

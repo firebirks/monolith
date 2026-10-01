@@ -8,6 +8,11 @@
 //! The decision depends on the two identity keys and on who initiated each
 //! session, and on nothing else. When both sessions are alive, both ends
 //! therefore keep the same one without exchanging a message.
+//!
+//! The one case that needs the network is a preferred session that may be
+//! dead. It is probed with an ordinary Ping and answered with its Pong
+//! (`docs/PROTOCOL.md` section 8.2). Both are legal there because the rule
+//! applies to confirmed sessions only.
 
 use core::cmp::Ordering;
 
