@@ -114,12 +114,13 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S9. Identity changes for an existing contact are never accepted silently
 
-- Mechanism: the pinned key is part of the handshake prologue, and the key
-  proven in AuthProof is compared with it. An endpoint that does not hold
-  the pinned key fails at handshake message 2 or at the proof; either way
-  the session ends and the user gets a warning. There is no API that
-  replaces a pinned key; the user must delete the contact and add the new
-  identity as a new contact.
+- Mechanism: an outbound handshake accepts one key, the pinned identity of
+  the contact that is dialed. An endpoint that presents another key, or
+  cannot sign the handshake transcript with the pinned one, fails the
+  handshake before the dialing side has sent its own identity; the session
+  ends and the user gets a warning. There is no option to continue and no
+  API that replaces a pinned key; the user must delete the contact and add
+  the new identity as a new contact.
 - Tests: T-ID-1 (mismatch is a hard failure), T-ID-2 (no code path updates a
   pinned key).
 
@@ -149,11 +150,13 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S21. Connection state is tied to the cryptographic identity
 
-- Mechanism: the session table is keyed by the identity key verified in
-  AuthProof. A session has no entry in it before `IdentityAuth` completes.
-  `Session` keeps the proven identity, cannot be authenticated without an
-  AuthProof that named it, and treats a card of any other identity inside
-  a message as a violation.
+- Mechanism: the session table is keyed by the identity key the handshake
+  authenticated. A session has no entry in it before `IdentityAuth`
+  completes. `Session` keeps the proven identity and treats a card of any
+  other identity inside a message as a violation. In the protocol core as
+  implemented today a session becomes authenticated through an identity
+  proof message; with the session layer of ADR 0002 it becomes
+  authenticated only through a completed handshake.
 - Tests: T-DUP-*, `session::tests` (authentication without a proof, a
   proof that named another identity, foreign cards in ContactRequest and
   EndpointUpdate for every standing).
@@ -188,8 +191,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S10. Every network read has a strict upper bound before allocation
 
-- Mechanism: handshake records have fixed sizes and are read into fixed
-  arrays. A transport frame is read by first reading its 2-byte length,
+- Mechanism: a handshake is given at most `MAX_HANDSHAKE_INPUT_LEN` bytes
+  before it must be complete; inside that, the TLS library bounds every
+  message. A transport frame is read by first reading its 2-byte length,
   rejecting values outside the range allowed in the current state, and then
   filling a buffer for exactly that length. The length was checked first,
   so the buffer is never larger than the limit of the state: one padding

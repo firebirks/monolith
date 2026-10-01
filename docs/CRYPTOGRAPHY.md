@@ -1,67 +1,74 @@
 # Cryptography
 
-Status: provisional. No cryptographic code exists. The session layer
-(sections 4 to 7) is not decided: ADR 0002 compares four constructions and
-selects none. Sections 4 to 7 describe one of them, option A, because it is
-the one that has been written up in detail. Identity keys (section 3) and
-the storage design (section 9) do not depend on that choice.
+Status: the design is decided; the session layer is not implemented yet.
+ADR 0002 selects TLS 1.3 with raw public keys on both sides, and sections 4
+to 8 describe it. Identity keys (section 3) are implemented. The storage
+design (section 9) is specified separately and belongs to a later phase.
 
-Monolith defines no primitive, no key exchange and no key schedule of its
-own. It uses established protocols and Ed25519 as specified, and standard
-hashes, KDFs and AEADs through maintained implementations. In option A the
-one piece of composition that Monolith itself is responsible for is the
-identity proof in section 5. The persistent identity is not the Noise
-static identity there; long-term authentication comes from that proof,
-layered on top of Noise. It is Monolith's construction and has to be
-reviewed as one.
+Monolith defines no primitive, no key exchange, no key schedule and no
+authentication protocol of its own. It uses TLS 1.3 and Ed25519 as
+specified, and standard hashes, KDFs and AEADs through maintained
+implementations. What Monolith itself decides in the session layer is
+small: which key it accepts from a peer, and which parts of TLS are
+switched off. Section 5 lists those decisions. They are Monolith's
+responsibility and have not been reviewed by anyone outside the project.
 
 Tor provides anonymity and transport. Everything below is in addition to
 Tor's own onion service encryption and does not replace any of it.
 
 ## 1. Primitives
 
-| Purpose | Primitive | Implementation (candidate) |
+| Purpose | Primitive | Implementation |
 | --- | --- | --- |
 | Identity signatures | Ed25519, RFC 8032, PureEdDSA | `ed25519-dalek` |
-| Session handshake and transport (provisional, option A) | `Noise_XX_25519_ChaChaPoly_SHA256`, Noise revision 34 | `snow`; crypto back end not chosen |
+| Session protocol | TLS 1.3, RFC 8446, raw public keys, RFC 7250 | `rustls` |
+| Session key exchange | X25519 | `ring`, through `rustls` |
+| Session key schedule | HKDF-SHA256, as TLS 1.3 defines it | `ring`, through `rustls` |
+| Session record protection | ChaCha20-Poly1305 | `ring`, through `rustls` |
 | Fingerprint, file digest | SHA-256 | `sha2` |
-| Onion address checksum | SHA3-256 | `sha3` |
-| Vault key derivation | Argon2id, RFC 9106 | `argon2` |
-| Vault encryption | XChaCha20-Poly1305 | `chacha20poly1305` |
-| Subkeys from the vault key | HKDF-SHA256, RFC 5869 | `hkdf` |
-| Randomness | operating system CSPRNG | `getrandom` |
-| Secret comparison | constant time | `subtle` |
-| Secret erasure | | `zeroize` |
+| Onion address checksum | SHA3-256 | `sha3` (not in use yet) |
+| Vault key derivation | Argon2id, RFC 9106 | `argon2` (not in use yet) |
+| Vault encryption | XChaCha20-Poly1305 | `chacha20poly1305` (not in use yet) |
+| Subkeys from the vault key | HKDF-SHA256, RFC 5869 | `hkdf` (not in use yet) |
+| Randomness | operating system CSPRNG | `ring` for the session; `getrandom` for Monolith's own values |
+| Secret comparison | constant time, best effort | `subtle` |
+| Secret erasure | best effort | `zeroize` |
 
-Hash choice for Noise: the specification states no preference between
-SHA-256 and BLAKE2s. SHA-256 is chosen because it is the more widely
-analyzed function, because `Noise_XX_25519_ChaChaPoly_SHA256` is the exact
-suite libp2p deploys at scale, and because SHA-2 is in the dependency tree
-anyway through Ed25519. BLAKE2s would add a hash for no benefit.
+One suite: `TLS_CHACHA20_POLY1305_SHA256`, with x25519 as the only group
+and ed25519 as the only signature scheme. ChaCha20-Poly1305 is chosen over
+AES-GCM because it runs in constant time in software on every processor
+Monolith targets, has no record limit below the sequence space
+(RFC 8446 section 5.5), and is the cipher family of the storage design.
+There is no second suite and so no negotiation to protect.
 
 Dependency selection is recorded in `DEPENDENCIES.md` for crates that are
-in use, and in ADR 0002 and ADR 0005 for candidates. A library is judged on
-audit history, deployment history, cryptographic review, exposure of
-memory-unsafe code to hostile input, parser complexity, dependency surface,
-maintenance and published advisories. Being written in Rust, or containing
-C or assembly, decides nothing by itself.
+in use, and in ADR 0002 and ADR 0005 for the ones that are selected and
+not yet added. A library is judged on audit history, deployment history,
+cryptographic review, exposure of memory-unsafe code to hostile input,
+parser complexity, dependency surface, maintenance and published
+advisories. Being written in Rust, or containing C or assembly, decides
+nothing by itself.
 
 ## 2. Randomness
 
-Everything Monolith generates itself (identity keys, per-connection static
-keys, identifiers, nonces, capabilities, isolation tokens) comes from the
-operating system CSPRNG through one function in `monolith-identity`. If the
-source reports an error, the operation fails; there is no fallback
-generator. Non-cryptographic generators are banned by `deny.toml`, and will
-be banned by lint once code exists that could call one (S17).
+Everything Monolith generates itself (identity keys, identifiers,
+capabilities, isolation tokens) comes from the operating system CSPRNG
+through one function. If the source reports an error, the operation fails;
+there is no fallback generator. Non-cryptographic generators are banned by
+`deny.toml`, and will be banned by lint once code exists that could call
+one (S17).
 
-The Noise implementation generates the ephemeral handshake keys through its
-own resolver, which also reads the operating system CSPRNG. Whether to route
-that through Monolith's function with a custom resolver is decided in
-Phase 2.
+The TLS handshake needs random values and an ephemeral key. Both are
+generated inside the provider, which reads the operating system CSPRNG.
+Monolith passes no randomness into the session layer in production.
 
-Jitter for reconnect timing and ping intervals uses the same source. It does
-not need to be unpredictable, but one source is simpler to audit than two.
+Tests that need a reproducible handshake use a provider built for tests.
+It exists only in test code and cannot be selected by a feature of a
+production crate.
+
+Jitter for reconnect timing and ping intervals uses the operating system
+source as well. It does not need to be unpredictable, but one source is
+simpler to audit than two.
 
 ## 3. Identity keys
 
@@ -71,32 +78,33 @@ not need to be unpredictable, but one source is simpler to audit than two.
   in memory (ephemeral mode). It is never exported in plaintext, never
   logged, and held in a type that zeroizes on drop and has no `Debug`
   output.
-- The identity key signs exactly two kinds of message, each with a fixed
-  ASCII prefix:
+- The identity key signs exactly two kinds of input:
 
-  | Prefix | Total length of signed input | Defined in |
-  | --- | --- | --- |
-  | `MONOLITH-AUTH-V1` | 155 bytes | PROTOCOL.md 6.1 |
-  | `MONOLITH-CONTACT-CARD-V1` | 99 or 115 bytes with one endpoint | PROTOCOL.md 11.1.1 |
+  | Use | Signed input | Length | Defined in |
+  | --- | --- | --- | --- |
+  | Contact card | `MONOLITH-CONTACT-CARD-V1`, then the card fields | 99 or 115 bytes with one endpoint | PROTOCOL.md 11.1.1 |
+  | TLS 1.3 CertificateVerify | 64 bytes 0x20, a context string, 0x00, a transcript hash | 130 bytes | RFC 8446 4.4.3, PROTOCOL.md 4.3 |
 
-  The prefixes differ and no input of one kind has the length of the other,
-  so a signature made for one purpose cannot be presented for the other.
-  Neither input can be mistaken for a bare 32-byte handshake hash.
+  The first begins with the byte 0x4D and the second with 0x20, and their
+  lengths differ, so a signature made for one purpose cannot be presented
+  for the other. TLS 1.3 chose its 64-byte prefix for exactly this
+  separation from other uses of a key.
 - The identity key is used for signatures only. It is never converted to a
   Curve25519 key and never used in a Diffie-Hellman operation.
 - Verification uses strict rules everywhere (`verify_strict`): the signature
   scalar must be canonical, and public keys or R values of small order are
   rejected. Plain RFC 8032 verification accepts some of these and is not
-  used.
+  used. This includes the TLS signatures: Monolith verifies them itself and
+  does not leave that to the TLS provider.
 - A public key is valid only if it decompresses, is torsion-free and is
   not of small order (PROTOCOL.md section 10.1). Both of the last two
   tests are needed: the identity element is torsion-free. The rule applies
-  to identity keys and to onion service keys, and is stricter than what
-  signature verification requires, on purpose.
+  to identity keys, to onion service keys and to the key a peer presents
+  in a TLS handshake, and is stricter than what signature verification
+  requires, on purpose.
 - Key separation: the identity key is distinct from the Onion Service key
   and from every session key. Each is generated independently from its own
   CSPRNG output; none is derived from another or from a shared seed. The
-  identity key signs Monolith structures under Monolith's prefixes. The
   Onion Service master key is handed to Tor, which uses it under its own
   rules. Using one key in both domains would let a signature or a
   compromise in one carry over to the other.
@@ -104,174 +112,178 @@ not need to be unpredictable, but one source is simpler to audit than two.
   The protocol enforces what it can see: a contact card whose endpoint is
   byte for byte the identity key is invalid, and is never signed
   (PROTOCOL.md section 11.2, invariant S33).
+- Using the identity key as the TLS authentication key is not a second
+  domain in that sense. The key does what it exists for, proving the
+  identity, and it signs only inputs that TLS 1.3 separates from every
+  other use by construction. No second long-term key exists.
 - Compromise of the Onion Service key lets an attacker receive connections
-  at that address; it does not let the attacker pass the identity proof.
+  at that address; it does not let the attacker authenticate as the
+  identity.
 
-## 4. Session handshake (provisional, option A)
+## 4. Session handshake
 
-Pattern: Noise XX.
+The handshake is TLS 1.3 with the profile of PROTOCOL.md section 4: one
+version, one suite, one group, raw public keys in both directions, client
+authentication required, and no resumption, tickets or early data.
 
-    -> e
-    <- e, ee, s, es
-    -> s, se
+    Initiator (TLS client)                      Responder (TLS server)
 
-Parameters:
+      ClientHello                       ---->
+                                                ServerHello
+                                                {EncryptedExtensions}
+                                                {CertificateRequest}
+                                                {Certificate}
+                                                {CertificateVerify}
+                                        <----   {Finished}
+      {Certificate}
+      {CertificateVerify}
+      {Finished}                        ---->
+      [frames]                          <--->   [frames]
 
-- DH: X25519. Cipher: ChaCha20-Poly1305. Hash: SHA-256.
-- Prologue (40 bytes): preamble || responder identity public key. The
-  preamble carries the protocol major version and is the same 8 bytes in
-  both directions, so any tampering with it makes the handshake fail. The
-  prologue is hashed into `h`; it is not secret and is not mixed into keys.
-- Static keys `s`: a fresh X25519 pair generated per connection on each
-  side. Never stored, never reused, bound to no identity.
-- Ephemeral keys `e`: generated per connection by the Noise implementation.
-- Handshake payloads: empty.
+What the handshake gives is what RFC 8446 appendix E.1 states for the
+full handshake with certificate authentication on both sides:
 
-With empty payloads the three messages are exactly 32, 96 and 64 bytes.
+- both sides hold the same session keys, and only they do;
+- each side has authenticated the other's key;
+- session keys are unique to the session;
+- an attacker cannot make the peers negotiate other parameters than they
+  would without the attacker;
+- forward secrecy: later compromise of an identity key does not reveal the
+  keys of past sessions;
+- resistance to key compromise impersonation: an attacker who holds A's
+  identity key cannot pose as someone else towards A;
+- protection of identities: the responder's key against passive attackers,
+  the initiator's against passive and active ones.
 
-What the handshake alone gives, from the Noise specification's analysis of
-XX: after message 3, transport messages are encrypted with forward secrecy
-to a party that proved possession of the static key it sent. Since the
-static keys here are single-use and mean nothing by themselves, the
-handshake establishes a confidential, forward-secret channel between two
-parties who have not yet shown who they are. Identity comes from section 5.
+These are properties of TLS 1.3. Monolith does not derive them. The
+analyses behind them model keys that a party can authenticate; with raw
+public keys the party is the key, and the binding to a Monolith identity
+is the comparison in section 5.
 
-What XX adds over a two-message pattern with no static keys (option B):
-the third message is encrypted with `h` as associated data, so the
-responder learns that the initiator computed the same `h`, including the
-same prologue. Completing the normal handshake therefore requires knowledge
-of the expected responder identity key, and a party that has only the
-onion address is not handed an identity proof.
+## 5. Authentication of Monolith identities
 
-This is opportunistic probing resistance and nothing more. The identity key
-is public data. Knowing it is not possession of a secret, so this is not
-access control, not authorization and not authentication of the initiator.
-The key is in every contact card next to the onion address, so the two
-usually travel together. If a real secret is ever required before the
-responder does anything identifying or expensive, it has to be a secret,
-such as the invitation capability; ADR 0002 lists that as an open question.
+### 5.1 What Monolith decides
 
-A pattern in which the responder's static key is known in advance (XK, IK)
-is option C in ADR 0002. It needs a long-lived Noise static key published
-in the contact card, a new persistent secret with its own rotation rules.
+The TLS end-entity key of each side is its Monolith identity key. There is
+no certificate, no name, and no proof of Monolith's own design. Monolith
+decides:
 
-## 5. Identity proof (provisional, options A and B)
+- Initiator: the responder's key must be the identity that was dialed.
+- Responder: the initiator's key must be a valid key and not the
+  responder's own. Nothing else is looked at, in particular no record of
+  contacts or blocked identities.
+- Both: the key is carried as the exact 44-byte Ed25519
+  SubjectPublicKeyInfo and passes the validity rule of section 3; the
+  signature in CertificateVerify verifies under strict rules; after the
+  handshake the version, the suite and the ALPN identifier are the
+  expected ones.
 
-### 5.1 Construction
+PROTOCOL.md section 4 gives these checks as rules, and ADR 0002 lists them
+in order.
 
-After the handshake each side sends one AuthProof inside the encrypted
-channel (PROTOCOL.md section 6). It contains the sender's identity public
-key, a feature bit field and an Ed25519 signature over:
+### 5.2 What is signed
 
-    "MONOLITH-AUTH-V1"            16 bytes
-    role of the signer             1 byte   0x01 initiator, 0x02 responder
-    protocol major version         2 bytes
-    handshake hash h              32 bytes
-    signer's Noise static key     32 bytes
-    peer's Noise static key       32 bytes
-    signer's identity public key  32 bytes
-    features                       8 bytes
+Each side sends one CertificateVerify. Its signature is over 130 bytes
+that RFC 8446 section 4.4.3 defines:
 
-The responder sends first. The initiator verifies the responder's proof and
-checks the identity against the one it dialed before it sends its own.
+    64 bytes   0x20 repeated
+    33 bytes   "TLS 1.3, server CertificateVerify" (responder) or
+               "TLS 1.3, client CertificateVerify" (initiator)
+     1 byte    0x00
+    32 bytes   SHA-256 over the handshake messages so far, up to and
+               including the signer's own Certificate message
 
-### 5.2 Where this comes from
+The transcript binds the version, the suite, the group, both key shares,
+both random values, the ALPN identifier and the certificate types. The
+context string binds the role. The initiator's transcript also contains
+the responder's key and signature.
 
-The Noise specification, section 11.2, describes this use: after a
-handshake, parties "can then sign the handshake hash ... to get an
-authentication token which has a 'channel binding' property: the token
-can't be used by the receiving party with a different session." Section 14
-says a higher-level protocol should bind to `h` and not to the chaining
-key.
+### 5.3 Order and what each side reveals
 
-Structurally it is the SIGMA pattern that TLS 1.3 uses in CertificateVerify:
-an unauthenticated ephemeral key exchange, then a signature by each party's
-long-term key over the transcript hash with a role-specific context, sent
-under keys derived from the exchange.
+The responder authenticates first. The initiator sends its key and its
+signature only after it has verified the responder's key against the
+identity it dialed, the responder's signature, and the responder's
+Finished.
 
-The alternative that libp2p deploys signs the Noise static key instead of
-the transcript and carries the signature in the handshake payloads (option
-C in ADR 0002). Its drawback is that the signature is a long-lived
-credential: whoever obtains a static private key and one captured payload
-can impersonate the identity for as long as the static key is accepted,
-and there is no expiry. A signature over `h` is valid for one session and
-delegates nothing. Its advantage is that it uses Noise static keys for what
-they were designed for.
+- The responder's identity key becomes known to whoever completes the
+  first round trip. Any party that can reach the listener and speaks the
+  profile obtains the key and a signature that shows the identity is live
+  at this address.
+- The initiator's identity key becomes known only to a responder that has
+  proved the dialed identity. A party that answers at the address without
+  holding that identity key learns that someone connected and nothing
+  about who.
+- A passive observer of the stream sees that TLS 1.3 is spoken and reads
+  the ALPN identifier in the ClientHello. It sees no identity. Inside Tor
+  only the endpoints see the stream.
 
-Neither construction has a published formal analysis as a composition with
-Noise XX. This one is small and follows the specification's own description,
-but it is Monolith's composition and has to be reviewed as such.
+Knowing the responder's public key was never a condition for anything.
+ADR 0002, "Public keys are not secrets", explains what the earlier
+proposal offered there and why it is not kept.
 
-### 5.3 What each field is for
+### 5.4 Informal security argument for the Monolith-specific part
 
-- Prefix: separates this signature from every other use of the identity key.
-- Role: both sides sign over the same `h`. Without the role a proof could be
-  reflected back to its sender.
-- Version: redundant with the prologue, which already covers the preamble.
-  Kept so that the signed input is self-describing.
-- `h`: covers the prologue, both ephemeral keys and both encrypted static
-  keys. It is unique to the session. This is what stops a proof from being
-  moved to another session.
-- Static keys: redundant with `h`, which covers their ciphertexts. Included
-  explicitly so that the binding to the Noise session does not rest on
-  reasoning about encrypted values.
-- Identity key: binds the signature to the claimed key explicitly, which
-  rules out an attacker presenting someone else's signature under a
-  different key that also verifies it.
-- Features: authenticates the feature negotiation.
+The argument for the handshake itself is the literature on TLS 1.3. What
+follows covers only what Monolith adds: the identity of a party is its
+key, and the two verifiers.
 
-The input has a fixed length and fixed field positions. There is exactly one
-way to encode it.
-
-### 5.4 Informal security argument
-
-- Relay by a man in the middle. An attacker between A and B runs one Noise
-  session with each. The two sessions have different ephemeral keys and
-  therefore different `h`. A proof made for one does not verify in the
-  other.
-- Replay. A recorded proof is bound to an old `h`. A new session has new
-  ephemeral keys on the verifier's side, so `h` differs.
-- Unknown key-share. For B to attribute A's session to an attacker M, M
-  would need a signature by M's key over that session's `h` and static
-  keys. M can produce one only for sessions it is an endpoint of.
-- Reflection. Prevented by the role byte and by the rule that a peer's
-  identity must differ from one's own.
-- Key compromise impersonation. Learning A's identity private key lets the
-  attacker impersonate A. It does not let the attacker impersonate B to A,
-  which needs B's signature.
-- Probing. Section 4: the responder sends its proof only after message 3
-  verified, that is, only to an initiator that used its identity key. That
-  key is public data, so this limits who is handed a proof by accident; it
-  does not keep anyone out. The authentication tags in message 2 depend on
-  `h`, so a prober that holds a list of candidate identity keys can check,
-  offline, which of them is served at an address.
-- Disclosure order. The initiator reveals its identity only after it has
-  verified the responder's. An attacker who took over the Onion Service key
-  but not the identity key therefore does not learn who tries to connect.
+- Man in the middle. An attacker between A and B has to run its own
+  handshake with each. Towards A it must present B's key and sign a
+  transcript with it, which it cannot. A stops and reveals nothing. Towards
+  B it can only authenticate as itself.
+- Replay. Every transcript contains fresh random values and key shares
+  from both sides. A recorded signature fits no other transcript.
+- Unknown key-share and misbinding. The classical attack makes one side
+  attribute a session to the wrong party by substituting an identity next
+  to a signature. Here there is no identity next to the key: the identity
+  is the key that verified the signature over this transcript.
+- Reflection. Client and server sign under different context strings, and
+  each side refuses its own key.
+- Wrong identity on an outbound session. The initiator's verifier accepts
+  one key. Any other key ends the handshake before the initiator has sent
+  anything of its own.
+- Oracles. The responder's handshake does not depend on what it holds about
+  the initiator, so its outcome and timing say nothing about the contact
+  list. Every rejection by Monolith's checks looks the same to the peer.
 
 ### 5.5 What is not claimed
 
-- Deniability. A proof is a signature over a transcript. It does not prove
-  what was said, but Monolith makes no deniability claim of any kind.
+- Deniability. A session contains signatures over its transcript by both
+  identity keys. They do not prove what was said, but Monolith makes no
+  deniability claim of any kind.
 - Post-quantum security. X25519 and Ed25519 are not quantum-resistant.
   Recorded sessions could be decrypted by a future quantum computer. Tor's
-  own onion service cryptography has the same limitation today.
+  own onion service cryptography has the same limitation today. A hybrid
+  key exchange is a possible later protocol version, selected by a new
+  ALPN identifier; it is not part of version 1.
 - Post-compromise security. If an identity private key is stolen, the thief
   can impersonate that identity until contacts are told out of band. There
   is no automatic healing and no revocation mechanism in version 1.
 - Protection against a compromised endpoint. Keys in the memory of a
   compromised machine are compromised.
+- An audit. TLS 1.3 has been analyzed widely and `rustls` was audited in
+  2020. Monolith's verifiers, its configuration of the library and its
+  use of the identity key as the TLS key have been reviewed by nobody
+  outside the project.
 
 ## 6. Transport
 
-- Each direction has its own cipher state from the Noise `Split()`.
-- One frame is one Noise transport message: ChaCha20-Poly1305, 64-bit
-  counter nonce starting at zero, empty associated data.
-- Frames are processed strictly in order on a reliable stream. A frame that
-  fails authentication ends the session at once, so an attacker gets one
-  forgery attempt per session.
-- Length is the only thing visible outside the encryption, and it is
-  quantized by padding (PROTOCOL.md section 5).
+- After the handshake the TLS record layer protects everything. Monolith
+  adds no encryption of its own.
+- Monolith frames (PROTOCOL.md section 5) are written into the TLS stream
+  as application data. A frame may span several TLS records, and record
+  boundaries carry no meaning.
+- TLS authenticates a sequence number with every record. A record that is
+  replayed, dropped, reordered or taken from another session fails
+  authentication, and one failure ends the session, so an attacker gets
+  one forgery attempt per session.
+- Lengths are what an observer of the stream could see, and they are
+  quantized by padding (PROTOCOL.md section 5). A TLS record adds 22 bytes
+  to its content.
+- Monolith adds no sequence numbers. Repetition at the level of messages
+  is handled by the messages: a chat message that is sent again after a
+  reconnect keeps its MessageId and is delivered once, and a contact card
+  that is sent again is judged by its epoch.
 
 ## 7. Session lifetime and rekeying
 
@@ -282,10 +294,15 @@ reached:
 | --- | --- |
 | Age | 24 hours |
 | Frames sent in one direction | 2^32 |
-| Ciphertext bytes sent in one direction | 2^40 |
+| Plaintext bytes sent in one direction | 2^40 |
 
-Noise allows 2^64 - 1 messages per cipher state. The frame limit stays a
-factor of 2^32 below that.
+The cipher forces none of them. With ChaCha20-Poly1305, TLS 1.3 has no
+confidentiality limit below its 2^64 record sequence numbers, and
+integrity is not weakened by volume because a single failed record ends
+the session. The limits bound how long one set of keys is used and make a
+long-lived connection take new ephemeral keys regularly. In practice the
+age limit is the one that is reached; the other two are far away at the
+speed of a Tor stream and exist so that no counter is unbounded.
 
 The age limit is deferred while a file transfer is active, so that the
 clock does not cut a transfer off, but never beyond 48 hours in total. No
@@ -294,33 +311,41 @@ new transfer starts on a session that is past 24 hours.
 Both sides count. A receiver that sees its peer exceed the frame or byte
 limit treats that as a violation.
 
-There is no in-band rekey. The Noise `Rekey()` function is not used. A
-reconnect is a complete new handshake with new ephemeral and static keys,
-which is simpler to reason about than a rekeyed session and gives new
-forward secrecy. The side that reaches a limit sends Close and dials again;
-unacknowledged messages are resent on the new session.
+Monolith never rekeys a session. A reconnect is a complete new handshake,
+which is simpler to reason about than a rekeyed session. The side that
+reaches a limit sends Close and dials again; unacknowledged messages are
+resent on the new session. A TLS KeyUpdate from the peer is legal and is
+handled by the library; Monolith does not send one.
+
+There is no session resumption and no early data. A responder issues no
+tickets and keeps no session store; an initiator offers and stores none.
 
 The limits are constants, and tests run with reduced values to exercise the
 path.
 
 ## 8. Forward secrecy and key lifetime
 
-| Key | Lifetime | Stored |
-| --- | --- | --- |
-| Identity private key | until the user discards the identity | vault, or memory in ephemeral mode |
-| Onion Service private key | until the endpoint is retired | vault, or memory in ephemeral mode |
-| Noise static key pair | one connection | never |
-| Noise ephemeral key pair | one handshake | never |
-| Session cipher keys | one session, at most 24 hours | never |
-| Vault key | while the vault is unlocked | never |
+| Secret | Generated | Lifetime | Stored | Erased |
+| --- | --- | --- | --- | --- |
+| Identity private key | by Monolith, from the OS CSPRNG | until the user discards the identity | vault, or memory in ephemeral mode | by its type on drop |
+| Onion Service private key | by Tor or by Monolith | until the endpoint is retired | vault, or memory in ephemeral mode | by its type on drop |
+| TLS ephemeral X25519 key | by the provider, from the OS CSPRNG | one handshake | never | not explicitly |
+| TLS handshake and traffic secrets | by the TLS key schedule | one session, at most 24 hours | never | by `rustls` on drop |
+| Record keys inside the provider | from the traffic secrets | one session | never | not explicitly |
+| Invitation capability | by Monolith, from the OS CSPRNG | until revoked | vault | by its type on drop |
+| Vault key | derived at unlock | while the vault is unlocked | never | by its type on drop |
+
+None of the session secrets is cloned out of the library, and none is ever
+written to storage. Types that hold a secret do not derive `Debug`.
 
 Compromise of the identity key or the Onion Service key does not reveal
-past sessions: session keys derive from ephemeral Diffie-Hellman only.
+past sessions: session keys derive from an ephemeral exchange only.
 
-Erasure: Monolith's own secret types zeroize on drop. `snow` does not
-zeroize its internal state (see ADR 0002). Until that changes, session keys
-and handshake secrets may remain in freed memory until it is reused. This
-is listed as a known weakness, not hidden.
+Erasure: Monolith's own secret types zeroize on drop, and `rustls` does
+the same for the secrets it holds. `ring` does not clear its internal key
+state. Erasure removes the copies a type controls. It does not reach
+copies the compiler made, freed memory that was reused, pages that were
+swapped out, or crash dumps. This is listed as a limit, not hidden.
 
 Secrets are not locked into RAM. Doing so needs `mlock`, which needs
 `unsafe` or a dependency that wraps it. On a system with swap, secrets can
@@ -336,84 +361,54 @@ with XChaCha20-Poly1305 with the header as associated data.
 
 ## 10. Implementation rules
 
-If a Noise option is chosen:
+- TLS is driven only through the library. No Monolith code builds or
+  parses a TLS message.
+- One crate holds every call to the TLS library. Contact logic, storage
+  and front ends do not depend on it.
+- The version, the suite, the group, the signature scheme and the ALPN
+  identifier are constants. After every handshake the negotiated values
+  are compared with them; a test asserts each.
+- TLS 1.2 is not compiled in. Resumption, tickets, early data, server name
+  indication and certificate compression are off, and a test for each
+  shows that it stays off.
+- The identity private key stays in Monolith's key type. The library
+  receives a signer, not the key.
+- Ed25519 verification is always `verify_strict`, including for TLS
+  signatures. A lint bans the non-strict `verify` in Monolith crates.
+- The only way to obtain a session that can send or receive a frame is
+  a completed handshake. The object it returns owns the session logic of
+  the protocol core; callers are not handed a session they could mark
+  authenticated themselves.
+- Test vectors with fixed keys are committed for every structure Monolith
+  defines (PROTOCOL.md section 16).
 
-- Noise is driven only through the library's API. No Monolith code
-  implements a Noise step.
-- With `snow`, the handshake hash is read from the handshake state before
-  it is converted to transport state; it is not exposed afterwards. Version
-  0.9.5 or later is required (RUSTSEC-2024-0011).
-- The crypto back end is chosen by the criteria in section 1. No back end
-  is excluded or preferred for the language it is written in.
-- The exact pattern string is a constant, and a test asserts it.
+## 11. Open points
 
-In any case:
+The questions Q1 to Q11 of earlier drafts are closed by ADR 0002. What
+remains is listed there as risks R1 to R7: the size of the parser in front
+of unauthenticated peers, the future of the provider, the announced change
+of the library's interface, the age of its audit, deterministic handshake
+vectors, disclosure of the responder's key to probers, and the memory an
+unfinished handshake holds.
 
-- Ed25519 verification is always `verify_strict`. A lint will ban the
-  non-strict `verify` in Monolith crates once the dependency is added.
-- Test vectors with fixed keys are committed for every signed structure and
-  for a complete handshake (PROTOCOL.md section 16).
-
-## 11. Open questions
-
-The same list as in ADR 0002. All of them are open.
-
-Q1. Which construction: Noise XX with per-connection static keys and a
-    transcript signature (A), Noise NN with transcript signatures (B), a
-    persistent X25519 static key certified by the identity (C), or TLS 1.3
-    with pinned raw public keys (D).
-
-Q2. Is it acceptable that a responder shows its identity key to any party
-    that reaches the listener? If not, which secret gates that, and where
-    in the handshake.
-
-Q3. Is the prologue precondition of option A worth keeping, given that it
-    rests on public data.
-
-Q4. For A and B: is the proof input in section 5.1 sufficient and free of
-    ambiguity, and is anything in it harmful to include.
-
-Q5. For A: is there any reason for XX over NN other than the prologue
-    precondition.
-
-Q6. For C: what bounds the lifetime of a certificate over a static key.
-
-Q7. For D: can `rustls` do mutual raw public keys with a server that
-    accepts any client key, no server name, and resumption off; what does
-    it buffer before authentication; is an exporter available.
-
-Q8. Should the authentication also bind the onion service key that was
-    dialed (PROTOCOL.md open question P2).
-
-Q9. Are the session limits in section 7 reasonable, and is "reconnect, do
-    not rekey" acceptable.
-
-Q10. Which crypto back end, and whether the absence of zeroization in
-     `snow` is acceptable for an audit candidate.
-
-Q11. The order in which the two sides prove their identities, and what the
-     session state machine enforces about it. It depends on the
-     construction chosen in Q1 and is decided with it. The protocol core
-     does not enforce an order.
+PROTOCOL.md open question P2, whether a session should also be bound to
+the onion service key that was dialed, is unchanged and open.
 
 ## 12. Sources
 
 Accessed 2026-10-01.
 
-- Noise Protocol Framework, revision 34: https://noiseprotocol.org/noise.html
-- libp2p Noise specification:
-  https://github.com/libp2p/specs/blob/master/noise/README.md
-- TLS 1.3, RFC 8446, sections 4.4.3 and E.1:
+- TLS 1.3, RFC 8446, sections 4.4.3, 5.5 and appendix E.1:
   https://www.rfc-editor.org/rfc/rfc8446
-- Noise Explorer: https://eprint.iacr.org/2018/766
-- A Spectral Analysis of Noise:
-  https://www.usenix.org/conference/usenixsecurity20/presentation/girol
-- Flexible Authenticated and Confidential Channel Establishment:
-  https://eprint.iacr.org/2019/436
+- Raw public keys in TLS, RFC 7250: https://www.rfc-editor.org/rfc/rfc7250
+- Ed25519 in SubjectPublicKeyInfo, RFC 8410:
+  https://www.rfc-editor.org/rfc/rfc8410
+- rustls: https://docs.rs/rustls/0.23.45
+- SIGMA: https://www.iacr.org/archive/crypto2003/27290399/27290399.pdf
 - Ed25519 strict verification:
-  https://docs.rs/ed25519-dalek/latest/ed25519_dalek/struct.VerifyingKey.html
+  https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html
 - Argon2, RFC 9106: https://www.rfc-editor.org/rfc/rfc9106
 - XChaCha20-Poly1305:
   https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-xchacha-03
-- snow: https://github.com/mcginty/snow and
-  https://rustsec.org/advisories/RUSTSEC-2024-0011.html
+
+The sources for the comparison of session protocols are in ADR 0002.

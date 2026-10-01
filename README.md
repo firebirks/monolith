@@ -46,7 +46,7 @@ The full list of limits is in `docs/THREAT_MODEL.md`, section 6.
 | `docs/THREAT_MODEL.md` | Adversaries, defenses, limits |
 | `docs/SECURITY_INVARIANTS.md` | Properties that must always hold |
 | `docs/PROTOCOL.md` | Wire protocol |
-| `docs/CRYPTOGRAPHY.md` | Primitives, handshake, identity proof |
+| `docs/CRYPTOGRAPHY.md` | Primitives, session handshake, key lifecycle |
 | `docs/TOR_INTEGRATION.md` | How Monolith uses Tor |
 | `docs/TOR_CONTROL_SURFACE.md` | Every Tor control command used |
 | `docs/PLATFORM_TAILS.md` | Tails |

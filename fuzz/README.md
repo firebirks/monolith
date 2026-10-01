@@ -68,7 +68,7 @@ campaign.
 Not done yet:
 
 - Long runs with a kept corpus, and a scheduled job.
-- Targets for code that does not exist yet: the handshake records, the SOCKS
+- Targets for code that does not exist yet: the session layer, the SOCKS
   and control reply parsers, the vault header.
 
 ## Rules for targets

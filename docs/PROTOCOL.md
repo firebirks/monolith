@@ -1,15 +1,16 @@
 # Monolith protocol, version 1
 
-Status: accepted for implementation of the protocol core in Phase 1. Not
-frozen. Open questions are listed in section 17.
+Status: the protocol core (framing, messages, text rules, contact cards,
+session states, contact confirmation, duplicate resolution) is implemented
+and accepted. The session layer, sections 3, 4 and 6.1 to 6.3, is the
+design selected in ADR 0002: TLS 1.3 with raw public keys. It is specified
+here and not implemented yet. Until it is, the code of the protocol core
+still carries two things from the earlier draft that this document no
+longer has: a message type for an identity proof, and a frame overhead of
+16 bytes. Both go away with the implementation.
 
-Provisional parts: section 3 (preamble), section 4 (handshake) and sections
-6.1 to 6.3 (identity proof) describe one candidate for the session layer.
-The session layer is not decided (ADR 0002) and Phase 1 implements none of
-it. The padding block size in section 5 is a parameter whose production
-value is not decided either. Everything else is what Phase 1 implements:
-framing, messages, text rules, contact cards, session states, contact
-confirmation and duplicate resolution.
+The padding block size in section 5 is a parameter whose production value
+is not decided. Open questions are listed in section 17.
 
 Related documents: `CRYPTOGRAPHY.md` (primitives, handshake analysis),
 `RESOURCE_LIMITS.md` (every numeric limit), `SECURITY_INVARIANTS.md`.
@@ -22,13 +23,11 @@ reliable ordered byte stream.
 
 A connection goes through these steps:
 
-1. Both sides send an 8-byte preamble (section 3).
-2. A Noise XX handshake with fixed-size messages creates an encrypted
-   channel (section 4).
-3. Each side sends one AuthProof that binds its Monolith identity to the
-   channel. The responder goes first (section 6).
-4. Messages are exchanged as encrypted, padded frames (section 5), subject
-   to the session state (section 7).
+1. A TLS 1.3 handshake creates an encrypted channel and authenticates the
+   Monolith identity of each side. The responder is authenticated first
+   (sections 3, 4 and 6).
+2. Messages are exchanged as padded frames inside that channel (section
+   5), subject to the session state (section 7).
 
 Design rules that hold throughout:
 
@@ -56,98 +55,199 @@ are no optional fields except where a presence byte is specified; a presence
 byte is 0x00 or 0x01 and any other value is a violation. A body that is
 longer or shorter than its fields require is a violation.
 
-## 3. Preamble
+## 3. Protocol version
 
-Each side sends 8 bytes:
+There is no preamble. The first bytes on the stream are a TLS 1.3
+ClientHello.
 
-| Offset | Size | Field | Value |
-| --- | --- | --- | --- |
-| 0 | 4 | magic | 0x4D 0x4E 0x4C 0x54 ("MNLT") |
-| 4 | 2 | major | protocol major version, `u16` |
-| 6 | 2 | reserved | 0x0000 |
+The protocol version is selected with application-layer protocol
+negotiation (ALPN, RFC 7301). This version of the protocol has the
+identifier
 
-The initiator sends its preamble followed immediately by handshake message 1.
+    "monolith/1"      10 bytes: 6d 6f 6e 6f 6c 69 74 68 2f 31
 
-The responder reads 8 bytes.
+- An initiator offers this identifier and no other.
+- A responder that supports it selects it. A responder that supports none
+  of the identifiers offered fails the handshake, as RFC 7301 requires.
+- After the handshake each side checks that the negotiated identifier is
+  `monolith/1`. A handshake that completed with another identifier, or
+  with none, is a violation.
 
-- Wrong magic or non-zero reserved bytes: close without sending anything.
-- A major version the responder does not support: send its own preamble,
-  carrying the highest major version it supports, and close.
-- Otherwise: send back the same 8 bytes and continue.
+The offer and the selection are part of the handshake transcript, which
+both sides sign, so neither can be changed without the handshake failing.
+An initiator never retries with another version on its own; a failed
+negotiation is reported to the user.
 
-The initiator closes if the responder's preamble is not byte for byte the
-one it sent. An initiator never retries with a lower major version on its
-own; a version mismatch is reported to the user. The mismatch reply is not
-authenticated, so acting on it automatically would let an attacker force an
-older protocol.
+A later version of the protocol, or an optional extension of this one,
+gets a new identifier. There are no feature bits.
 
-Version 1 has major = 1. The preamble reveals that the endpoint speaks
-Monolith and which major version. It reveals nothing else: no build, no
-platform, no feature list.
-
-Minor extensions do not change the preamble. They are negotiated with the
-feature bits in AuthProof (section 6.3).
+The ClientHello shows that the endpoint speaks Monolith and which version.
+It also shows what TLS library produced it. It contains no build, no
+platform and no identity.
 
 ## 4. Handshake
 
-The handshake is `Noise_XX_25519_ChaChaPoly_SHA256` as defined by the Noise
-Protocol Framework, with these parameters:
+The handshake is TLS 1.3 (RFC 8446). The initiator is the TLS client and
+the responder is the TLS server. Each side authenticates with its Monolith
+identity key, carried as a raw public key (RFC 7250).
 
-- Prologue (40 bytes): preamble (8 bytes) || responder identity public key
-  (32 bytes). The preamble is the same in both directions (section 3), so
-  the initiator can build the prologue before it has heard from the
-  responder. The initiator knows the responder's identity key from the
-  contact record it is dialing.
-- Static keys: each side generates a fresh X25519 key pair for every
-  connection. Static keys are never stored and never reused. They carry no
-  identity; identity is established by AuthProof.
-- Payloads: empty in all three messages.
+### 4.1 Profile
 
-Message sizes are therefore fixed:
+| Parameter | Value |
+| --- | --- |
+| Version | TLS 1.3 only (0x0304) |
+| Cipher suite | `TLS_CHACHA20_POLY1305_SHA256` (0x1303) |
+| Key exchange group | x25519 (0x001D) |
+| Signature scheme | ed25519 (0x0807) |
+| Server certificate type (extension 20) | RawPublicKey (2) |
+| Client certificate type (extension 19) | RawPublicKey (2) |
+| Application protocol (extension 16) | `monolith/1` |
+| Client authentication | required |
+| Server name (extension 0) | not sent |
+| Pre-shared keys, early data | not used |
+| Session tickets | not sent by a responder, not stored by an initiator |
+| Certificate compression | not used |
 
-| Message | Direction | Size | Content |
-| --- | --- | --- | --- |
-| 1 | initiator -> responder | 32 | e |
-| 2 | responder -> initiator | 96 | e, ee, s, es (encrypted s 48, payload tag 16) |
-| 3 | initiator -> responder | 64 | s, se (encrypted s 48, payload tag 16) |
+An implementation offers and accepts no other version, suite, group,
+signature scheme or certificate type. X.509 certificates are not accepted.
+An initiator sends its x25519 key share in the first ClientHello.
 
-Each message is read as exactly that many bytes. There is no length prefix
-and no variable part. Any failure to process a message is a violation.
+Extensions that a TLS library sends by default and that do not change any
+parameter above are tolerated on receipt, as TLS requires.
 
-After message 3 both sides hold:
+Every connection is a full handshake. Nothing from one connection is
+reused in another.
 
-- two cipher states, one per direction, from the Noise `Split()`;
-- the handshake hash `h` (32 bytes);
-- their own and the peer's static public key for this connection.
+### 4.2 The identity key in the handshake
 
-A responder completes message 3 only if the initiator used the same
-prologue, which means the initiator already knew the responder's identity
-key. A party that knows only the onion address does not get past this
-point. It has received message 2, whose authentication tags depend on the
-prologue, so it can test identity keys it already holds against the
-address.
+The Certificate message of each side carries exactly one entry, with no
+extensions. The entry is the SubjectPublicKeyInfo of the sender's identity
+key (RFC 8410), 44 bytes:
 
-This is opportunistic probing resistance. It is not access control: the
-identity key is public data and is in every contact card. See ADR 0002.
+    30 2a                     SEQUENCE, 42 bytes
+       30 05                  SEQUENCE, 5 bytes
+          06 03 2b 65 70      OBJECT IDENTIFIER 1.3.101.112, Ed25519
+       03 21 00               BIT STRING, 33 bytes, no unused bits
+          key[32]             the identity public key
+
+A receiver compares the first 12 bytes with this prefix and takes the
+remaining 32 as the key. Anything else is rejected: another algorithm,
+algorithm parameters, another length, trailing bytes, or more than one
+entry. There is no ASN.1 parser in this path.
+
+### 4.3 Signatures
+
+Each side sends one CertificateVerify. It is an Ed25519 signature by the
+identity key over these 130 bytes (RFC 8446 section 4.4.3):
+
+| Size | Value |
+| --- | --- |
+| 64 | 0x20, repeated |
+| 33 | "TLS 1.3, server CertificateVerify" from the responder, "TLS 1.3, client CertificateVerify" from the initiator |
+| 1 | 0x00 |
+| 32 | SHA-256 over all handshake messages so far, up to and including the signer's Certificate |
+
+Monolith defines no signature of its own for the session.
+
+### 4.4 Order and checks
+
+    Initiator                                   Responder
+
+      ClientHello                       ---->
+                                                ServerHello
+                                                {EncryptedExtensions}
+                                                {CertificateRequest}
+                                                {Certificate}
+                                                {CertificateVerify}
+                                        <----   {Finished}
+      verifies the responder
+      {Certificate}
+      {CertificateVerify}
+      {Finished}                        ---->
+                                                verifies the initiator
+      [frames]                          <--->   [frames]
+
+Messages in braces are encrypted under handshake keys, frames under
+application keys.
+
+The initiator, on the responder's Certificate and CertificateVerify:
+
+1. The entry has the form of section 4.2.
+2. The key is a valid key (section 10.1).
+3. The key is not the initiator's own identity key.
+4. The key is byte for byte the identity that was dialed.
+5. The signature of section 4.3 verifies under strict rules (section 10.1).
+
+If any of these fails, the initiator ends the handshake. It has not sent
+its own Certificate at that point, and it does not send it. A failure of
+check 4 is reported to the user as an identity mismatch: the service at
+the contact's address did not prove the contact's identity. This is never
+resolved automatically, and there is no option to continue with the key
+that was presented.
+
+The responder, on the initiator's Certificate and CertificateVerify:
+
+1. The entry has the form of section 4.2. An empty Certificate is a
+   failure: client authentication is required.
+2. The key is a valid key (section 10.1).
+3. The key is not the responder's own identity key.
+4. The signature of section 4.3 verifies under strict rules.
+
+The responder checks nothing else here. In particular it does not look at
+its contacts, its block list or any other record of the identity, so the
+handshake behaves the same for every initiator with a valid key.
+
+Both sides, after Finished:
+
+1. The negotiated version is TLS 1.3 and the suite is 0x1303.
+2. The negotiated application protocol is `monolith/1` (section 3).
+
+The key that passed these checks is the peer's identity for the session.
+It does not change for the lifetime of the session; TLS 1.3 has no
+renegotiation, and post-handshake client authentication is not offered.
+
+### 4.5 Bounds and failures
+
+- A side that has received more than `MAX_HANDSHAKE_INPUT_LEN` (4096)
+  bytes while the handshake is not complete closes the stream. The three
+  flights of this profile are about 200, 370 and 190 bytes.
+- The handshake must complete within `HANDSHAKE_TIMEOUT`.
+- A handshake that fails ends with the stream closed. A TLS alert may be
+  sent first. Every rejection that comes from the checks of section 4.4
+  produces the same alert, `handshake_failure`, whichever check failed.
+  Nothing specific to Monolith is sent.
+- After the handshake, a violation of this document ends the session by
+  closing the stream. No alert and no message is sent.
+
+### 4.6 After the handshake
+
+- A KeyUpdate from the peer is legal and is handled by the TLS layer. An
+  implementation of this profile does not need to send one.
+- A NewSessionTicket that is received is discarded.
+- A side that ends a session on purpose sends the Close message (section
+  8.1) and may follow it with a TLS `close_notify`. Receivers do not
+  depend on `close_notify`: a stream that ends without the Close message
+  is a transport failure whether or not it was sent.
 
 ## 5. Frames
 
 After the handshake every transmission is a frame:
 
-    u16 length || ciphertext[length]
+    u16 length || plaintext[length]
 
 `length` must satisfy
 
-    1040 <= length <= 64528  and  (length - 16) mod 1024 == 0
+    1024 <= length <= 64512  and  length mod 1024 == 0
 
-and, while the session is in `IdentityAuth` or `AuthenticatedUnknown`,
-`length` must be exactly 1040. A length that fails these checks is a
-violation and is detected before the ciphertext is read.
+and, while the session is in `AuthenticatedUnknown`, `length` must be
+exactly 1024. No frame is accepted before that state. A length that fails
+these checks is a violation and is detected before the frame is read.
 
-The ciphertext is one Noise transport message: the plaintext encrypted with
-the cipher state of that direction, nonces counting from zero, empty
-associated data. A decryption failure is a violation. Frames cannot be
-reordered, dropped or replayed without causing one.
+Frames are written to the TLS stream as application data. TLS protects
+them; a frame is not encrypted a second time. A frame may be split across
+TLS records, and record boundaries mean nothing to this layer. Frames
+cannot be reordered, dropped or replayed without the TLS layer failing,
+which ends the session.
 
 The plaintext is:
 
@@ -158,8 +258,8 @@ The plaintext is:
   padding than necessary, or a non-zero padding byte, is a violation.
 - `type` must be an assigned code (section 8). An unassigned code is a
   violation. There are no ignorable message types in version 1; a type that
-  is added later may be sent only to a peer that advertised the matching
-  feature bit.
+  is added later may be sent only on a connection whose protocol
+  identifier (section 3) includes it.
 - The message must be legal in the current session state (section 7). This
   is checked before the body is parsed.
 
@@ -171,9 +271,9 @@ Two numbers in this section are parameters, not constants of the design:
 
 - P, the padding block. This document uses P = 1024. That value is
   provisional; ADR 0003 gives the trade-off and the alternatives.
-- T, the number of bytes the session layer adds to each frame. With the
-  session candidate that is written up, T = 16 (an authentication tag). If
-  the stream is already protected by the layer below, T = 0.
+- T, the number of bytes the session layer adds to each frame. With TLS
+  underneath, the stream is already protected and T = 0. A session layer
+  that encrypted each frame itself would add its authentication tag here.
 
 In terms of them:
 
@@ -183,7 +283,7 @@ In terms of them:
 - before a session is confirmed, the plaintext is no longer than the padded
   size of the largest message that is legal then. That message is a
   ContactRequest of 800 bytes, 804 with its header. For P = 1024 this is
-  one block, which is where "exactly 1040" comes from.
+  one block, which is where "exactly 1024" comes from.
 
 A pair of values is usable only if P is larger than the 4-byte message
 header, P + T is at most 65535, and the largest plaintext can hold every
@@ -194,85 +294,37 @@ A FileChunk is cut to the frame: a full chunk carries as much data as the
 largest body holds after the 16-byte transfer identifier and the 2-byte
 length, and never more than 64490 bytes.
 
-The limits 1040, 64528, 64512, 64508 and 64490 elsewhere in this document
-are these rules evaluated for P = 1024 and T = 16. An implementation takes
+The limits 1024, 64512, 64508 and 64490 elsewhere in this document are
+these rules evaluated for P = 1024 and T = 0. An implementation takes
 P and T as parameters, so that changing either is a change of two numbers
 and not of the frame decoder.
 
 Padding hides the exact length of short messages from anyone who can see
-ciphertext lengths on the path between the application and Tor. It is not a
+record lengths on the path between the application and Tor. It is not a
 defense against traffic analysis; see `THREAT_MODEL.md`.
 
 ## 6. Identity authentication
 
-### 6.1 AuthProof (type 0x0001)
+### 6.1 Authentication by the handshake
 
-Body, 104 bytes:
+The identity of each side is authenticated by the TLS handshake of section
+4. There is no separate identity proof and no message for one. Message
+code 0x0001, which earlier drafts gave to such a message, is not assigned.
 
-| Offset | Size | Field |
-| --- | --- | --- |
-| 0 | 32 | identity_public_key |
-| 32 | 8 | features (`u64`) |
-| 40 | 64 | signature |
+### 6.2 Result
 
-`signature` is an Ed25519 signature by `identity_public_key` over these 155
-bytes:
+When the handshake and the checks of section 4.4 have succeeded, both
+sides are in `AuthenticatedUnknown`: the peer's identity is proven, and
+whether the two are contacts has not yet been confirmed on this session.
+Section 6.4 says how a session leaves that state.
 
-| Size | Value |
-| --- | --- |
-| 16 | "MONOLITH-AUTH-V1" |
-| 1 | role of the signer: 0x01 initiator, 0x02 responder |
-| 2 | major version (`u16`) |
-| 32 | handshake hash `h` |
-| 32 | signer's Noise static public key |
-| 32 | peer's Noise static public key |
-| 32 | identity_public_key |
-| 8 | features (`u64`) |
+The responder was authenticated first. The initiator's identity was sent
+only to a responder that had already proved the identity that was dialed.
 
-### 6.2 Order and checks
-
-The order below belongs to the session candidate that is written up
-(option A of ADR 0002) and is as provisional as that candidate. Which side
-proves its identity first, and whether separate proofs exist at all,
-depends on the construction that is chosen; it is open question Q11 of
-ADR 0002. The protocol core implements the checks that hold for every
-option (a proof must arrive, it must name the identity that is then
-authenticated, an outbound session accepts only the identity it dialed)
-and does not enforce the order.
-
-1. The responder sends its AuthProof as the first frame after handshake
-   message 3.
-2. The initiator verifies it (below) and requires `identity_public_key` to
-   equal the identity it dialed. If it differs, the initiator closes and
-   reports an identity mismatch to the user. This is never resolved
-   automatically.
-3. Only then the initiator sends its own AuthProof. An initiator must not
-   reveal its identity before step 2 has succeeded.
-4. The responder verifies it.
-
-An endpoint that serves another identity than the one dialed does not get
-as far as step 2. Its prologue differs, so the initiator cannot
-authenticate handshake message 2. The initiator reports both cases, a
-message 2 that does not authenticate and a proof by another key, as the
-same event: the service at the contact's address did not prove the
-contact's identity. It cannot tell a replaced identity from a service that
-is not Monolith at all, and the interface says so.
-
-Verification of a received AuthProof:
-
-- It is the first frame received and the session is in `IdentityAuth`.
-- The body is exactly 104 bytes.
-- `identity_public_key` is a valid identity key (section 10.1) and differs
-  from the verifier's own identity key.
-- The signature verifies, under strict rules (section 10.1), over the
-  155-byte input built from the verifier's own view of the session: the
-  peer's role, the major version from the preamble, the verifier's `h`, the
-  peer's static key as "signer's", the verifier's static key as "peer's".
-
-After both proofs have been verified, both sides are in
-`AuthenticatedUnknown`: the peer's identity is proven, and whether the two
-are contacts has not yet been confirmed on this session. Section 6.4 says
-how a session leaves that state.
+Authentication says who the peer is. It does not say what the peer may
+do. A peer with a valid key that the local side has never seen, has
+declined, has blocked or has deleted is authenticated exactly like a
+contact, and is then handled by sections 6.4 and 12.
 
 Budgets are applied at this point according to the local record of the
 proven identity. A session with an identity the responder holds as an
@@ -288,13 +340,12 @@ turned away at this point; it is handled like any other identity that is
 not a contact (section 12), so that being blocked cannot be told from being
 unknown.
 
-### 6.3 Features
+### 6.3 Extensions
 
-`features` is a bit field of optional protocol extensions the sender
-implements. Version 1 defines no bits; senders set it to zero. Receivers
-ignore bits they do not know. An extension may be used on a session only if
-both sides set its bit. Feature bits describe protocol behavior only and are
-never used to convey platform, build or product information.
+Version 1 has no optional extensions and no negotiation beyond the
+protocol identifier of section 3. An extension that is added later is a
+new identifier. Identifiers describe protocol behavior only and are never
+used to convey platform, build or product information.
 
 ### 6.4 Contact confirmation
 
@@ -351,10 +402,10 @@ A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 | State | Meaning | Messages accepted from the peer |
 | --- | --- | --- |
 | Connecting | Stream being opened | none |
-| CryptoHandshake | Preamble and Noise messages | none (fixed-size handshake records only) |
-| IdentityAuth | Encrypted channel, identities not yet proven | AuthProof |
+| CryptoHandshake | TLS handshake in progress | none (TLS handshake messages only) |
+| IdentityAuth | TLS handshake complete; the checks of section 4.4 are applied to its result | none |
 | AuthenticatedUnknown | Peer's identity proven; contact relationship not confirmed on this session | ContactRequest, ContactAccept, Close |
-| AuthenticatedContact | Both sides hold each other as accepted contacts and have said so on this session | everything except AuthProof |
+| AuthenticatedContact | Both sides hold each other as accepted contacts and have said so on this session | every message type |
 | Closing | Close sent; the stream is being shut down | none |
 | Closed | Terminal | none |
 
@@ -363,13 +414,13 @@ A session never moves backwards, and every session passes through
 `MessageType::may_be_received_in` and `SessionState::can_transition_to` in
 `monolith-protocol`; the logic of sections 6.4 and 12 is `session::Session`.
 
-A session enters `AuthenticatedUnknown` only for the identity that the
-AuthProof received on it named. The session logic refuses to be told that
-identities are proven if no AuthProof arrived, or if the proven identity is
-not the one the proof named; either ends the session. It also ends the
-session when the proof names the local identity, and, on a session the
-local side opened, when it names any identity other than the one that was
-dialed (section 6.2).
+A session enters `AuthenticatedUnknown` only for the identity whose key
+the handshake authenticated. The session logic is given that identity by
+the handshake and by nothing else. It ends the session when that identity
+is the local one, and, on a session the local side opened, when it is any
+identity other than the one that was dialed (section 4.4). An
+implementation does not let a caller move a session into
+`AuthenticatedUnknown` by any other route.
 
 A Close that is received ends the session at once: the receiver goes to
 `Closed`. After a Close was sent or received, a side stops reading from the
@@ -384,7 +435,6 @@ All sizes are body sizes. "States" lists where the message may be received.
 
 | Code | Name | Body size | States |
 | --- | --- | --- | --- |
-| 0x0001 | AuthProof | 104 | IdentityAuth |
 | 0x0002 | Close | 0 | Unknown, Contact |
 | 0x0003 | Ping | 8 | Contact |
 | 0x0004 | Pong | 8 | Contact |
@@ -400,6 +450,8 @@ All sizes are body sizes. "States" lists where the message may be received.
 | 0x0043 | FileChunk | 19 to 64508 | Contact |
 | 0x0044 | FileComplete | 48 | Contact |
 | 0x0045 | FileAbort | 16 | Contact |
+
+Code 0x0001 is not assigned.
 
 No message has a field that names a third party. The only identities and
 endpoints on the wire are the sender's own, inside structures the sender
@@ -437,7 +489,7 @@ answered within `PONG_TIMEOUT` ends the session.
     text<0..512> introduction
 
 `card` must be a valid contact card (section 11) whose identity key equals
-the identity the sender proved in AuthProof, and it must not carry a
+the identity the sender proved in the handshake, and it must not carry a
 capability of its own. A request with the card of another identity is a
 protocol violation: the stream is closed and nothing is sent. The receiver
 makes this check before it looks at what it holds about the sender, so the
@@ -766,7 +818,8 @@ nothing else.
 
 Key separation. The Monolith identity key and the master key of a Tor
 Onion Service belong to different cryptographic domains. The first signs
-contact cards and identity proofs under Monolith's prefixes; the second is
+contact cards under Monolith's prefix and TLS handshake transcripts
+under the context strings of TLS; the second is
 used by Tor, under Tor's rules, to certify the keys of a service. A key
 must never be used in both. A card in which an endpoint is the identity
 key states that it is, so the card is invalid, and an implementation
@@ -938,7 +991,7 @@ identity, by the local record of that identity.
 | accepted, verified out of band | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
 | accepted, not verified | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
 
-For every row: the handshake and the identity proof are the same, a
+For every row: the handshake is the same, a
 protocol violation ends the stream with nothing sent, and Close has an
 empty body.
 
@@ -1111,6 +1164,11 @@ Identity: the key pair of RFC 8032 section 7.1, test 1.
     seed      9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60
     identity  d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
 
+The same key as it appears in a TLS Certificate entry (section 4.2):
+
+    spki      302a300506032b6570032100
+              d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+
 Fingerprint of that identity (section 10):
 
     full      YIRR UZHO JELC AIYD AIKQ AHCH XAGT EYDA AX3D VLUH 6WO3 ZSYJ BYYQ
@@ -1168,8 +1226,9 @@ Each holds for identity keys and for onion service keys alike.
 
 - onion address derivation from a key, with the Tor backend;
 - frame encoding of every message type at minimum and maximum size;
-- whatever the session layer needs once it is decided: the handshake with
-  fixed keys, and the identity proof for a fixed transcript.
+- a complete handshake with fixed keys and fixed randomness, if a provider
+  built for tests makes that practical (ADR 0002, R5). The signed input
+  of section 4.3 is defined by RFC 8446, whose traces are in RFC 8448.
 
 ## 17. Open questions
 
@@ -1177,10 +1236,11 @@ P1. Padding block size. 1024 bytes is a judgment call between overhead and
     how much length information leaks. Needs review together with the
     traffic-analysis limits in the threat model.
 
-P2. Whether AuthProof should also bind the onion service key the connection
-    was made to. It would tie the session to the endpoint as well as the
-    identity. It complicates endpoint migration, when a responder serves two
-    endpoints for a while. Currently not bound.
+P2. Whether a session should also be bound to the onion service key the
+    connection was made to. It would tie the session to the endpoint as
+    well as the identity. Both sides could compare a value from the TLS
+    exporter mixed with that key. It complicates endpoint migration, when
+    a responder serves two endpoints for a while. Currently not bound.
 
 P3. Epoch after restoring an old backup. A restored identity may hold an
     epoch lower than one it issued later. Proposed handling: a restore

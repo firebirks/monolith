@@ -15,8 +15,12 @@ downloaded by cargo, `cargo audit` and `cargo deny`.
   The language a cryptographic library is written in decides nothing by
   itself.
 - No pre-release versions of cryptographic crates.
-- One implementation of each primitive. `deny.toml` forbids two versions of
-  the same crate.
+- One version of each crate; `deny.toml` forbids two. One implementation
+  of each primitive per layer: `ed25519-dalek` and `sha2` for identities,
+  and, once the session layer is added, the crypto provider of the TLS
+  library for the session (ADR 0002). The provider contains
+  implementations of Ed25519 and SHA-256 of its own; Monolith does not
+  call them for identity operations.
 - Features are switched off by default and enabled one by one.
 - `deny.toml` bans `native-tls` and `openssl-sys`. This is dependency
   control and says nothing about the quality of OpenSSL's cryptography.
@@ -70,10 +74,9 @@ Risks, recorded so that they are not forgotten:
 - The stable releases of `ed25519-dalek` 3 and `curve25519-dalek` 5 are
   three months old. They have had less use than the previous generation.
 - No public audit of these major versions is known.
-- `snow` 0.10, one candidate for the session layer, depends on the
-  previous generation. Choosing it would put a second curve implementation
-  and a second `sha2` into the binary, which `deny.toml` forbids. ADR 0002
-  has to weigh that; it is not a reason to move back.
+- Noise libraries in Rust (`snow` 0.10, `clatter` 2.3) still depend on the
+  previous generation. This did not decide the session protocol; ADR 0002
+  selected TLS 1.3 for other reasons.
 
 Features that stay off unless a decision record asks for them and says
 why: `legacy_compatibility` (verification rules that accept encodings
@@ -218,7 +221,12 @@ older version, and the MSRV job in CI fails if it cannot.
 
 ## 5. Not yet chosen
 
-- Session layer and its crypto back end: ADR 0002.
+- Session layer: decided in ADR 0002 and not yet added. `rustls` 0.23.45
+  with the features `ring` and `std`, and `ring` 0.17.14. They get their
+  entries here, with features, licences, audit notes and the result of
+  `cargo tree -d`, in the change that adds them. Measured in a prototype:
+  17 crates more than today, no cryptographic crate in two versions, and
+  `getrandom` 0.2 from `ring` next to the 0.3 that tests already bring.
 - Storage: `argon2`, `chacha20poly1305`, `hkdf`, and the message store:
   ADR 0005.
 - Randomness: `getrandom`, when key generation is implemented.
