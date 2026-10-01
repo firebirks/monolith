@@ -28,7 +28,9 @@ use monolith_protocol::body::{
     AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId,
 };
 use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
-use monolith_protocol::frame::{FrameParams, decode_plaintext, encode_outer, encode_plaintext};
+use monolith_protocol::frame::{
+    FrameParams, OuterDecoder, decode_plaintext, encode_outer, encode_plaintext,
+};
 use monolith_protocol::text::{ChatText, DisplayName, Filename, IntroductionText, ProfileText};
 use monolith_protocol::{MessageType, SessionState};
 
@@ -339,5 +341,61 @@ fn seeds_are_accepted_by_what_they_are_meant_for() {
         let (message_type, body) = decode_plaintext(&PARAMS, state, &plaintext)
             .unwrap_or_else(|error| panic!("{path}: {error:?}"));
         assert!(Message::decode(message_type, body).is_ok(), "{path}");
+    }
+
+    // frame_stream: the stream, built as the target builds it, comes apart
+    // into frames that hold valid messages.
+    for (path, content) in find("frame_stream/") {
+        let state = if content[0] % 2 == 0 {
+            SessionState::AuthenticatedContact
+        } else {
+            SessionState::AuthenticatedUnknown
+        };
+        let (stream, expected) = if content[2] % 2 == 0 {
+            (content[3..].to_vec(), None)
+        } else {
+            assert_eq!(&content[3..6], &[0, 0, 0], "{path} is damaged");
+            let mut stream = Vec::new();
+            let mut count = 0;
+            for record in content[6..].chunks(48) {
+                let message_type = MessageType::ALL[usize::from(record[0])];
+                let mut payload = encode_plaintext(&PARAMS, message_type, &record[1..]).unwrap();
+                payload.resize(payload.len() + PARAMS.overhead(), 0);
+                stream.extend_from_slice(&encode_outer(&PARAMS, &payload).unwrap());
+                count += 1;
+            }
+            (stream, Some(count))
+        };
+
+        let mut decoder = OuterDecoder::new(PARAMS);
+        let mut rest = &stream[..];
+        let mut frames = 0;
+        while !rest.is_empty() {
+            let (used, frame) = decoder
+                .feed(rest, state)
+                .unwrap_or_else(|error| panic!("{path}: {error:?}"));
+            rest = &rest[used..];
+            if let Some(payload) = frame {
+                frames += 1;
+                if expected.is_some() {
+                    let plaintext = &payload[..payload.len() - PARAMS.overhead()];
+                    let (message_type, body) = decode_plaintext(&PARAMS, state, plaintext)
+                        .unwrap_or_else(|error| panic!("{path}: {error:?}"));
+                    assert!(Message::decode(message_type, body).is_ok(), "{path}");
+                }
+            }
+        }
+        assert!(frames > 0, "{path}");
+        assert_eq!(decoder.buffered(), 0, "{path} ends inside a frame");
+        if let Some(expected) = expected {
+            assert_eq!(frames, expected, "{path}");
+        }
+    }
+
+    // session_sequence seeds are selectors, not encodings: every byte
+    // string is a valid input. They are checked for their shape only.
+    for (path, content) in find("session_sequence/") {
+        assert!(content.len() >= 3, "{path} has no event");
+        assert!(content[0] <= 7 && content[1] <= 4, "{path}");
     }
 }
