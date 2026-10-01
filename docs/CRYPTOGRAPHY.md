@@ -236,7 +236,7 @@ F5. A transport key or ephemeral key that is not canonically encoded or is
 | Party | Learns |
 | --- | --- |
 | Passive observer of the stream | Three messages of fixed size. Nothing readable. Inside Tor, only the two endpoints see the stream at all. |
-| Active party without the responder's card | Nothing. Its first message fails and the responder closes without a reply. It cannot tell a Monolith service from anything else that closes a connection. |
+| Active party without the responder's card | Nothing readable. Its first message fails and the responder closes without a reply. What it observes is a service that takes 48 bytes and closes the stream. |
 | Active party with the responder's card | That the holder of the transport key is live at the address. No signature and nothing it could show to others. |
 | Party that answers at the address without the transport key | 48 bytes it cannot use. The initiator stops at message 2 and has sent no identity. Obtaining the transport key later reveals nothing from what was recorded. |
 | Authenticated initiator the responder does not hold as a contact | That its first message is answered with Close. Nothing about the contact list. |
@@ -326,7 +326,7 @@ reached:
 
 | Limit | Value | Counted |
 | --- | --- | --- |
-| Age | 24 hours | from the end of the handshake |
+| Age | 24 hours; 48 hours while a file transfer is active | from the end of the handshake, on each side's own clock |
 | Frames | 2^32 | per direction |
 | Ciphertext bytes | 2^40 | per direction, the sum of the frame length fields |
 
@@ -344,10 +344,19 @@ size is.
 
 The age limit is deferred while a file transfer is active, so that the
 clock does not cut a transfer off, but never beyond 48 hours in total. No
-new transfer starts on a session that is past 24 hours.
+new transfer starts on a session that is past 24 hours, and a transfer
+that begins later does not extend the session.
 
 Both sides count. A receiver that sees its peer exceed the frame or byte
-limit treats that as a violation.
+limit treats that as a violation. For the age it allows a grace of
+`SESSION_CLOSE_GRACE` (120 seconds) past the limit before it does the
+same: the two sides start their clocks up to one handshake apart, and the
+Close that ends a session at its limit has to be taken as a Close, not as
+a violation. The age is measured with a monotonic clock, which on Linux
+does not advance while the machine is suspended.
+
+The limits are constants of the protocol. Nothing negotiates them and no
+configuration changes them.
 
 There is no in-band rekey. The Noise `Rekey()` function is not used. A
 reconnect is a complete new handshake with new ephemeral keys, which is
@@ -358,8 +367,8 @@ unacknowledged messages are resent on the new session.
 There is no session resumption, no pre-shared key and no data before the
 handshake is complete.
 
-The limits are constants, and tests run with reduced values to exercise the
-path.
+Tests run with reduced values to exercise the path. The means to set
+reduced values exists only in test builds of the session crate.
 
 ## 8. Forward secrecy and key lifetime
 
@@ -370,7 +379,7 @@ path.
 | Onion Service private key | by Tor or by Monolith | until the endpoint is retired | vault, or memory in ephemeral mode | no | by its type on drop |
 | Noise ephemeral private key | per handshake | one handshake | never | no | when the handshake ends |
 | Chaining key and handshake hash | by Noise | one handshake | never | no | not by `snow` |
-| Frame cipher keys | by Noise | one session, at most 24 hours | never | no | when the session ends |
+| Frame cipher keys | by Noise | one session: at most 24 hours, 48 with a file transfer, plus the grace of section 7 for receiving | never | no | when the session ends: on a violation, when a Close was received, when the local Close has been made, or when the stream is reported closed |
 | Invitation capability | by Monolith | until revoked | vault | no | by its type on drop |
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
 
@@ -384,8 +393,11 @@ exchange between two ephemeral keys.
 Erasure: Monolith's own secret types zeroize on drop. So do the objects
 of the resolver that hold a key for `snow`: the copy of the transport
 private key, the ephemeral private key and the cipher keys are held in
-types that clear their memory when the handshake or the session is
-dropped (ADR 0002, F-R1).
+types that clear their memory when they are dropped (ADR 0002, F-R1). The
+handshake state is dropped when the handshake completes or fails. The
+transport state of a session is dropped when the session ends, by the
+session object itself; it does not wait until the caller lets go of that
+object.
 
 `snow` erases nothing it holds itself; that is an open finding of its 2024
 audit. This leaves, uncleared, in memory that `snow` owns: the chaining

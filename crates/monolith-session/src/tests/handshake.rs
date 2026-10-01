@@ -214,12 +214,15 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 #[test]
 fn no_long_term_key_appears_in_a_handshake_message() {
     let (_, _, transcript) = handshake(&party(ALICE), &party(BOB));
-    let secrets_and_names: Vec<Vec<u8>> = [ALICE, BOB]
+    // What would name a party: its three public keys and the signature of
+    // its card. The transport private keys are in the list as well.
+    let long_term_values: Vec<Vec<u8>> = [ALICE, BOB]
         .into_iter()
         .flat_map(|seed| {
             [
                 identity(seed).as_bytes().to_vec(),
                 transport_public(seed).to_vec(),
+                transport_bytes(seed).to_vec(),
                 card(seed).signature().as_bytes()[..32].to_vec(),
                 card(seed).endpoints().first().as_bytes().to_vec(),
             ]
@@ -230,7 +233,7 @@ fn no_long_term_key_appears_in_a_handshake_message() {
         &transcript.message_2[..],
         &transcript.message_3[..],
     ] {
-        for value in &secrets_and_names {
+        for value in &long_term_values {
             assert!(!contains(message, value));
         }
     }
@@ -998,21 +1001,40 @@ fn debug_output_of_handshake_types_shows_nothing() {
     let inbound = waiting.read_message_3(&message_3, start()).unwrap();
     assert_eq!(format!("{inbound:?}"), "InboundPeer([redacted])");
 
+    // A session prints its state and its counters, and that is all: no
+    // key, no identity, no card, no standing, no handshake hash.
     let (session, _) = admit_outbound(outbound, Standing::Accepted);
-    let text = format!("{session:?}");
-    assert!(
-        text.starts_with("AuthenticatedSession { state: AuthenticatedUnknown"),
-        "{text}"
+    assert_eq!(
+        format!("{session:?}"),
+        concat!(
+            "AuthenticatedSession { state: AuthenticatedUnknown, ",
+            "sent: Traffic { frames: 0, bytes: 0 }, ",
+            "received: Traffic { frames: 0, bytes: 0 }, failed: false, .. }",
+        )
     );
-    for secret in [
-        crate::testing::hex(session.handshake_hash()),
-        crate::testing::hex(identity(BOB).as_bytes()),
-        crate::testing::hex(&transport_bytes(ALICE)),
-    ] {
-        assert!(!text.contains(&secret[..16]), "{text}");
-    }
-    assert!(
-        !text.contains("Accepted"),
-        "the standing is not printed: {text}"
+}
+
+#[test]
+fn a_failing_random_source_fails_the_handshake() {
+    // T-RNG-1 for the handshake. There is no fallback: without randomness
+    // no ephemeral key exists and no message is produced.
+    assert_eq!(
+        HandshakeInitiator::start_with(
+            &party(ALICE),
+            &card(BOB),
+            start(),
+            Resolver::with_failing_source()
+        )
+        .err(),
+        Some(SessionError::Randomness)
+    );
+
+    // A responder needs its ephemeral key for the second message.
+    let (_, message_1) = alice_dialing_bob();
+    let bob = HandshakeResponder::new_with(&party(BOB), start(), Resolver::with_failing_source())
+        .unwrap();
+    assert_eq!(
+        bob.read_message_1(&message_1, start()).err(),
+        Some(SessionError::Randomness)
     );
 }

@@ -14,8 +14,8 @@ use monolith_protocol::session::{Action, Admission, PeerRecord, Standing};
 use monolith_protocol::{ProtocolError, SessionState};
 
 use crate::testing::{
-    ALICE, BOB, MALLORY, admit_outbound, card, card_of, card_with, chat, handshake, party,
-    request_with, start, transport_secret,
+    ALICE, BOB, MALLORY, admit_outbound, card, card_inviting, card_of, card_with, chat, handshake,
+    handshake_with, party, request_with, start, transport_secret,
 };
 use crate::{AuthenticatedSession, LocalParty, SessionError};
 
@@ -55,9 +55,20 @@ impl Run {
         alice_party: &LocalParty,
         alice_holds_bob: Standing,
         bob_record: PeerRecord<'_>,
-        invitation: Option<InvitationCapability>,
     ) -> Self {
-        let (outbound, inbound, _) = handshake(alice_party, &party(BOB));
+        Self::dialing(alice_party, &card(BOB), alice_holds_bob, bob_record)
+    }
+
+    /// The same, with the card of Bob that Alice dials. A request she
+    /// sends carries the invitation capability of that card.
+    fn dialing(
+        alice_party: &LocalParty,
+        dialed: &ContactCard,
+        alice_holds_bob: Standing,
+        bob_record: PeerRecord<'_>,
+    ) -> Self {
+        let invitation = dialed.invitation().copied();
+        let (outbound, inbound, _) = handshake_with(alice_party, &party(BOB), dialed).unwrap();
         let (alice, alice_first) = admit_outbound(outbound, alice_holds_bob);
         let (bob, admission, bob_first) = inbound.admit(bob_record).unwrap();
         let mut run = Self {
@@ -166,7 +177,7 @@ impl Run {
 
 /// Alice with her usual card.
 fn usual(alice_holds_bob: Standing, bob_record: PeerRecord<'_>) -> Run {
-    Run::new(&party(ALICE), alice_holds_bob, bob_record, None)
+    Run::new(&party(ALICE), alice_holds_bob, bob_record)
 }
 
 #[test]
@@ -294,12 +305,7 @@ fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one()
 
     // A fresh attempt that goes straight to a chat message is a violation,
     // as it is for any peer that is not a contact.
-    let mut run = Run::new(
-        &party(ALICE),
-        Standing::None,
-        PeerRecord::Accepted(&pinned),
-        None,
-    );
+    let mut run = Run::new(&party(ALICE), Standing::None, PeerRecord::Accepted(&pinned));
     run.alice_breaks_the_rules(&chat("as Alice"));
     assert_eq!(
         run.violation,
@@ -316,7 +322,6 @@ fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one()
         &new_alice,
         Standing::Accepted,
         PeerRecord::Accepted(&pinned),
-        None,
     );
     assert_eq!(run.admission.card, Some(CardChange::Unchanged));
     assert!(run.confirmed());
@@ -330,12 +335,7 @@ fn a_retired_key_is_refused_as_soon_as_the_successor_card_was_shown() {
     let pinned = card(ALICE);
     let successor = card_of(ALICE, MALLORY, 2, false);
     let alice = LocalParty::new(successor.clone(), transport_secret(MALLORY)).unwrap();
-    let run = Run::new(
-        &alice,
-        Standing::Accepted,
-        PeerRecord::Accepted(&pinned),
-        None,
-    );
+    let run = Run::new(&alice, Standing::Accepted, PeerRecord::Accepted(&pinned));
     assert_eq!(run.admission.card, Some(CardChange::Newer));
     assert!(run.confirmed());
 
@@ -432,12 +432,7 @@ fn a_newer_card_keeps_the_contact_and_is_reported_as_a_pending_change() {
     let pinned = card(ALICE);
     let newer = card_of(ALICE, MALLORY, 3, false);
     let alice = LocalParty::new(newer.clone(), transport_secret(MALLORY)).unwrap();
-    let run = Run::new(
-        &alice,
-        Standing::Accepted,
-        PeerRecord::Accepted(&pinned),
-        None,
-    );
+    let run = Run::new(&alice, Standing::Accepted, PeerRecord::Accepted(&pinned));
     assert_eq!(
         run.admission,
         Admission {
@@ -545,15 +540,18 @@ fn a_request_is_answered_with_close_before_it_is_considered() {
 fn an_invitation_capability_changes_nothing_a_requester_can_see() {
     // The capability is inside the encrypted request and is looked at
     // after the Close, by the layer that holds the valid ones. Whatever
-    // it is, the session answers in the same way.
-    let reference = Run::new(&party(ALICE), Standing::Requested, PeerRecord::None, None);
+    // it is, the session answers in the same way. Alice sends the
+    // capability of the card she was given; the three cards below are
+    // cards of Bob with no capability and with two different ones.
+    let reference = usual(Standing::Requested, PeerRecord::None);
+    assert_eq!(reference.from_alice[0].len(), 1042);
     for bytes in [[0x11_u8; 16], [0xEE; 16]] {
         let capability = InvitationCapability::from_bytes(bytes);
-        let run = Run::new(
+        let run = Run::dialing(
             &party(ALICE),
+            &card_inviting(BOB, bytes),
             Standing::Requested,
             PeerRecord::None,
-            Some(capability),
         );
         assert_eq!(run.from_bob, reference.from_bob);
         assert_eq!(run.bob_actions, reference.bob_actions);
@@ -572,7 +570,114 @@ fn an_invitation_capability_changes_nothing_a_requester_can_see() {
             assert_eq!(frame.len(), 1042);
         }
     }
-    assert_eq!(reference.from_alice[0].len(), 1042);
+}
+
+#[test]
+fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
+    // PROTOCOL.md 8.3: the capability in a request is the one in the card
+    // of the peer that is asked. A capability that the user was given by
+    // somebody else is not sent here, and none is made up.
+    let given = [0x11_u8; 16];
+    let other = Some(InvitationCapability::from_bytes([0x22; 16]));
+    let (outbound, _, _) =
+        handshake_with(&party(ALICE), &party(BOB), &card_inviting(BOB, given)).unwrap();
+    let (mut alice, first) = admit_outbound(outbound, Standing::Requested);
+    assert_eq!(first, vec![Action::SendContactRequest]);
+    for wrong in [other, None] {
+        assert_eq!(
+            alice.send(&request_with(card(ALICE), wrong), start()).err(),
+            Some(SessionError::InvalidMessage)
+        );
+    }
+    let right = Some(InvitationCapability::from_bytes(given));
+    assert!(
+        alice
+            .send(&request_with(card(ALICE), right), start())
+            .is_ok()
+    );
+
+    // A card without a capability: the request has none.
+    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
+    let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+    assert_eq!(
+        alice.send(&request_with(card(ALICE), other), start()).err(),
+        Some(SessionError::InvalidMessage)
+    );
+    assert!(
+        alice
+            .send(&request_with(card(ALICE), None), start())
+            .is_ok()
+    );
+
+    // The side that was dialed asks with the capability of the card it
+    // holds of the peer. Bob imported a card of Alice with a capability,
+    // and Alice dialed first.
+    let held = card_inviting(ALICE, given);
+    let (_, inbound, _) = handshake(&party(ALICE), &party(BOB));
+    let (mut bob, _, first) = inbound.admit(PeerRecord::Requested(&held)).unwrap();
+    assert_eq!(first, vec![Action::SendContactRequest]);
+    assert_eq!(
+        bob.send(&request_with(card(BOB), None), start()).err(),
+        Some(SessionError::InvalidMessage)
+    );
+    assert!(bob.send(&request_with(card(BOB), right), start()).is_ok());
+}
+
+#[test]
+fn a_request_is_sent_once_on_a_session() {
+    // PROTOCOL.md 6.4. The peer would end the session over a second one,
+    // so the local side does not send it.
+    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
+    let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+    let request = request_with(card(ALICE), None);
+    assert!(alice.may_send(monolith_protocol::MessageType::ContactRequest));
+    assert!(alice.send(&request, start()).is_ok());
+    assert!(!alice.may_send(monolith_protocol::MessageType::ContactRequest));
+    assert_eq!(
+        alice.send(&request, start()).err(),
+        Some(SessionError::NotPermitted)
+    );
+    // A request that was refused before it was encrypted does not count.
+    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
+    let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+    assert!(
+        alice
+            .send(&request_with(card(MALLORY), None), start())
+            .is_err()
+    );
+    assert!(alice.send(&request, start()).is_ok());
+}
+
+#[test]
+fn nothing_is_sent_on_a_confirmed_session_before_the_local_accept() {
+    // The peer's ContactAccept confirms the session on this side. The
+    // peer confirms it when it sees ours, and takes application messages
+    // only then. So ours goes first.
+    let alice_card = card(ALICE);
+    let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
+    let (mut alice, _) = admit_outbound(outbound, Standing::Accepted);
+    let (mut bob, _, _) = inbound.admit(PeerRecord::Accepted(&alice_card)).unwrap();
+
+    // Bob's accept arrives before Alice has sent hers.
+    let from_bob = bob.send(&Message::ContactAccept, start()).unwrap();
+    let received = alice.receive(&from_bob, start()).unwrap().1.unwrap();
+    assert_eq!(received.actions, vec![Action::Confirmed]);
+    assert_eq!(alice.state(), SessionState::AuthenticatedContact);
+    for message_type in monolith_protocol::MessageType::ALL {
+        let allowed = message_type == monolith_protocol::MessageType::ContactAccept;
+        assert_eq!(alice.may_send(message_type), allowed, "{message_type:?}");
+    }
+    assert_eq!(
+        alice.send(&chat("too early"), start()).err(),
+        Some(SessionError::NotPermitted)
+    );
+
+    // After her accept everything a confirmed session carries may go.
+    let from_alice = alice.send(&Message::ContactAccept, start()).unwrap();
+    let hello = alice.send(&chat("hello"), start()).unwrap();
+    assert!(bob.receive(&from_alice, start()).unwrap().1.is_some());
+    let received = bob.receive(&hello, start()).unwrap().1.unwrap();
+    assert_eq!(received.actions, vec![Action::Deliver]);
 }
 
 #[test]

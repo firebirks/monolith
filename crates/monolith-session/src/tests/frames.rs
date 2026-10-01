@@ -4,18 +4,16 @@
 use core::time::Duration;
 
 use monolith_protocol::body::{FileChunk, Message, TransferId};
-use monolith_protocol::limits::{
-    MAX_BYTES_PER_DIRECTION, MAX_CHAT_TEXT_LEN, MAX_FILE_CHUNK_LEN, MAX_FRAMES_PER_DIRECTION,
-    MAX_SESSION_LIFETIME, MAX_SESSION_LIFETIME_WITH_TRANSFER,
-};
+use monolith_protocol::limits::{MAX_CHAT_TEXT_LEN, MAX_FILE_CHUNK_LEN, SESSION_CLOSE_GRACE};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
 
+use crate::session::SessionLimits;
 use crate::testing::{
     ALICE, BOB, MALLORY, Pair, admit_outbound, after, card, card_of, chat, confirmed, connect,
     deliver, handshake, party, request_with, sample, start, transport_secret,
 };
-use crate::{AuthenticatedSession, LocalParty, SessionError, SessionLimits};
+use crate::{AuthenticatedSession, LocalParty, SessionError};
 
 fn failed(error: ProtocolError) -> SessionError {
     SessionError::Protocol(error)
@@ -42,13 +40,12 @@ pub(super) fn confirmed_with(limits: SessionLimits) -> Pair {
 }
 
 pub(super) fn limits(age: u64, age_with_transfer: u64, frames: u64, bytes: u64) -> SessionLimits {
-    SessionLimits::new(
+    SessionLimits::reduced(
         Duration::from_secs(age),
         Duration::from_secs(age_with_transfer),
         frames,
         bytes,
     )
-    .unwrap()
 }
 
 /// Asserts that a session is over: it accepts nothing and sends nothing.
@@ -321,6 +318,63 @@ fn nothing_is_processed_after_a_close() {
 }
 
 #[test]
+fn the_cipher_keys_are_dropped_when_the_session_ends() {
+    // A violation.
+    let mut pair = confirmed();
+    assert!(pair.initiator.holds_keys() && pair.responder.holds_keys());
+    let mut frame = pair.initiator.send(&chat("hello"), start()).unwrap();
+    frame[100] ^= 1;
+    assert!(deliver(&mut pair.responder, &frame).is_err());
+    assert!(!pair.responder.holds_keys());
+
+    // The local Close: the keys go when the frame has been made.
+    let close = pair.initiator.close().unwrap();
+    assert!(!pair.initiator.holds_keys());
+
+    // The peer's Close.
+    let mut pair = confirmed();
+    let close_again = pair.initiator.close().unwrap();
+    assert_eq!(close_again.len(), close.len());
+    assert!(
+        deliver(&mut pair.responder, &close_again)
+            .unwrap()
+            .is_some()
+    );
+    assert!(!pair.responder.holds_keys());
+
+    // The stream is reported gone.
+    let mut pair = confirmed();
+    pair.responder.stream_closed();
+    assert!(!pair.responder.holds_keys());
+    assert_eq!(pair.responder.receive(&[1, 2, 3], start()), Ok((3, None)));
+    assert_eq!(
+        pair.responder.send(&chat("x"), start()).err(),
+        Some(SessionError::Closed)
+    );
+    assert_eq!(pair.responder.close(), None);
+
+    // A session that has to answer with Close keeps its keys until that
+    // Close has been made.
+    let mut pair = connect(Standing::Requested, PeerRecord::None);
+    let request = pair
+        .initiator
+        .send(&request_with(card(ALICE), None), start())
+        .unwrap();
+    let received = deliver(&mut pair.responder, &request).unwrap().unwrap();
+    assert_eq!(
+        received.actions,
+        vec![Action::SendClose, Action::ConsiderRequest]
+    );
+    assert_eq!(pair.responder.state(), SessionState::Closing);
+    assert!(pair.responder.holds_keys());
+    let close = pair.responder.close().unwrap();
+    assert!(!pair.responder.holds_keys());
+    let received = deliver(&mut pair.initiator, &close).unwrap().unwrap();
+    assert_eq!(received.actions, vec![Action::Disconnect]);
+    assert!(!pair.initiator.holds_keys());
+}
+
+#[test]
 fn close_is_not_sent_like_a_message() {
     let mut pair = confirmed();
     assert_eq!(
@@ -541,41 +595,6 @@ fn a_frame_that_authenticates_and_is_malformed_inside_ends_the_session() {
 }
 
 #[test]
-fn session_limits_cannot_be_raised() {
-    let day = MAX_SESSION_LIFETIME;
-    let two_days = MAX_SESSION_LIFETIME_WITH_TRANSFER;
-    let second = Duration::from_secs(1);
-    assert_eq!(
-        SessionLimits::new(
-            day,
-            two_days,
-            MAX_FRAMES_PER_DIRECTION,
-            MAX_BYTES_PER_DIRECTION
-        ),
-        Some(SessionLimits::PROTOCOL)
-    );
-    // Anything above the protocol's values.
-    assert_eq!(SessionLimits::new(day + second, two_days, 1, 1040), None);
-    assert_eq!(SessionLimits::new(day, two_days + second, 1, 1040), None);
-    assert_eq!(
-        SessionLimits::new(day, two_days, MAX_FRAMES_PER_DIRECTION + 1, 1040),
-        None
-    );
-    assert_eq!(
-        SessionLimits::new(day, two_days, 1, MAX_BYTES_PER_DIRECTION + 1),
-        None
-    );
-    // A transfer does not shorten the life of a session.
-    assert_eq!(SessionLimits::new(day, day - second, 1, 1040), None);
-    assert!(SessionLimits::new(day, day, 1, 1040).is_some());
-    // No room for a single frame.
-    assert_eq!(SessionLimits::new(day, two_days, 0, 1040), None);
-    assert_eq!(SessionLimits::new(day, two_days, 1, 1039), None);
-    assert!(SessionLimits::new(second, second, 1, 1040).is_some());
-    assert!(SessionLimits::new(Duration::ZERO, Duration::ZERO, 1, 1040).is_some());
-}
-
-#[test]
 fn the_frame_limit_ends_a_session_and_leaves_room_for_close() {
     // Each side has sent one frame, the ContactAccept. Four are allowed.
     let mut pair = confirmed_with(limits(3600, 7200, 4, 1 << 30));
@@ -675,21 +694,82 @@ fn the_age_limit_ends_a_session() {
         pair.initiator.send(&chat("late"), after(hour)).err(),
         Some(SessionError::Expired)
     );
-    // A frame that arrives at the limit ends the session at the receiver.
+    assert!(pair.initiator.close().is_some());
+}
+
+#[test]
+fn a_close_at_the_age_limit_is_an_orderly_end() {
+    // Each side counts the age of the session on its own clock. A side
+    // that closes at its limit must not look like a violator to the
+    // other, whose clock is a little ahead or behind.
+    let hour = Duration::from_secs(3600);
+    for late_by in [
+        Duration::ZERO,
+        Duration::from_millis(50),
+        SESSION_CLOSE_GRACE - Duration::from_millis(1),
+    ] {
+        let mut pair = confirmed_with(limits(3600, 7200, 1000, 1 << 30));
+        // A message sent just in time, and the Close at the limit.
+        let last = pair
+            .initiator
+            .send(&chat("last"), after(hour - Duration::from_millis(1)))
+            .unwrap();
+        let close = pair.initiator.close().unwrap();
+        let arrival = after(hour + late_by);
+        let received = pair.responder.receive(&last, arrival).unwrap().1.unwrap();
+        assert_eq!(received.actions, vec![Action::Deliver], "{late_by:?}");
+        let received = pair.responder.receive(&close, arrival).unwrap().1.unwrap();
+        assert_eq!(received.message, Message::Close);
+        assert_eq!(received.actions, vec![Action::Disconnect]);
+        assert_eq!(pair.responder.state(), SessionState::Closed);
+    }
+
+    // The responder closes at its limit; the initiator, whose clock
+    // started earlier, sees the Close past its own limit.
+    let mut pair = confirmed_with(limits(3600, 7200, 1000, 1 << 30));
+    let close = pair.responder.close().unwrap();
+    let received = pair
+        .initiator
+        .receive(&close, after(hour + Duration::from_secs(20)))
+        .unwrap()
+        .1
+        .unwrap();
+    assert_eq!(received.actions, vec![Action::Disconnect]);
+}
+
+#[test]
+fn a_frame_long_after_the_age_limit_ends_the_session() {
+    // The backstop. A peer that keeps sending past the limit and the
+    // grace that follows it is not following the protocol.
+    let hour = Duration::from_secs(3600);
+    let mut pair = confirmed_with(limits(3600, 7200, 1000, 1 << 30));
     let late = pair.initiator.seal_unchecked(&chat("late"));
     assert_eq!(
-        pair.responder.receive(&late, after(hour)).err(),
+        pair.responder
+            .receive(&late, after(hour + SESSION_CLOSE_GRACE))
+            .err(),
         Some(failed(ProtocolError::SessionExpired))
     );
-    assert!(pair.initiator.close().is_some());
+    assert_eq!(pair.responder.state(), SessionState::Closed);
+    assert!(!pair.responder.holds_keys());
+
+    // Not even a Close is taken then.
+    let mut pair = confirmed_with(limits(3600, 7200, 1000, 1 << 30));
+    let close = pair.initiator.close().unwrap();
+    assert_eq!(
+        pair.responder
+            .receive(&close, after(hour + SESSION_CLOSE_GRACE))
+            .err(),
+        Some(failed(ProtocolError::SessionExpired))
+    );
 }
 
 #[test]
 fn an_active_transfer_extends_the_age_limit_and_no_further() {
     let hour = Duration::from_secs(3600);
     let mut pair = confirmed_with(limits(3600, 7200, 1000, 1 << 30));
-    pair.initiator.set_transfer_active(true);
-    pair.responder.set_transfer_active(true);
+    assert!(pair.initiator.set_transfer_active(true, start()));
+    assert!(pair.responder.set_transfer_active(true, start()));
     assert_eq!(pair.initiator.expires_at(), Some(after(2 * hour)));
 
     let frame = pair
@@ -709,9 +789,33 @@ fn an_active_transfer_extends_the_age_limit_and_no_further() {
         Some(SessionError::Expired)
     );
     // When the transfer ends, the shorter limit applies again at once.
-    pair.initiator.set_transfer_active(false);
+    assert!(pair.initiator.set_transfer_active(false, after(hour)));
     assert!(pair.initiator.limit_reached(after(hour)));
     assert_eq!(pair.initiator.expires_at(), Some(after(hour)));
+}
+
+#[test]
+fn a_transfer_that_starts_after_the_age_limit_does_not_extend_it() {
+    // No new transfer starts on a session that has reached its ordinary
+    // lifetime, so an expired session cannot be revived by one.
+    let hour = Duration::from_secs(3600);
+    let mut pair = confirmed_with(limits(3600, 7200, 1000, 1 << 30));
+    assert!(!pair.initiator.set_transfer_active(true, after(hour)));
+    assert!(pair.initiator.limit_reached(after(hour)));
+    assert_eq!(pair.initiator.expires_at(), Some(after(hour)));
+    assert_eq!(
+        pair.initiator.send(&chat("late"), after(hour)).err(),
+        Some(SessionError::Expired)
+    );
+    // Just before the limit it does.
+    let just_before = after(hour - Duration::from_millis(1));
+    assert!(pair.responder.set_transfer_active(true, just_before));
+    assert!(!pair.responder.limit_reached(after(hour)));
+    // A transfer that is already active stays active when it is reported
+    // again later, and ending one is always possible.
+    assert!(pair.responder.set_transfer_active(true, after(hour)));
+    assert!(pair.responder.set_transfer_active(false, after(3 * hour)));
+    assert!(!pair.responder.set_transfer_active(true, after(3 * hour)));
 }
 
 #[test]

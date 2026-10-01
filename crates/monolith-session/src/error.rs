@@ -23,6 +23,8 @@ pub enum SessionError {
     LocalCard,
     /// The card to dial is a card of the local identity.
     OwnIdentity,
+    /// The bytes given as a transport private key are all zero.
+    InvalidSecretKey,
     /// The random source of the operating system reported an error.
     Randomness,
     /// The session is over. Nothing can be sent or received on it.
@@ -31,11 +33,15 @@ pub enum SessionError {
     /// current state of the session. The session is not affected.
     NotPermitted,
     /// The local side tried to send a message that cannot be put on the
-    /// wire: a card that is not its own, or a body that breaks a rule of
-    /// its type. The session is not affected.
+    /// wire: a card that is not its own, an invitation capability that is
+    /// not the one for this peer, or a body that breaks a rule of its
+    /// type. The session is not affected.
     InvalidMessage,
-    /// The session reached its age, frame or byte limit. Nothing but Close
-    /// can be sent on it; close it and connect again.
+    /// The message does not fit in what the session has left: its age
+    /// limit is reached, or the frame would leave no room for a Close. A
+    /// smaller message may still fit until
+    /// [`crate::AuthenticatedSession::limit_reached`] says that nothing
+    /// but Close does. The session is not affected.
     Expired,
     /// The Noise library refused an operation that cannot fail for the
     /// inputs this crate gives it. The handshake or session is over.
@@ -48,6 +54,7 @@ impl fmt::Display for SessionError {
             Self::Protocol(error) => write!(f, "session ended: {error}"),
             Self::LocalCard => f.write_str("local card does not fit the transport key"),
             Self::OwnIdentity => f.write_str("the card to dial is the local identity"),
+            Self::InvalidSecretKey => f.write_str("transport private key is all zero"),
             Self::Randomness => f.write_str("random source failed"),
             Self::Closed => f.write_str("session is closed"),
             Self::NotPermitted => f.write_str("message not permitted in this state"),

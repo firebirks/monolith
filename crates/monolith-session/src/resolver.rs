@@ -55,6 +55,9 @@ enum Entropy {
     /// need a handshake that runs the same way twice.
     #[cfg(any(test, fuzzing))]
     Fixed([u8; DH_LEN]),
+    /// A source that reports an error, to test what happens then.
+    #[cfg(test)]
+    Failing,
 }
 
 /// The resolver that is handed to `snow` for one handshake.
@@ -80,6 +83,14 @@ impl Resolver {
             entropy: Entropy::Fixed(secret),
         }
     }
+
+    /// A resolver whose random source reports an error. Tests only.
+    #[cfg(test)]
+    pub(crate) const fn with_failing_source() -> Self {
+        Self {
+            entropy: Entropy::Failing,
+        }
+    }
 }
 
 impl CryptoResolver for Resolver {
@@ -88,6 +99,8 @@ impl CryptoResolver for Resolver {
             Entropy::OperatingSystem => Box::new(OsRandom),
             #[cfg(any(test, fuzzing))]
             Entropy::Fixed(bytes) => Box::new(FixedRandom(bytes)),
+            #[cfg(test)]
+            Entropy::Failing => Box::new(FailingRandom),
         })
     }
 
@@ -126,6 +139,17 @@ impl Random for FixedRandom {
             *slot = *byte;
         }
         Ok(())
+    }
+}
+
+/// A source that reports an error. Tests only.
+#[cfg(test)]
+struct FailingRandom;
+
+#[cfg(test)]
+impl Random for FailingRandom {
+    fn try_fill_bytes(&mut self, _: &mut [u8]) -> Result<(), snow::Error> {
+        Err(snow::Error::Rng)
     }
 }
 

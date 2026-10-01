@@ -500,6 +500,42 @@ stream. Bytes still in flight are dropped without being decoded.
 A session leaves `AuthenticatedUnknown` within `UNKNOWN_SESSION_TIMEOUT`,
 by confirmation or by closing.
 
+`Session` in `monolith-protocol` is the logic of this table and holds no
+key. The object that exists only for a peer that completed a handshake,
+and the only one that can read or write a frame, is `AuthenticatedSession`
+in `monolith-session`. That is what the rest of an implementation holds.
+
+### 7.1 Session limits
+
+A session ends when the first of these is reached, and a new handshake
+replaces it:
+
+| Limit | Value |
+| --- | --- |
+| Age | 24 hours (`MAX_SESSION_LIFETIME`); 48 hours while a file transfer is active (`MAX_SESSION_LIFETIME_WITH_TRANSFER`) |
+| Frames one side sends | 2^32 (`MAX_FRAMES_PER_DIRECTION`) |
+| Ciphertext bytes one side sends | 2^40 (`MAX_BYTES_PER_DIRECTION`): the sum of the frame length fields |
+
+Both sides apply the same values. They are constants of the protocol and
+are not negotiated.
+
+- A side that has reached a limit sends nothing but Close. Of the frame
+  and byte limits it keeps one frame and 1040 bytes back, so that the
+  Close always fits.
+- Each side counts the age from the moment it completed the handshake, on
+  its own clock. The two moments are up to one handshake apart.
+- The longer age limit applies to a session on which a file transfer was
+  active when it reached 24 hours. A transfer that would begin later does
+  not extend the session, and no transfer is started on a session that is
+  past 24 hours.
+- A receiver takes frames until `SESSION_CLOSE_GRACE` after the age limit
+  that applies. This lets the last frames that were sent in time, and the
+  Close, arrive from a peer whose clock started a little later. A frame
+  that arrives after that is a violation. So is a frame beyond the frame
+  or byte limit.
+- There is no rekey and no way to reset a counter. There is no session
+  resumption.
+
 ## 8. Messages
 
 All sizes are body sizes. "States" lists where the message may be received.

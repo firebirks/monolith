@@ -160,7 +160,7 @@ impl HandshakeInitiator {
         )
     }
 
-    fn start_with(
+    pub(crate) fn start_with(
         local: &LocalParty,
         remote: &ContactCard,
         now: Instant,
@@ -277,7 +277,7 @@ impl HandshakeResponder {
         Self::new_with(local, now, Resolver::with_fixed_ephemeral(ephemeral))
     }
 
-    fn new_with(
+    pub(crate) fn new_with(
         local: &LocalParty,
         now: Instant,
         resolver: Resolver,
@@ -445,8 +445,11 @@ impl OutboundPeer {
         record: PeerRecord<'_>,
     ) -> Result<(AuthenticatedSession, Admission, Vec<Action>), SessionError> {
         let admission = record.admit(&self.card)?;
+        // A request to this peer carries the invitation of the card that
+        // was dialed.
+        let invitation = self.card.invitation().copied();
         let (session, actions) =
-            AuthenticatedSession::new(self.established, self.card, admission.standing)?;
+            AuthenticatedSession::new(self.established, self.card, admission.standing, invitation)?;
         Ok((session, admission, actions))
     }
 }
@@ -486,8 +489,15 @@ impl InboundPeer {
         record: PeerRecord<'_>,
     ) -> Result<(AuthenticatedSession, Admission, Vec<Action>), SessionError> {
         let admission = record.admit(&self.card)?;
+        // The card of the handshake never carries an invitation. A request
+        // to this peer carries the one in the card the user was given,
+        // which is in the record.
+        let invitation = match record {
+            PeerRecord::Requested(held) | PeerRecord::Accepted(held) => held.invitation().copied(),
+            PeerRecord::None | PeerRecord::Declined | PeerRecord::Blocked => None,
+        };
         let (session, actions) =
-            AuthenticatedSession::new(self.established, self.card, admission.standing)?;
+            AuthenticatedSession::new(self.established, self.card, admission.standing, invitation)?;
         Ok((session, admission, actions))
     }
 }

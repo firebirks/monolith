@@ -67,4 +67,4 @@ pub use handshake::{
     OutboundPeer,
 };
 pub use key::{LocalParty, TRANSPORT_SECRET_KEY_LEN, TransportSecretKey};
-pub use session::{AuthenticatedSession, Received, SessionLimits};
+pub use session::{AuthenticatedSession, Received};

@@ -15,14 +15,14 @@ use std::time::Instant;
 
 use monolith_identity::IdentityPublicKey;
 use monolith_protocol::body::Message;
-use monolith_protocol::card::ContactCard;
+use monolith_protocol::card::{ContactCard, InvitationCapability};
 use monolith_protocol::duplicate::Initiator;
 use monolith_protocol::frame::{
     FrameParams, OuterDecoder, decode_plaintext, encode_outer, encode_plaintext,
 };
 use monolith_protocol::limits::{
     MAX_BYTES_PER_DIRECTION, MAX_FRAMES_PER_DIRECTION, MAX_SESSION_LIFETIME,
-    MAX_SESSION_LIFETIME_WITH_TRANSFER,
+    MAX_SESSION_LIFETIME_WITH_TRANSFER, SESSION_CLOSE_GRACE,
 };
 use monolith_protocol::session::{Action, Session, Standing};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
@@ -33,13 +33,14 @@ use crate::SessionError;
 const PARAMS: FrameParams = FrameParams::PROVISIONAL;
 
 /// When a session has to end, whichever limit is reached first
-/// (`docs/PROTOCOL.md` section 4 and `docs/CRYPTOGRAPHY.md` section 7).
+/// (`docs/PROTOCOL.md` section 7.1).
 ///
-/// The values of the protocol are [`SessionLimits::PROTOCOL`]. Lower values
-/// can be set, for tests and for a stricter local policy. Higher values
-/// cannot: [`SessionLimits::new`] refuses them.
+/// The limits are constants of the protocol: both ends of a session have to
+/// agree on them, and nothing negotiates them. A product build has
+/// [`SessionLimits::PROTOCOL`] and no way to choose others. Tests of this
+/// crate run with lower values so that a limit can be reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SessionLimits {
+pub(crate) struct SessionLimits {
     max_age: Duration,
     max_age_with_transfer: Duration,
     max_frames: u64,
@@ -49,46 +50,31 @@ pub struct SessionLimits {
 impl SessionLimits {
     /// The limits of the protocol: 24 hours, 48 hours while a file transfer
     /// is active, 2^32 frames and 2^40 ciphertext bytes in each direction.
-    pub const PROTOCOL: Self = Self {
+    pub(crate) const PROTOCOL: Self = Self {
         max_age: MAX_SESSION_LIFETIME,
         max_age_with_transfer: MAX_SESSION_LIFETIME_WITH_TRANSFER,
         max_frames: MAX_FRAMES_PER_DIRECTION,
         max_bytes: MAX_BYTES_PER_DIRECTION,
     };
 
-    /// Builds a set of limits that is at most as permissive as the
-    /// protocol's.
-    ///
-    /// `max_age` is the lifetime of a session, `max_age_with_transfer` the
-    /// lifetime while a file transfer is active, `max_frames` the number of
-    /// frames one side may send and `max_bytes` the number of ciphertext
-    /// bytes one side may send.
-    ///
-    /// Returns `None` if a value is above the protocol's, if the lifetime
-    /// with a transfer is shorter than the one without, or if there is no
-    /// room for a single frame.
-    pub const fn new(
+    /// Lower limits, for tests. Both ends of a test session get the same.
+    #[cfg(test)]
+    pub(crate) fn reduced(
         max_age: Duration,
         max_age_with_transfer: Duration,
         max_frames: u64,
         max_bytes: u64,
-    ) -> Option<Self> {
-        if max_age.as_nanos() > MAX_SESSION_LIFETIME.as_nanos()
-            || max_age_with_transfer.as_nanos() > MAX_SESSION_LIFETIME_WITH_TRANSFER.as_nanos()
-            || max_age_with_transfer.as_nanos() < max_age.as_nanos()
-            || max_frames > MAX_FRAMES_PER_DIRECTION
-            || max_bytes > MAX_BYTES_PER_DIRECTION
-            || max_frames == 0
-            || max_bytes < smallest_frame()
-        {
-            return None;
-        }
-        Some(Self {
+    ) -> Self {
+        assert!(max_age <= MAX_SESSION_LIFETIME && max_age <= max_age_with_transfer);
+        assert!(max_age_with_transfer <= MAX_SESSION_LIFETIME_WITH_TRANSFER);
+        assert!((1..=MAX_FRAMES_PER_DIRECTION).contains(&max_frames));
+        assert!((smallest_frame()..=MAX_BYTES_PER_DIRECTION).contains(&max_bytes));
+        Self {
             max_age,
             max_age_with_transfer,
             max_frames,
             max_bytes,
-        })
+        }
     }
 }
 
@@ -142,8 +128,14 @@ pub(crate) struct Established {
 ///
 /// After any error from [`Self::receive`] the session is over: the stream
 /// is closed without sending anything, and every later call fails.
+///
+/// The cipher keys are dropped, and with that erased, when the session
+/// ends: when it fails, when a Close was received, when the local Close
+/// was produced, or when the stream is reported closed. They do not wait
+/// for the object to be dropped.
 pub struct AuthenticatedSession {
-    noise: snow::TransportState,
+    /// The two cipher states. `None` once the session has ended.
+    noise: Option<snow::TransportState>,
     logic: Session,
     decoder: OuterDecoder,
     /// The card that stands for the peer. See [`Session::peer_card`].
@@ -151,12 +143,19 @@ pub struct AuthenticatedSession {
     /// The local card. A ContactRequest that is sent carries exactly this
     /// card, and an EndpointUpdate a card of this identity.
     local_card: ContactCard,
+    /// The invitation capability that a ContactRequest to this peer
+    /// carries: the one in the card of the peer that the user was given.
+    invitation: Option<InvitationCapability>,
     limits: SessionLimits,
     established: Instant,
     transfer_active: bool,
     sent: Traffic,
     received: Traffic,
     hash: [u8; 32],
+    /// A ContactAccept was sent on this session.
+    accept_sent: bool,
+    /// A ContactRequest was sent on this session.
+    request_sent: bool,
     /// A Close frame was produced. Nothing is sent after it.
     close_sent: bool,
     /// The session ended with a violation or a failure.
@@ -165,11 +164,13 @@ pub struct AuthenticatedSession {
 
 impl AuthenticatedSession {
     /// Turns a completed handshake into a session. `card` stands for the
-    /// peer and `standing` is what the local side decided for it.
+    /// peer, `standing` is what the local side decided for it, and
+    /// `invitation` is the capability a request to this peer has to carry.
     pub(crate) fn new(
         established: Established,
         card: ContactCard,
         standing: Standing,
+        invitation: Option<InvitationCapability>,
     ) -> Result<(Self, Vec<Action>), SessionError> {
         let Established {
             noise,
@@ -181,17 +182,20 @@ impl AuthenticatedSession {
         } = established;
         let actions = logic.authenticated(card.clone(), standing)?;
         let session = Self {
-            noise,
+            noise: Some(noise),
             logic,
             decoder: OuterDecoder::new(PARAMS),
             peer: card,
             local_card,
+            invitation,
             limits,
             established: at,
             transfer_active: false,
             sent: Traffic::default(),
             received: Traffic::default(),
             hash,
+            accept_sent: false,
+            request_sent: false,
             close_sent: false,
             failed: false,
         };
@@ -232,19 +236,41 @@ impl AuthenticatedSession {
         &self.hash
     }
 
-    /// Returns true if a message of this type may be sent now. Close is
-    /// not sent with [`Self::send`]; see [`Self::close`].
+    /// Returns true if a message of this type may be sent now.
+    ///
+    /// This is what the session logic allows in the current state, and
+    /// three rules that depend on what was sent before:
+    ///
+    /// - Close is not sent with [`Self::send`]; see [`Self::close`].
+    /// - A ContactRequest is sent once on a session (`docs/PROTOCOL.md`
+    ///   section 6.4).
+    /// - On a session that the peer's ContactAccept confirmed, nothing is
+    ///   sent before the local ContactAccept. The peer takes application
+    ///   messages only after it has seen that one.
     pub const fn may_send(&self, message_type: MessageType) -> bool {
-        !self.failed
-            && !self.close_sent
-            && !matches!(message_type, MessageType::Close)
-            && self.logic.may_send(message_type)
+        if self.failed || self.close_sent || !self.logic.may_send(message_type) {
+            return false;
+        }
+        match message_type {
+            MessageType::Close => false,
+            MessageType::ContactRequest => !self.request_sent,
+            MessageType::ContactAccept => true,
+            _ => self.accept_sent,
+        }
     }
 
     /// Tells the session whether a file transfer is active. While one is,
-    /// the longer lifetime applies (`docs/PROTOCOL.md` section 4).
-    pub const fn set_transfer_active(&mut self, active: bool) {
+    /// the longer lifetime applies (`docs/PROTOCOL.md` section 7.1).
+    ///
+    /// A transfer that begins after the session has reached its ordinary
+    /// lifetime does not extend it: the call returns false and changes
+    /// nothing. Ending a transfer always succeeds.
+    pub fn set_transfer_active(&mut self, active: bool, now: Instant) -> bool {
+        if active && !self.transfer_active && self.age(now) >= self.limits.max_age {
+            return false;
+        }
         self.transfer_active = active;
+        true
     }
 
     const fn lifetime(&self) -> Duration {
@@ -255,6 +281,10 @@ impl AuthenticatedSession {
         }
     }
 
+    fn age(&self, now: Instant) -> Duration {
+        now.saturating_duration_since(self.established)
+    }
+
     /// Returns the moment at which the session reaches its age limit, or
     /// `None` if the clock cannot represent it.
     pub fn expires_at(&self) -> Option<Instant> {
@@ -262,7 +292,7 @@ impl AuthenticatedSession {
     }
 
     fn too_old(&self, now: Instant) -> bool {
-        now.saturating_duration_since(self.established) >= self.lifetime()
+        self.age(now) >= self.lifetime()
     }
 
     /// Returns true if another frame of `frame_len` ciphertext bytes may
@@ -277,16 +307,23 @@ impl AuthenticatedSession {
         frames_after < self.limits.max_frames && bytes_after <= self.limits.max_bytes
     }
 
-    /// Returns true if the session has reached a limit: its age, or the
-    /// frames or bytes it may send. Nothing but Close can be sent then.
-    /// The caller closes the session and connects again.
+    /// Returns true if nothing but Close can be sent any more: the session
+    /// has reached its age limit, or not even the smallest frame fits in
+    /// what is left of its frame and byte limits. The caller then closes
+    /// the session and connects again.
     pub fn limit_reached(&self, now: Instant) -> bool {
         self.too_old(now) || !self.has_room_to_send(smallest_frame())
+    }
+
+    /// Ends the session: no key is kept past this point.
+    fn end(&mut self) {
+        self.noise = None;
     }
 
     fn fail<T>(&mut self, error: ProtocolError) -> Result<T, SessionError> {
         self.failed = true;
         self.logic.stream_closed();
+        self.end();
         Err(SessionError::Protocol(error))
     }
 
@@ -297,9 +334,14 @@ impl AuthenticatedSession {
     /// call never consumes past the end of one frame; the caller acts on
     /// the result and then feeds the rest. Input may be split at any byte.
     ///
-    /// An error means the peer violated the protocol or the session
-    /// reached a limit. The session is over: close the stream and send
-    /// nothing. No error is ever reported to the peer.
+    /// An error means the peer violated the protocol. The session is over:
+    /// close the stream and send nothing. No error is ever reported to the
+    /// peer.
+    ///
+    /// The peer is held to the limits of the protocol. Its frames are
+    /// taken for a short while after the age limit, because the two sides
+    /// do not start counting at the same moment and a Close needs time to
+    /// arrive (`docs/PROTOCOL.md` section 7.1).
     ///
     /// After a Close was sent or received the remaining bytes of the
     /// stream are dropped without being decoded.
@@ -324,7 +366,7 @@ impl AuthenticatedSession {
         };
 
         let frame_len = u64::try_from(payload.len()).unwrap_or(u64::MAX);
-        if self.too_old(now)
+        if self.age(now) >= self.lifetime().saturating_add(SESSION_CLOSE_GRACE)
             || self.received.frames >= self.limits.max_frames
             || self.received.bytes.saturating_add(frame_len) > self.limits.max_bytes
         {
@@ -332,9 +374,12 @@ impl AuthenticatedSession {
         }
 
         let mut plaintext = vec![0_u8; payload.len().saturating_sub(PARAMS.overhead())];
-        match self.noise.read_message(&payload, &mut plaintext) {
-            Ok(len) if len == plaintext.len() => {}
-            _ => return self.fail(ProtocolError::FrameAuthenticationFailed),
+        let opened = match self.noise.as_mut() {
+            Some(noise) => noise.read_message(&payload, &mut plaintext),
+            None => return Err(SessionError::Closed),
+        };
+        if opened != Ok(plaintext.len()) {
+            return self.fail(ProtocolError::FrameAuthenticationFailed);
         }
         self.received.count(frame_len);
 
@@ -345,7 +390,13 @@ impl AuthenticatedSession {
             Err(error) => return self.fail(error),
         };
         match self.logic.receive(&message) {
-            Ok(actions) => Ok((used, Some(Received { message, actions }))),
+            Ok(actions) => {
+                if self.logic.state() == SessionState::Closed {
+                    // The peer closed. Nothing more is read or written.
+                    self.end();
+                }
+                Ok((used, Some(Received { message, actions })))
+            }
             Err(error) => self.fail(error),
         }
     }
@@ -354,21 +405,22 @@ impl AuthenticatedSession {
     /// stream.
     ///
     /// Fails with [`SessionError::NotPermitted`] if the message may not be
-    /// sent in the current state, with [`SessionError::InvalidMessage`] if
-    /// it carries a card that is not the local one, and with
-    /// [`SessionError::Expired`] if the session has reached a limit. In
-    /// these three cases nothing was encrypted and the session is as it
-    /// was.
+    /// sent now ([`Self::may_send`]), with [`SessionError::InvalidMessage`]
+    /// if it carries a card or an invitation capability that is not the
+    /// one this session sends, and with [`SessionError::Expired`] if the
+    /// message does not fit in what the session has left. In these three
+    /// cases nothing was encrypted and the session is as it was.
     ///
     /// Close is not sent with this function; see [`Self::close`].
     pub fn send(&mut self, message: &Message, now: Instant) -> Result<Vec<u8>, SessionError> {
         if self.failed || self.close_sent || self.logic.state() == SessionState::Closed {
             return Err(SessionError::Closed);
         }
-        if !self.may_send(message.message_type()) {
+        let message_type = message.message_type();
+        if !self.may_send(message_type) {
             return Err(SessionError::NotPermitted);
         }
-        if !self.carries_only_the_local_card(message) {
+        if !self.speaks_only_for_the_local_side(message) {
             return Err(SessionError::InvalidMessage);
         }
         let plaintext = plaintext_of(message)?;
@@ -377,16 +429,28 @@ impl AuthenticatedSession {
         if self.too_old(now) || !self.has_room_to_send(frame_len) {
             return Err(SessionError::Expired);
         }
-        self.seal(&plaintext)
+        let frame = self.seal(&plaintext)?;
+        match message_type {
+            MessageType::ContactAccept => self.accept_sent = true,
+            MessageType::ContactRequest => self.request_sent = true,
+            _ => {}
+        }
+        Ok(frame)
     }
 
-    /// A message that is sent makes claims only about the local identity.
+    /// A message that is sent makes claims only about the local identity,
+    /// and presents only the invitation the user was given for this peer.
+    ///
     /// The card in a ContactRequest is the local card, which is also the
-    /// card of the handshake; the card in an EndpointUpdate is a card of
-    /// the local identity (`docs/PROTOCOL.md` sections 8.3 and 8.8).
-    fn carries_only_the_local_card(&self, message: &Message) -> bool {
+    /// card of the handshake, and its invitation capability is the one in
+    /// the card of the peer that is asked. The card in an EndpointUpdate
+    /// is a card of the local identity (`docs/PROTOCOL.md` sections 8.3
+    /// and 8.8).
+    fn speaks_only_for_the_local_side(&self, message: &Message) -> bool {
         match message {
-            Message::ContactRequest(request) => request.card == self.local_card,
+            Message::ContactRequest(request) => {
+                request.card == self.local_card && request.invitation == self.invitation
+            }
             Message::EndpointUpdate(card) => card.identity() == self.local_card.identity(),
             _ => true,
         }
@@ -396,7 +460,10 @@ impl AuthenticatedSession {
     fn seal(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, SessionError> {
         let len = plaintext.len().saturating_add(PARAMS.overhead());
         let mut payload = vec![0_u8; len];
-        let sealed = match self.noise.write_message(plaintext, &mut payload) {
+        let Some(noise) = self.noise.as_mut() else {
+            return Err(SessionError::Closed);
+        };
+        let sealed = match noise.write_message(plaintext, &mut payload) {
             Ok(written) if written == len => encode_outer(&PARAMS, &payload).ok(),
             _ => None,
         };
@@ -405,6 +472,7 @@ impl AuthenticatedSession {
             // cipher state may have moved on, so the session cannot go on.
             self.failed = true;
             self.logic.stream_closed();
+            self.end();
             return Err(SessionError::Internal);
         };
         self.sent.count(u64::try_from(len).unwrap_or(u64::MAX));
@@ -446,13 +514,24 @@ impl AuthenticatedSession {
             return None;
         }
         self.close_sent = true;
-        let plaintext = plaintext_of(&Message::Close).ok()?;
-        self.seal(&plaintext).ok()
+        let frame = plaintext_of(&Message::Close)
+            .ok()
+            .and_then(|plaintext| self.seal(&plaintext).ok());
+        // The Close is the last frame. Nothing is read after it either.
+        self.end();
+        frame
     }
 
     /// The stream is gone, for whatever reason.
     pub fn stream_closed(&mut self) {
         self.logic.stream_closed();
+        self.end();
+    }
+
+    /// Returns true while the session holds its cipher keys.
+    #[cfg(test)]
+    pub(crate) const fn holds_keys(&self) -> bool {
+        self.noise.is_some()
     }
 
     /// Encrypts a message without asking whether it may be sent. Tests

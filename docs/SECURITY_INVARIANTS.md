@@ -268,7 +268,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   `Session::receive`, which is the only producer of the `Deliver` action
   and produces it in `AuthenticatedContact` alone. In the other direction
   `AuthenticatedSession::send` encrypts a message only if the session
-  logic allows it in the current state. The application-side handler type
+  logic allows it in the current state, and after a session was confirmed
+  by the peer only once the local ContactAccept has gone out, because the
+  peer takes application messages only after that. The application-side handler type
   that can only be constructed for a confirmed session comes with
   `monolith-core`.
 - Tests: `message::tests`, T-PROTO-STATE (arbitrary event sequences in the
@@ -374,7 +376,8 @@ Test area names refer to `docs/TEST_PLAN.md`.
   failure of the source fails the operation; there is no fallback. A
   handshake with fixed ephemeral keys can be built only in the tests of
   that crate and in a build made with `--cfg fuzzing`; no cargo feature
-  enables it, so it cannot be switched on through a dependency.
+  enables it, so it cannot be switched on through a dependency. The
+  `monolith` binary refuses to compile with that configuration.
 - Tests: `resolver::tests` (the source fills its buffer, two keys differ,
   a failing source leaves no key), `tests::handshake` (two handshakes
   differ in every message), T-RNG-1.
@@ -402,14 +405,16 @@ Test area names refer to `docs/TEST_PLAN.md`.
   session object owns. No function of `monolith-session` returns them, no
   type that holds them can be serialized or cloned, and the crate has no
   storage and no logging. There is no resumption, no pre-shared key and no
-  ticket, so nothing of one session is input to another. The transport
-  private key is the only secret that outlives a session; it is held in a
-  type that erases it on drop and is passed to the Noise library by
-  reference.
+  ticket, so nothing of one session is input to another. A session drops
+  its cipher keys when it ends, not when its object is dropped. The
+  transport private key is the only secret that outlives a session; it is
+  held in a type that erases it on drop and is passed to the Noise
+  library by reference.
 - Residual: erasure is best effort, and the Noise library does not erase
   what it holds itself (`CRYPTOGRAPHY.md` section 8).
 - Tests: review of the public API of `monolith-session`; `Debug` tests of
-  every type.
+  every type; `tests::frames` (the keys are gone after a violation, after
+  a Close in either direction and after the stream closed).
 
 ### S35. A failure tells the peer nothing but that the stream closed
 
@@ -422,15 +427,18 @@ Test area names refer to `docs/TEST_PLAN.md`.
   returns an error and nothing to write), fuzz targets `handshake_responder`
   and `session_frames`.
 
-### S37. A session ends at its limits, and the limits can only be lowered
+### S37. A session ends at its limits, and nothing changes the limits
 
 - Mechanism: `AuthenticatedSession` counts frames and ciphertext bytes in
   each direction and knows when it was established. `send` refuses every
   message but Close once the age, frame or byte limit is reached, and
-  always leaves room for one Close. `receive` treats a frame beyond a limit
-  as a violation. `SessionLimits::new` returns nothing for a value above
-  the protocol's. There is no rekey and no way to reset a counter; a new
-  session is a new handshake.
+  always leaves room for one Close. `receive` treats a frame beyond the
+  frame or byte limit as a violation, and a frame that arrives more than
+  `SESSION_CLOSE_GRACE` after the age limit as well. A file transfer
+  extends the age limit only if it was active before the limit was
+  reached. The limits are constants of the protocol: a product build has
+  no function that sets them. There is no rekey and no way to reset a
+  counter; a new session is a new handshake.
 - Tests: T-LIMIT (`tests::frames` with reduced limits, the property test
   that a session never sends more than its limits).
 

@@ -21,7 +21,8 @@ sessions connected in memory, with fixed keys; property tests over real
 handshakes; three more fuzz targets. In the protocol core: the transport
 key, the contact card with the transport key, and the stale-card rule.
 Covered now: T-XKEY, T-VEC, T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH,
-T-LIMIT, T-ORACLE-8 for bytes, and the handshake cases of T-MAL.
+T-LIMIT, T-SEND, T-RNG-1 for the handshake, T-ORACLE-8 for bytes, and the
+handshake cases of T-MAL.
 
 The rest need the core, Tor or storage, and are not written yet.
 
@@ -34,8 +35,9 @@ The rest need the core, Tor or storage, and are not written yet.
 - Protocol code is sans-IO, so the same decoder runs under unit tests,
   property tests and fuzzers without a network.
 - CI never uses the public Tor network.
-- Tests that need reduced limits get them from `SessionLimits::new`, which
-  can only lower a limit, not by changing `limits.rs`.
+- Tests that need reduced limits get them from a constructor that exists
+  only in test builds of the session crate, not by changing `limits.rs`.
+  A product build has the limits of the protocol and no way to set others.
 - The specification is tested, not only the library: expected bytes come
   from an implementation that shares no code with Monolith, and a test
   compares the constants in the test code with the text of PROTOCOL.md.
@@ -281,10 +283,22 @@ Frames on a session (T-FRAME-AUTH)
 8. A frame that authenticates and is malformed inside ends the session.
 
 Session limits (T-LIMIT): with reduced limits, the frame limit, the byte
-limit and the age limit each stop sending, leave room for a Close, and end
-the session at the receiver when a peer goes past them; a transfer extends
-the age limit to its own bound and no further; a limit above the
-protocol's cannot be set.
+limit and the age limit each stop sending and leave room for a Close; a
+peer that goes past the frame or byte limit ends the session at the
+receiver; a Close and the last frames that arrive within the grace after
+the age limit are an orderly end, and a frame after the grace is a
+violation; a transfer extends the age limit to its own bound and no
+further, and not at all if it starts after the limit.
+
+Sending rules (T-SEND): a request is sent once on a session; it carries
+the local card and the invitation capability of the card of the peer that
+is asked, and no other; nothing is sent on a confirmed session before the
+local ContactAccept; Close is not sent like a message.
+
+Key erasure at the end of a session: the cipher keys are gone after a
+violation, after a Close in either direction, and after the stream was
+reported closed; a session that has to answer with Close keeps them until
+that Close has been made.
 
 Two-party harness: two sessions connected in memory carry out what the
 session logic tells them. Everything one side writes is recorded, so that

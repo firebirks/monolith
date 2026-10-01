@@ -7,6 +7,11 @@
 // The CLI is the one place that writes to the terminal directly.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
+// `fuzzing` gives the session layer handshakes with fixed ephemeral keys,
+// for the fuzz targets. A product must never be built that way.
+#[cfg(fuzzing)]
+compile_error!("monolith must not be built with --cfg fuzzing");
+
 use std::process::ExitCode;
 
 use monolith_protocol::limits::PROTOCOL_VERSION;

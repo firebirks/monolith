@@ -97,6 +97,19 @@ pub(crate) fn card_with(
     .unwrap()
 }
 
+/// The usual card of the identity of `seed`, carrying the given invitation
+/// capability: what a user hands to somebody it wants requests from.
+pub(crate) fn card_inviting(seed: u8, capability: [u8; 16]) -> ContactCard {
+    ContactCard::sign(
+        &identity_secret(seed),
+        *transport_secret(seed).public_key(),
+        EndpointEpoch::FIRST,
+        EndpointSet::single(endpoint(seed)),
+        Some(InvitationCapability::from_bytes(capability)),
+    )
+    .unwrap()
+}
+
 /// A card of the identity of `seed` with its usual endpoint.
 pub(crate) fn card_of(seed: u8, transport_seed: u8, epoch: u64, invitation: bool) -> ContactCard {
     card_with(seed, transport_seed, epoch, seed, invitation)

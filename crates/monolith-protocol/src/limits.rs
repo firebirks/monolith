@@ -251,6 +251,16 @@ pub const MAX_FRAMES_PER_DIRECTION: u64 = 1 << 32;
 /// Most ciphertext bytes one side may send in a session.
 pub const MAX_BYTES_PER_DIRECTION: u64 = 1 << 40;
 
+/// Time after the age limit of a session during which frames of the peer
+/// are still taken.
+///
+/// Each side measures the age of a session on its own clock, from the
+/// moment it completed the handshake, and those moments are up to one
+/// handshake apart. A frame that was sent in time, and the Close that ends
+/// the session, also need time to arrive. A frame that arrives later than
+/// this is a violation.
+pub const SESSION_CLOSE_GRACE: Duration = Duration::from_secs(120);
+
 // ---------------------------------------------------------------------------
 // Timeouts
 // ---------------------------------------------------------------------------
@@ -572,6 +582,13 @@ const _: () = {
     assert!(UNKNOWN_FIRST_MESSAGE_TIMEOUT.as_secs() <= UNKNOWN_SESSION_TIMEOUT.as_secs());
     assert!(DUPLICATE_PROBE_TIMEOUT.as_secs() <= PONG_TIMEOUT.as_secs());
     assert!(MAX_SESSION_LIFETIME.as_secs() < MAX_SESSION_LIFETIME_WITH_TRANSFER.as_secs());
+    // The grace covers the offset between the two clocks and one frame
+    // that is being written.
+    assert!(
+        SESSION_CLOSE_GRACE.as_secs()
+            >= HANDSHAKE_TIMEOUT.as_secs() + FRAME_WRITE_TIMEOUT.as_secs()
+    );
+    assert!(SESSION_CLOSE_GRACE.as_secs() < MAX_SESSION_LIFETIME.as_secs());
 
     assert!(MAX_PENDING_REQUESTS_PER_INVITATION <= MAX_PENDING_CONTACT_REQUESTS);
 

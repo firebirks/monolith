@@ -73,6 +73,7 @@ capabilities are 16 random bytes, ping nonces are 8 bytes.
 | `MAX_SESSION_LIFETIME_WITH_TRANSFER` | 48 hours |
 | `MAX_FRAMES_PER_DIRECTION` | 2^32 |
 | `MAX_BYTES_PER_DIRECTION` | 2^40 |
+| `SESSION_CLOSE_GRACE` | 120 seconds |
 
 A session that reaches a limit is closed and replaced by a new handshake.
 There is no in-band rekey; see `docs/CRYPTOGRAPHY.md` section 7. The nonce of
@@ -81,7 +82,8 @@ the session cipher is a 64-bit counter, so the frame limit leaves a factor of
 alone would allow more than 2^40 bytes, so the byte limit is the one that
 binds for bulk transfer: 1 TiB per direction per session.
 
-How the limits are applied, by the session object itself:
+How the limits are applied, by the session object itself
+(`PROTOCOL.md` section 7.1):
 
 - The earliest limit that is reached ends the session: age, frames in one
   direction, or ciphertext bytes in one direction.
@@ -90,17 +92,30 @@ How the limits are applied, by the session object itself:
   is always less than that, so the byte limit bounds it as well.
 - Sending: a message is refused when, after it, no room would be left for
   a Close. One frame and 1040 bytes are kept back for the Close, which is
-  the only thing that can still be sent at the limit.
-- Receiving: a frame that arrives beyond a limit is a protocol violation.
-  The stream is closed and nothing is sent.
+  the only thing that can still be sent at the limit. At the age limit
+  nothing but Close is sent.
+- Receiving: a frame beyond the frame or byte limit is a protocol
+  violation. So is a frame that arrives more than `SESSION_CLOSE_GRACE`
+  after the age limit. The stream is closed and nothing is sent.
 - The age is measured from the moment the handshake completed, on each
-  side's own clock.
-- A local configuration can lower the limits. Nothing can raise them above
-  the values in the table.
+  side's own clock. The two clocks start up to one handshake apart, which
+  `HANDSHAKE_TIMEOUT` bounds at 30 seconds, and a Close that is sent at the
+  limit needs time to be written and to arrive. The grace covers both. It
+  is the reason why the orderly end of a long session is not counted as a
+  violation by the side whose clock is ahead.
+- The age is measured with a monotonic clock. On Linux that clock does not
+  advance while the machine is suspended, so the limits are in running
+  time. A Tor stream rarely outlives a suspend.
+- The limits are constants. No configuration changes them, in either
+  direction: both ends of a session have to agree on them, and they are
+  not negotiated. A local policy that wants shorter sessions closes them
+  earlier. Tests of the session layer use lower values through a
+  constructor that exists only in test builds.
 
 A session that reaches 24 hours while a file transfer is active stays open
 until the transfer ends, starts no new transfer, and is closed at 48 hours
-whatever happens. A 4 GiB file needs under 50 KiB/s to finish in a day.
+whatever happens. A transfer that would begin after 24 hours does not
+extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 
 ## 4. Timeouts (local)
 

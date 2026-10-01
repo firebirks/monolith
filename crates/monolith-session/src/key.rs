@@ -41,7 +41,14 @@ impl TransportSecretKey {
     /// The bytes must come from a cryptographically secure random source
     /// and must not be derived from another key of the identity. The caller
     /// keeps responsibility for its own copy of them.
+    ///
+    /// Fails with [`SessionError::InvalidSecretKey`] for 32 zero bytes. No
+    /// random source produces them; a buffer that was never filled does,
+    /// and the key made from it would be known to everybody.
     pub fn from_bytes(bytes: &[u8; TRANSPORT_SECRET_KEY_LEN]) -> Result<Self, SessionError> {
+        if bytes.iter().all(|byte| *byte == 0) {
+            return Err(SessionError::InvalidSecretKey);
+        }
         let secret = StaticSecret::from(*bytes);
         // X25519 clamps the scalar, so the public key of any 32 bytes is a
         // point of large order in canonical encoding. The check is kept so
@@ -100,10 +107,12 @@ impl LocalParty {
         })
     }
 
-    /// Replaces the limits that sessions of this party are created with.
-    /// The default is [`SessionLimits::PROTOCOL`].
+    /// Replaces the limits that sessions of this party are created with,
+    /// so that a test can reach one. Both ends of a test session get the
+    /// same limits. Outside tests the limits are those of the protocol.
+    #[cfg(test)]
     #[must_use]
-    pub const fn with_limits(mut self, limits: SessionLimits) -> Self {
+    pub(crate) const fn with_limits(mut self, limits: SessionLimits) -> Self {
         self.limits = limits;
         self
     }
@@ -161,10 +170,20 @@ mod tests {
     fn every_seed_gives_a_valid_public_key() {
         // Clamping makes the scalar a non-zero multiple of the cofactor,
         // also for the extreme byte strings.
-        for bytes in [[0_u8; 32], [0xff; 32], [0x80; 32], [1; 32]] {
+        let mut one_bit = [0_u8; 32];
+        one_bit[17] = 0x04;
+        for bytes in [one_bit, [0xff; 32], [0x80; 32], [1; 32]] {
             let key = TransportSecretKey::from_bytes(&bytes).unwrap();
             assert!(TransportPublicKey::from_bytes(key.public_key().as_bytes()).is_ok());
         }
+    }
+
+    #[test]
+    fn a_buffer_of_zeros_is_not_a_key() {
+        assert_eq!(
+            TransportSecretKey::from_bytes(&[0; 32]).err(),
+            Some(SessionError::InvalidSecretKey)
+        );
     }
 
     #[test]
