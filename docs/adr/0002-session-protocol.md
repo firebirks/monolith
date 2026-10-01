@@ -455,8 +455,9 @@ No Monolith peer has been deployed, so nothing on any network is affected.
   having F5 in one place. That it avoids a second copy of three
   cryptographic crates was not a reason and would not have been enough.
 
-  What it costs: security-sensitive glue that Monolith owns, of a few
-  hundred lines. It contains no cryptographic construction. Each
+  What it costs: security-sensitive glue that Monolith owns, about 350
+  lines with its comments and without its tests. It contains no
+  cryptographic construction. Each
   function hands its arguments to one library call: X25519, one AEAD
   seal or open with the Noise nonce layout, SHA-256 update and
   finalize, a read from the operating system source. HMAC and HKDF stay
@@ -479,9 +480,12 @@ No Monolith peer has been deployed, so nothing on any network is affected.
 
   Dependencies. `x25519-dalek` 3.0.0 depends on `rand_core` 0.10. The
   property-test crate, which is used for tests only, depends on
-  `rand_core` 0.9. `deny.toml` gets an exception for that one pair, by
-  name and with the reason, and for nothing else. No cryptographic
-  crate is in the tree twice.
+  `rand_core` 0.9. `rand_core` is a crate of traits and the older one
+  is in test builds only. The duplicate check of `cargo deny` does not
+  count crates that are in the tree only through development
+  dependencies, and `deny.toml` says so in so many words. No
+  cryptographic crate is in the tree twice, and a second version of any
+  crate in a product build still fails the check.
 - F-R2. The five rules have no external review. This is the first thing
   to put in front of a cryptographer if one becomes available, together
   with the handling of stale cards.

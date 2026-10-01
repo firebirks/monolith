@@ -30,6 +30,13 @@ ignore = true
 [bans]
 # One version of each crate, in particular of each cryptographic crate.
 multiple-versions = "deny"
+# Crates that are only in the tree through development dependencies are not
+# counted for that rule. This is the default of cargo-deny and is written
+# out because one such pair exists: the property-test crate brings
+# rand_core 0.9, and x25519-dalek depends on rand_core 0.10. Neither is a
+# cryptographic implementation, and the first is in no product build. See
+# docs/DEPENDENCIES.md section 4.
+multiple-versions-include-dev = false
 wildcards = "deny"
 # Workspace crates refer to each other by path, without a version.
 allow-wildcard-paths = true

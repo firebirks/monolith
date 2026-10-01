@@ -16,7 +16,8 @@ downloaded by cargo, `cargo audit` and `cargo deny`.
   itself.
 - No pre-release versions of cryptographic crates.
 - One implementation of each primitive. `deny.toml` forbids two versions of
-  the same crate.
+  the same crate in the product. A crate that is in the tree only through
+  a development dependency is not counted; section 4 lists the one case.
 - Features are switched off by default and enabled one by one.
 - `deny.toml` bans `native-tls` and `openssl-sys`. This is dependency
   control and says nothing about the quality of OpenSSL's cryptography.
@@ -41,7 +42,9 @@ Two generations exist side by side:
 | --- | --- | --- |
 | `ed25519-dalek` | 2.2.0 (2025-07-09) | 3.0.0 (2026-07-06) |
 | `curve25519-dalek` | 4.1.3 (2024-06-18) | 5.0.0 (2026-07-06) |
+| `x25519-dalek` | 2.0.1 | 3.0.0 (2026-07-06) |
 | `sha2` | 0.10.9 (2025-04-30) | 0.11.0 (2026-03-25) |
+| `chacha20poly1305` | 0.10.1 | 0.11.0 (2026-06-28) |
 
 Monolith uses the current generation.
 
@@ -67,13 +70,15 @@ Reasons:
 
 Risks, recorded so that they are not forgotten:
 
-- The stable releases of `ed25519-dalek` 3 and `curve25519-dalek` 5 are
-  three months old. They have had less use than the previous generation.
+- The stable releases of `ed25519-dalek` 3, `curve25519-dalek` 5,
+  `x25519-dalek` 3 and `chacha20poly1305` 0.11 are three months old. They
+  have had less use than the previous generation.
 - No public audit of these major versions is known.
-- `snow` 0.10, one candidate for the session layer, depends on the
-  previous generation. Choosing it would put a second curve implementation
-  and a second `sha2` into the binary, which `deny.toml` forbids. ADR 0002
-  has to weigh that; it is not a reason to move back.
+- The crypto resolver that comes with `snow` 0.10 depends on the previous
+  generation. Monolith does not use it: the session crate supplies the
+  primitives to `snow` from the current generation, for the reasons in
+  ADR 0002, F-R1. Avoiding a second copy of these crates was not the
+  reason, and it is a consequence.
 
 Features that stay off unless a decision record asks for them and says
 why: `legacy_compatibility` (verification rules that accept encodings
@@ -82,7 +87,8 @@ and prehashed signing).
 
 ## 3. Crates in use
 
-Production dependencies of `monolith-identity` and `monolith-protocol`.
+Production dependencies of `monolith-identity`, `monolith-protocol` and
+`monolith-session`.
 
 ### Direct
 
@@ -91,6 +97,11 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 | `ed25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | identity signatures, key validation | `fast`, `zeroize`; no default features |
 | `sha2` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | identity fingerprint | none; no default features |
 | `subtle` | 2.6.1 | BSD-3-Clause | not declared | constant-time comparison of invitation capabilities | no default features |
+| `snow` | 0.10.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the Noise state machine of the session handshake and transport | none; no default features |
+| `x25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | X25519 for the session handshake | `static_secrets`, `zeroize`; no default features |
+| `chacha20poly1305` | 0.11.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the session cipher | `zeroize`; no default features |
+| `getrandom` | 0.3.4 | MIT OR Apache-2.0 | 1.63 | the random source of the operating system | none; no default features |
+| `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type | none; no default features |
 
 `ed25519-dalek`
 
@@ -118,9 +129,13 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 
 - Maintained by RustCrypto. Already in the tree through `ed25519-dalek`,
   which uses SHA-512.
-- Not enabled: `alloc`, `oid`, `zeroize`.
+- Enabled by `monolith-session`: `zeroize`, so that a hash state is
+  cleared when dropped. The session handshake derives its keys through
+  HMAC-SHA256, and such a state holds key-dependent data. Not enabled:
+  `alloc`, `oid`.
 - Advisories: RUSTSEC-2021-0100, fixed long before 0.10.
 - Unsafe: 50 lines, in the CPU-specific compression back ends.
+- Also the hash of the session handshake: `Noise_XK_25519_ChaChaPoly_SHA256`.
 
 `subtle`
 
@@ -143,14 +158,95 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
   barrier against the optimizer restoring one. It is not a guarantee that
   timing side channels are impossible on every compiler and processor.
 
-`unicode-normalization`
+`snow`
 
-- Maintained by the unicode-rs organization. Not a cryptographic crate.
+- The Noise Protocol Framework in Rust: handshake state, symmetric state
+  and cipher states. Monolith uses one pattern, `XK`, with one suite.
+- Maintained by one person, as a "reasonable-effort" project. 0.10.0 was
+  released on 2025-07-19 and is the newest release.
+- Features: none. Every default feature is off. In particular the stock
+  crypto resolver (`default-resolver-crypto`) is not compiled, so none of
+  the cryptographic crates `snow` would bring is in the tree, and neither
+  is `ring`. The primitives come from the resolver in `monolith-session`.
+- Review: Trail of Bits, January 2024, for AgileBits, on an earlier
+  commit. Ten findings; eight were fixed. Two remain open. TOB-SNOW-8:
+  key material is not cleared. TOB-SNOW-2: an ephemeral key in a
+  pre-message is not mixed into the key; the XK pattern has no ephemeral
+  pre-message and Monolith uses no pre-shared key, so it does not apply.
+  Monolith's own composition, which is the resolver and the binding to
+  identities, was not part of that review and has had no external review
+  at all.
+- Advisories: RUSTSEC-2024-0011. A message that failed authentication
+  still advanced the receiving nonce of the transport state, so that
+  someone who could inject bytes could stop delivery. Fixed in 0.9.5 and
+  not applicable to 0.10.0. In Monolith a frame that fails authentication
+  ends the session in any case.
+- Unsafe: none; the crate forbids it.
+- What it does not do, and Monolith does around it: it checks nothing
+  about a public key and accepts an all-zero Diffie-Hellman result; it
+  clears no memory. The first is enforced in the resolver
+  (`PROTOCOL.md` section 10.2). The second is reduced by the resolver's
+  key types and otherwise stated as a limit (`CRYPTOGRAPHY.md` section 8).
+- The test hook `fixed_ephemeral_key_for_testing_only` of its builder is
+  not called anywhere in Monolith. Fixed ephemeral keys for tests come
+  from the resolver's random source in test and fuzz builds.
+
+`x25519-dalek`
+
+- Maintained by the dalek-cryptography organization. 3.0.0 was released on
+  2026-07-06, together with `curve25519-dalek` 5.0.0, which it is a thin
+  layer over.
+- Enabled: `static_secrets` (a private key type that can be used for more
+  than one exchange, which the transport key needs) and `zeroize` (private
+  keys and shared secrets are wiped when dropped). Not enabled:
+  `precomputed-tables` (already on in `curve25519-dalek` through
+  `ed25519-dalek`), `getrandom`, `reusable_secrets`, `serde`.
+- Review: the 2019 Quarkslab audit of the dalek libraries took what it
+  calls a marginal look at `x25519-dalek`. That predates the 2.x and 3.x
+  lines. No later public audit is known.
 - Advisories: none.
-- Unsafe: 5 lines.
-- Used for one question only: is this display name already in
-  Normalization Form C. A wrong answer cannot corrupt memory or a signed
-  structure; at worst a name is accepted or rejected wrongly.
+- Unsafe: none.
+- It depends on `rand_core` 0.10 for the signatures of its key generation
+  functions. Monolith does not call them: keys are built from bytes that
+  come from `getrandom`.
+
+`chacha20poly1305`
+
+- Maintained by RustCrypto. 0.11.0 was released on 2026-06-28.
+- Enabled: `zeroize` (the cipher key is wiped when the cipher is dropped).
+  Not enabled: `alloc`, `getrandom`, `rand_core`, `arrayvec`, `bytes`,
+  `reduced-round`.
+- Review: NCC Group audited the 0.3 release in 2020 and found no
+  significant issue. That is several major versions ago. No later public
+  audit is known.
+- Advisories: none for this crate. RUSTSEC-2019-0029 concerned a counter
+  overflow in `chacha20` 0.2 and was fixed in 0.2.3.
+- Unsafe: none in this crate. `chacha20` and `poly1305` contain it in
+  their vectorized back ends; see the table below.
+- Used with the 96-bit nonce that Noise defines: 32 zero bits and a 64-bit
+  counter. The nonce is formed in one place, in the resolver.
+
+`getrandom`
+
+- Maintained by the rust-random organization. 0.3.4 was released on
+  2025-10-14. 0.4 exists; 0.3 is used because the test tooling already has
+  it in the tree and nothing in 0.4 is needed.
+- Features: none. On Linux it calls `getrandom(2)` and falls back to
+  `/dev/urandom` on kernels that lack it; on Linux it depends on `libc`.
+- Advisories: none.
+- Unsafe: 91 lines, in the per-platform back ends that call the operating
+  system.
+- The only source of randomness in Monolith (S17): ephemeral handshake
+  keys and generated transport keys. An error from it fails the operation.
+
+`zeroize`
+
+- Maintained by RustCrypto. Already in the tree through `ed25519-dalek`.
+- Used directly for one thing: the buffer that carries 32 random bytes
+  into a key type is wiped when it goes out of scope.
+- What it gives is best effort. It clears the memory a value occupies when
+  the value is dropped. It does not reach copies the compiler made, and it
+  is not a guarantee against every way a secret can stay in memory.
 
 ### Transitive
 
@@ -168,7 +264,16 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | `ed25519-dalek` | 15 |
 | `cpufeatures` | 0.3.1 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 11 |
 | `cfg-if` | 1.0.5 | MIT OR Apache-2.0 | several | 0 |
-| `tinyvec` | 1.13.3 | Zlib OR Apache-2.0 OR MIT | `unicode-normalization` | 0 |
+| `chacha20` | 0.10.2 | MIT OR Apache-2.0 | `chacha20poly1305` | 66 |
+| `poly1305` | 0.9.1 | Apache-2.0 OR MIT | `chacha20poly1305` | 50 |
+| `aead` | 0.6.1 | MIT OR Apache-2.0 | `chacha20poly1305` | 0 |
+| `cipher` | 0.5.2 | MIT OR Apache-2.0 | `chacha20` | 0 |
+| `inout` | 0.2.2 | MIT OR Apache-2.0 | `aead`, `cipher` | 29 |
+| `universal-hash` | 0.6.1 | MIT OR Apache-2.0 | `poly1305` | 0 |
+| `ctutils` | 0.4.2 | Apache-2.0 OR MIT | `universal-hash` | 0 |
+| `cmov` | 0.5.4 | Apache-2.0 OR MIT | `ctutils` | 25 |
+| `rand_core` | 0.10.1 | MIT OR Apache-2.0 | `x25519-dalek` | 0 |
+| `libc` | 0.2.189 | MIT OR Apache-2.0 | `getrandom`, on Linux | bindings |
 
 `curve25519-dalek` is taken as `ed25519-dalek` requires it, with the
 features `digest`, `precomputed-tables` and `zeroize`. Its
@@ -181,6 +286,18 @@ back end of that name, which is selected only by a compiler flag that
 Monolith does not set, so it is not compiled.
 
 `hybrid-array` replaces `generic-array` of the previous generation.
+
+The unsafe code of `chacha20` and `poly1305` is in the back ends for
+particular processors, which are selected at run time through
+`cpufeatures`. `inout` holds the pointer pairs that let a cipher work in
+place. `cmov` is the conditional move behind the constant-time comparison
+of authentication tags.
+
+`rand_core` is a crate of traits. It contains no generator, and Monolith
+uses none of it.
+
+`snow` itself brings `subtle`, which was in the tree already, and
+`rustc_version` for its build script.
 
 Build-time only: `proc-macro2`, `quote`, `syn`, `unicode-ident` (for
 `curve25519-dalek-derive`), `rustc_version`, `semver` (build script of
@@ -196,32 +313,49 @@ Build-time only: `proc-macro2`, `quote`, `syn`, `unicode-ident` (for
 dependency. One test needs point arithmetic to build a key with a torsion
 component.
 
-`proptest` brings a random number stack (`rand` 0.9 and others) into test
-builds. None of it is linked into a release binary. The fuzz targets under
-`fuzz/` are a separate cargo project with their own lock file and use
-`libfuzzer-sys`.
+`proptest` brings a random number stack (`rand` 0.9, `rand_core` 0.9 and
+others) into test builds. None of it is linked into a release binary. The
+fuzz targets under `fuzz/` are a separate cargo project with their own
+lock file and use `libfuzzer-sys`.
 
 ## 4. Checks
 
-Run on the dependency set above on 2026-10-01:
+Run on the dependency set above on 2026-10-02:
 
 | Check | Result |
 | --- | --- |
-| `cargo audit` | no advisory applies |
+| `cargo audit` | no advisory applies; 60 crates in `Cargo.lock` |
 | `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy |
+| `cargo tree -d` | one pair: `rand_core` 0.9.5 and 0.10.1, see below |
 | Build and tests with Rust 1.85.1 | pass |
-| Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `zeroize`, `proptest`) |
+| Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `snow`, `zeroize`, `proptest`) |
 
 The highest declared MSRV equals the project's. A later release of any of
 these crates may need a newer compiler; the resolver will then keep the
 older version, and the MSRV job in CI fails if it cannot.
 
+Duplicate versions. `cargo tree -d` reports
+
+    rand_core v0.9.5    <- rand, rand_chacha, rand_xorshift <- proptest (development only)
+    rand_core v0.10.1   <- x25519-dalek <- monolith-session
+
+and nothing else. No cryptographic implementation is in the tree twice:
+there is one `curve25519-dalek`, one `sha2`, one `chacha20poly1305`, one
+`digest`, one `getrandom`, one `zeroize`, one `subtle`.
+
+The pair is accepted. `rand_core` is a crate of traits, 0.9.5 is only in
+test builds, and the alternative would be to give up either property
+tests or the maintained X25519 crate. `deny.toml` states the setting that
+makes this pass, `multiple-versions-include-dev = false`: a crate that is
+in the tree only through development dependencies is not counted as a
+duplicate. A second version of any crate in a product build still fails
+the check.
+
 ## 5. Not yet chosen
 
-- Session layer and its crypto back end: ADR 0002.
-- Storage: `argon2`, `chacha20poly1305`, `hkdf`, and the message store:
-  ADR 0005.
-- Randomness: `getrandom`, when key generation is implemented.
+- Storage: `argon2`, `hkdf`, and the message store: ADR 0005. The vault
+  cipher is XChaCha20-Poly1305 from `chacha20poly1305`, which is in the
+  tree for the session layer.
 - Passphrase normalization for the vault (`STORAGE.md` section 3):
   `unicode-normalization` was used by the protocol for display names until
   normalization was removed from protocol validity, and was dropped with
@@ -239,3 +373,11 @@ older version, and the MSRV job in CI fails if it cannot.
 - https://blog.quarkslab.com/security-audit-of-dalek-libraries.html
 - https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html
 - https://crates.io/crates/sha2/versions
+- https://crates.io/crates/snow/0.10.0
+- https://github.com/trailofbits/publications/blob/master/reviews/2024-03-agilebits-snow-securityreview.pdf
+- https://rustsec.org/advisories/RUSTSEC-2024-0011.html
+- https://crates.io/crates/x25519-dalek/3.0.0
+- https://crates.io/crates/chacha20poly1305/0.11.0
+- https://research.nccgroup.com/2020/02/26/public-report-rustcrypto-aes-gcm-and-chacha20poly1305-implementation-review/
+- https://rustsec.org/advisories/RUSTSEC-2019-0029.html
+- https://crates.io/crates/getrandom/0.3.4
