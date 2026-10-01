@@ -16,7 +16,7 @@ use monolith_protocol::card::{ContactCard, EndpointSet};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use sha2::{Digest, Sha256};
 
-use crate::testing::{EPHEMERAL_I, EPHEMERAL_R, deliver, hex, start, unhex};
+use crate::testing::{EPHEMERAL_I, EPHEMERAL_R, admit_outbound, deliver, hex, start, unhex};
 use crate::{HandshakeInitiator, HandshakeResponder, LocalParty, TransportSecretKey};
 
 const R_IDENTITY_SEED: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
@@ -143,7 +143,7 @@ fn the_handshake_reproduces_the_published_vectors() {
 
     // Both sides hold each other as accepted contacts, so the first frame
     // each sends is a ContactAccept.
-    let (mut at_i, first_i) = outbound.admit(Standing::Accepted).unwrap();
+    let (mut at_i, first_i) = admit_outbound(outbound, Standing::Accepted);
     let (mut at_r, admission, first_r) = inbound
         .admit(PeerRecord::Accepted(initiator.card()))
         .unwrap();

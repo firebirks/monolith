@@ -12,8 +12,8 @@ use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
 
 use crate::testing::{
-    ALICE, BOB, MALLORY, Pair, after, card, card_of, chat, confirmed, connect, deliver, handshake,
-    party, request_with, sample, start, transport_secret,
+    ALICE, BOB, MALLORY, Pair, admit_outbound, after, card, card_of, chat, confirmed, connect,
+    deliver, handshake, party, request_with, sample, start, transport_secret,
 };
 use crate::{AuthenticatedSession, LocalParty, SessionError, SessionLimits};
 
@@ -26,7 +26,7 @@ pub(super) fn confirmed_with(limits: SessionLimits) -> Pair {
     let alice = party(ALICE).with_limits(limits);
     let bob = party(BOB).with_limits(limits);
     let (outbound, inbound, _) = handshake(&alice, &bob);
-    let (mut initiator, initiator_first) = outbound.admit(Standing::Accepted).unwrap();
+    let (mut initiator, initiator_first) = admit_outbound(outbound, Standing::Accepted);
     let (mut responder, _, responder_first) =
         inbound.admit(PeerRecord::Accepted(&card(ALICE))).unwrap();
     let from_alice = initiator.send(&Message::ContactAccept, start()).unwrap();
@@ -263,7 +263,7 @@ fn a_frame_of_another_session_or_direction_is_rejected() {
         let (waiting, message_2) = waiting.read_message_1(&message_1, start()).unwrap();
         let (outbound, message_3) = first.read_message_2(&message_2, start()).unwrap();
         waiting.read_message_3(&message_3, start()).unwrap();
-        let (mut old, _) = outbound.admit(Standing::Accepted).unwrap();
+        let (mut old, _) = admit_outbound(outbound, Standing::Accepted);
         old.send(&Message::ContactAccept, start()).unwrap()
     };
     let alice_card = card(ALICE);
@@ -732,6 +732,6 @@ fn the_protocol_limits_are_the_default() {
         .unwrap()
         .with_limits(reduced);
     let (outbound, _, _) = handshake(&local, &party(BOB));
-    let (session, _) = outbound.admit(Standing::Accepted).unwrap();
+    let (session, _) = admit_outbound(outbound, Standing::Accepted);
     assert_eq!(session.expires_at(), Some(after(Duration::from_secs(60))));
 }

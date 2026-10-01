@@ -129,7 +129,7 @@ What a stolen key allows:
 | Stolen | The thief can | The thief cannot |
 | --- | --- | --- |
 | Identity private key | issue cards for the identity, with any transport key and endpoint: full impersonation | read past sessions |
-| Transport private key | authenticate as the identity when it dials, and when it is dialed if it also controls an endpoint of the card | issue cards; read past sessions; act against a contact that has pinned a newer card |
+| Transport private key | authenticate as the identity when it dials, and when it is dialed if it also controls an endpoint of the card | issue cards; read past sessions; act against a contact that has received a newer card |
 | Onion private key | receive the connections made to that address | complete a handshake; learn who connects |
 
 There is no revocation in version 1, for any of the three.
@@ -219,10 +219,13 @@ F3. The initiator's card travels inside the handshake, as the payload of
     the card is inside message 3, it is the holder of the transport key
     who presents it; that is the initiator's half of F2.
 
-F4. A card presented in a handshake that is older than the card the
-    responder has pinned for that identity, or that has the same epoch and
-    other contents, does not open a contact session. The peer is treated
-    as an identity that is not a contact and is not told why.
+F4. A card that is older than the newest card the local side holds of
+    that identity, or that has the same epoch and other contents, does not
+    open a contact session. The peer is treated as an identity that is not
+    a contact and is not told why. The newest card held is the pinned one
+    or a later one that the user has not confirmed yet: what counts as
+    stale does not wait for the user. A responder applies the rule to the
+    card presented in message 3, an initiator to the card it dialed.
 
 F5. A transport key or ephemeral key that is not canonically encoded or is
     of small order is invalid, and an X25519 result of all zeros ends the
@@ -285,7 +288,7 @@ the same for a contact, a stranger and a blocked identity.
   version 1.
 - Post-compromise security and revocation. A stolen identity key
   impersonates the identity until contacts are told out of band. A stolen
-  transport key does the same towards any party that has not pinned a
+  transport key does the same towards any party that has not received a
   newer card. There is no automatic healing and no revocation mechanism in
   version 1.
 - Binding to the onion address. A session is not tied to the endpoint that

@@ -269,13 +269,16 @@ F3. The initiator sends its own contact card, without capability, as the
     then is the initiator's identity the one in the card. The card is
     inside the handshake, so it is the key holder who presents it.
 
-F4. The stale-card rule. A card presented in a handshake whose epoch is
-    lower than the one the responder has pinned for that identity, or
-    whose epoch is the same and whose contents differ, does not make the
-    session a contact session. The peer is treated as any identity that
-    is not a contact, with the same generic behavior, and is not told
-    why. This keeps a retired transport key from being used against
-    contacts who know its successor.
+F4. The stale-card rule. A card whose epoch is lower than that of the
+    newest card the local side holds of that identity, or whose epoch is
+    the same and whose contents differ, does not make the session a
+    contact session. The peer is treated as any identity that is not a
+    contact, with the same generic behavior, and is not told why. The
+    newest card held is the pinned one or a later one that the user has
+    not confirmed yet. A responder applies the rule to the card presented
+    in the third message, an initiator to the card it dialed. This keeps a
+    retired transport key from being used against contacts who hold its
+    successor.
 
 F5. An X25519 key that is not canonically encoded or is of small order is
     invalid, as a transport key and as an ephemeral key, and a
@@ -354,7 +357,7 @@ signing a card with a greater epoch. Limitations, accepted for version 1:
   holds the previous card cannot open a session until it has the new one.
   It learns the new card when the identity dials it and presents the card
   in the handshake, or out of band.
-- There is no revocation. Against a party that has pinned the newer card,
+- There is no revocation. Against a party that has received the newer card,
   the old key is useless by F4. Against a party that has never seen the
   identity, or has only the older card, a stolen old key still
   authenticates as the identity. The identity key has the same limitation

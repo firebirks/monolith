@@ -5,7 +5,7 @@
 //! the one before it:
 //!
 //! ```text
-//! initiator   HandshakeInitiator --message 2--> OutboundPeer --standing--> AuthenticatedSession
+//! initiator   HandshakeInitiator --message 2--> OutboundPeer --record----> AuthenticatedSession
 //! responder   HandshakeResponder --message 1--> HandshakeResponderFinal
 //!                                --message 3--> InboundPeer  --record----> AuthenticatedSession
 //! ```
@@ -32,7 +32,7 @@ use monolith_protocol::limits::{
     CONTACT_CARD_BASE_LEN, HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN,
     HANDSHAKE_PROLOGUE_LEN, HANDSHAKE_TIMEOUT, SESSION_LABEL_LEN,
 };
-use monolith_protocol::session::{Action, Admission, PeerRecord, Session, Standing};
+use monolith_protocol::session::{Action, Admission, PeerRecord, Session};
 
 use crate::resolver::Resolver;
 use crate::session::{AuthenticatedSession, Established, SessionLimits};
@@ -426,14 +426,28 @@ impl OutboundPeer {
         &self.card
     }
 
-    /// Creates the session. `standing` is the local record of the
-    /// identity that was dialed. The returned actions are the first
-    /// message to send, if any (`docs/PROTOCOL.md` section 6.4).
+    /// Creates the session. `record` is what the local side holds about
+    /// the identity that was dialed.
+    ///
+    /// The standing follows from the record and from the card that was
+    /// dialed, by the same table as for an inbound peer
+    /// (`docs/PROTOCOL.md` section 6.2). Normally the dialed card is the
+    /// newest one held and the standing is that of the record. If a newer
+    /// card of the identity arrived while the dial was in progress, the
+    /// responder has proved a transport key that is known to be retired,
+    /// and the peer is not a contact for this session. The returned
+    /// actions are the first message to send, if any (section 6.4).
+    ///
+    /// Fails with [`ProtocolError::IdentityMismatch`] if the record is one
+    /// of another identity.
     pub fn admit(
         self,
-        standing: Standing,
-    ) -> Result<(AuthenticatedSession, Vec<Action>), SessionError> {
-        AuthenticatedSession::new(self.established, self.card, standing)
+        record: PeerRecord<'_>,
+    ) -> Result<(AuthenticatedSession, Admission, Vec<Action>), SessionError> {
+        let admission = record.admit(&self.card)?;
+        let (session, actions) =
+            AuthenticatedSession::new(self.established, self.card, admission.standing)?;
+        Ok((session, admission, actions))
     }
 }
 
@@ -457,9 +471,11 @@ impl InboundPeer {
     ///
     /// The standing of the peer follows from the record and from the card
     /// it presented (`docs/PROTOCOL.md` section 6.2): a contact that
-    /// presented a card older than the pinned one, or one that contradicts
-    /// it, is not a contact for this session. The returned [`Admission`]
-    /// says how the card compares with the pinned one; that is for the
+    /// presented a card older than the newest one held, or one that
+    /// contradicts it, is not a contact for this session. The returned
+    /// [`Admission`] says how the card compares with the held one. When it
+    /// is newer, the caller records it as the newest card held before it
+    /// does anything else with the contact. All of that is for the
     /// local side and is never visible to the peer. The returned actions
     /// are the first message to send, if any.
     ///

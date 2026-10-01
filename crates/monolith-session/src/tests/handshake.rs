@@ -20,8 +20,8 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::resolver::Resolver;
 use crate::testing::{
-    ALICE, BOB, EPHEMERAL_I, EPHEMERAL_R, MALLORY, after, card, card_of, card_with, handshake,
-    handshake_with, identity_secret, party, start, transport_bytes,
+    ALICE, BOB, EPHEMERAL_I, EPHEMERAL_R, MALLORY, admit_outbound, after, card, card_of, card_with,
+    handshake, handshake_with, identity_secret, party, start, transport_bytes,
 };
 use crate::{
     HandshakeInitiator, HandshakeResponder, HandshakeResponderFinal, LocalParty, SessionError,
@@ -157,7 +157,7 @@ fn a_handshake_authenticates_both_sides() {
     assert_eq!(transcript.message_2.len(), 48);
     assert_eq!(transcript.message_3.len(), 235);
 
-    let (alice, first) = outbound.admit(Standing::None).unwrap();
+    let (alice, first) = admit_outbound(outbound, Standing::None);
     assert_eq!(first, Vec::new());
     let (bob, admission, first) = inbound.admit(PeerRecord::None).unwrap();
     assert_eq!(first, Vec::new());
@@ -186,7 +186,7 @@ fn handshakes_with_fresh_randomness_differ_and_complete() {
         let (waiting, message_2) = waiting.read_message_1(&message_1, start()).unwrap();
         let (outbound, message_3) = first.read_message_2(&message_2, start()).unwrap();
         let inbound = waiting.read_message_3(&message_3, start()).unwrap();
-        let (alice, _) = outbound.admit(Standing::None).unwrap();
+        let (alice, _) = admit_outbound(outbound, Standing::None);
         let (bob, _, _) = inbound.admit(PeerRecord::None).unwrap();
         assert_eq!(alice.handshake_hash(), bob.handshake_hash());
         (message_1, message_2, message_3, *alice.handshake_hash())
@@ -423,7 +423,7 @@ fn a_pinned_card_with_an_invitation_can_be_dialed() {
     let (_, _, plain) = handshake(&party(ALICE), &party(BOB));
     assert_eq!(transcript.message_1, plain.message_1);
     assert_eq!(transcript.message_3, plain.message_3);
-    let (alice, first) = outbound.admit(Standing::Requested).unwrap();
+    let (alice, first) = admit_outbound(outbound, Standing::Requested);
     assert_eq!(
         first,
         vec![monolith_protocol::session::Action::SendContactRequest]
@@ -998,7 +998,7 @@ fn debug_output_of_handshake_types_shows_nothing() {
     let inbound = waiting.read_message_3(&message_3, start()).unwrap();
     assert_eq!(format!("{inbound:?}"), "InboundPeer([redacted])");
 
-    let (session, _) = outbound.admit(Standing::Accepted).unwrap();
+    let (session, _) = admit_outbound(outbound, Standing::Accepted);
     let text = format!("{session:?}");
     assert!(
         text.starts_with("AuthenticatedSession { state: AuthenticatedUnknown"),

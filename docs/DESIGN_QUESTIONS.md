@@ -74,7 +74,8 @@ Decided at the start of Phase 2, in ADR 0002:
   initiator presents its card in the third handshake message.
 - The responder is authenticated first. No signature is made during a
   session, and there is no identity proof message; Q11 is closed.
-- A card older than the pinned one does not open a contact session.
+- A card older than the newest one held of that identity, pinned or
+  pending, does not open a contact session.
 - A new transport key is a new card epoch. There is no overlap period and
   no revocation in version 1.
 - TLS 1.3 with raw public keys was the other finalist and was not chosen.

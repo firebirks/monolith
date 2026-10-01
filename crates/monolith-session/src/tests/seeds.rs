@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 use monolith_protocol::body::Message;
 use monolith_protocol::session::{PeerRecord, Standing};
 
-use crate::testing::{ALICE, BOB, card, chat, handshake, party, request_with, start};
+use crate::testing::{
+    ALICE, BOB, admit_outbound, card, chat, handshake, party, request_with, start,
+};
 
 /// The targets this file owns seeds for.
 const TARGETS: [&str; 3] = [
@@ -39,14 +41,14 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
 
     let request_from_alice = {
         let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-        let (mut alice, _) = outbound.admit(Standing::Requested).unwrap();
+        let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
         alice
             .send(&request_with(alice_card.clone(), None), start())
             .unwrap()
     };
     let (accept_from_alice, accept_from_bob, chat_from_bob) = {
         let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
-        let (mut alice, _) = outbound.admit(Standing::Accepted).unwrap();
+        let (mut alice, _) = admit_outbound(outbound, Standing::Accepted);
         let (mut bob, _, _) = inbound.admit(PeerRecord::Accepted(&alice_card)).unwrap();
         let from_alice = alice.send(&Message::ContactAccept, start()).unwrap();
         let from_bob = bob.send(&Message::ContactAccept, start()).unwrap();

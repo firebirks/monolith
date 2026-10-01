@@ -6,10 +6,14 @@
 //! handshake finished, the peer is authenticated, a message arrived) and it
 //! answers with what to do ([`Action`]).
 //!
-//! The handshake itself is not here. It lives in the session crate, which
-//! owns a `Session` and is the only code that tells one that a peer is
-//! authenticated. Nothing else in Monolith is handed a `Session` it could
-//! mark authenticated itself.
+//! The handshake itself is not here. It lives in the session crate, whose
+//! `AuthenticatedSession` owns a `Session` and tells it that a peer is
+//! authenticated when a handshake has completed. `Session` is a public
+//! type, and code that builds one by hand can tell it anything; such a
+//! session has no keys and can neither read nor write a frame. The
+//! guarantee that a session exists only for a peer that completed a
+//! handshake is that of `AuthenticatedSession`, which is what the rest of
+//! Monolith holds.
 //!
 //! Properties that are built into its shape:
 //!
@@ -55,8 +59,8 @@ pub enum Standing {
     /// The user blocked this identity.
     Blocked,
     /// The identity is held as a requested or accepted contact, but the
-    /// card it presented in the handshake is older than the pinned one or
-    /// contradicts it. For this session it is not a contact
+    /// card that stands for it on this session is older than the newest
+    /// one held or contradicts it. For this session it is not a contact
     /// (`docs/PROTOCOL.md` section 6.2).
     StaleCard,
     /// The user imported this identity's card and has not seen an acceptance.
@@ -74,8 +78,17 @@ impl Standing {
     }
 }
 
-/// What the local side holds about an identity, with the card that is
-/// pinned for it where there is one.
+/// What the local side holds about an identity. For a contact that
+/// includes the newest card it holds of that identity.
+///
+/// The newest card is the pinned one, or a card with a greater epoch that
+/// arrived later and that the user has not confirmed yet. It is not the
+/// pinned card alone: a contact that has shown its successor card must not
+/// be impersonated with the older one while the change waits for the user
+/// (`docs/PROTOCOL.md` section 11.4).
+///
+/// For a requested contact the card also carries the invitation capability
+/// that a request to it has to present, if the user was given one.
 #[derive(Clone, Copy, Debug)]
 pub enum PeerRecord<'a> {
     /// No record of this identity.
@@ -84,9 +97,10 @@ pub enum PeerRecord<'a> {
     Declined,
     /// The user blocked this identity.
     Blocked,
-    /// The user imported this card and has not seen an acceptance.
+    /// The user imported a card of this identity and has not seen an
+    /// acceptance. The card is the newest one held.
     Requested(&'a ContactCard),
-    /// An accepted contact, with the card pinned for it.
+    /// An accepted contact, with the newest card held of it.
     Accepted(&'a ContactCard),
 }
 
@@ -96,35 +110,37 @@ pub enum PeerRecord<'a> {
 pub struct Admission {
     /// The standing of the peer for this session.
     pub standing: Standing,
-    /// For an identity held as a contact: how the presented card compares
-    /// with the pinned one. [`CardChange::Newer`] is a pending change of
-    /// what is pinned; [`CardChange::Conflict`] is reported to the user.
-    /// Nothing of this is visible to the peer.
+    /// For an identity held as a contact: how the card of the session
+    /// compares with the newest card held. With [`CardChange::Newer`] the
+    /// card of the session becomes the newest card held, at once, and is a
+    /// pending change of what is pinned. [`CardChange::Conflict`] is
+    /// reported to the user. Nothing of this is visible to the peer.
     pub card: Option<CardChange>,
 }
 
 impl PeerRecord<'_> {
-    /// Decides the standing of a peer that presented `card` in the
-    /// handshake of an inbound session. This is the table of
-    /// `docs/PROTOCOL.md` section 6.2.
+    /// Decides the standing of a peer for one session. `card` is the card
+    /// that stands for the peer: the card it presented in the handshake of
+    /// an inbound session, or the card that an outbound session dialed.
+    /// This is the table of `docs/PROTOCOL.md` section 6.2.
     ///
-    /// A card that is older than the pinned one, or that states something
-    /// else for the same epoch, does not open a contact session: the
-    /// standing is [`Standing::StaleCard`], whatever the record says. That
-    /// keeps a transport key an identity has retired from being used
-    /// against the contacts that know its successor.
+    /// A card that is older than the newest one held, or that states
+    /// something else for the same epoch, does not open a contact session:
+    /// the standing is [`Standing::StaleCard`], whatever the record says.
+    /// That keeps a transport key an identity has retired from being used
+    /// against the contacts that hold its successor.
     ///
     /// Fails with [`ProtocolError::IdentityMismatch`] if the record belongs
     /// to another identity than the card.
     pub fn admit(&self, card: &ContactCard) -> Result<Admission, ProtocolError> {
-        let (pinned, as_recorded) = match self {
+        let (held, as_recorded) = match self {
             Self::None => return Ok(Admission::without_record(Standing::None)),
             Self::Declined => return Ok(Admission::without_record(Standing::Declined)),
             Self::Blocked => return Ok(Admission::without_record(Standing::Blocked)),
-            Self::Requested(pinned) => (*pinned, Standing::Requested),
-            Self::Accepted(pinned) => (*pinned, Standing::Accepted),
+            Self::Requested(held) => (*held, Standing::Requested),
+            Self::Accepted(held) => (*held, Standing::Accepted),
         };
-        let change = evaluate_card(pinned, card)?;
+        let change = evaluate_card(held, card)?;
         let standing = match change {
             CardChange::Newer | CardChange::Unchanged => as_recorded,
             CardChange::Conflict | CardChange::Stale => Standing::StaleCard,
@@ -414,8 +430,7 @@ impl Session {
         }
         let is_request = message_type == MessageType::ContactRequest;
         if is_request {
-            // A request is made once per session. A second one would only
-            // make the receiver verify another signature.
+            // A request is made once per session.
             if self.request_received {
                 return self.violation(ProtocolError::MessageNotPermitted);
             }

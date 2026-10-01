@@ -255,10 +255,12 @@ Identity binding (T-BIND)
 3. The local side cannot be built from a card and a transport key that do
    not belong together.
 
-Stale cards (T-STALE): the standing of an inbound peer for every record
-and every relation between the presented and the pinned card; a retired
-transport key against a contact that knows the new one; a newer card keeps
-the contact and is reported as a pending change.
+Stale cards (T-STALE): the standing of a peer for every record and every
+relation between the card of the session and the newest card held; a
+retired transport key against a contact that has received the new card,
+before and after its user confirmed it; a dialed card that was superseded
+while the dial was in progress; a newer card keeps the contact and is
+reported as a pending change.
 
 Frames on a session (T-FRAME-AUTH)
 

@@ -183,7 +183,8 @@ the handshake hash `h`.
 The initiator:
 
 1. Before it sends anything: the contact it dials has a pinned card; the
-   identity of that card is not the initiator's own.
+   identity of that card is not the initiator's own. It does not dial a
+   card that it knows to be superseded (section 11.4).
 2. Message 2 is 48 bytes, its ephemeral key is valid (section 10.2), and
    Noise accepts it. A message 2 that Noise accepts shows that the sender
    holds the transport key of the pinned card and used the pinned
@@ -364,36 +365,46 @@ do. A peer with a valid card that the local side has never seen, has
 declined, has blocked or has deleted is authenticated exactly like a
 contact, and is then handled by sections 6.4 and 12.
 
-The responder decides the standing of the peer from its own record of
-the identity and from the card that was presented:
+Each side decides the standing of the peer from its own record of the
+identity and from the card that stands for the peer on this session. For
+a responder that is the card presented in message 3. For an initiator it
+is the card it dialed.
 
-| Record of the identity | Card presented in message 3 | Standing for this session |
+For an identity held as a contact, the record includes the newest card the
+local side holds of it: the pinned card, or a card with a greater epoch
+that arrived later and that the user has not confirmed yet (section 11.4).
+The comparison is with the newest one, confirmed or not.
+
+| Record of the identity | Card of this session | Standing for this session |
 | --- | --- | --- |
 | none, declined or blocked | any valid card | not a contact (section 12) |
-| requested or accepted | greater epoch than the pinned card | as the record says; the card is a pending change (section 11.4) |
+| requested or accepted | greater epoch than the newest card held | as the record says; the card becomes the newest card held at once, and is a pending change (section 11.4) |
 | requested or accepted | same epoch, same transport key and endpoints | as the record says |
 | requested or accepted | same epoch, another transport key or endpoint set | not a contact; reported to the user as a conflict |
-| requested or accepted | lower epoch than the pinned card | not a contact |
+| requested or accepted | lower epoch than the newest card held | not a contact |
 
 The last two rows are the stale-card rule. A card that is older than the
-one the responder has pinned, or that contradicts it, does not open a
+newest one the local side holds, or that contradicts it, does not open a
 contact session, even though its signature is valid and the peer holds its
-transport key. The peer is treated like any identity that is not a
-contact and sees the same generic behavior (section 12.1); it is not told
-why. This keeps a transport key that an identity has retired from being
-used against the contacts that already know its successor.
+transport key. The peer is treated like any identity that is not a contact
+and sees the same generic behavior (section 12.1); it is not told why.
+This keeps a transport key that an identity has retired from being used
+against the contacts that hold its successor, whether or not their users
+have confirmed the successor yet.
 
-The initiator presents no comparison of this kind: it dialed with the
-card it has pinned, and a responder that no longer holds that transport
-key cannot answer message 1.
+For an initiator the rule matters when a newer card arrived while a dial
+was in progress: the responder then proved a transport key that is known
+to be retired, and the session is not a contact session.
 
-Budgets are applied at this point according to the local record of the
-proven identity. A session with an identity the responder holds as an
-accepted or requested contact counts against `MAX_CONTACT_SESSIONS`. Every
-other session counts against `MAX_UNKNOWN_SESSIONS` and
-`UNKNOWN_SESSION_RATE`; if the rate is exhausted, the responder closes.
-Holders of a contact card who are not contacts therefore cannot use up the
-room that contacts need. They can use up the room for other strangers; see
+Budgets are applied at this point according to the standing for this
+session, not according to the record alone. A session whose standing is
+requested or accepted counts against `MAX_CONTACT_SESSIONS`. Every other
+session, that of a contact with a stale card included, counts against
+`MAX_UNKNOWN_SESSIONS` and `UNKNOWN_SESSION_RATE`; if the rate is
+exhausted, the local side closes. Holders of a contact card who are not
+contacts therefore cannot use up the room that contacts need, and the
+holder of a retired key cannot use up the room or the rate of the identity
+it belongs to. They can use up the room for other strangers; see
 `RESOURCE_LIMITS.md` section 12.
 
 No other check is applied here. In particular a blocked identity is not
@@ -628,11 +639,12 @@ assigned. A Profile equal to the stored one causes no event.
 proven identity; a card of another identity is a protocol violation. The
 card may state another transport key than the one this session was
 authenticated with: that is how a new transport key is announced. The
-receiver compares the card with what it has pinned for this contact:
+receiver compares the card with the newest card it holds of this contact:
 
 - greater epoch: recorded as a pending change of the endpoint set, of the
-  transport key, or of both. In version 1 the change takes effect after
-  the user confirms it;
+  transport key, or of both. In version 1 the change takes effect for
+  dialing after the user confirms it. For the stale-card rule it counts
+  from the moment it is recorded (section 11.4);
 - same epoch, same endpoint set and same transport key: nothing to do.
   This is the normal case;
 - same epoch and a different endpoint set or transport key: the owner
@@ -640,7 +652,8 @@ receiver compares the card with what it has pinned for this contact:
   as an anomaly;
 - lower epoch: ignored and counted.
 
-Nothing but a greater epoch ever changes what is pinned.
+Nothing but a greater epoch ever changes what is pinned or what is held as
+the newest card.
 
 A responder sends its current card once after a session is confirmed. The
 initiator's card was presented in the handshake. Either side sends its
@@ -1000,14 +1013,24 @@ A card always states the whole set and the transport key; there is no
 "add" or "remove".
 
 A receiver pins, per contact, the identity key, the transport key, the
-endpoint set and the epoch. A card signed by the pinned identity replaces
-what is pinned only if its epoch is strictly greater, and only when it
+endpoint set and the epoch: the card that is in effect, which is the one
+it dials. Next to it, it holds the newest card of that identity it has
+received. The two are the same card except while a change is pending.
+
+A card signed by the pinned identity with an epoch strictly greater than
+that of the newest card held becomes the newest card held at once, when it
 arrives
 
 - as the card an initiator presents in the handshake of a session with
   that contact,
 - in an EndpointUpdate on an authenticated session with that contact, or
 - as a card the user imports by hand.
+
+In version 1 it becomes the pinned card when the user confirms the change;
+a card the user imports by hand is confirmed by that. Until then the
+contact is not dialed: the pinned card is known to be superseded, and the
+new one is not in effect. What the user confirms is where Monolith
+connects to. What counts as stale does not wait for the user.
 
 A card with a different identity key is a different contact, whatever
 display name comes with it.
@@ -1017,11 +1040,11 @@ transport key and endpoint set. If they are not, the identity has signed
 two statements for one epoch; the receiver keeps what it has and reports
 the conflict.
 
-Stale cards. A card whose epoch is lower than the pinned one is never
-accepted as the current statement of a contact. Presented in a handshake,
-it does not open a contact session (section 6.2). Received in an
-EndpointUpdate, it is ignored (section 8.8). A receiver that has no record
-of the identity cannot know that a card is stale: it has nothing to
+Stale cards. A card whose epoch is lower than that of the newest card held
+is never accepted as the current statement of a contact. Presented in a
+handshake, it does not open a contact session (section 6.2). Received in
+an EndpointUpdate, it is ignored (section 8.8). A receiver that has no
+record of the identity cannot know that a card is stale: it has nothing to
 compare it with.
 
 Changing the transport key. An identity replaces its transport key by
@@ -1038,9 +1061,9 @@ period in which both keys are answered.
   two can talk only when the identity dials.
 - There is no revocation. Replacing a transport key does not make the
   old one worthless to someone who obtained its private half: against a
-  party that has pinned the newer card it is useless, by the stale-card
-  rule, and against a party that has never seen the identity, or has
-  pinned only the older card, it still authenticates as the identity.
+  party that has received the newer card it is useless, by the stale-card
+  rule, and against a party that has never seen the identity, or holds
+  only the older card, it still authenticates as the identity.
   The same is true of the identity key itself, which cannot be replaced
   at all without becoming a new identity.
 
@@ -1299,6 +1322,13 @@ one is closed. An identity held as requested or accepted may have one
 unconfirmed session per direction, so that a simultaneous dial reaches
 confirmation on both and the rule above decides. New authenticated sessions
 per identity are rate limited (`CONTACT_SESSION_RATE`).
+
+These slots and this rate are those of sessions whose standing is
+requested or accepted. A session of a contact that presented a stale or
+conflicting card (section 6.2) is counted with the sessions of identities
+that have no record. It takes no slot and no rate from the identity's
+contact sessions, so the holder of a retired key cannot keep the identity
+itself out.
 
 ## 15. Reconnecting
 

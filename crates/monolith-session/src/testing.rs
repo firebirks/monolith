@@ -160,11 +160,31 @@ pub(crate) struct Pair {
     pub(crate) responder_first: Vec<Action>,
 }
 
+/// Creates the session of an initiator that holds the peer with the given
+/// standing and holds, of a contact, exactly the card it dialed.
+pub(crate) fn admit_outbound(
+    outbound: OutboundPeer,
+    standing: Standing,
+) -> (AuthenticatedSession, Vec<Action>) {
+    let dialed = outbound.card().clone();
+    let record = match standing {
+        Standing::None => PeerRecord::None,
+        Standing::Declined => PeerRecord::Declined,
+        Standing::Blocked => PeerRecord::Blocked,
+        Standing::Requested => PeerRecord::Requested(&dialed),
+        Standing::Accepted => PeerRecord::Accepted(&dialed),
+        Standing::StaleCard => panic!("a stale card is not a record"),
+    };
+    let (session, admission, actions) = outbound.admit(record).unwrap();
+    assert_eq!(admission.standing, standing);
+    (session, actions)
+}
+
 /// Alice dials Bob. Alice holds Bob with the given standing; Bob holds the
 /// given record of Alice.
 pub(crate) fn connect(alice_holds_bob: Standing, bob_holds_alice: PeerRecord<'_>) -> Pair {
     let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
-    let (initiator, initiator_first) = outbound.admit(alice_holds_bob).unwrap();
+    let (initiator, initiator_first) = admit_outbound(outbound, alice_holds_bob);
     let (responder, _, responder_first) = inbound.admit(bob_holds_alice).unwrap();
     Pair {
         initiator,

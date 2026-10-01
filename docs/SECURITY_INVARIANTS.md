@@ -151,21 +151,28 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Tests: T-CARD (validly signed cards with each coincidence; signing such
   cards), fuzz target `contact_card`.
 
-### S36. A card that is older than the pinned one, or contradicts it, never opens a contact session
+### S36. A card that is older than the newest one held, or contradicts it, never opens a contact session
 
-- Mechanism: the stale-card rule. On an inbound session the standing of
-  the peer comes from one function, `PeerRecord::admit`, which takes the
-  local record with the pinned card and the card the peer presented. A
-  lower epoch, or the same epoch with another transport key or endpoint
-  set, gives the standing `StaleCard`, which the session logic treats on
-  the same code path as an identity that is not a contact. `InboundPeer`
-  cannot be turned into a session without that function. The same
-  comparison, `evaluate_card`, decides what an EndpointUpdate means;
-  nothing but a greater epoch changes what is pinned.
-- Residual: a party with no record of the identity, or one that has pinned
-  only the older card, has nothing to compare with.
+- Mechanism: the stale-card rule. The standing of a peer comes from one
+  function, `PeerRecord::admit`, which takes the local record with the
+  newest card held of the identity and the card that stands for the peer
+  on the session: the one presented in the handshake, or the one that was
+  dialed. A lower epoch, or the same epoch with another transport key or
+  endpoint set, gives the standing `StaleCard`, which the session logic
+  treats on the same code path as an identity that is not a contact.
+  Neither `InboundPeer` nor `OutboundPeer` can be turned into a session
+  without that function. The newest card held is the pinned one or a
+  later one that the user has not confirmed: a successor card counts from
+  the moment it was received. The same comparison, `evaluate_card`,
+  decides what an EndpointUpdate means; nothing but a greater epoch
+  changes what is held.
+- Residual: a party with no record of the identity, or one that has
+  received only the older card, has nothing to compare with. Keeping the
+  newest card and handing it to `admit` is the job of the contact store,
+  which does not exist yet.
 - Tests: T-STALE (`session::tests`, `tests::contacts`: a retired transport
-  key against a contact that knows the new one; the property test of the
+  key against a contact that has received the new card, confirmed or not;
+  a dialed card that was superseded meanwhile; the property test of the
   standing table).
 
 ### S20. The display name is never a security identifier

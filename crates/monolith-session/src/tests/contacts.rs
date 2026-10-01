@@ -14,8 +14,8 @@ use monolith_protocol::session::{Action, Admission, PeerRecord, Standing};
 use monolith_protocol::{ProtocolError, SessionState};
 
 use crate::testing::{
-    ALICE, BOB, MALLORY, card, card_of, card_with, chat, handshake, party, request_with, start,
-    transport_secret,
+    ALICE, BOB, MALLORY, admit_outbound, card, card_of, card_with, chat, handshake, party,
+    request_with, start, transport_secret,
 };
 use crate::{AuthenticatedSession, LocalParty, SessionError};
 
@@ -58,7 +58,7 @@ impl Run {
         invitation: Option<InvitationCapability>,
     ) -> Self {
         let (outbound, inbound, _) = handshake(alice_party, &party(BOB));
-        let (alice, alice_first) = outbound.admit(alice_holds_bob).unwrap();
+        let (alice, alice_first) = admit_outbound(outbound, alice_holds_bob);
         let (bob, admission, bob_first) = inbound.admit(bob_record).unwrap();
         let mut run = Self {
             alice,
@@ -320,6 +320,84 @@ fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one()
     );
     assert_eq!(run.admission.card, Some(CardChange::Unchanged));
     assert!(run.confirmed());
+}
+
+#[test]
+fn a_retired_key_is_refused_as_soon_as_the_successor_card_was_shown() {
+    // Bob has pinned Alice's first card. Alice replaces her transport key
+    // and dials Bob with the new card. Bob's user has not confirmed the
+    // change, and may never do so.
+    let pinned = card(ALICE);
+    let successor = card_of(ALICE, MALLORY, 2, false);
+    let alice = LocalParty::new(successor.clone(), transport_secret(MALLORY)).unwrap();
+    let run = Run::new(
+        &alice,
+        Standing::Accepted,
+        PeerRecord::Accepted(&pinned),
+        None,
+    );
+    assert_eq!(run.admission.card, Some(CardChange::Newer));
+    assert!(run.confirmed());
+
+    // From that moment the newest card Bob holds of Alice is the
+    // successor, and it is what later cards are compared with. Whoever
+    // dials with the first card and the key it states is not a contact,
+    // although that card is still the pinned one.
+    let newest_held = run.bob.peer_card().clone();
+    assert_eq!(newest_held, successor);
+    let run = usual(Standing::Accepted, PeerRecord::Accepted(&newest_held));
+    assert_eq!(
+        run.admission,
+        Admission {
+            standing: Standing::StaleCard,
+            card: Some(CardChange::Stale)
+        }
+    );
+    assert!(!run.confirmed());
+    assert_eq!(run.bob_actions, vec![Action::SendClose]);
+}
+
+#[test]
+fn a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session() {
+    // Alice dials Bob with the card she has pinned. While the dial is in
+    // progress a newer card of Bob reaches her, with another transport
+    // key. The responder has then proved a key that Alice knows to be
+    // retired: the session exists, and it is not a contact session.
+    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
+    let newer = card_of(BOB, MALLORY, 2, false);
+    let (alice, admission, first) = outbound.admit(PeerRecord::Accepted(&newer)).unwrap();
+    assert_eq!(
+        admission,
+        Admission {
+            standing: Standing::StaleCard,
+            card: Some(CardChange::Stale)
+        }
+    );
+    assert_eq!(first, Vec::new());
+    assert_eq!(alice.standing(), Standing::StaleCard);
+    for message_type in monolith_protocol::MessageType::ALL {
+        assert!(!alice.may_send(message_type), "{message_type:?}");
+    }
+
+    // The card that was dialed is the newest one held: the record decides.
+    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
+    let (_, admission, first) = outbound.admit(PeerRecord::Accepted(&card(BOB))).unwrap();
+    assert_eq!(admission.card, Some(CardChange::Unchanged));
+    assert_eq!(first, vec![Action::SendContactAccept]);
+
+    // A record without a card: no comparison.
+    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
+    let (_, admission, first) = outbound.admit(PeerRecord::Blocked).unwrap();
+    assert_eq!(admission.standing, Standing::Blocked);
+    assert_eq!(admission.card, None);
+    assert_eq!(first, Vec::new());
+
+    // The record of another identity is refused.
+    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
+    assert_eq!(
+        outbound.admit(PeerRecord::Accepted(&card(MALLORY))).err(),
+        Some(SessionError::Protocol(ProtocolError::IdentityMismatch))
+    );
 }
 
 #[test]

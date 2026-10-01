@@ -480,12 +480,13 @@ fn signed_bytes(
     writer.into_bytes()
 }
 
-/// What a card from a contact means for what is pinned for that contact:
-/// its transport key and its endpoint set, as of an epoch.
+/// What a card of a contact means for what is held of that contact: its
+/// transport key and its endpoint set, as of an epoch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CardChange {
-    /// The epoch is greater than the pinned one. The card replaces what is
-    /// pinned once the change is confirmed.
+    /// The epoch is greater than that of the newest card held. The card
+    /// becomes the newest card held at once, and the pinned card once the
+    /// change is confirmed.
     Newer,
     /// Same epoch, same transport key, same endpoint set. Nothing to do;
     /// this is the normal case.
@@ -494,29 +495,28 @@ pub enum CardChange {
     /// signed two statements with one epoch. Nothing changes; the user is
     /// told.
     Conflict,
-    /// The epoch is lower than the pinned one. Nothing changes.
+    /// The epoch is lower than that of the newest card held. Nothing
+    /// changes.
     Stale,
 }
 
-/// Compares a card received from a contact with the card that is pinned for
-/// that contact. See `docs/PROTOCOL.md` sections 6.2, 8.8 and 11.4.
+/// Compares a card of a contact with the newest card that is held of that
+/// contact: the pinned one, or a pending one with a greater epoch. See
+/// `docs/PROTOCOL.md` sections 6.2, 8.8 and 11.4.
 ///
 /// Fails with [`ProtocolError::IdentityMismatch`] if the card was signed by
-/// another identity than the pinned one. Nothing but [`CardChange::Newer`]
-/// ever leads to a change of what is pinned. An invitation capability in
-/// either card plays no part.
-pub fn evaluate_card(
-    pinned: &ContactCard,
-    card: &ContactCard,
-) -> Result<CardChange, ProtocolError> {
-    if card.identity() != pinned.identity() {
+/// another identity than the held one. Nothing but [`CardChange::Newer`]
+/// ever leads to a change of what is held or pinned. An invitation
+/// capability in either card plays no part.
+pub fn evaluate_card(held: &ContactCard, card: &ContactCard) -> Result<CardChange, ProtocolError> {
+    if card.identity() != held.identity() {
         return Err(ProtocolError::IdentityMismatch);
     }
-    if pinned.epoch().is_superseded_by(card.epoch()) {
+    if held.epoch().is_superseded_by(card.epoch()) {
         return Ok(CardChange::Newer);
     }
-    if card.epoch() == pinned.epoch() {
-        if card.transport() == pinned.transport() && card.endpoints() == pinned.endpoints() {
+    if card.epoch() == held.epoch() {
+        if card.transport() == held.transport() && card.endpoints() == held.endpoints() {
             return Ok(CardChange::Unchanged);
         }
         return Ok(CardChange::Conflict);

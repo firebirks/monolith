@@ -22,7 +22,7 @@ mod session_fixtures;
 
 use libfuzzer_sys::fuzz_target;
 use monolith_protocol::SessionState;
-use monolith_protocol::session::{Action, Standing};
+use monolith_protocol::session::{Action, PeerRecord, Standing};
 use session_fixtures::{BOB, Pieces, TRANSCRIPT, alice_dialing, card, start};
 
 fuzz_target!(|data: &[u8]| {
@@ -66,7 +66,9 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(message_3, TRANSCRIPT.message_3);
     assert_eq!(outbound.card(), &card(BOB));
 
-    let (mut session, first_actions) = outbound.admit(Standing::Accepted).unwrap();
+    let (mut session, admission, first_actions) =
+        outbound.admit(PeerRecord::Accepted(&card(BOB))).unwrap();
+    assert_eq!(admission.standing, Standing::Accepted);
     assert_eq!(first_actions, [Action::SendContactAccept]);
     assert_eq!(session.peer(), card(BOB).identity());
 

@@ -103,8 +103,8 @@ send an endpoint update.
 - Cannot make a file arrive without acceptance (S13), choose where it is
   written (S14), or have it opened (S16).
 - Cannot change its own pinned identity (S9), and cannot roll back its
-  endpoint or its transport key: a card older than the pinned one is not
-  accepted, in an update or in a handshake (S36).
+  endpoint or its transport key: a card older than the newest one held
+  is not accepted, in an update or in a handshake (S36).
 - Cannot learn anything about other contacts (S24).
 - Can sign an endpoint binding that names an Onion Service it does not
   control. Monolith will dial it after the user confirms; the handshake
@@ -162,8 +162,8 @@ against an Onion Service.
   record of identifiers is in memory unless history is enabled, so after a
   restart of the receiver a resent message can be delivered twice.
 - An old contact card cannot replace a newer one (strictly increasing
-  epoch), and presented in a handshake to a party that has pinned a newer
-  one it does not open a contact session (S36).
+  epoch), and presented in a handshake to a party that has received a
+  newer one it does not open a contact session (S36).
 - An invitation capability can be used by anyone who holds it. That is its
   definition; it is revocable and it authenticates nobody.
 
@@ -317,9 +317,10 @@ What each of them is worth alone:
   identity, towards everyone who has pinned the card that states this
   key, and towards strangers. It cannot issue a card. The owner ends this
   by signing a card with a greater epoch and a new transport key and
-  getting it to its contacts; a contact that has pinned the newer card no
-  longer takes the old key for a contact (S36). There is no revocation:
-  a contact that has not seen the newer card still does.
+  getting it to its contacts; a contact that has received the newer card
+  no longer takes the old key for a contact, whether or not its user has
+  confirmed the change (S36). There is no revocation: a contact that has
+  not received the newer card still does.
 - The identity key: the holder can sign cards, and with a card that names
   a transport key of its own it becomes the identity for everyone. There
   is no recovery other than telling contacts out of band.
