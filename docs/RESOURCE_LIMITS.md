@@ -20,7 +20,7 @@ limits marked "local"; the others are part of the wire protocol.
 | `HANDSHAKE_MSG2_LEN` | 96 | fixed |
 | `HANDSHAKE_MSG3_LEN` | 64 | fixed |
 | `FRAME_LENGTH_PREFIX_LEN` | 2 | big-endian |
-| `FRAME_PADDING_BLOCK_LEN` | 1024 | plaintext is a multiple of this |
+| `FRAME_PADDING_BLOCK_LEN` | 1024 | plaintext is a multiple of this; provisional value, see ADR 0003 |
 | `MIN_FRAME_CIPHERTEXT_LEN` | 1040 | one block plus tag |
 | `MAX_FRAME_CIPHERTEXT_LEN` | 64528 | 63 blocks plus tag |
 | `MAX_FRAME_PLAINTEXT_LEN` | 64512 | |

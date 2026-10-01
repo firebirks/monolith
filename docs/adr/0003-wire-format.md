@@ -1,6 +1,6 @@
 # ADR 0003: Wire format
 
-Status: proposed, pending Phase 0 review
+Status: accepted for Phase 1. The padding block size is provisional.
 Date: 2026-10-01
 
 ## Context
@@ -84,12 +84,49 @@ Option B for everything on the wire and for the vault payload.
 
 ## Padding
 
-Padding every frame to a multiple of 1024 bytes costs bandwidth that is
-negligible for chat and under 0.1 percent for file transfer (chunks are
-sized to fill a frame exactly). It hides the length of short messages from
-anyone who sees ciphertext lengths between the application and Tor. It is
-not presented as a defense against traffic analysis. The block size is an
-open question (PROTOCOL.md P1).
+The mechanism is decided: every frame plaintext is padded with zero bytes
+to a multiple of a block size P, and exactly minimal padding is required.
+The value of P is not decided. The specification and the code treat it as a
+parameter, with 1024 as the working value.
+
+What padding is for. It hides the exact length of a message inside its
+bucket. It helps against an observer of the hop between the application
+and Tor: loopback on most systems, the internal network on Whonix. Against
+an observer of the Tor circuit it adds little below the size of a Tor cell,
+because Tor already carries data in fixed-size cells of about 498 payload
+bytes. Against correlation of traffic at both ends it does nothing. It is
+not a defense against traffic analysis and must not be described as one.
+
+What it costs, per frame, with a 2-byte length prefix and a 16-byte tag:
+
+| P | Smallest frame on the stream | Tor cells for a short chat message | Lengths hidden |
+| --- | --- | --- | --- |
+| none | about 40 bytes | 1 | nothing |
+| 256 | 274 | 1 | up to 252 bytes of body look alike |
+| 480 | 498 | 1 | up to 476 bytes look alike; one frame fills one cell |
+| 512 | 530 | 2 | up to 508 bytes look alike |
+| 1024 | 1042 | 3 | up to 1020 bytes look alike |
+
+- Amplification. A short message and its acknowledgement cost one cell each
+  without padding and three cells each at P = 1024. For chat this is small
+  in absolute terms and a factor of three in relative terms.
+- Keepalives. One Ping and one Pong about every two minutes per session: at
+  P = 1024 that is under 20 bytes per second per session.
+- Fragmentation. Frames travel on a stream, so a frame that spans several
+  cells needs no reassembly logic. More cells per message mean more
+  exposure to cell-level timing, which argues for a block that fits one
+  cell.
+- File transfer. Chunks are sized to fill a maximum frame, so padding costs
+  at most one block on the last chunk of a file, for any P.
+- Unconfirmed sessions. The largest message before confirmation is 804
+  bytes with its header. With P = 1024 every such frame is exactly one
+  block, which gives the simple rule "exactly 1040 bytes". A smaller P
+  needs two or more blocks for that message and a slightly looser rule.
+
+Candidates: 480 (one Tor cell per small frame), 512, 1024. The choice needs
+a look at real message size distributions and at the cell counts on a
+circuit, and is made before the protocol is frozen, not in Phase 1. Phase 1
+implements the mechanism with P as a parameter.
 
 ## Sources
 

@@ -165,6 +165,31 @@ The plaintext is:
 
 One frame carries one message. No message spans frames.
 
+### 5.1 Frame parameters
+
+Two numbers in this section are parameters, not constants of the design:
+
+- P, the padding block. This document uses P = 1024. That value is
+  provisional; ADR 0003 gives the trade-off and the alternatives.
+- T, the number of bytes the session layer adds to each frame. With the
+  session candidate that is written up, T = 16 (an authentication tag). If
+  the stream is already protected by the layer below, T = 0.
+
+In terms of them:
+
+- the plaintext length is a multiple of P, at least P, and at most the
+  largest multiple of P that keeps `length` within 65535;
+- `length` is the plaintext length plus T;
+- before a session is confirmed, the plaintext is no longer than the padded
+  size of the largest message that is legal then. That message is a
+  ContactRequest of 800 bytes, 804 with its header. For P = 1024 this is
+  one block, which is where "exactly 1040" comes from.
+
+The limits 1040, 64528, 64512, 64508 and 64490 elsewhere in this document
+are these rules evaluated for P = 1024 and T = 16. An implementation takes
+P and T as parameters, so that changing either is a change of two numbers
+and not of the decoder.
+
 Padding hides the exact length of short messages from anyone who can see
 ciphertext lengths on the path between the application and Tor. It is not a
 defense against traffic analysis; see `THREAT_MODEL.md`.

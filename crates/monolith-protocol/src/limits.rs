@@ -55,6 +55,10 @@ pub const HANDSHAKE_MSG3_LEN: usize = DH_PUBLIC_KEY_LEN + AEAD_TAG_LEN + AEAD_TA
 pub const FRAME_LENGTH_PREFIX_LEN: usize = 2;
 
 /// Every frame plaintext is padded to a multiple of this many bytes.
+///
+/// Provisional. The padding mechanism is decided, the block size is not;
+/// see `docs/adr/0003-wire-format.md`. Framing code takes the block size as
+/// a parameter and does not assume this value.
 pub const FRAME_PADDING_BLOCK_LEN: usize = 1024;
 
 /// Largest frame plaintext, padding included.
