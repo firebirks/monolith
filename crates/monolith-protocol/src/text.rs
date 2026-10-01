@@ -42,8 +42,13 @@ fn is_forbidden_in_names(character: char) -> bool {
         // Bidirectional controls.
         | 0x061C | 0x200E | 0x200F | 0x202A..=0x202E | 0x2066..=0x2069
         // Zero-width and invisible format characters.
-        | 0x00AD | 0x034F | 0x180E | 0x200B..=0x200D | 0x2060..=0x2064 | 0xFEFF
-        | 0xFFF9..=0xFFFB | 0xE0000..=0xE007F
+        | 0x00AD | 0x034F | 0x180E | 0x200B..=0x200D | 0x2060..=0x2065 | 0x206A..=0x206F
+        | 0xFEFF | 0xFFF9..=0xFFFB | 0x1D173..=0x1D17A | 0xE0000..=0xE007F
+        // Characters that are drawn as nothing or as a blank although they
+        // are neither format characters nor whitespace: the Hangul fillers,
+        // two Khmer vowels, the blank braille pattern and the object
+        // replacement character.
+        | 0x115F | 0x1160 | 0x17B4 | 0x17B5 | 0x2800 | 0x3164 | 0xFFA0 | 0xFFFC
         // White_Space other than U+0020. The remaining members of the
         // property are rejected by is_forbidden_everywhere.
         | 0x00A0 | 0x1680 | 0x2000..=0x200A | 0x202F | 0x205F | 0x3000
@@ -196,11 +201,30 @@ const FALLBACK_SAVE_NAME: &str = "file";
 const RESERVED_IN_SAVE_NAMES: [char; 7] = ['<', '>', ':', '"', '|', '?', '*'];
 
 /// Device names that some systems treat specially, with or without an
-/// extension.
-const RESERVED_DEVICE_NAMES: [&str; 22] = [
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-];
+/// extension. `COM` and `LPT` followed by one digit are handled separately.
+const RESERVED_DEVICE_NAMES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
+
+/// Returns true if `stem`, the part of a name before its first dot, is a
+/// reserved device name. Letter case does not matter.
+fn is_reserved_device_name(stem: &str) -> bool {
+    if RESERVED_DEVICE_NAMES
+        .iter()
+        .any(|device| stem.eq_ignore_ascii_case(device))
+    {
+        return true;
+    }
+    // COM0 to COM9 and LPT0 to LPT9, and the same with a superscript one,
+    // two or three, which the systems in question accept as digits here.
+    let Some((port, unit)) = stem.split_at_checked(3) else {
+        return false;
+    };
+    let mut unit = unit.chars();
+    (port.eq_ignore_ascii_case("COM") || port.eq_ignore_ascii_case("LPT"))
+        && matches!(
+            (unit.next(), unit.next()),
+            (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+        )
+}
 
 impl Filename {
     /// Validates bytes received from a peer.
@@ -220,8 +244,9 @@ impl Filename {
     /// The result is a single path component: it contains no separator, is
     /// never empty, never `.` or `..`, has no leading or trailing dot or
     /// space, contains none of the characters that common filesystems
-    /// reserve, and is not a reserved device name. It is a suggestion for a
-    /// save dialog and nothing else; the caller still creates the file with
+    /// reserve, is not a reserved device name, and is at most
+    /// [`MAX_FILENAME_LEN`] bytes long. It is a suggestion for a save dialog
+    /// and nothing else; the caller still creates the file with
     /// exclusive-create semantics in a directory the user chose.
     pub fn save_name(&self) -> String {
         let replaced: String = self
@@ -240,13 +265,25 @@ impl Filename {
             return FALLBACK_SAVE_NAME.to_owned();
         }
         let stem = trimmed.split('.').next().unwrap_or(trimmed);
-        if RESERVED_DEVICE_NAMES
-            .iter()
-            .any(|device| stem.trim_end_matches(' ').eq_ignore_ascii_case(device))
-        {
-            return format!("_{trimmed}");
+        if !is_reserved_device_name(stem.trim_end_matches(' ')) {
+            // Not longer than the validated name it was cut from.
+            return trimmed.to_owned();
         }
-        trimmed.to_owned()
+
+        // The prefix makes the name one byte longer. Cut it back to the
+        // limit, on a character boundary, and trim again what the cut may
+        // have exposed. The prefix itself always remains.
+        let mut name = format!("_{trimmed}");
+        if name.len() > MAX_FILENAME_LEN {
+            let mut end = MAX_FILENAME_LEN;
+            while !name.is_char_boundary(end) {
+                end = end.saturating_sub(1);
+            }
+            name.truncate(end);
+            let kept = name.trim_end_matches(['.', ' ']).len();
+            name.truncate(kept);
+        }
+        name
     }
 }
 
@@ -581,11 +618,89 @@ mod tests {
             Filename::new("LPT9 .txt").unwrap().save_name(),
             "_LPT9 .txt"
         );
+        for (name, expected) in [
+            ("COM0", "_COM0"),
+            ("lpt0.txt", "_lpt0.txt"),
+            ("COM\u{b9}", "_COM\u{b9}"),
+            ("com\u{b2}.log", "_com\u{b2}.log"),
+            ("LPT\u{b3}.tar.gz", "_LPT\u{b3}.tar.gz"),
+            ("CONIN$", "_CONIN$"),
+            ("conout$.txt", "_conout$.txt"),
+            // A reserved character is replaced first; what is left is not a
+            // device name.
+            ("CON:", "CON_"),
+        ] {
+            assert_eq!(Filename::new(name).unwrap().save_name(), expected);
+        }
         // Names that merely start with a device name are left alone.
-        assert_eq!(
-            Filename::new("CONSOLE.txt").unwrap().save_name(),
-            "CONSOLE.txt"
-        );
+        for name in [
+            "CONSOLE.txt",
+            "COM",
+            "COM10",
+            "COM1a",
+            "LPT",
+            "LPTX",
+            "COM\u{2074}",
+            "CONIN",
+            "NULL",
+        ] {
+            assert_eq!(Filename::new(name).unwrap().save_name(), name);
+        }
+    }
+
+    #[test]
+    fn save_name_is_never_longer_than_a_filename() {
+        // The longest filename that is a device name with an extension.
+        let longest = format!("CON.{}", "a".repeat(MAX_FILENAME_LEN - 4));
+        let saved = Filename::new(&longest).unwrap().save_name();
+        assert_eq!(saved.len(), MAX_FILENAME_LEN);
+        assert!(saved.starts_with("_CON.a"));
+
+        // The cut falls inside a three-byte character and is moved back to
+        // its start; the dot that the cut exposes is trimmed.
+        let wide = format!("NUL.{}.\u{4e2d}", "a".repeat(MAX_FILENAME_LEN - 8));
+        assert_eq!(wide.len(), MAX_FILENAME_LEN);
+        let saved = Filename::new(&wide).unwrap().save_name();
+        assert_eq!(saved, format!("_NUL.{}", "a".repeat(MAX_FILENAME_LEN - 8)));
+        assert!(saved.len() <= MAX_FILENAME_LEN);
+    }
+
+    #[test]
+    fn names_reject_characters_that_draw_as_nothing() {
+        for character in [
+            '\u{115f}',
+            '\u{1160}',
+            '\u{17b4}',
+            '\u{17b5}',
+            '\u{2065}',
+            '\u{206a}',
+            '\u{206f}',
+            '\u{2800}',
+            '\u{3164}',
+            '\u{ffa0}',
+            '\u{fffc}',
+            '\u{1d173}',
+            '\u{1d17a}',
+        ] {
+            let text = format!("a{character}b");
+            assert_eq!(
+                DisplayName::new(&text),
+                Err(ProtocolError::ForbiddenCharacter),
+                "name {:x}",
+                u32::from(character)
+            );
+            assert_eq!(
+                Filename::new(&text),
+                Err(ProtocolError::ForbiddenCharacter),
+                "filename {:x}",
+                u32::from(character)
+            );
+            // Free text is delivered as sent.
+            assert!(ChatText::new(&text).is_ok());
+        }
+        // Variation selectors stay allowed: emoji and some scripts need
+        // them.
+        assert!(DisplayName::new("\u{2764}\u{fe0f}").is_ok());
     }
 
     #[test]
