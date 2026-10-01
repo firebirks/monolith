@@ -19,6 +19,7 @@ edition = "2024"
 rust-version = "1.85"
 # Nothing in this workspace may be published without explicit authorization.
 publish = false
+license = "MIT"
 
 [workspace.dependencies]
 monolith-identity = { path = "crates/monolith-identity" }

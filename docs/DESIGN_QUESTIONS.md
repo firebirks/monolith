@@ -131,7 +131,7 @@ Nothing below is settled. Each is described in the document named.
 | T1 to T5 | Tails: sandbox, profile matching, AppArmor, namespaces, Debian packaging | PLATFORM_TAILS.md 7 |
 | W1 to W5 | Whonix: profile test, Qubes addressing, firewall drop-in, upstreaming, SocksPort choice | PLATFORM_WHONIX.md 9 |
 | ST1 to ST5 | Message store, locking, previous generation, permission checks, passphrase policy | STORAGE.md 9 |
-| A1 to A4 | Licence, minimum Rust version, configuration format, CLI parser | ARCHITECTURE.md 13 |
+| A2 to A4 | Minimum Rust version, configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Which generation of the RustCrypto and dalek crates to standardize on | ADR 0001, ADR 0005 |
 | - | Security contact address and key | SECURITY.md |

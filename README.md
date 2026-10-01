@@ -86,3 +86,7 @@ Checks run in CI:
 
 See `SECURITY.md`. Early releases will not have had an independent audit and
 will say so.
+
+## License
+
+MIT. See `LICENSE`.

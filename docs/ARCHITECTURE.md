@@ -205,6 +205,8 @@ For such a change:
   sources (crates.io only) and bans.
 - Nothing is published to crates.io without explicit authorization
   (`publish = false` on every crate).
+- The project is MIT licensed. Every crate carries `license = "MIT"`
+  through the workspace metadata.
 
 ## 11. Releases
 
@@ -243,8 +245,6 @@ the platform's packaging.
 A phase starts after the previous one has been reviewed.
 
 ## 13. Open items
-
-A1. Licence of the project. Not chosen yet; crates carry no `license` field.
 
 A2. Whether to keep the minimum Rust version at Debian stable's. Current
     dependency candidates build with 1.85, but the ecosystem moves faster

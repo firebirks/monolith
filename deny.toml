@@ -24,7 +24,7 @@ confidence-threshold = 0.93
 unused-allowed-license = "allow"
 
 [licenses.private]
-# Workspace crates are unpublished and carry no licence field yet.
+# Workspace crates are unpublished. They are MIT licensed; see LICENSE.
 ignore = true
 
 [bans]
