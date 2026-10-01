@@ -56,15 +56,27 @@ proptest! {
     }
 
     #[test]
-    fn accepted_keys_are_canonical(bytes in any::<[u8; 32]>()) {
-        // About half of all byte strings decode to a point. Whatever is
-        // accepted must give the same bytes back.
-        if let Ok(key) = IdentityPublicKey::from_bytes(&bytes) {
-            prop_assert_eq!(key.as_bytes(), &bytes);
-        }
-        if let Ok(key) = OnionServiceKey::from_bytes(&bytes) {
-            prop_assert_eq!(key.as_bytes(), &bytes);
-            prop_assert!(IdentityPublicKey::from_bytes(&bytes).is_ok());
+    fn identity_and_onion_keys_have_the_same_validity(bytes in any::<[u8; 32]>()) {
+        // About half of all byte strings decode to a point, and one in eight
+        // of those lies in the prime-order subgroup. Both key types accept
+        // exactly the same byte strings.
+        prop_assert_eq!(
+            IdentityPublicKey::from_bytes(&bytes).is_ok(),
+            OnionServiceKey::from_bytes(&bytes).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_valid_key_with_one_flipped_bit_is_a_different_key_or_invalid(
+        seed in any::<[u8; 32]>(),
+        bit in 0..256_usize,
+    ) {
+        let public = IdentitySecretKey::from_seed(&seed).public_key();
+        let mut bytes = *public.as_bytes();
+        bytes[bit / 8] ^= 1 << (bit % 8);
+        if let Ok(other) = IdentityPublicKey::from_bytes(&bytes) {
+            prop_assert_ne!(other, public);
+            prop_assert_eq!(other.as_bytes(), &bytes);
         }
     }
 

@@ -16,8 +16,8 @@ pub const ONION_SERVICE_KEY_LEN: usize = 32;
 /// endpoint can never carry a wrong checksum or version byte.
 ///
 /// A value of this type has passed the checks of `docs/PROTOCOL.md` section
-/// 10.1 for onion service keys: it is a valid key and has no torsion
-/// component, which is the test Tor applies to the key in an onion address.
+/// 10.1: it is a canonical point in the prime-order subgroup, which includes
+/// the test Tor applies to the key in an onion address.
 ///
 /// An endpoint is where an identity can be reached. It is not the identity.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -26,10 +26,7 @@ pub struct OnionServiceKey([u8; ONION_SERVICE_KEY_LEN]);
 impl OnionServiceKey {
     /// Validates 32 bytes as an onion service key.
     pub fn from_bytes(bytes: &[u8; ONION_SERVICE_KEY_LEN]) -> Result<Self, IdentityError> {
-        let key = decode_key(bytes)?;
-        if !key.to_edwards().is_torsion_free() {
-            return Err(IdentityError::InvalidKey);
-        }
+        decode_key(bytes)?;
         Ok(Self(*bytes))
     }
 
@@ -125,9 +122,7 @@ mod tests {
     #[test]
     fn rejects_a_key_with_a_torsion_component() {
         let bytes = key_with_torsion(1);
-        // The same bytes are acceptable as an identity key: they are a
-        // canonical point that is not of small order.
-        assert!(IdentityPublicKey::from_bytes(&bytes).is_ok());
+        assert!(IdentityPublicKey::from_bytes(&bytes).is_err());
         assert_eq!(
             OnionServiceKey::from_bytes(&bytes).err(),
             Some(IdentityError::InvalidKey)

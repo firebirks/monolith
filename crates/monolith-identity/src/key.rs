@@ -20,14 +20,20 @@ pub const SIGNATURE_LEN: usize = 64;
 
 /// Decodes 32 bytes as an Ed25519 public key under the rules of
 /// `docs/PROTOCOL.md` section 10.1: the bytes decode to a curve point,
-/// encoding that point again gives the same bytes, and the point is not of
-/// small order.
+/// encoding that point again gives the same bytes, the point is not of
+/// small order, and it has no torsion component.
+///
+/// The last condition means the key lies in the prime-order subgroup, which
+/// is where every honestly generated key is. It is the test Tor applies to
+/// the key in an onion address, and Monolith applies it to identity keys as
+/// well, so that one definition of "valid key" serves both.
 pub(crate) fn decode_key(bytes: &[u8; 32]) -> Result<VerifyingKey, IdentityError> {
     let key = VerifyingKey::from_bytes(bytes).map_err(|_| IdentityError::InvalidKey)?;
-    if key.to_edwards().compress().to_bytes() != *bytes {
+    let point = key.to_edwards();
+    if point.compress().to_bytes() != *bytes {
         return Err(IdentityError::InvalidKey);
     }
-    if key.is_weak() {
+    if key.is_weak() || !point.is_torsion_free() {
         return Err(IdentityError::InvalidKey);
     }
     Ok(key)
@@ -276,6 +282,85 @@ mod tests {
         assert_eq!(
             IdentityPublicKey::from_bytes(&NON_CANONICAL_ZERO).err(),
             Some(IdentityError::InvalidKey)
+        );
+        // Every encoding with y >= p, with either sign bit. On this curve
+        // each of them is also a point of small order or with a torsion
+        // component, or no point at all, so more than one check rejects
+        // them. None may be accepted.
+        for k in 0..=18_u8 {
+            for top in [0x7f_u8, 0xff] {
+                let mut bytes = [0xff_u8; 32];
+                bytes[0] = 0xed + k;
+                bytes[31] = top;
+                assert_eq!(
+                    IdentityPublicKey::from_bytes(&bytes).err(),
+                    Some(IdentityError::InvalidKey),
+                    "y = p + {k}, top byte {top:#x}"
+                );
+            }
+        }
+        // x = 0 with the sign bit set: a second encoding of the neutral
+        // element.
+        let mut negative_zero = IDENTITY_ELEMENT;
+        negative_zero[31] = 0x80;
+        assert!(IdentityPublicKey::from_bytes(&negative_zero).is_err());
+    }
+
+    #[test]
+    fn rejects_keys_with_a_torsion_component() {
+        // An honest key plus the point of order 2: a canonical point that is
+        // not of small order, but outside the prime-order subgroup.
+        let honest = ed25519_dalek::VerifyingKey::from_bytes(
+            IdentitySecretKey::from_seed(&[7; 32])
+                .public_key()
+                .as_bytes(),
+        )
+        .unwrap()
+        .to_edwards();
+        let torsion = ed25519_dalek::VerifyingKey::from_bytes(&ORDER_TWO)
+            .unwrap()
+            .to_edwards();
+        let mixed = (honest + torsion).compress().to_bytes();
+        assert_eq!(
+            IdentityPublicKey::from_bytes(&mixed).err(),
+            Some(IdentityError::InvalidKey)
+        );
+    }
+
+    #[test]
+    fn verification_is_strict() {
+        // A signature whose R component is the neutral element. Plain
+        // Ed25519 verification accepts it for this key and message; strict
+        // verification must not.
+        const KEY: [u8; 32] = [
+            0xea, 0x4a, 0x6c, 0x63, 0xe2, 0x9c, 0x52, 0x0a, 0xbe, 0xf5, 0x50, 0x7b, 0x13, 0x2e,
+            0xc5, 0xf9, 0x95, 0x47, 0x76, 0xae, 0xbe, 0xbe, 0x7b, 0x92, 0x42, 0x1e, 0xea, 0x69,
+            0x14, 0x46, 0xd2, 0x2c,
+        ];
+        const SIGNATURE: [u8; 64] = [
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0xd4, 0xc5, 0x32, 0x31, 0x31, 0xff, 0x96, 0x83, 0xcf, 0xb3,
+            0xd3, 0x01, 0x97, 0xc7, 0x86, 0xc9, 0x04, 0x3f, 0x10, 0x52, 0xd6, 0xc2, 0xd5, 0x29,
+            0x3f, 0x19, 0xd6, 0xf3, 0x6b, 0x91, 0x11, 0x04,
+        ];
+        let public = IdentitySecretKey::from_seed(&[7; 32]).public_key();
+        assert_eq!(public.as_bytes(), &KEY);
+
+        use ed25519_dalek::Verifier;
+        let lenient = ed25519_dalek::VerifyingKey::from_bytes(&KEY).unwrap();
+        assert!(
+            lenient
+                .verify(
+                    b"message",
+                    &ed25519_dalek::Signature::from_bytes(&SIGNATURE)
+                )
+                .is_ok(),
+            "the vector is only meaningful if plain verification accepts it"
+        );
+        assert_eq!(
+            public.verify(b"message", &Signature::from_bytes(SIGNATURE)),
+            Err(IdentityError::InvalidSignature)
         );
     }
 
