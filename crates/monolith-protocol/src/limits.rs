@@ -61,17 +61,21 @@ pub const FRAME_LENGTH_PREFIX_LEN: usize = 2;
 /// a parameter and does not assume this value.
 pub const FRAME_PADDING_BLOCK_LEN: usize = 1024;
 
-/// Largest frame plaintext, padding included.
-pub const MAX_FRAME_PLAINTEXT_LEN: usize = 63 * FRAME_PADDING_BLOCK_LEN;
+/// Largest frame plaintext, padding included: the largest whole number of
+/// padding blocks that, with the session overhead, still fits the length
+/// prefix.
+pub const MAX_FRAME_PLAINTEXT_LEN: usize = (MAX_FRAME_LENGTH_VALUE - FRAME_SESSION_OVERHEAD_LEN)
+    / FRAME_PADDING_BLOCK_LEN
+    * FRAME_PADDING_BLOCK_LEN;
 
 /// Smallest frame plaintext: one padding block.
 pub const MIN_FRAME_PLAINTEXT_LEN: usize = FRAME_PADDING_BLOCK_LEN;
 
 /// Largest value the frame length prefix may carry.
-pub const MAX_FRAME_CIPHERTEXT_LEN: usize = MAX_FRAME_PLAINTEXT_LEN + AEAD_TAG_LEN;
+pub const MAX_FRAME_CIPHERTEXT_LEN: usize = MAX_FRAME_PLAINTEXT_LEN + FRAME_SESSION_OVERHEAD_LEN;
 
 /// Smallest value the frame length prefix may carry.
-pub const MIN_FRAME_CIPHERTEXT_LEN: usize = MIN_FRAME_PLAINTEXT_LEN + AEAD_TAG_LEN;
+pub const MIN_FRAME_CIPHERTEXT_LEN: usize = MIN_FRAME_PLAINTEXT_LEN + FRAME_SESSION_OVERHEAD_LEN;
 
 /// Largest value the 16-bit frame length prefix can carry.
 pub const MAX_FRAME_LENGTH_VALUE: usize = 65_535;
@@ -91,7 +95,7 @@ pub const MAX_MESSAGE_BODY_LEN: usize = MAX_FRAME_PLAINTEXT_LEN - MESSAGE_HEADER
 
 // The frame length prefix is 16 bits wide and the session cipher refuses
 // messages above 65535 bytes.
-const _: () = assert!(MAX_FRAME_CIPHERTEXT_LEN <= 65535);
+const _: () = assert!(MAX_FRAME_CIPHERTEXT_LEN <= MAX_FRAME_LENGTH_VALUE);
 const _: () = assert!(MAX_FRAME_PLAINTEXT_LEN % FRAME_PADDING_BLOCK_LEN == 0);
 
 // ---------------------------------------------------------------------------
@@ -179,9 +183,9 @@ pub const MAX_UNCONFIRMED_BODY_LEN: usize = CONTACT_CARD_FIXED_LEN
     + FIELD_LENGTH_PREFIX_LEN
     + MAX_INTRODUCTION_TEXT_LEN;
 
-/// Largest textual contact card accepted from the user, in characters. The
-/// longest valid card is 258 characters; the margin is for whitespace, which
-/// is removed wherever it occurs.
+/// Largest textual contact card accepted from the user, in bytes. The
+/// longest valid card is 258 bytes, all ASCII; the margin is for whitespace,
+/// which is removed wherever it occurs.
 pub const MAX_CONTACT_CARD_TEXT_LEN: usize = 512;
 
 /// Largest data field in a file chunk: what fits in a maximum frame next to
@@ -367,8 +371,9 @@ pub const CHAT_MESSAGE_RATE: RateLimit = RateLimit {
     per_minute: 300,
 };
 
-/// Ping, Pong, MessageAck, Profile, EndpointUpdate and file control messages
-/// received from one contact.
+/// Ping, Pong, MessageAck, EndpointUpdate and file control messages received
+/// from one contact, and a ContactRequest or ContactAccept that arrives after
+/// the session is confirmed.
 pub const CONTROL_MESSAGE_RATE: RateLimit = RateLimit {
     burst: 120,
     per_minute: 600,

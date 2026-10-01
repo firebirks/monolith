@@ -14,9 +14,12 @@
 //! overhead are parameters ([`FrameParams`]), because neither is decided:
 //! see `docs/adr/0003-wire-format.md` and `docs/adr/0002-session-protocol.md`.
 
+use core::fmt;
+
 use crate::limits::{
-    FRAME_LENGTH_PREFIX_LEN, FRAME_PADDING_BLOCK_LEN, FRAME_SESSION_OVERHEAD_LEN,
-    MAX_FRAME_LENGTH_VALUE, MAX_UNCONFIRMED_BODY_LEN, MESSAGE_HEADER_LEN,
+    FIELD_LENGTH_PREFIX_LEN, FRAME_LENGTH_PREFIX_LEN, FRAME_PADDING_BLOCK_LEN,
+    FRAME_SESSION_OVERHEAD_LEN, MAX_FRAME_LENGTH_VALUE, MAX_UNCONFIRMED_BODY_LEN,
+    MESSAGE_HEADER_LEN, TRANSFER_ID_LEN,
 };
 use crate::{MessageType, ProtocolError, SessionState};
 
@@ -39,19 +42,24 @@ impl FrameParams {
     ///
     /// `padding_block` is the block the plaintext is padded to. `overhead`
     /// is what the session layer adds to each frame. Returns `None` if a
-    /// block cannot hold a message header or if one block plus the overhead
-    /// does not fit in a 16-bit length.
+    /// block cannot hold a message header, if one block plus the overhead
+    /// does not fit in a 16-bit length, or if the largest message that is
+    /// legal before a session is confirmed does not fit in a frame.
     pub const fn new(padding_block: usize, overhead: usize) -> Option<Self> {
         if padding_block <= MESSAGE_HEADER_LEN {
             return None;
         }
-        match padding_block.checked_add(overhead) {
-            Some(smallest) if smallest <= MAX_FRAME_LENGTH_VALUE => Some(Self {
+        let params = match padding_block.checked_add(overhead) {
+            Some(smallest) if smallest <= MAX_FRAME_LENGTH_VALUE => Self {
                 padding_block,
                 overhead,
-            }),
-            _ => None,
+            },
+            _ => return None,
+        };
+        if params.padded_len(MAX_UNCONFIRMED_BODY_LEN).is_none() {
+            return None;
         }
+        Some(params)
     }
 
     /// Returns the padding block.
@@ -84,6 +92,20 @@ impl FrameParams {
         self.max_plaintext_len().saturating_sub(MESSAGE_HEADER_LEN)
     }
 
+    /// Returns the most file data one FileChunk can carry: what is left of
+    /// the largest body after the transfer identifier and the length of the
+    /// data field.
+    ///
+    /// The body codec checks chunks against
+    /// [`MAX_FILE_CHUNK_LEN`](crate::limits::MAX_FILE_CHUNK_LEN), which is
+    /// this value for the provisional parameters. A sender that runs with
+    /// other parameters must also stay within this value.
+    pub const fn max_file_chunk_len(&self) -> usize {
+        self.max_body_len()
+            .saturating_sub(TRANSFER_ID_LEN)
+            .saturating_sub(FIELD_LENGTH_PREFIX_LEN)
+    }
+
     /// Returns the plaintext length of a message with a body of `body_len`
     /// bytes: header plus body, rounded up to a multiple of the padding
     /// block. `None` if that exceeds the largest plaintext.
@@ -112,6 +134,7 @@ impl FrameParams {
             SessionState::IdentityAuth | SessionState::AuthenticatedUnknown => {
                 match self.padded_len(MAX_UNCONFIRMED_BODY_LEN) {
                     Some(len) => len,
+                    // Not reached: `new` refuses such parameters.
                     None => self.max_plaintext_len(),
                 }
             }
@@ -244,7 +267,13 @@ pub fn encode_outer(params: &FrameParams, payload: &[u8]) -> Result<Vec<u8>, Pro
 /// the payload. A length that fails the check is an error before a single
 /// payload byte is consumed, and after an error the decoder accepts nothing
 /// more.
-#[derive(Debug)]
+///
+/// Once a Close was sent or received the caller stops feeding the decoder
+/// and drops whatever is still in flight. The session is then in a state
+/// where every length is refused, so feeding it would turn the tail of an
+/// orderly close into an error.
+///
+/// The `Debug` output states sizes only, never buffered bytes.
 pub struct OuterDecoder {
     params: FrameParams,
     prefix: [u8; FRAME_LENGTH_PREFIX_LEN],
@@ -252,6 +281,17 @@ pub struct OuterDecoder {
     expected: Option<usize>,
     payload: Vec<u8>,
     failed: bool,
+}
+
+impl fmt::Debug for OuterDecoder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OuterDecoder")
+            .field("params", &self.params)
+            .field("expected", &self.expected)
+            .field("buffered", &self.payload.len())
+            .field("failed", &self.failed)
+            .finish()
+    }
 }
 
 impl OuterDecoder {
@@ -362,6 +402,12 @@ mod tests {
             MAX_FILE_CHUNK_LEN + 16 + 2,
             "a full chunk fills a maximum frame"
         );
+        assert_eq!(P.max_file_chunk_len(), MAX_FILE_CHUNK_LEN);
+        assert_eq!(
+            FrameParams::new(FRAME_PADDING_BLOCK_LEN, FRAME_SESSION_OVERHEAD_LEN),
+            Some(P),
+            "the provisional values pass the checks of the constructor"
+        );
     }
 
     #[test]
@@ -372,6 +418,21 @@ mod tests {
         assert!(FrameParams::new(65_535, 0).is_some());
         assert!(FrameParams::new(480, 16).is_some());
         assert_eq!(FrameParams::new(usize::MAX, 16), None);
+        // One block of 500 with this overhead fits the length prefix, but no
+        // second one does, and the largest contact request needs two.
+        assert_eq!(FrameParams::new(500, 65_000), None);
+        assert!(FrameParams::new(500, 64_000).is_some());
+        // Whatever the constructor accepts can carry every message that is
+        // legal before confirmation, in every state that receives any.
+        for (block, overhead) in [(5, 0), (5, 65_000), (480, 16), (804, 0), (65_535, 0)] {
+            let Some(params) = FrameParams::new(block, overhead) else {
+                continue;
+            };
+            let needed = params.padded_len(MAX_UNCONFIRMED_BODY_LEN).unwrap();
+            assert_eq!(params.max_plaintext_len_in(UNKNOWN), needed);
+            assert!(needed <= params.max_plaintext_len());
+            assert!(needed + overhead <= MAX_FRAME_LENGTH_VALUE);
+        }
     }
 
     #[test]
@@ -415,12 +476,18 @@ mod tests {
                 "{bad}"
             );
         }
-        // Before confirmation only one block is allowed.
-        assert_eq!(P.check_outer_len(1040, UNKNOWN), Ok(1024));
-        assert_eq!(
-            P.check_outer_len(2064, UNKNOWN),
-            Err(ProtocolError::FrameLengthOutOfRange)
-        );
+        // Before confirmation only one block is allowed, and the same
+        // before the identities are proven.
+        for state in [UNKNOWN, SessionState::IdentityAuth] {
+            assert_eq!(P.check_outer_len(1040, state), Ok(1024));
+            for bad in [2064, MAX_FRAME_CIPHERTEXT_LEN] {
+                assert_eq!(
+                    P.check_outer_len(bad, state),
+                    Err(ProtocolError::FrameLengthOutOfRange),
+                    "{bad} in {state:?}"
+                );
+            }
+        }
         // In states that receive nothing, every length is refused.
         for state in [
             SessionState::Connecting,
@@ -463,6 +530,43 @@ mod tests {
         assert_eq!(
             encode_plaintext(&P, MessageType::FileChunk, &body),
             Err(ProtocolError::BadMessageLength)
+        );
+    }
+
+    #[test]
+    fn the_largest_body_is_the_boundary_of_the_decoder() {
+        // A full frame whose body takes every byte after the header.
+        let body = vec![0xA7_u8; MAX_MESSAGE_BODY_LEN];
+        let mut plaintext = encode_plaintext(&P, MessageType::FileChunk, &body).unwrap();
+        assert_eq!(plaintext.len(), MAX_FRAME_PLAINTEXT_LEN);
+        assert_eq!(&plaintext[2..4], &[0xfb, 0xfc]);
+        assert!(decode_plaintext(&P, CONTACT, &plaintext).is_ok());
+
+        // The same frame claiming one byte more than it can hold.
+        plaintext[2..4].copy_from_slice(&[0xfb, 0xfd]);
+        assert_eq!(
+            decode_plaintext(&P, CONTACT, &plaintext),
+            Err(ProtocolError::BadPadding)
+        );
+        // Claiming one byte less leaves a non-zero byte in the padding.
+        plaintext[2..4].copy_from_slice(&[0xfb, 0xfb]);
+        assert_eq!(
+            decode_plaintext(&P, CONTACT, &plaintext),
+            Err(ProtocolError::BadPadding)
+        );
+    }
+
+    #[test]
+    fn debug_output_of_the_decoder_shows_no_payload() {
+        let mut decoder = OuterDecoder::new(P);
+        decoder
+            .feed(&[0x04, 0x10, 0xAB, 0xAB, 0xAB], CONTACT)
+            .unwrap();
+        let text = format!("{decoder:?}");
+        assert!(text.contains("buffered: 3"), "{text}");
+        assert!(
+            !text.contains("171") && !text.to_lowercase().contains("ab,"),
+            "{text}"
         );
     }
 
