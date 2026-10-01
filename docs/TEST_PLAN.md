@@ -91,8 +91,8 @@ Endpoint epochs (T-ENDPOINT)
 
 Text (T-TEXT): invalid UTF-8; each forbidden code point class per field;
 bidirectional controls in names and filenames; zero-width characters and
-characters that draw as nothing; maximum scalar count for names; NFC
-normalization of names.
+characters that draw as nothing; maximum scalar count for names; names
+in any normalization form are accepted and kept byte for byte.
 
 Filenames (T-FILE-NAME): separators, `.` and `..`, control characters,
 drive letters, UNC prefixes, reserved device names (with port numbers 0 to

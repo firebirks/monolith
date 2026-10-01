@@ -16,7 +16,7 @@ test-only parsing path.
 | `message_body` | type selector, body | fails, or decodes to a message that encodes to the same bytes |
 | `frame_plaintext` | state selector, mode, then a plaintext or the parts of one | fails, or yields a message type legal in that state and a body that re-encode to the input; an undamaged frame is accepted exactly when its type is legal in the state |
 | `frame_stream` | state, piece size, mode, then a byte stream or records to build one from | fails, or yields payloads of legal length; never holds more than one frame; undamaged frames all come out again |
-| `text_fields` | bytes | every validator accepts exactly what the rules of PROTOCOL.md section 9 accept, written out a second time in the target (for display names one way only: the target does not model normalization); save names are single safe path components |
+| `text_fields` | bytes | every validator accepts exactly what the rules of PROTOCOL.md section 9 accept, written out a second time in the target, and keeps accepted text byte for byte; save names are single safe path components |
 | `session_sequence` | progress and direction, standing, events | no application data before confirmation; no backward transition; a card of another identity is always a violation; nothing is sent that `may_send` forbids; identities that are not contacts look alike |
 
 The property all of them share: for arbitrary input the code either rejects

@@ -6,6 +6,12 @@
 //! the local user typed, so a conforming peer never sends text that the
 //! other side rejects.
 //!
+//! Every rule here is a byte length, a count of scalar values, or
+//! membership in a fixed list of code points. None depends on Unicode
+//! tables, so two builds never disagree about whether a text is valid, and
+//! accepted text is kept byte for byte as it was sent. In particular no
+//! normalization form is required or applied.
+//!
 //! None of these types implements `Display`, and their `Debug` output is a
 //! fixed label: text from a peer does not reach a log by accident.
 
@@ -167,11 +173,15 @@ impl ProfileText {
 
 text_type!(
     /// A display name: up to [`MAX_DISPLAY_NAME_LEN`] bytes and
-    /// [`MAX_DISPLAY_NAME_SCALARS`] scalar values, in Normalization Form C,
-    /// possibly empty.
+    /// [`MAX_DISPLAY_NAME_SCALARS`] scalar values, possibly empty.
     ///
     /// A display name is never an identifier. Two contacts may have the same
-    /// one.
+    /// one, and the same name may arrive in different byte sequences that
+    /// are drawn alike, because no normalization is required. Nothing that
+    /// decides identity, authentication, contact equality, authorization,
+    /// duplicate detection or protocol state may look at a display name.
+    /// A front end may normalize a copy for drawing or searching; the bytes
+    /// held here stay as they were sent.
     DisplayName
 );
 
@@ -181,9 +191,6 @@ impl DisplayName {
         let text = check_name(bytes, 0, MAX_DISPLAY_NAME_LEN)?;
         if text.chars().count() > MAX_DISPLAY_NAME_SCALARS {
             return Err(ProtocolError::FieldTooLong);
-        }
-        if !unicode_normalization::is_nfc(text) {
-            return Err(ProtocolError::InvalidValue);
         }
         Ok(Self(text.to_owned()))
     }
@@ -517,16 +524,27 @@ mod tests {
     }
 
     #[test]
-    fn display_name_must_be_in_nfc() {
-        // "e" followed by a combining acute accent is not NFC; the composed
-        // character is.
-        assert_eq!(
-            DisplayName::new("Jose\u{301}"),
-            Err(ProtocolError::InvalidValue)
-        );
-        assert!(DisplayName::new("Jos\u{e9}").is_ok());
-        // Combining marks that have no composed form are fine.
-        assert!(DisplayName::new("q\u{301}").is_ok());
+    fn display_names_are_kept_as_sent_whatever_their_normalization() {
+        // "e" followed by a combining acute accent, and the composed
+        // character. The two are drawn alike. Both are accepted, neither
+        // is changed, and they stay two different names: normalization is
+        // not part of the protocol, so that builds with different Unicode
+        // tables cannot disagree about a name.
+        let decomposed = DisplayName::new("Jose\u{301}").unwrap();
+        let composed = DisplayName::new("Jos\u{e9}").unwrap();
+        assert_eq!(decomposed.as_bytes(), "Jose\u{301}".as_bytes());
+        assert_eq!(composed.as_bytes(), "Jos\u{e9}".as_bytes());
+        assert_ne!(decomposed, composed);
+
+        // Other forms that normalization would change: a compatibility
+        // character, Hangul written as jamo, marks in non-canonical order.
+        for name in ["\u{fb01}", "\u{1112}\u{1161}\u{11ab}", "q\u{301}\u{323}"] {
+            assert_eq!(
+                DisplayName::new(name).unwrap().as_bytes(),
+                name.as_bytes(),
+                "{name:?}"
+            );
+        }
     }
 
     #[test]

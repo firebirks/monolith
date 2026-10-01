@@ -534,7 +534,15 @@ Section 13 defines the exchange.
 
 ## 9. Text rules
 
-All text fields must be valid UTF-8. In addition:
+All text fields must be valid UTF-8. Every rule in this section is a
+length in bytes, a count of scalar values, or membership in a list of code
+points that is written out here. None of them refers to Unicode tables, so
+the outcome does not depend on the Unicode version an implementation was
+built with. Text that passes is kept and delivered byte for byte as it was
+sent. No normalization form is required, and none is applied to anything
+that is signed, sent or compared.
+
+In addition:
 
 Every text field rejects:
 
@@ -577,17 +585,24 @@ Every text field rejects:
 - These rules remove the known ways to hide characters in a name. They do
   not make two names that look the same be the same; section 10 is what
   identifies a contact.
-- U+0020 is the only whitespace character allowed. Every other character
-  with the Unicode White_Space property is rejected, and the text must not
-  begin or end with U+0020.
-- `display_name`: at most 64 scalar values, and already in Normalization
-  Form C. A receiver rejects a name that NFC normalization would change.
-  Both limits apply to the text as sent.
+- U+0020 is the only whitespace character allowed. The others are
+  rejected: U+00A0, U+1680, U+2000 to U+200A, U+202F, U+205F, U+3000, next
+  to U+0085, U+2028 and U+2029, which every field rejects. The text must
+  not begin or end with U+0020.
+- `display_name`: at most 64 scalar values, counted in the text as sent.
+  A name does not have to be in any normalization form. Two names that
+  are drawn alike may differ in their bytes, and both are valid.
 - `filename`: additionally rejects `/`, `\`, and the names `.` and `..`.
   Section 13.3 lists what the receiver does before it uses the name locally.
 
 A sender applies the same rules to its own input, so a conforming peer never
 triggers them.
+
+A display name is not a security identity. It is never used for identity,
+authentication, contact equality, authorization, duplicate detection or
+protocol state; those use the identity key (section 10). A front end may
+normalize a copy of a name for drawing or for searching. That copy is never
+signed, sent or used in a decision of the protocol.
 
 ### 9.1 Rendering
 
@@ -1131,13 +1146,9 @@ P5. Whether to drop `Profile.profile_text` from version 1.
 P6. Receiver behavior when ChatMessage ordering matters across reconnects.
     The current design preserves the sender's queue order and nothing more.
 
-P7. Display names and Unicode versions. Whether a name is in Normalization
-    Form C is decided with the tables of the Unicode version that the
-    implementation was built with. Two builds with different tables can
-    disagree about a name that uses characters assigned in between: the
-    sender considers it valid and the receiver rejects the message, which
-    is a protocol violation and ends the session. Options: restrict names
-    to characters assigned in a fixed Unicode version named in this
-    document; drop the NFC requirement and normalize for display only; or
-    make an invalid display name in a Profile a field that is ignored
-    instead of a violation. Not decided.
+P7. Closed. Display names had to be in Normalization Form C, which is
+    decided with the tables of the Unicode version an implementation was
+    built with, so two builds could disagree about a name and end a session
+    over it. Normalization is no longer part of protocol validity: section
+    9 uses only byte lengths, scalar counts and code point lists written
+    out in this document. A front end may normalize for presentation.

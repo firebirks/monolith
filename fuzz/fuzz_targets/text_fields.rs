@@ -4,9 +4,8 @@
 //! save-name suggestion for filenames, which must always be a single safe
 //! path component.
 //!
-//! Display names must also be in Normalization Form C. That rule is not
-//! modelled here, so for display names the check goes one way only: what
-//! the validator accepts, the tables accept.
+//! No rule depends on Unicode tables: accepted text is the input, byte for
+//! byte.
 
 #![no_main]
 
@@ -142,9 +141,12 @@ fuzz_target!(|data: &[u8]| {
         free_text_is_valid(data, 0, MAX_PROFILE_TEXT_LEN)
     );
 
-    if let Ok(name) = DisplayName::from_bytes(data) {
-        assert!(name_is_valid(data, 0, MAX_DISPLAY_NAME_LEN));
-        assert!(name.as_str().chars().count() <= MAX_DISPLAY_NAME_SCALARS);
+    let name = DisplayName::from_bytes(data);
+    let name_expected = name_is_valid(data, 0, MAX_DISPLAY_NAME_LEN)
+        && core::str::from_utf8(data)
+            .is_ok_and(|text| text.chars().count() <= MAX_DISPLAY_NAME_SCALARS);
+    assert_eq!(name.is_ok(), name_expected);
+    if let Ok(name) = name {
         assert_eq!(name.as_bytes(), data);
     }
 

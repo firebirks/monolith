@@ -10,7 +10,6 @@ license.workspace = true
 [dependencies]
 monolith-identity.workspace = true
 subtle.workspace = true
-unicode-normalization.workspace = true
 
 [dev-dependencies]
 ed25519-dalek.workspace = true

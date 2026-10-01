@@ -83,7 +83,6 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 | `ed25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | identity signatures, key validation | `fast`, `zeroize`; no default features |
 | `sha2` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | identity fingerprint | none; no default features |
 | `subtle` | 2.6.1 | BSD-3-Clause | not declared | constant-time comparison of invitation capabilities | no default features |
-| `unicode-normalization` | 0.1.25 | MIT OR Apache-2.0 | 1.36 | NFC check of display names | no default features |
 
 `ed25519-dalek`
 
@@ -209,6 +208,11 @@ older version, and the MSRV job in CI fails if it cannot.
 - Storage: `argon2`, `chacha20poly1305`, `hkdf`, and the message store:
   ADR 0005.
 - Randomness: `getrandom`, when key generation is implemented.
+- Passphrase normalization for the vault (`STORAGE.md` section 3):
+  `unicode-normalization` was used by the protocol for display names until
+  normalization was removed from protocol validity, and was dropped with
+  it. Whether the vault normalizes passphrases, and with what, is decided
+  with storage.
 - Onion address checksum: `sha3`, with the Tor backend.
 - Runtime, logging, GUI: with the phases that need them.
 

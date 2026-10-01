@@ -126,9 +126,15 @@ Test area names refer to `docs/TEST_PLAN.md`.
 ### S20. The display name is never a security identifier
 
 - Mechanism: contacts are keyed by identity public key in every map, table
-  and message. Display names are stored as opaque validated text and are not
-  unique. Security-relevant UI shows the fingerprint next to the name.
-- Tests: T-ID-3 (two contacts with the same name stay distinct), T-TEXT-*.
+  and message. Display names are stored as opaque validated text, byte for
+  byte as received, and are not unique. They are not normalized, and no
+  decision about identity, authentication, contact equality, authorization,
+  duplicate detection or protocol state reads one. A front end may
+  normalize a copy for drawing or searching. Security-relevant UI shows the
+  fingerprint next to the name.
+- Tests: T-ID-3 (two contacts with the same name stay distinct), T-TEXT-*
+  (names that differ only in normalization are both accepted and stay
+  different).
 
 ### S21. Connection state is tied to the cryptographic identity
 

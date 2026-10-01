@@ -170,7 +170,6 @@ Nothing below is settled. Each is described in the document named.
 | P4 | Invisible declines cause indefinite retries | PROTOCOL.md 17 |
 | P5 | Keep profile text in version 1 | PROTOCOL.md 17 |
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
-| P7 | Display names when two builds have different Unicode tables | PROTOCOL.md 17 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
@@ -185,7 +184,7 @@ Nothing below is settled. Each is described in the document named.
 
 Crates that are in use are recorded in `DEPENDENCIES.md` with what was
 checked before they were added: `ed25519-dalek` 3.0.0, `sha2` 0.11.0,
-`subtle` 2.6.1, `unicode-normalization` 0.1.25, and `proptest` for tests. The table below
+`subtle` 2.6.1, and `proptest` for tests. The table below
 lists what was considered at the start; for crates not yet in use the final
 choice is made in the phase that first needs them.
 
@@ -195,7 +194,7 @@ choice is made in the phase that first needs them.
 | `sha2` | 0.11 (decided) | fingerprint, file digest | 1 |
 | `sha3` | 0.11 or 0.12, decided with the Tor backend | onion address checksum | 3 |
 | `data-encoding` | 2.11 | base32, base64 | 1 |
-| `unicode-normalization` | 0.1.25 | NFC for names and passphrases | 1 |
+| `unicode-normalization` | 0.1.25 | NFC for the vault passphrase only; not used by the protocol | 4 |
 | `getrandom` | 0.3 or 0.4 | CSPRNG | 1 |
 | `zeroize`, `subtle` | 1.9, 2.6 | secret handling | 1 |
 | `snow` or `rustls` | not chosen | session layer (ADR 0002) | 2 |

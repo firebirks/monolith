@@ -73,8 +73,10 @@ fn arb_card(with_invitation: bool) -> impl Strategy<Value = ContactCard> {
         )
 }
 
-/// Characters that every text field accepts in the middle of a string.
-const PLAIN_CHARS: [char; 11] = [
+/// Characters that every text field accepts in the middle of a string. The
+/// combining accent makes some of the generated names differ from their
+/// normalized forms.
+const PLAIN_CHARS: [char; 12] = [
     'a',
     'b',
     'Z',
@@ -86,6 +88,7 @@ const PLAIN_CHARS: [char; 11] = [
     '\u{e9}',
     '\u{4e2d}',
     '\u{1f600}',
+    '\u{301}',
 ];
 
 /// Characters that display names and filenames must reject: controls, line
@@ -1145,8 +1148,9 @@ proptest! {
     fn display_names_are_accepted_exactly_when_the_rules_say_so(
         text in arb_name_candidate(70),
     ) {
-        // The candidates contain no combining characters, so every one of
-        // them is in Normalization Form C.
+        // A length in bytes, a count of scalar values and a fixed list of
+        // code points. Nothing else decides, and what is accepted is kept
+        // byte for byte.
         let expected = !text.contains(FORBIDDEN_IN_NAMES)
             && !text.starts_with(' ')
             && !text.ends_with(' ')
