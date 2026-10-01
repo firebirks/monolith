@@ -350,9 +350,14 @@ On every change:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets --locked -- -D warnings
     cargo test --workspace --locked
-    cargo +1.85 check --workspace --all-targets --locked
+    cargo +1.85.1 check --workspace --all-targets --locked
+    cargo +1.85.1 test --workspace --locked
+    cargo +stable test --workspace --locked
     cargo deny check
     cargo audit
+
+Formatting, lints and the first test run use the developer toolchain. The
+MSRV and current stable runs are separate jobs.
 
 Scheduled: fuzzing of every target for a fixed time, with the corpus
 cached. Dependency updates are reviewed by a person; nothing is merged

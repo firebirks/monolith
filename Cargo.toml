@@ -13,10 +13,11 @@ members = [
 [workspace.package]
 version = "0.0.0"
 edition = "2024"
-# Oldest supported compiler. 1.85 is the first release with the 2024 edition
-# and the rustc version shipped in Debian 13, the base of the Tails and Whonix
-# releases we target. See docs/ARCHITECTURE.md before raising it.
-rust-version = "1.85"
+# Minimum supported Rust version. 1.85.1 is the rustc in Debian 13, the base
+# of the Tails and Whonix releases we target. This is not the developer
+# toolchain, which is pinned in rust-toolchain.toml and may be newer. Raising
+# this value is a reviewed change; see docs/ARCHITECTURE.md section 10.
+rust-version = "1.85.1"
 # Nothing in this workspace may be published without explicit authorization.
 publish = false
 license = "MIT"

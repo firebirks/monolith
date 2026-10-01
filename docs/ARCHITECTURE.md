@@ -193,9 +193,23 @@ For such a change:
 
 ## 10. Toolchain and dependencies
 
-- Edition 2024. Minimum supported Rust 1.85, the version in Debian 13 and
-  the first with this edition. CI builds with the pinned toolchain in
-  `rust-toolchain.toml` and checks that the minimum still compiles.
+- Edition 2024.
+- Two compiler versions are kept apart:
+  - The minimum supported Rust version (MSRV) is 1.85.1, the rustc in
+    Debian 13. It is declared as `rust-version` in the workspace and is what
+    anyone, including a distribution, needs to build Monolith.
+  - The developer toolchain is pinned in `rust-toolchain.toml` and may be
+    newer. It fixes the versions of rustfmt and clippy so that formatting
+    and lints give the same result for everyone. Nobody is required to
+    build with it.
+- CI builds and tests with the MSRV, with the developer toolchain and with
+  the current stable compiler.
+- A dependency must not raise the MSRV unnoticed. The dependency resolver
+  takes `rust-version` into account, and the MSRV job builds with the
+  locked versions, so an update that needs a newer compiler fails there.
+- Raising the MSRV is a change of its own: one commit that updates
+  `rust-version`, the CI variable and this section, with the reason, and an
+  entry in the release notes of the next release.
 - `Cargo.lock` is committed.
 - `unsafe` is forbidden in every Monolith crate by a workspace lint. If it
   ever becomes necessary it gets its own small crate, an ADR and tests.

@@ -14,36 +14,79 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # Minimum supported Rust version. Keep in sync with rust-version in
+  # Cargo.toml and with docs/ARCHITECTURE.md section 10.
+  MSRV: "1.85.1"
 
 jobs:
-  check:
+  # Formatting and lints run on the developer toolchain pinned in
+  # rust-toolchain.toml, so that results do not change with the runner image.
+  fmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
       - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
       - run: cargo test --workspace --locked
 
+  # The oldest compiler that must keep working. A dependency update that
+  # needs a newer one fails here and has to be reviewed.
   msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - run: rustup toolchain install 1.85 --profile minimal
-      - run: cargo +1.85 check --workspace --all-targets --locked
+      - run: rustup toolchain install "$MSRV" --profile minimal
+      - run: cargo "+$MSRV" check --workspace --all-targets --locked
+      - run: cargo "+$MSRV" test --workspace --locked
 
-  supply-chain:
+  # The newest stable compiler, to notice breakage before it reaches users
+  # who build with it.
+  stable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo +stable test --workspace --locked
+
+  deny:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - run: cargo install --locked cargo-deny@0.20.2 cargo-audit@0.22.2
+      - run: cargo install --locked cargo-deny@0.20.2
       - run: cargo deny check
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo install --locked cargo-audit@0.22.2
       - run: cargo audit

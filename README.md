@@ -56,7 +56,9 @@ The full list of limits is in `docs/THREAT_MODEL.md`, section 6.
 
 ## Building
 
-Requires Rust; the toolchain is pinned in `rust-toolchain.toml`.
+Requires Rust 1.85.1 or later. `rust-toolchain.toml` pins the toolchain used
+for development; building with another compiler at or above the minimum is
+supported.
 
     cargo build --workspace --locked
     cargo test --workspace --locked

@@ -112,8 +112,9 @@ Dependencies and tooling
     opportunistic probing resistance.
 23b. `ring` was banned in `deny.toml`. The ban is removed; a cryptographic
     library is not excluded for containing C or assembly.
-24. Toolchain. The pinned toolchain is 1.95.0. Stable has moved on (1.98
-    and later); the pin should be raised in a reviewed change.
+24. Toolchain. The minimum supported Rust version is 1.85.1 and is separate
+    from the developer toolchain, which is pinned at 1.95.0 for rustfmt and
+    clippy. CI also builds with the current stable compiler.
 25. The 2015 TorChat analysis is a Master's thesis by Rain Viigipuu titled
     "Security Analysis of Instant Messenger TorChat". Its highest-ranked
     finding is the missing contact authorization, not the weak cookie.
@@ -137,7 +138,7 @@ Nothing below is settled. Each is described in the document named.
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 3 and Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W5 | Whonix: profile test, Qubes addressing, firewall drop-in, upstreaming, SocksPort choice | PLATFORM_WHONIX.md 9 |
 | ST1 to ST5 | Message store, locking, previous generation, permission checks, passphrase policy | STORAGE.md 9 |
-| A2 to A4 | Minimum Rust version, configuration format, CLI parser | ARCHITECTURE.md 13 |
+| A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Which generation of the RustCrypto and dalek crates to standardize on | ADR 0001, ADR 0005 |
 | - | Security contact address and key | SECURITY.md |
