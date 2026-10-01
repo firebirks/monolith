@@ -1,6 +1,7 @@
 # ADR 0005: Storage encryption
 
-Status: proposed for the vault; open for the message store
+Status: provisional. The vault structure is proposed; its KDF parameters are
+not frozen and wait for measurements; the message store is open.
 Date: 2026-10-01
 
 ## Context
@@ -18,9 +19,13 @@ large, changes constantly and is optional.
 A single file, rewritten whole and replaced atomically, in the format of
 `STORAGE.md` section 3:
 
-- Argon2id derives a key-encryption key from the passphrase. Default
-  256 MiB, 3 iterations, 4 lanes; floor at RFC 9106's second recommended
-  setting; parameters stored in the header and bounded on read.
+- Argon2id derives a key-encryption key from the passphrase. The proposed
+  default of 256 MiB, 3 iterations and 4 lanes is provisional and has to be
+  benchmarked on a desktop, a modest virtual machine, a Whonix-Workstation
+  and Tails before it is frozen (`STORAGE.md` section 3.3). The floor is
+  RFC 9106's second recommended setting. Parameters are stored in the
+  header and bounded on read, so existing vaults stay decryptable when the
+  default rises.
 - A random 256-bit vault key is wrapped under that key.
 - The payload is encrypted with XChaCha20-Poly1305 under a key derived from
   the vault key with HKDF-SHA256. The whole header is associated data.
@@ -72,7 +77,8 @@ which is the first phase to need one of them.
 
 - The vault can be unlocked anywhere with the passphrase alone.
 - Changing the passphrase does not re-key the message store.
-- Unlock costs about a second and 256 MiB once per start.
+- Unlock costs time and memory once per start. How much is not measured
+  yet.
 - Rollback of the vault file by someone with write access is not
   detectable.
 - Monolith owns a small file format and its migration path.
@@ -90,7 +96,7 @@ which is the first phase to need one of them.
 
 ## Open questions
 
-STORAGE.md section 9 (ST1 to ST5).
+STORAGE.md section 9 (ST1 to ST6).
 
 ## Sources
 

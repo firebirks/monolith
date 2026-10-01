@@ -417,6 +417,11 @@ pub const MIN_KDF_MEMORY_KIB: u32 = 64 * 1024;
 pub const MAX_KDF_MEMORY_KIB: u32 = 1024 * 1024;
 
 /// Argon2id memory cost of a newly created vault, in KiB.
+///
+/// Provisional, like the other two KDF defaults. They are not frozen until
+/// the benchmark in `docs/STORAGE.md` section 3.3 has been run. The vault
+/// header stores the parameters actually used, so raising a default never
+/// locks anyone out of an existing vault.
 pub const DEFAULT_KDF_MEMORY_KIB: u32 = 256 * 1024;
 
 /// Smallest Argon2id iteration count accepted from a vault header.

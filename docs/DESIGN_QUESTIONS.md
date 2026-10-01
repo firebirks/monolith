@@ -141,7 +141,7 @@ Nothing below is settled. Each is described in the document named.
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 3 and Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W5 | Whonix: profile test, Qubes addressing, firewall drop-in, upstreaming, SocksPort choice | PLATFORM_WHONIX.md 9 |
-| ST1 to ST5 | Message store, locking, previous generation, permission checks, passphrase policy | STORAGE.md 9 |
+| ST1 to ST6 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending) | STORAGE.md 9 |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Which generation of the RustCrypto and dalek crates to standardize on | ADR 0001, ADR 0005 |

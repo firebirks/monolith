@@ -232,6 +232,9 @@ window or one desktop notification per request.
 | `VAULT_PADDING_BLOCK_LEN` | 64 KiB |
 | `MAX_PASSPHRASE_LEN` | 1024 |
 
+The KDF defaults are provisional until they have been benchmarked on the
+target platforms (`STORAGE.md` section 3.3). The accepted range is not.
+
 Tor is trusted more than a peer, but its replies are parsed with bounds all
 the same. The vault header is bounded because whoever can write to the disk
 could otherwise set a KDF memory cost that exhausts RAM at unlock.

@@ -135,13 +135,51 @@ Keys:
 
 ### 3.3 KDF parameters
 
-Default: Argon2id, 256 MiB, 3 iterations, 4 lanes, 16-byte salt.
+Proposed default, provisional: Argon2id, 256 MiB, 3 iterations, 4 lanes,
+16-byte salt. These numbers come from reasoning, not from measurement, and
+are not frozen.
 
 RFC 9106's second recommended setting (64 MiB, 3 iterations, 4 lanes) is the
-floor. The default uses more memory because the vault is unlocked once per
-start on a desktop, where a delay of about a second is acceptable. Tails
-needs 2 GB of RAM to run and Whonix-Workstation has that by default, so
-256 MiB is available on both.
+floor and stays the floor. The proposed default uses more memory because
+the vault is unlocked once per start on a desktop.
+
+What is fixed regardless of the final numbers:
+
+- The vault header stores the parameters it was created with (section 3.2),
+  so a vault stays decryptable when the default changes later.
+- Defaults only move up. A vault created with weaker parameters keeps
+  working and is re-wrapped with the current default the next time its
+  passphrase is changed.
+- Monolith runs one key derivation at a time. A second unlock attempt waits
+  for the first, so concurrent attempts cannot multiply the memory use.
+
+#### Benchmark required before the default is frozen
+
+To be run with the real implementation, in Phase 4, on at least:
+
+| Target | Notes |
+| --- | --- |
+| Ordinary Linux desktop | reference |
+| Modest virtual machine | 2 cores, 2 GB RAM |
+| Whonix-Workstation | default memory allocation of the current release |
+| Tails in a virtual machine | 2 GB RAM, the documented minimum |
+
+Measured for each candidate setting: time to unlock (median and worst of
+ten runs), peak resident memory, free memory during the run, whether the
+kernel's out-of-memory handling was triggered, responsiveness of the
+desktop during the run, and the same with several unlock attempts issued at
+once.
+
+A setting is acceptable if it is expensive enough to matter against
+password guessing, unlocks in a time a user will tolerate at every start,
+never triggers out-of-memory handling on the smallest target, and does not
+stall the rest of the system. Where these conflict, the cost to an attacker
+is not traded away for convenience: the answer to a slow unlock on a small
+machine is a documented choice for that machine, not a lower default for
+everyone.
+
+Results: not measured yet. The final default is recorded here together
+with the measurements that justify it.
 
 Accepted when reading a header (`limits.rs`): memory from 64 MiB to 1 GiB,
 iterations from 3 to 16, parallelism from 1 to 8. Values outside are
@@ -334,6 +372,9 @@ ST4. Whether the ownership and permission checks in 3.7 can be done without
 
 ST5. Passphrase strength policy. Currently a non-empty passphrase and a
      warning for short ones.
+
+ST6. Default Argon2id parameters. Provisional until the benchmark of
+     section 3.3 has been run.
 
 ## 10. Sources
 
