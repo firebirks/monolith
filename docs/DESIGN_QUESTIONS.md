@@ -36,6 +36,26 @@ Decided in the review: the project is MIT licensed; the minimum supported
 Rust version is 1.85.1 and is separate from the developer toolchain; an
 identity has a set of endpoints, limited to one in version 1.
 
+Decided in the review of Phase 1:
+
+- The copyright line of the MIT licence is "Copyright (c) 2026 Monolith
+  contributors". It is the intended line, not a stand-in.
+- Key separation is a protocol invariant: a contact card whose endpoint is
+  the identity key is invalid (PROTOCOL.md 11.2, S33).
+- A public key is valid only if it decompresses, is torsion-free and is
+  not of small order (PROTOCOL.md 10.1). This is stricter than signature
+  verification, on purpose.
+- `subtle` is a direct dependency for comparing invitation capabilities.
+- The cryptographic crates are those of the current generation:
+  `ed25519-dalek` 3, `curve25519-dalek` 5, `sha2` 0.11
+  (DEPENDENCIES.md 2).
+- `native-tls` and `openssl-sys` stay banned as dependency control; ADR
+  0002 may reconsider the second.
+- Normalization is not part of protocol validity (PROTOCOL.md 9). P7 is
+  closed.
+- The order of the identity proofs is not decided in Phase 1. It is Q11 of
+  ADR 0002.
+
 ## 1. Answers
 
 | # | Question | Answer | Where |
@@ -163,7 +183,7 @@ Nothing below is settled. Each is described in the document named.
 
 | Id | Question | Document |
 | --- | --- | --- |
-| Q1 to Q10 | Choice of session construction, responder identity disclosure, the prologue precondition, the proof input, XX or NN, certificate lifetime, practicality of TLS with raw public keys, binding the onion key, session limits, crypto back end | CRYPTOGRAPHY.md 11, ADR 0002 |
+| Q1 to Q11 | Choice of session construction, responder identity disclosure, the prologue precondition, the proof input, XX or NN, certificate lifetime, practicality of TLS with raw public keys, binding the onion key, session limits, crypto back end, order of the identity proofs | CRYPTOGRAPHY.md 11, ADR 0002 |
 | P1 | Padding block size | PROTOCOL.md 17 |
 | P2 | Bind the dialed onion key in the proof | PROTOCOL.md 17 |
 | P3 | Epoch after restoring a backup | PROTOCOL.md 17 |

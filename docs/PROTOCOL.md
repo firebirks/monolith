@@ -231,6 +231,15 @@ bytes:
 
 ### 6.2 Order and checks
 
+The order below belongs to the session candidate that is written up
+(option A of ADR 0002) and is as provisional as that candidate. Which side
+proves its identity first, and whether separate proofs exist at all,
+depends on the construction that is chosen; it is open question Q11 of
+ADR 0002. The protocol core implements the checks that hold for every
+option (a proof must arrive, it must name the identity that is then
+authenticated, an outbound session accepts only the identity it dialed)
+and does not enforce the order.
+
 1. The responder sends its AuthProof as the first frame after handshake
    message 3.
 2. The initiator verifies it (below) and requires `identity_public_key` to

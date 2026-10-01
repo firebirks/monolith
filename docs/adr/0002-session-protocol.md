@@ -332,6 +332,21 @@ listed in `CRYPTOGRAPHY.md` section 11.
   dialed.
 - Q9. Session limits and "reconnect, do not rekey".
 - Q10. Crypto back end, and the zeroization gap in `snow`.
+- Q11. The order in which the two sides prove their identities, and what
+  the session state machine has to enforce about it. `PROTOCOL.md` 6.2
+  describes the order of option A (the responder proves first, and the
+  initiator reveals its identity only after checking that proof). Whether
+  an order exists at all, and which, depends on the construction: with C
+  or D the handshake itself may authenticate one or both sides. Phase 1
+  deliberately leaves this out of the session logic. `Session` checks that
+  a proof arrived and which identity it named; it does not check who sent
+  a proof first.
+
+Two entries in `deny.toml` bear on option D and on the back end:
+`native-tls` is banned and stays banned, because it would let the host
+platform choose the TLS implementation. `openssl-sys` is banned by default;
+this record is where that ban can be reconsidered, with reasons, if the
+transport review calls for it. `DEPENDENCIES.md` section 1 has the policy.
 
 ## Sources
 

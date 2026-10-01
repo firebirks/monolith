@@ -391,6 +391,11 @@ Q9. Are the session limits in section 7 reasonable, and is "reconnect, do
 Q10. Which crypto back end, and whether the absence of zeroization in
      `snow` is acceptable for an audit candidate.
 
+Q11. The order in which the two sides prove their identities, and what the
+     session state machine enforces about it. It depends on the
+     construction chosen in Q1 and is decided with it. The protocol core
+     does not enforce an order.
+
 ## 12. Sources
 
 Accessed 2026-10-01.
