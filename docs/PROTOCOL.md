@@ -770,6 +770,59 @@ shows for a contact that is offline or has not accepted yet.
 Before acceptance the requester receives no profile, no presence beyond the
 fact that the Onion Service answered, and nothing about other contacts.
 
+### 12.1 What a peer can observe about its standing
+
+A peer must not be able to find out, from how Monolith answers it, whether
+it is unknown, blocked, declined or a contact that was deleted. The table
+gives what the local side does toward a peer that connected and proved an
+identity, by the local record of that identity.
+
+| Local record of the peer | Sent before the peer's first message | Answer to its ContactRequest | Answer to its ContactAccept | If it stays silent | Profile, endpoint update, application messages |
+| --- | --- | --- | --- | --- | --- |
+| none (never seen) | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
+| blocked | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
+| deleted former contact | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
+| declined | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
+| requested by the local user | ContactRequest | ContactAccept | ContactAccept | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
+| accepted, verified out of band | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
+| accepted, not verified | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
+
+For every row: the handshake and the identity proof are the same, a
+protocol violation ends the stream with nothing sent, and Close has an
+empty body.
+
+Requirements that follow:
+
+- The first four rows are the same row. Message types, their number and
+  order, and the conditions under which the session is closed must not
+  depend on which of the four applies. The implementation takes one code
+  path for them, and the record is consulted only to decide whether a
+  request is put in the queue, which the peer cannot see.
+- The last two rows are the same row. Whether the user has verified a
+  contact is local information; no function that produces protocol output
+  takes it as input.
+- There is no message, field or code that states a reason. Nothing in the
+  protocol says "blocked", "former contact" or "not in the contact list",
+  and no such thing may be added for peers that are not confirmed contacts.
+- An accepted contact that is blocked while a session is open sees Close,
+  as for any other end of a session, and from then on the first row.
+
+What a peer can still learn, by design:
+
+- An accepted peer learns that it is accepted, and a requested peer learns
+  that it was requested. That is the purpose of those messages.
+- A peer that was a contact and no longer gets ContactAccept knows that it
+  is not confirmed. It cannot tell deletion from blocking, from a restored
+  backup, or from the other side having lost its data.
+- When the budget for strangers is exhausted, the first four rows are closed
+  right after authentication while the last three are not. This separates
+  the same two groups that the messages already separate.
+
+Timing is not part of this guarantee. The same steps are taken for the rows
+that must look alike, but Monolith does not promise equal response times,
+least of all over Tor. The goal is that the cases cannot be told apart by
+what is sent, not by how long it took.
+
 ## 13. File transfer
 
 Only between accepted contacts. Nothing is transferred that the receiving

@@ -145,8 +145,8 @@ Test area names refer to `docs/TEST_PLAN.md`.
   message from a blocked, declined, already pending or capability-less
   identity, or to a full queue, is answered the same way in every case:
   Close, with no other reply.
-- Tests: T-CONFIRM-1 (transcripts and timing of the cases are
-  indistinguishable to the peer), T-BLOCK-1.
+- Tests: T-CONFIRM-1, T-ORACLE-1 to T-ORACLE-8 (the cases cannot be told
+  apart by what is sent; equal timing is not claimed), T-BLOCK-1.
 
 ### S24. No protocol operation answers questions about other peers
 

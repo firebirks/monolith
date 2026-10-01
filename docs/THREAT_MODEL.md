@@ -75,6 +75,11 @@ With the contact card (address, identity key, possibly an invitation):
   (S23).
 - A request without a currently valid invitation is dropped in the default
   mode. The peer cannot tell.
+- It cannot find out its standing. An identity that is unknown, blocked,
+  declined or a deleted former contact gets the same messages in the same
+  order, and there is no response that names a reason (PROTOCOL.md 12.1).
+  This is about what is sent. Response times are not equalized and are not
+  claimed to be.
 
 Residual: presence. Whoever holds the card can tell when the user is online
 by connecting. See section 6.

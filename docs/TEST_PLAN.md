@@ -230,6 +230,31 @@ Confirmation tests (T-CONFIRM)
 2. No message type contains a field for a third party's identity or
    address (checked against the message table).
 
+Observability matrix (T-ORACLE)
+
+The peer classes are those of PROTOCOL.md section 12.1: no record, blocked,
+deleted former contact, declined, requested, accepted and verified, accepted
+and not verified. "Observable" means what the local side emits toward the
+peer and when it closes.
+
+| Id | What is compared | Level |
+| --- | --- | --- |
+| T-ORACLE-1 | For no record, blocked, deleted and declined: the emitted messages (type, number, order) and the close condition are identical when the peer stays silent, sends a ContactRequest with a valid, an invalid or no invitation, sends ContactAccept, or sends Close | session logic, Phase 1 |
+| T-ORACLE-2 | Accepted-verified and accepted-unverified are identical in every emitted message and state transition; the verification mark is not an input of any function that produces protocol output | session logic, Phase 1 |
+| T-ORACLE-3 | No message type and no field carries a rejection reason; Close has an empty body; there is no "blocked", "former contact" or "not in contact list" response | message registry, Phase 1 |
+| T-ORACLE-4 | A protocol violation from any class ends the session with nothing emitted | session logic, Phase 1 |
+| T-ORACLE-5 | Profile, EndpointUpdate and application messages are never emitted before confirmation, for any class | session logic, Phase 1 |
+| T-ORACLE-6 | With the budget for strangers exhausted, the four non-contact classes are treated identically | core, Phase 4 |
+| T-ORACLE-7 | Blocking an accepted contact during a session: the peer sees Close, then the behavior of the no-record class | core, Phase 4 |
+| T-ORACLE-8 | On the wire, over the mock transport: frame counts and byte counts are equal across the four non-contact classes. Response times are recorded and compared only for gross differences | integration, Phase 4 |
+
+Handshake completion and the identity proof are the same for every class by
+construction of whichever session layer is chosen; a test for that is added
+with Phase 2.
+
+These tests do not claim constant-time behavior. They check that the cases
+cannot be told apart by what is sent.
+
 ## 7. Concurrency
 
 - Simultaneous connections in both directions.
@@ -367,10 +392,10 @@ automatically.
 
 | Phase | Before it is called done |
 | --- | --- |
-| 1 | T-FRAME, T-FIELD, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE pass; property tests in place; fuzz targets for every decoder run clean for a fixed budget |
+| 1 | T-FRAME, T-FIELD, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ORACLE-1 to 5 pass; property tests in place; fuzz targets for every decoder run clean for a fixed budget |
 | 2 | handshake test vectors committed; T-MAL handshake cases pass; proofs fail in every relay and replay case |
 | 3 | T-SOCKS, T-CTRL pass; T-NET-1 passes; two-node chat over a private Tor network |
-| 4 | T-CONTACT, T-ID, T-DUP, T-CONFIRM, T-CRASH, T-INJ pass |
+| 4 | T-CONTACT, T-ID, T-DUP, T-CONFIRM, T-ORACLE-6 to 8, T-CRASH, T-INJ pass |
 | 5 | T-FILE passes; transfer fuzzing clean |
 | 6, 7 | platform matrix passes on the current release |
 | 9 | T-RES passes with measurements recorded |
