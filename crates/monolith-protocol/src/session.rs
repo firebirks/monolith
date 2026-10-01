@@ -3,19 +3,31 @@
 //! [`Session`] is the state machine of one peer session, as specified in
 //! `docs/PROTOCOL.md` sections 6.4, 7 and 12. It does no I/O and no
 //! cryptography. The caller tells it what happened (the stream is up, the
-//! handshake finished, both identities are proven, a message of some type
-//! arrived) and it answers with what to do ([`Action`]).
+//! handshake finished, both identities are proven, a message arrived) and it
+//! answers with what to do ([`Action`]).
 //!
-//! Two properties are built into its shape:
+//! Properties that are built into its shape:
 //!
-//! - It decides from the message type and the local [`Standing`] of the peer
+//! - It takes decoded messages, so nothing reaches it that has not passed
+//!   the frame and body decoders.
+//! - It knows the identity the peer proved. A card inside a message that was
+//!   signed by any other identity is a violation, and that is checked before
+//!   the standing of the peer is looked at.
+//! - It decides from the message and the local [`Standing`] of the peer
 //!   alone. Whether the user has verified a contact out of band is not an
 //!   input, so it cannot influence anything a peer observes.
 //! - For a peer that is not a contact, what is sent back does not depend on
 //!   why it is not a contact. Unknown, declined and blocked identities take
 //!   the same path; the only difference is an internal action that the peer
 //!   cannot see. See `docs/PROTOCOL.md` section 12.1.
+//!
+//! After a Close was sent or received the caller stops reading from the
+//! stream. Bytes still in flight are dropped; they are not fed to the frame
+//! decoder, which refuses every frame in those states.
 
+use monolith_identity::IdentityPublicKey;
+
+use crate::body::Message;
 use crate::{MessageType, ProtocolError, SessionState};
 
 /// What the local side holds about the identity a peer has proven.
@@ -84,7 +96,10 @@ impl Action {
 pub struct Session {
     state: SessionState,
     standing: Standing,
-    proof_received: bool,
+    /// The identity named in the peer's AuthProof, until it is verified.
+    claimed: Option<IdentityPublicKey>,
+    /// The identity the peer proved.
+    peer: Option<IdentityPublicKey>,
 }
 
 impl Default for Session {
@@ -99,7 +114,8 @@ impl Session {
         Self {
             state: SessionState::Connecting,
             standing: Standing::None,
-            proof_received: false,
+            claimed: None,
+            peer: None,
         }
     }
 
@@ -112,6 +128,16 @@ impl Session {
     /// authenticated.
     pub const fn standing(&self) -> Standing {
         self.standing
+    }
+
+    /// Returns the identity the peer proved, once it has.
+    pub const fn peer(&self) -> Option<&IdentityPublicKey> {
+        self.peer.as_ref()
+    }
+
+    fn violation<T>(&mut self, error: ProtocolError) -> Result<T, ProtocolError> {
+        self.state = SessionState::Closed;
+        Err(error)
     }
 
     fn transition(&mut self, next: SessionState) -> Result<(), ProtocolError> {
@@ -139,16 +165,28 @@ impl Session {
         self.transition(SessionState::IdentityAuth)
     }
 
-    /// Both identity proofs are verified. `standing` is what the local side
-    /// holds about the identity the peer proved.
+    /// The authentication layer verified the peer's identity proof.
+    ///
+    /// `peer` is the proven identity and `standing` what the local side
+    /// holds about it. This fails unless an AuthProof was received on this
+    /// session and named the same identity, so a caller cannot authenticate
+    /// a session that never presented a proof.
     ///
     /// The session enters `AuthenticatedUnknown`. The returned actions are
     /// the first message of `docs/PROTOCOL.md` section 6.4.
-    pub fn identities_proven(&mut self, standing: Standing) -> Result<Vec<Action>, ProtocolError> {
+    pub fn identities_proven(
+        &mut self,
+        peer: IdentityPublicKey,
+        standing: Standing,
+    ) -> Result<Vec<Action>, ProtocolError> {
         if self.state != SessionState::IdentityAuth {
             return Err(ProtocolError::MessageNotPermitted);
         }
+        if self.claimed != Some(peer) {
+            return Err(ProtocolError::AuthenticationFailed);
+        }
         self.transition(SessionState::AuthenticatedUnknown)?;
+        self.peer = Some(peer);
         self.standing = standing;
         Ok(match standing {
             Standing::Accepted => vec![Action::SendContactAccept],
@@ -157,41 +195,52 @@ impl Session {
         })
     }
 
-    /// A message of type `message_type` arrived and passed the frame checks.
+    /// A message arrived. It has passed the frame checks and its body has
+    /// been decoded.
     ///
     /// Returns what to do. An error is a protocol violation: the session is
     /// over and the stream must be closed without sending anything.
-    pub fn receive(&mut self, message_type: MessageType) -> Result<Vec<Action>, ProtocolError> {
-        // Frames that arrive after Close was sent or received are discarded.
+    pub fn receive(&mut self, message: &Message) -> Result<Vec<Action>, ProtocolError> {
+        // After a Close was sent or received nothing is processed any more.
         if matches!(self.state, SessionState::Closing | SessionState::Closed) {
             return Ok(Vec::new());
         }
+        let message_type = message.message_type();
         if !message_type.may_be_received_in(self.state) {
-            self.state = SessionState::Closed;
-            return Err(ProtocolError::MessageNotPermitted);
+            return self.violation(ProtocolError::MessageNotPermitted);
+        }
+        // A card inside a message must be the sender's own. This is checked
+        // before the standing of the peer is looked at, so the outcome is
+        // the same for every peer.
+        let foreign_card =
+            card_identity(message).is_some_and(|signer| self.peer.as_ref() != Some(signer));
+        if foreign_card {
+            return self.violation(ProtocolError::IdentityMismatch);
         }
         match self.state {
-            SessionState::IdentityAuth => self.receive_in_identity_auth(),
+            SessionState::IdentityAuth => self.receive_in_identity_auth(message),
             SessionState::AuthenticatedUnknown => self.receive_unconfirmed(message_type),
             SessionState::AuthenticatedContact => Ok(self.receive_confirmed(message_type)),
             // The gate above lets nothing through in the remaining states.
             SessionState::Connecting
             | SessionState::CryptoHandshake
             | SessionState::Closing
-            | SessionState::Closed => {
-                self.state = SessionState::Closed;
-                Err(ProtocolError::MessageNotPermitted)
-            }
+            | SessionState::Closed => self.violation(ProtocolError::MessageNotPermitted),
         }
     }
 
-    fn receive_in_identity_auth(&mut self) -> Result<Vec<Action>, ProtocolError> {
+    fn receive_in_identity_auth(
+        &mut self,
+        message: &Message,
+    ) -> Result<Vec<Action>, ProtocolError> {
         // The gate admits only AuthProof here, and only one of them.
-        if self.proof_received {
-            self.state = SessionState::Closed;
-            return Err(ProtocolError::MessageNotPermitted);
+        let Message::AuthProof(proof) = message else {
+            return self.violation(ProtocolError::MessageNotPermitted);
+        };
+        if self.claimed.is_some() {
+            return self.violation(ProtocolError::MessageNotPermitted);
         }
-        self.proof_received = true;
+        self.claimed = Some(proof.identity);
         Ok(vec![Action::VerifyIdentityProof])
     }
 
@@ -232,14 +281,13 @@ impl Session {
             }
             Standing::None | Standing::Declined | Standing::Blocked => {
                 // One path for every identity that is not a contact. The
-                // standing only decides whether the request is looked at,
-                // which the peer cannot see.
+                // Close goes out first; whether the request is looked at
+                // afterwards is local and cannot be seen by the peer.
                 self.transition(SessionState::Closing)?;
-                let mut actions = Vec::with_capacity(2);
+                let mut actions = vec![Action::SendClose];
                 if is_request && self.standing == Standing::None {
                     actions.push(Action::ConsiderRequest);
                 }
-                actions.push(Action::SendClose);
                 Ok(actions)
             }
         }
@@ -251,13 +299,20 @@ impl Session {
                 self.state = SessionState::Closed;
                 vec![Action::Disconnect]
             }
-            // These can still arrive when messages cross. They change nothing.
+            // A conforming peer does not send these after confirmation.
+            // They change nothing.
             MessageType::ContactRequest | MessageType::ContactAccept => Vec::new(),
             _ => vec![Action::Deliver],
         }
     }
 
     /// Returns true if the local side may send a message of this type now.
+    ///
+    /// In `Closing` this is true for Close alone: the state is entered when
+    /// the decision to close is taken, and the Close still has to be
+    /// written. In `IdentityAuth` it is true for AuthProof; the order in
+    /// which the two sides send their proofs belongs to the authentication
+    /// layer, which is not decided.
     pub const fn may_send(&self, message_type: MessageType) -> bool {
         match self.state {
             SessionState::IdentityAuth => matches!(message_type, MessageType::AuthProof),
@@ -271,10 +326,10 @@ impl Session {
                 message_type,
                 MessageType::AuthProof | MessageType::ContactRequest
             ),
-            SessionState::Connecting
-            | SessionState::CryptoHandshake
-            | SessionState::Closing
-            | SessionState::Closed => false,
+            SessionState::Closing => matches!(message_type, MessageType::Close),
+            SessionState::Connecting | SessionState::CryptoHandshake | SessionState::Closed => {
+                false
+            }
         }
     }
 
@@ -305,25 +360,181 @@ impl Session {
         self.close()
     }
 
+    /// The user deleted the contact, or withdrew a request, while this
+    /// session was open. The peer sees the same Close as for any other end
+    /// of a session.
+    pub fn contact_removed(&mut self) -> Vec<Action> {
+        self.standing = Standing::None;
+        self.close()
+    }
+
     /// The stream is gone, for whatever reason.
     pub fn stream_closed(&mut self) {
         self.state = SessionState::Closed;
     }
 }
 
+/// Returns the identity that signed the card inside a message, for the
+/// messages that carry one.
+fn card_identity(message: &Message) -> Option<&IdentityPublicKey> {
+    match message {
+        Message::ContactRequest(request) => Some(request.card.identity()),
+        Message::EndpointUpdate(card) => Some(card.identity()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod testing {
+    //! Sample messages and sessions for tests.
 
-    const NON_CONTACTS: [Standing; 3] = [Standing::None, Standing::Declined, Standing::Blocked];
+    use std::sync::LazyLock;
 
-    fn authenticated(standing: Standing) -> (Session, Vec<Action>) {
+    use monolith_identity::{EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
+
+    use super::{Action, Session, Standing};
+    use crate::MessageType;
+    use crate::body::{AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId};
+    use crate::card::{ContactCard, EndpointSet};
+    use crate::text::{ChatText, DisplayName, Filename, IntroductionText, ProfileText};
+
+    /// Seed of the peer in session tests.
+    pub(crate) const PEER: u8 = 0x51;
+
+    pub(crate) fn secret(seed: u8) -> IdentitySecretKey {
+        IdentitySecretKey::from_seed(&[seed; 32])
+    }
+
+    pub(crate) fn identity(seed: u8) -> IdentityPublicKey {
+        secret(seed).public_key()
+    }
+
+    pub(crate) fn card(seed: u8) -> ContactCard {
+        let endpoint =
+            OnionServiceKey::from_bytes(identity(seed.wrapping_add(1)).as_bytes()).unwrap();
+        ContactCard::sign(
+            &secret(seed),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(endpoint),
+            None,
+        )
+        .unwrap()
+    }
+
+    /// One message of every type as the peer would send it. Built once:
+    /// signing is slow in unoptimized test builds.
+    static FROM_PEER: LazyLock<Vec<Message>> = LazyLock::new(|| {
+        MessageType::ALL
+            .into_iter()
+            .map(|message_type| sample(message_type, PEER))
+            .collect()
+    });
+
+    static PEER_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity(PEER));
+
+    /// The identity of the peer in session tests.
+    pub(crate) fn peer() -> IdentityPublicKey {
+        *PEER_IDENTITY
+    }
+
+    /// One message of the given type. Cards inside it are signed by the
+    /// identity of `signer`.
+    pub(crate) fn sample(message_type: MessageType, signer: u8) -> Message {
+        let transfer = TransferId::from_bytes([3; 16]);
+        let id = MessageId::from_bytes([4; 16]);
+        match message_type {
+            MessageType::AuthProof => Message::AuthProof(Box::new(AuthProof {
+                identity: identity(signer),
+                features: 0,
+                signature: secret(signer).sign(b"stands in for a real proof"),
+            })),
+            MessageType::Close => Message::Close,
+            MessageType::Ping => Message::Ping([1; 8]),
+            MessageType::Pong => Message::Pong([1; 8]),
+            MessageType::ContactRequest => Message::ContactRequest(Box::new(ContactRequest {
+                card: card(signer),
+                invitation: None,
+                display_name: DisplayName::new("Peer").unwrap(),
+                introduction: IntroductionText::new("hello").unwrap(),
+            })),
+            MessageType::ContactAccept => Message::ContactAccept,
+            MessageType::ChatMessage => Message::ChatMessage {
+                id,
+                text: ChatText::new("hi").unwrap(),
+            },
+            MessageType::MessageAck => Message::MessageAck(id),
+            MessageType::Profile => Message::Profile {
+                display_name: DisplayName::new("Peer").unwrap(),
+                profile_text: ProfileText::new("").unwrap(),
+            },
+            MessageType::EndpointUpdate => Message::EndpointUpdate(Box::new(card(signer))),
+            MessageType::FileOffer => Message::FileOffer {
+                transfer,
+                size: 1,
+                filename: Filename::new("a.txt").unwrap(),
+            },
+            MessageType::FileAccept => Message::FileAccept(transfer),
+            MessageType::FileReject => Message::FileReject(transfer),
+            MessageType::FileChunk => {
+                Message::FileChunk(FileChunk::new(transfer, vec![1]).unwrap())
+            }
+            MessageType::FileComplete => Message::FileComplete {
+                transfer,
+                digest: [5; 32],
+            },
+            MessageType::FileAbort => Message::FileAbort(transfer),
+        }
+    }
+
+    /// A message of the given type as the peer of the session would send it.
+    pub(crate) fn from_peer(message_type: MessageType) -> Message {
+        FROM_PEER
+            .iter()
+            .find(|message| message.message_type() == message_type)
+            .cloned()
+            .unwrap()
+    }
+
+    /// A session that has gone through the handshake and received the peer's
+    /// identity proof, but has not been told that the proof verified.
+    pub(crate) fn awaiting_verification() -> Session {
         let mut session = Session::new();
         session.stream_established().unwrap();
         session.handshake_completed().unwrap();
-        let first = session.identities_proven(standing).unwrap();
+        assert_eq!(
+            session.receive(&from_peer(MessageType::AuthProof)),
+            Ok(vec![Action::VerifyIdentityProof])
+        );
+        session
+    }
+
+    /// A session in `AuthenticatedUnknown` with a peer of the given
+    /// standing, and the actions that authentication produced.
+    pub(crate) fn authenticated(standing: Standing) -> (Session, Vec<Action>) {
+        let mut session = awaiting_verification();
+        let first = session.identities_proven(peer(), standing).unwrap();
         (session, first)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::{authenticated, awaiting_verification, from_peer, identity, peer, sample};
+    use super::*;
+    use crate::card::InvitationCapability;
+
+    const NON_CONTACTS: [Standing; 3] = [Standing::None, Standing::Declined, Standing::Blocked];
+
+    const ALL_STANDINGS: [Standing; 5] = [
+        Standing::None,
+        Standing::Declined,
+        Standing::Blocked,
+        Standing::Requested,
+        Standing::Accepted,
+    ];
+
+    /// Seed of an identity that is not the peer.
+    const STRANGER: u8 = 0x77;
 
     fn visible(actions: &[Action]) -> Vec<Action> {
         actions
@@ -333,18 +544,18 @@ mod tests {
             .collect()
     }
 
+    type Transcript = (Vec<Vec<Action>>, Result<(), ProtocolError>, SessionState);
+
     /// Everything the peer can observe of a session with the given standing
     /// when it sends the given messages: the visible actions after
-    /// authentication and after each message, and the final state.
-    fn transcript(
-        standing: Standing,
-        messages: &[MessageType],
-    ) -> (Vec<Vec<Action>>, Result<(), ProtocolError>, SessionState) {
+    /// authentication and after each message, the outcome, and the final
+    /// state.
+    fn transcript(standing: Standing, messages: &[Message]) -> Transcript {
         let (mut session, first) = authenticated(standing);
         let mut seen = vec![visible(&first)];
         let mut outcome = Ok(());
         for message in messages {
-            match session.receive(*message) {
+            match session.receive(message) {
                 Ok(actions) => seen.push(visible(&actions)),
                 Err(error) => {
                     outcome = Err(error);
@@ -360,47 +571,70 @@ mod tests {
         let mut session = Session::new();
         assert_eq!(session.state(), SessionState::Connecting);
         assert!(session.handshake_completed().is_err());
-        assert!(session.identities_proven(Standing::Accepted).is_err());
+        assert!(
+            session
+                .identities_proven(peer(), Standing::Accepted)
+                .is_err()
+        );
         session.stream_established().unwrap();
         assert!(session.stream_established().is_err());
-        assert!(session.identities_proven(Standing::Accepted).is_err());
         session.handshake_completed().unwrap();
         assert_eq!(session.state(), SessionState::IdentityAuth);
-        session.identities_proven(Standing::None).unwrap();
+        assert_eq!(session.peer(), None);
+    }
+
+    #[test]
+    fn a_session_cannot_be_authenticated_without_a_proof() {
+        let mut session = Session::new();
+        session.stream_established().unwrap();
+        session.handshake_completed().unwrap();
+        assert_eq!(
+            session.identities_proven(peer(), Standing::Accepted),
+            Err(ProtocolError::AuthenticationFailed)
+        );
+        assert_eq!(session.state(), SessionState::IdentityAuth);
+    }
+
+    #[test]
+    fn the_proven_identity_must_be_the_one_the_proof_named() {
+        let mut session = awaiting_verification();
+        assert_eq!(
+            session.identities_proven(identity(STRANGER), Standing::Accepted),
+            Err(ProtocolError::AuthenticationFailed)
+        );
+        assert_eq!(
+            session.identities_proven(peer(), Standing::None),
+            Ok(Vec::new())
+        );
+        assert_eq!(session.peer(), Some(&peer()));
         assert_eq!(session.state(), SessionState::AuthenticatedUnknown);
-        assert!(session.identities_proven(Standing::Accepted).is_err());
+        assert!(
+            session
+                .identities_proven(peer(), Standing::Accepted)
+                .is_err()
+        );
     }
 
     #[test]
     fn nothing_is_accepted_before_the_identity_proof() {
         // T-PROTO-STATE.
-        for message in MessageType::ALL {
+        for message_type in MessageType::ALL {
+            let message = from_peer(message_type);
+
             let mut session = Session::new();
-            assert!(
-                session.receive(message).is_err(),
-                "{message:?} in Connecting"
-            );
+            assert!(session.receive(&message).is_err(), "{message_type:?}");
             assert_eq!(session.state(), SessionState::Closed);
 
             let mut session = Session::new();
             session.stream_established().unwrap();
-            assert!(
-                session.receive(message).is_err(),
-                "{message:?} in CryptoHandshake"
-            );
+            assert!(session.receive(&message).is_err(), "{message_type:?}");
         }
     }
 
     #[test]
     fn only_one_identity_proof_is_accepted() {
-        let mut session = Session::new();
-        session.stream_established().unwrap();
-        session.handshake_completed().unwrap();
-        assert_eq!(
-            session.receive(MessageType::AuthProof),
-            Ok(vec![Action::VerifyIdentityProof])
-        );
-        assert!(session.receive(MessageType::AuthProof).is_err());
+        let mut session = awaiting_verification();
+        assert!(session.receive(&from_peer(MessageType::AuthProof)).is_err());
         assert_eq!(session.state(), SessionState::Closed);
     }
 
@@ -423,12 +657,12 @@ mod tests {
     fn accepted_contacts_confirm_with_contact_accept() {
         let (mut session, _) = authenticated(Standing::Accepted);
         assert_eq!(
-            session.receive(MessageType::ContactAccept),
+            session.receive(&Message::ContactAccept),
             Ok(vec![Action::Confirmed])
         );
         assert_eq!(session.state(), SessionState::AuthenticatedContact);
         assert_eq!(
-            session.receive(MessageType::ChatMessage),
+            session.receive(&from_peer(MessageType::ChatMessage)),
             Ok(vec![Action::Deliver])
         );
     }
@@ -436,10 +670,13 @@ mod tests {
     #[test]
     fn a_request_from_an_accepted_peer_changes_nothing() {
         let (mut session, _) = authenticated(Standing::Accepted);
-        assert_eq!(session.receive(MessageType::ContactRequest), Ok(Vec::new()));
+        assert_eq!(
+            session.receive(&from_peer(MessageType::ContactRequest)),
+            Ok(Vec::new())
+        );
         assert_eq!(session.state(), SessionState::AuthenticatedUnknown);
         assert_eq!(
-            session.receive(MessageType::ContactAccept),
+            session.receive(&Message::ContactAccept),
             Ok(vec![Action::Confirmed])
         );
     }
@@ -449,7 +686,7 @@ mod tests {
         // T-CONTACT-5.
         let (mut session, _) = authenticated(Standing::Requested);
         assert_eq!(
-            session.receive(MessageType::ContactAccept),
+            session.receive(&Message::ContactAccept),
             Ok(vec![
                 Action::MarkAccepted,
                 Action::SendContactAccept,
@@ -469,8 +706,9 @@ mod tests {
         assert_eq!(first_a, vec![Action::SendContactRequest]);
         assert_eq!(first_b, vec![Action::SendContactRequest]);
 
-        let from_a = a.receive(MessageType::ContactRequest).unwrap();
-        let from_b = b.receive(MessageType::ContactRequest).unwrap();
+        let request = from_peer(MessageType::ContactRequest);
+        let from_a = a.receive(&request).unwrap();
+        let from_b = b.receive(&request).unwrap();
         assert_eq!(
             from_a,
             vec![Action::MarkAccepted, Action::SendContactAccept]
@@ -479,11 +717,11 @@ mod tests {
         assert_eq!(a.state(), SessionState::AuthenticatedUnknown);
 
         assert_eq!(
-            a.receive(MessageType::ContactAccept),
+            a.receive(&Message::ContactAccept),
             Ok(vec![Action::Confirmed])
         );
         assert_eq!(
-            b.receive(MessageType::ContactAccept),
+            b.receive(&Message::ContactAccept),
             Ok(vec![Action::Confirmed])
         );
         assert_eq!(a.state(), SessionState::AuthenticatedContact);
@@ -491,16 +729,22 @@ mod tests {
     }
 
     #[test]
-    fn a_stranger_request_is_considered_and_answered_with_close() {
+    fn a_stranger_request_is_answered_with_close_and_then_considered() {
         let (mut session, _) = authenticated(Standing::None);
         assert_eq!(
-            session.receive(MessageType::ContactRequest),
-            Ok(vec![Action::ConsiderRequest, Action::SendClose])
+            session.receive(&from_peer(MessageType::ContactRequest)),
+            Ok(vec![Action::SendClose, Action::ConsiderRequest])
         );
         assert_eq!(session.state(), SessionState::Closing);
-        // Whatever follows is discarded.
-        assert_eq!(session.receive(MessageType::ChatMessage), Ok(Vec::new()));
-        assert_eq!(session.receive(MessageType::ContactRequest), Ok(Vec::new()));
+        // Whatever follows is not processed.
+        assert_eq!(
+            session.receive(&from_peer(MessageType::ChatMessage)),
+            Ok(Vec::new())
+        );
+        assert_eq!(
+            session.receive(&from_peer(MessageType::ContactRequest)),
+            Ok(Vec::new())
+        );
     }
 
     #[test]
@@ -508,34 +752,84 @@ mod tests {
         for standing in [Standing::Declined, Standing::Blocked] {
             let (mut session, _) = authenticated(standing);
             assert_eq!(
-                session.receive(MessageType::ContactRequest),
+                session.receive(&from_peer(MessageType::ContactRequest)),
                 Ok(vec![Action::SendClose])
             );
         }
     }
 
     #[test]
+    fn a_request_with_a_card_of_another_identity_is_a_violation_for_everyone() {
+        // PROTOCOL.md 8.3: the card in a ContactRequest must be the
+        // sender's own. The outcome must not depend on the standing, or it
+        // would tell the sender something about it.
+        let foreign = sample(MessageType::ContactRequest, STRANGER);
+        for standing in ALL_STANDINGS {
+            let (mut session, _) = authenticated(standing);
+            assert_eq!(
+                session.receive(&foreign),
+                Err(ProtocolError::IdentityMismatch),
+                "{standing:?}"
+            );
+            assert_eq!(session.state(), SessionState::Closed);
+            assert_eq!(
+                session.standing(),
+                standing,
+                "a foreign card must not change the standing"
+            );
+        }
+    }
+
+    #[test]
+    fn an_endpoint_update_with_a_card_of_another_identity_is_a_violation() {
+        let (mut session, _) = authenticated(Standing::Accepted);
+        session.receive(&Message::ContactAccept).unwrap();
+        assert_eq!(
+            session.receive(&from_peer(MessageType::EndpointUpdate)),
+            Ok(vec![Action::Deliver])
+        );
+        assert_eq!(
+            session.receive(&sample(MessageType::EndpointUpdate, STRANGER)),
+            Err(ProtocolError::IdentityMismatch)
+        );
+        assert_eq!(session.state(), SessionState::Closed);
+    }
+
+    #[test]
     fn oracle_1_non_contacts_are_indistinguishable() {
         // T-ORACLE-1. Unknown, declined and blocked identities, and a deleted
         // former contact (which has no record and is Standing::None), see
-        // the same thing for every behavior.
-        let behaviors: [&[MessageType]; 7] = [
-            &[],
-            &[MessageType::ContactRequest],
-            &[MessageType::ContactAccept],
-            &[MessageType::Close],
-            &[MessageType::ContactRequest, MessageType::ContactRequest],
-            &[MessageType::ContactAccept, MessageType::ChatMessage],
-            &[MessageType::ChatMessage],
+        // the same thing for every behavior, including a request that
+        // carries someone else's card.
+        let request = from_peer(MessageType::ContactRequest);
+        let with_invitation = {
+            let Message::ContactRequest(mut inner) = request.clone() else {
+                panic!("not a contact request");
+            };
+            inner.invitation = Some(InvitationCapability::from_bytes([9; 16]));
+            Message::ContactRequest(inner)
+        };
+        let foreign = sample(MessageType::ContactRequest, STRANGER);
+        let chat = from_peer(MessageType::ChatMessage);
+        let behaviors: Vec<Vec<Message>> = vec![
+            vec![],
+            vec![request.clone()],
+            // Whether an invitation is valid is decided after the Close,
+            // outside the session. With or without one, the peer sees the
+            // same.
+            vec![with_invitation],
+            vec![Message::ContactAccept],
+            vec![Message::Close],
+            vec![request.clone(), request.clone()],
+            vec![Message::ContactAccept, chat.clone()],
+            vec![chat],
+            vec![foreign.clone()],
+            vec![request, foreign],
         ];
-        for behavior in behaviors {
+        for behavior in &behaviors {
             let reference = transcript(Standing::None, behavior);
             for standing in NON_CONTACTS {
-                assert_eq!(
-                    transcript(standing, behavior),
-                    reference,
-                    "{standing:?} {behavior:?}"
-                );
+                assert_eq!(transcript(standing, behavior), reference, "{standing:?}");
             }
         }
     }
@@ -543,59 +837,33 @@ mod tests {
     #[test]
     fn oracle_1_the_only_difference_is_invisible() {
         // The request of an unknown peer is considered, that of a declined
-        // or blocked peer is not. That action is not visible to the peer.
+        // or blocked peer is not. That action is not visible to the peer,
+        // and it comes after the Close.
         assert!(!Action::ConsiderRequest.is_visible_to_peer());
         assert!(!Action::MarkAccepted.is_visible_to_peer());
         assert!(!Action::Confirmed.is_visible_to_peer());
         assert!(!Action::Deliver.is_visible_to_peer());
+        assert!(!Action::VerifyIdentityProof.is_visible_to_peer());
         assert!(Action::SendClose.is_visible_to_peer());
+        assert!(Action::SendContactAccept.is_visible_to_peer());
+        assert!(Action::SendContactRequest.is_visible_to_peer());
         assert!(Action::Disconnect.is_visible_to_peer());
-    }
-
-    #[test]
-    fn oracle_2_verification_is_not_an_input() {
-        // T-ORACLE-2. Standing has no notion of "verified", and Session
-        // takes nothing else about the peer. This test fails to compile if a
-        // variant is added without being listed here.
-        let all = [
-            Standing::None,
-            Standing::Declined,
-            Standing::Blocked,
-            Standing::Requested,
-            Standing::Accepted,
-        ];
-        for standing in all {
-            match standing {
-                Standing::None
-                | Standing::Declined
-                | Standing::Blocked
-                | Standing::Requested
-                | Standing::Accepted => {}
-            }
-        }
     }
 
     #[test]
     fn oracle_4_violations_emit_nothing() {
         // T-ORACLE-4. A message that is not legal in the state ends the
         // session with an error and no action, for every standing.
-        let all = [
-            Standing::None,
-            Standing::Declined,
-            Standing::Blocked,
-            Standing::Requested,
-            Standing::Accepted,
-        ];
-        for standing in all {
-            for message in MessageType::ALL {
-                let (mut session, _) = authenticated(standing);
-                if message.may_be_received_in(SessionState::AuthenticatedUnknown) {
+        for standing in ALL_STANDINGS {
+            for message_type in MessageType::ALL {
+                if message_type.may_be_received_in(SessionState::AuthenticatedUnknown) {
                     continue;
                 }
+                let (mut session, _) = authenticated(standing);
                 assert_eq!(
-                    session.receive(message),
+                    session.receive(&from_peer(message_type)),
                     Err(ProtocolError::MessageNotPermitted),
-                    "{standing:?} {message:?}"
+                    "{standing:?} {message_type:?}"
                 );
                 assert_eq!(session.state(), SessionState::Closed);
             }
@@ -605,51 +873,145 @@ mod tests {
     #[test]
     fn oracle_5_nothing_but_confirmation_messages_before_confirmation() {
         // T-ORACLE-5. Before a session is confirmed the local side may send
-        // only ContactAccept, ContactRequest and Close, and never produces a
-        // Deliver action.
-        let all = [
-            Standing::None,
-            Standing::Declined,
-            Standing::Blocked,
-            Standing::Requested,
-            Standing::Accepted,
-        ];
-        for standing in all {
+        // only ContactAccept, ContactRequest and Close, and a message that
+        // arrives then is never delivered to the application, not even the
+        // one that confirms the session.
+        for standing in ALL_STANDINGS {
             let (session, _) = authenticated(standing);
-            for message in MessageType::ALL {
+            for message_type in MessageType::ALL {
                 let allowed = matches!(
-                    message,
+                    message_type,
                     MessageType::ContactAccept | MessageType::ContactRequest | MessageType::Close
                 );
                 if !allowed {
-                    assert!(!session.may_send(message), "{standing:?} {message:?}");
+                    assert!(
+                        !session.may_send(message_type),
+                        "{standing:?} {message_type:?}"
+                    );
                 }
             }
-            for message in [MessageType::ContactRequest, MessageType::ContactAccept] {
+            for message_type in [
+                MessageType::ContactRequest,
+                MessageType::ContactAccept,
+                MessageType::Close,
+            ] {
                 let (mut session, _) = authenticated(standing);
-                let actions = session.receive(message).unwrap();
-                if session.state() != SessionState::AuthenticatedContact {
-                    assert!(!actions.contains(&Action::Deliver));
-                }
+                let actions = session.receive(&from_peer(message_type)).unwrap();
+                assert!(
+                    !actions.contains(&Action::Deliver),
+                    "{standing:?} {message_type:?}"
+                );
             }
         }
     }
 
     #[test]
-    fn may_send_follows_the_standing_before_confirmation() {
+    fn may_send_in_every_state() {
+        let each = |session: &Session| -> Vec<MessageType> {
+            MessageType::ALL
+                .into_iter()
+                .filter(|message_type| session.may_send(*message_type))
+                .collect()
+        };
+
+        let mut session = Session::new();
+        assert_eq!(each(&session), Vec::new(), "Connecting");
+        session.stream_established().unwrap();
+        assert_eq!(each(&session), Vec::new(), "CryptoHandshake");
+        session.handshake_completed().unwrap();
+        assert_eq!(each(&session), vec![MessageType::AuthProof], "IdentityAuth");
+
         let (session, _) = authenticated(Standing::Accepted);
-        assert!(session.may_send(MessageType::ContactAccept));
-        assert!(!session.may_send(MessageType::ContactRequest));
-
+        assert_eq!(
+            each(&session),
+            vec![MessageType::Close, MessageType::ContactAccept]
+        );
         let (session, _) = authenticated(Standing::Requested);
-        assert!(session.may_send(MessageType::ContactRequest));
-        assert!(!session.may_send(MessageType::ContactAccept));
-
+        assert_eq!(
+            each(&session),
+            vec![MessageType::Close, MessageType::ContactRequest]
+        );
         for standing in NON_CONTACTS {
             let (session, _) = authenticated(standing);
-            assert!(!session.may_send(MessageType::ContactAccept));
-            assert!(!session.may_send(MessageType::ContactRequest));
-            assert!(session.may_send(MessageType::Close));
+            assert_eq!(each(&session), vec![MessageType::Close], "{standing:?}");
+        }
+
+        let (mut session, _) = authenticated(Standing::Accepted);
+        session.receive(&Message::ContactAccept).unwrap();
+        let confirmed = each(&session);
+        assert!(!confirmed.contains(&MessageType::AuthProof));
+        assert!(!confirmed.contains(&MessageType::ContactRequest));
+        assert_eq!(confirmed.len(), MessageType::ALL.len() - 2);
+
+        assert_eq!(session.close(), vec![Action::SendClose]);
+        assert_eq!(each(&session), vec![MessageType::Close], "Closing");
+        session.stream_closed();
+        assert_eq!(each(&session), Vec::new(), "Closed");
+    }
+
+    #[test]
+    fn every_emitted_send_is_permitted_by_may_send() {
+        // Whatever the session tells the caller to send, may_send allows at
+        // that moment.
+        let permitted = |session: &Session, actions: &[Action]| {
+            for action in actions {
+                let message_type = match action {
+                    Action::SendContactAccept => MessageType::ContactAccept,
+                    Action::SendContactRequest => MessageType::ContactRequest,
+                    Action::SendClose => MessageType::Close,
+                    _ => continue,
+                };
+                assert!(
+                    session.may_send(message_type),
+                    "{action:?} in {:?}",
+                    session.state()
+                );
+            }
+        };
+        for standing in ALL_STANDINGS {
+            let (session, first) = authenticated(standing);
+            permitted(&session, &first);
+            for message_type in [
+                MessageType::ContactRequest,
+                MessageType::ContactAccept,
+                MessageType::Close,
+            ] {
+                let (mut session, _) = authenticated(standing);
+                let actions = session.receive(&from_peer(message_type)).unwrap();
+                permitted(&session, &actions);
+                let actions = session.close();
+                permitted(&session, &actions);
+            }
+            let (mut session, _) = authenticated(standing);
+            let actions = session.peer_blocked();
+            permitted(&session, &actions);
+        }
+    }
+
+    #[test]
+    fn what_one_side_may_send_the_other_side_accepts() {
+        // For every pair of standings, before confirmation: a message that
+        // one side may send is legal for the other side to receive.
+        for sender_standing in ALL_STANDINGS {
+            let (sender, _) = authenticated(sender_standing);
+            for message_type in MessageType::ALL {
+                if sender.may_send(message_type) {
+                    assert!(
+                        message_type.may_be_received_in(SessionState::AuthenticatedUnknown),
+                        "{sender_standing:?} {message_type:?}"
+                    );
+                }
+            }
+        }
+        // After confirmation: everything a confirmed side may send is legal
+        // in a confirmed session, and ContactAccept and Close are also
+        // legal for a peer that is not confirmed yet.
+        let (mut sender, _) = authenticated(Standing::Accepted);
+        sender.receive(&Message::ContactAccept).unwrap();
+        for message_type in MessageType::ALL {
+            if sender.may_send(message_type) {
+                assert!(message_type.may_be_received_in(SessionState::AuthenticatedContact));
+            }
         }
     }
 
@@ -664,13 +1026,13 @@ mod tests {
 
         // The deleter receives the ContactAccept and answers with Close.
         assert_eq!(
-            deleter.receive(MessageType::ContactAccept),
+            deleter.receive(&Message::ContactAccept),
             Ok(vec![Action::SendClose])
         );
         // The keeper receives Close. It was never confirmed and never
         // delivered or sent anything else.
         assert_eq!(
-            keeper.receive(MessageType::Close),
+            keeper.receive(&Message::Close),
             Ok(vec![Action::Disconnect])
         );
         assert_eq!(keeper.state(), SessionState::Closed);
@@ -680,10 +1042,13 @@ mod tests {
     #[test]
     fn confirmed_sessions_ignore_late_confirmation_messages() {
         let (mut session, _) = authenticated(Standing::Accepted);
-        session.receive(MessageType::ContactAccept).unwrap();
-        assert_eq!(session.receive(MessageType::ContactAccept), Ok(Vec::new()));
-        assert_eq!(session.receive(MessageType::ContactRequest), Ok(Vec::new()));
-        assert!(session.receive(MessageType::AuthProof).is_err());
+        session.receive(&Message::ContactAccept).unwrap();
+        assert_eq!(session.receive(&Message::ContactAccept), Ok(Vec::new()));
+        assert_eq!(
+            session.receive(&from_peer(MessageType::ContactRequest)),
+            Ok(Vec::new())
+        );
+        assert!(session.receive(&from_peer(MessageType::AuthProof)).is_err());
     }
 
     #[test]
@@ -691,20 +1056,32 @@ mod tests {
         for standing in [Standing::None, Standing::Accepted] {
             let (mut session, _) = authenticated(standing);
             assert_eq!(
-                session.receive(MessageType::Close),
+                session.receive(&Message::Close),
                 Ok(vec![Action::Disconnect])
             );
             assert_eq!(session.state(), SessionState::Closed);
-            assert_eq!(session.receive(MessageType::ChatMessage), Ok(Vec::new()));
+            assert_eq!(
+                session.receive(&from_peer(MessageType::ChatMessage)),
+                Ok(Vec::new())
+            );
         }
     }
 
     #[test]
-    fn local_close_sends_close_only_on_an_authenticated_session() {
+    fn local_close_in_every_state() {
         let mut session = Session::new();
         assert_eq!(session.close(), vec![Action::Disconnect]);
         assert_eq!(session.state(), SessionState::Closed);
         assert_eq!(session.close(), Vec::new());
+
+        let mut session = Session::new();
+        session.stream_established().unwrap();
+        assert_eq!(session.close(), vec![Action::Disconnect]);
+
+        // Before the identities are proven nothing is sent, not even Close.
+        let mut session = awaiting_verification();
+        assert_eq!(session.close(), vec![Action::Disconnect]);
+        assert_eq!(session.state(), SessionState::Closed);
 
         let (mut session, _) = authenticated(Standing::None);
         assert_eq!(session.close(), vec![Action::SendClose]);
@@ -712,44 +1089,59 @@ mod tests {
         assert_eq!(session.close(), Vec::new());
         session.stream_closed();
         assert_eq!(session.state(), SessionState::Closed);
+
+        let (mut session, _) = authenticated(Standing::Accepted);
+        session.receive(&Message::ContactAccept).unwrap();
+        assert_eq!(session.close(), vec![Action::SendClose]);
+        assert_eq!(session.state(), SessionState::Closing);
     }
 
     #[test]
-    fn blocking_a_contact_looks_like_any_other_close() {
+    fn blocking_or_removing_a_contact_looks_like_any_other_close() {
         // First half of T-ORACLE-7.
-        let (mut blocked, _) = authenticated(Standing::Accepted);
-        blocked.receive(MessageType::ContactAccept).unwrap();
-        let (mut quit, _) = authenticated(Standing::Accepted);
-        quit.receive(MessageType::ContactAccept).unwrap();
+        let confirmed = || {
+            let (mut session, _) = authenticated(Standing::Accepted);
+            session.receive(&Message::ContactAccept).unwrap();
+            session
+        };
+        let mut quit = confirmed();
+        let reference = (quit.close(), quit.state());
 
-        assert_eq!(blocked.peer_blocked(), quit.close());
-        assert_eq!(blocked.state(), quit.state());
+        let mut blocked = confirmed();
+        assert_eq!((blocked.peer_blocked(), blocked.state()), reference);
         assert_eq!(blocked.standing(), Standing::Blocked);
+
+        let mut removed = confirmed();
+        assert_eq!((removed.contact_removed(), removed.state()), reference);
+        assert_eq!(removed.standing(), Standing::None);
+
+        // Nothing is delivered afterwards.
+        assert_eq!(
+            removed.receive(&from_peer(MessageType::ChatMessage)),
+            Ok(Vec::new())
+        );
     }
 
     #[test]
     fn the_session_never_moves_backwards() {
         // Drive sessions with every pair of messages and check that each
         // step is a legal transition or no transition at all.
-        let standings = [
-            Standing::None,
-            Standing::Declined,
-            Standing::Blocked,
-            Standing::Requested,
-            Standing::Accepted,
-        ];
-        for standing in standings {
-            for first in MessageType::ALL {
-                for second in MessageType::ALL {
+        let messages: Vec<Message> = MessageType::ALL.into_iter().map(from_peer).collect();
+        for standing in ALL_STANDINGS {
+            for first in &messages {
+                for second in &messages {
                     let (mut session, _) = authenticated(standing);
                     for message in [first, second] {
                         let before = session.state();
-                        let _ = session.receive(message);
+                        let result = session.receive(message);
                         let after = session.state();
                         assert!(
                             before == after || before.can_transition_to(after),
-                            "{standing:?} {first:?} {second:?}: {before:?} -> {after:?}"
+                            "{standing:?}: {before:?} -> {after:?}"
                         );
+                        if result.is_ok_and(|actions| actions.contains(&Action::Deliver)) {
+                            assert_eq!(before, SessionState::AuthenticatedContact);
+                        }
                     }
                 }
             }
