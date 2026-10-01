@@ -23,7 +23,7 @@ Provisional, and not to be built on yet:
 
 | Area | State | Decided where |
 | --- | --- | --- |
-| Session cryptography | decided: Noise XK with a transport key certified in the contact card. Open: the crypto provider under the Noise library (F-R1) | ADR 0002 |
+| Session cryptography | decided: Noise XK with a transport key certified in the contact card, through `snow` with a resolver over the current crates | ADR 0002 |
 | Probing behavior of the handshake | a caller without the contact card gets no reply; with it, it learns that the key holder is live. Public keys are never access control | ADR 0002 |
 | Tails Onion Service integration | blocked on experiments on a current Tails | PLATFORM_TAILS.md 3.4 |
 | Whonix isolation and firewall integration | measures specified, untested | PLATFORM_WHONIX.md 4.5 |
@@ -70,6 +70,10 @@ Decided at the start of Phase 2, in ADR 0002:
 - A new transport key is a new card epoch. There is no overlap period and
   no revocation in version 1.
 - TLS 1.3 with raw public keys was the other finalist and was not chosen.
+- The Noise library is `snow` 0.10.0. Its primitives come from a resolver
+  in the session crate over `x25519-dalek` 3, `chacha20poly1305` 0.11 and
+  `sha2` 0.11, so that the transport key is held in a type that clears
+  it and the key checks of rule F5 sit in one place (F-R1).
 
 ## 1. Answers
 
@@ -199,7 +203,7 @@ Nothing below is settled. Each is described in the document named.
 
 | Id | Question | Document |
 | --- | --- | --- |
-| F-R1 to F-R6 | Open points of the session layer: crypto provider under the Noise library, no external review of the binding rules, one maintainer of the library, no revocation of transport keys, stale cards towards parties without a record, no binding to the onion address | ADR 0002 |
+| F-R2 to F-R6 | Open points of the session layer: no external review of the binding rules, one maintainer of the library, no revocation of transport keys, stale cards towards parties without a record, no binding to the onion address | ADR 0002 |
 | P1 | Padding block size | PROTOCOL.md 17 |
 | P2 | Bind the session to the dialed onion key | PROTOCOL.md 17 |
 | P3 | Epoch after restoring a backup | PROTOCOL.md 17 |
@@ -233,9 +237,9 @@ choice is made in the phase that first needs them.
 | `sha3` | 0.11 or 0.12, decided with the Tor backend | onion address checksum | 3 |
 | `data-encoding` | 2.11 | base32, base64 | 1 |
 | `unicode-normalization` | 0.1.25 | NFC for the vault passphrase only; not used by the protocol | 4 |
-| `getrandom` | 0.3 or 0.4 | CSPRNG | 1 |
+| `getrandom` | 0.3 (decided) | CSPRNG | 2 |
 | `zeroize`, `subtle` | 1.9, 2.6 | secret handling | 1 |
-| `snow` or `rustls` | not chosen | session layer (ADR 0002) | 2 |
+| `snow`, `x25519-dalek`, `chacha20poly1305` | 0.10.0, 3.0.0, 0.11.0 (decided) | session layer (ADR 0002) | 2 |
 | `tokio` | 1.53 (LTS) | runtime | 3 |
 | `tracing` | 0.1.44 | logging | 3 |
 | `argon2`, `chacha20poly1305`, `hkdf` | 0.6, 0.11 | vault | 4 |
@@ -246,11 +250,9 @@ choice is made in the phase that first needs them.
 | `libfuzzer-sys`, `arbitrary` | 0.4, 1.4 | fuzzing | 1 |
 
 The cryptographic crates are those of the current RustCrypto and dalek
-generation; `DEPENDENCIES.md` section 2 records the decision. `snow` 0.10
-depends on the previous generation, and mixing the two would put two
-versions of the same cryptographic crate into the binary, which
-`deny.toml` forbids. ADR 0002 has to resolve that if it selects `snow`.
+generation; `DEPENDENCIES.md` section 2 records the decision. The stock
+resolver of `snow` 0.10 depends on the previous generation. Monolith does
+not use it; ADR 0002, F-R1, says why.
 
 Not used: `anyhow` in libraries, `serde` for anything signed or on the wire,
-any HTTP client, any resolver. A session library and its crypto back end
-are not chosen; see ADR 0002.
+any HTTP client, any DNS resolver.

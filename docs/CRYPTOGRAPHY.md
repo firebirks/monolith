@@ -24,10 +24,10 @@ Tor's own onion service encryption and does not replace any of it.
 | Purpose | Primitive | Implementation |
 | --- | --- | --- |
 | Identity signatures | Ed25519, RFC 8032, PureEdDSA | `ed25519-dalek` |
-| Session handshake and transport | `Noise_XK_25519_ChaChaPoly_SHA256`, Noise revision 34 | `snow`; the crypto provider is open, see ADR 0002, F-R1 |
-| Session key exchange | X25519, RFC 7748 | with the provider |
-| Session cipher | ChaCha20-Poly1305, RFC 8439 | with the provider |
-| Session hash and key derivation | SHA-256, HMAC-SHA256 in the Noise HKDF | with the provider |
+| Session handshake and transport | `Noise_XK_25519_ChaChaPoly_SHA256`, Noise revision 34 | `snow`, with the resolver of the session crate (ADR 0002, F-R1) |
+| Session key exchange | X25519, RFC 7748 | `x25519-dalek` |
+| Session cipher | ChaCha20-Poly1305, RFC 8439 | `chacha20poly1305` |
+| Session hash and key derivation | SHA-256, HMAC-SHA256 in the Noise HKDF | `sha2`; HMAC and HKDF as `snow` builds them from it |
 | Fingerprint, file digest | SHA-256 | `sha2` |
 | Onion address checksum | SHA3-256 | `sha3` (not in use yet) |
 | Vault key derivation | Argon2id, RFC 9106 | `argon2` (not in use yet) |
@@ -356,11 +356,11 @@ path.
 | Secret | Generated | Lifetime | Stored | Cloned | Erased |
 | --- | --- | --- | --- | --- | --- |
 | Identity private key | by Monolith | until the user discards the identity | vault, or memory in ephemeral mode | no | by its type on drop |
-| Transport private key | by Monolith, independently | until replaced by a card with a greater epoch | vault, or memory in ephemeral mode | one copy per handshake, into the Noise state | by its type on drop; the copy as the provider allows (F-R1) |
+| Transport private key | by Monolith, independently | until replaced by a card with a greater epoch | vault, or memory in ephemeral mode | one copy per handshake, into the Noise state | by its type on drop; the copy when the handshake ends |
 | Onion Service private key | by Tor or by Monolith | until the endpoint is retired | vault, or memory in ephemeral mode | no | by its type on drop |
-| Noise ephemeral private key | per handshake | one handshake | never | no | as the provider allows (F-R1) |
+| Noise ephemeral private key | per handshake | one handshake | never | no | when the handshake ends |
 | Chaining key and handshake hash | by Noise | one handshake | never | no | not by `snow` |
-| Frame cipher keys | by Noise | one session, at most 24 hours | never | no | as the provider allows (F-R1) |
+| Frame cipher keys | by Noise | one session, at most 24 hours | never | no | when the session ends |
 | Invitation capability | by Monolith | until revoked | vault | no | by its type on drop |
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
 
@@ -371,13 +371,24 @@ Compromise of the identity key, the transport key or the Onion Service key
 does not reveal past sessions: after message 3 the keys depend on an
 exchange between two ephemeral keys.
 
-Erasure: Monolith's own secret types zeroize on drop. `snow` erases
-nothing it holds; that is an open finding of its 2024 audit. What this
-means for the transport key and the cipher keys depends on the crypto
-provider, which is the open point F-R1 of ADR 0002. In no case does
-erasure reach copies the compiler made, freed memory that was reused,
-pages that were swapped out, or crash dumps. This is listed as a limit,
-not hidden.
+Erasure: Monolith's own secret types zeroize on drop. So do the objects
+of the resolver that hold a key for `snow`: the copy of the transport
+private key, the ephemeral private key and the cipher keys are held in
+types that clear their memory when the handshake or the session is
+dropped (ADR 0002, F-R1).
+
+`snow` erases nothing it holds itself; that is an open finding of its 2024
+audit. This leaves, uncleared, in memory that `snow` owns: the chaining
+key of a handshake, the results of the Diffie-Hellman operations on its
+stack, and the intermediate values of HMAC and HKDF, among them copies of
+the cipher keys on their way into the resolver. Someone who can read the
+freed memory of the process shortly after a handshake can find keys of
+that session there. The transport private key is not among these values:
+`snow` passes it to the resolver by reference and keeps no copy.
+
+In no case does erasure reach copies the compiler made, freed memory that
+was reused, pages that were swapped out, or crash dumps. This is listed as
+a limit, not hidden.
 
 Secrets are not locked into RAM. Doing so needs `mlock`, which needs
 `unsafe` or a dependency that wraps it. On a system with swap, secrets can
@@ -415,11 +426,10 @@ Monolith manages them, the Onion Service private keys.
 
 ## 11. Open points
 
-The questions Q1 to Q11 of earlier drafts are closed by ADR 0002. What
-remains is listed there:
+The questions Q1 to Q11 of earlier drafts are closed by ADR 0002, and so
+is the choice of the crypto provider (F-R1). What remains is listed
+there:
 
-- F-R1. The crypto provider under `snow`, and with it how far key material
-  is erased.
 - F-R2. The five rules have no external review.
 - F-R3. `snow` has one maintainer.
 - F-R4 and F-R5. No revocation of a transport key, and a stale card is

@@ -1,9 +1,9 @@
 # ADR 0002: Session protocol
 
 Status: decided. The session layer is Noise XK with a transport key that
-the identity certifies in the contact card. One point is open and has to
-be closed in this record before code is written: the crypto provider under
-the Noise library (F-R1).
+the identity certifies in the contact card, run through `snow` with a
+crypto resolver of Monolith's own over the current RustCrypto and dalek
+crates.
 Date: 2026-10-01
 
 ## Context
@@ -50,8 +50,10 @@ the signed contact card (F). F was compared with D and selected.
 - There is no identity proof message and no signature during a session.
 - Order: the responder is authenticated first, in the second message. The
   initiator reveals its transport key and identity in the third.
-- Library: `snow` 0.10.0.
-- Crypto provider: open, F-R1.
+- Library: `snow` 0.10.0, without its default features.
+- Crypto provider: a resolver in the session crate over `x25519-dalek`
+  3.0.0, `chacha20poly1305` 0.11.0 and `sha2` 0.11.0, with randomness
+  from `getrandom`. F-R1 below gives the reasons.
 
 `PROTOCOL.md` sections 3, 4, 6, 10.2 and 11 give the bytes.
 `CRYPTOGRAPHY.md` gives the properties and the key lifecycle.
@@ -162,7 +164,7 @@ specifies itself and that no standard or published analysis covers.
 | Known deployments | a signature over h: one found | same | TLS 1.3 everywhere; raw public keys with `rustls`: iroh, over QUIC | XK with a static key published in a signed record: I2P NTCP2; Lightning (XK with the node key); Tor's ntor handshake has the same shape for one side |
 | MSRV | 1.85 | 1.85 | `rustls` 1.71, `ring` 1.66 | 1.85 |
 | Licence | Apache-2.0 OR MIT | same | Apache-2.0 OR ISC OR MIT; `ring` Apache-2.0 AND ISC | Apache-2.0 OR MIT |
-| Transitive footprint (measured) | 23 crates more than today | same | 17 crates more than today | 23 with the stock resolver; fewer with a resolver over current crates |
+| Transitive footprint (measured) | 23 crates more than today | same | 17 crates more than today | 13 crates more than today with the resolver that was chosen; 18 to 23 with the stock resolver |
 | Unsafe and non-Rust code | `snow` forbids unsafe | same | `rustls` forbids unsafe; `ring` contains C and assembly | `snow` forbids unsafe |
 | Long-term maintenance | one maintainer; key erasure requested since 2017 | same | `rustls` well staffed, 0.24 and 1.0 planned for late 2026; `ring` without a release since 2025-03 | as A |
 | Forward secrecy | yes | yes | yes; resumption and early data disabled | yes |
@@ -184,8 +186,8 @@ specifies itself and that no standard or published analysis covers.
 | Parser before authentication | 192 bytes, fixed | fixed, less | the TLS handshake parser: variable messages and extensions, up to 64 KiB per message | 48 bytes, fixed; then 48 and 235 |
 | Fuzzability | glue is small | same | glue is small; `rustls` is fuzzed upstream | glue is small |
 | Test vectors | deterministic handshakes through a test hook in `snow` | same | a deterministic handshake needs a test-only provider | deterministic; reproduced by an independent implementation |
-| Zeroization | `snow` clears nothing | same | `rustls` clears what it holds; `ring` does not | `snow` clears nothing; what the provider holds depends on F-R1 |
-| Duplicate dependencies | a second `curve25519-dalek` and `sha2`, or a resolver of our own | same | `getrandom` 0.2 next to 0.3 | as A; see F-R1 |
+| Zeroization | `snow` clears nothing | same | `rustls` clears what it holds; `ring` does not | the resolver clears the keys it holds; `snow` clears nothing of its own (F-R1) |
+| Duplicate dependencies | a second `curve25519-dalek` and `sha2`, or a resolver of our own | same | `getrandom` 0.2 next to 0.3 | none in the product; `rand_core` 0.9 next to 0.10 through the property-test crate (F-R1) |
 | Tails and Whonix | pure Rust | pure Rust | needs a C compiler; Debian 13 packages older versions | pure Rust |
 
 ## Why F and not D
@@ -387,10 +389,10 @@ Key lifecycle:
 | Secret | Generated | Lives | Stored | Erased |
 | --- | --- | --- | --- | --- |
 | Identity private key | by Monolith | until the identity is discarded | vault | by its type; needed only to issue a card |
-| Transport private key | by Monolith, independently | until replaced by a new card epoch | vault | by its type; the copy in the Noise state depends on F-R1 |
-| Noise ephemeral key | by the session crate, OS CSPRNG | one handshake | never | depends on F-R1 |
+| Transport private key | by Monolith, independently | until replaced by a new card epoch | vault | by its type; the copy in the Noise state by the resolver, when the handshake ends |
+| Noise ephemeral key | by the session crate, OS CSPRNG | one handshake | never | by the resolver, when the handshake ends |
 | Chaining key | by Noise | one handshake | never | not by `snow` |
-| Frame cipher keys | by Noise | one session | never | depends on F-R1 |
+| Frame cipher keys | by Noise | one session | never | by the resolver, when the session ends |
 | Invitation capability | by Monolith | until revoked | vault | by its type |
 
 Erasure on drop removes the copies a type controls. It does not reach
@@ -423,17 +425,63 @@ No Monolith peer has been deployed, so nothing on any network is affected.
 
 ## Risks and open points
 
-- F-R1. Library and provider. Open. Three ways to run XK through `snow`:
-  its stock resolver, which brings a second `curve25519-dalek`, `sha2` and
-  `chacha20poly1305` and leaves the transport key in memory it never
-  clears; its `ring` resolver, which has no X25519 and so cannot serve
-  this suite alone; or a resolver of Monolith's own over `x25519-dalek`
-  3, `chacha20poly1305` 0.11 and `sha2` 0.11, as libsignal and
-  rust-libp2p do, which keeps the transport key in an erasing type, at
-  the cost of security-sensitive glue of ours that has to reproduce the
-  test vectors. Avoiding duplicate crates is not a reason for the third;
-  erasing a long-term key would be. To be decided with evidence, in this
-  record, before any session code.
+- F-R1. Library and provider. Closed: `snow` with a resolver of
+  Monolith's own. `snow` takes its primitives through four traits
+  (Diffie-Hellman, cipher, hash, random source), and there were three
+  ways to fill them.
+
+  1. The stock resolver. Its Diffie-Hellman object keeps the private key
+     in a plain byte array and never clears it. For Monolith that key is
+     the transport key, a long-term secret, and a copy of it would be
+     left behind in freed memory by every handshake, in either
+     direction. This is finding TOB-SNOW-8 of the 2024 audit and is
+     open upstream since 2017. The stock resolver also checks nothing
+     about a public key and accepts an all-zero result, so rule F5 would
+     have to be enforced around it. It is built on `curve25519-dalek` 4,
+     `chacha20poly1305` 0.10 and `sha2` 0.10, next to the versions
+     Monolith already uses.
+  2. The `ring` resolver. It has no X25519, so it cannot serve this
+     suite alone, and it needs a C compiler.
+  3. A resolver in the session crate over `x25519-dalek` 3.0.0,
+     `chacha20poly1305` 0.11.0 and `sha2` 0.11.0, with `getrandom` as
+     the random source. The private key lives in `StaticSecret`, which
+     is cleared when dropped. The cipher keys are cleared when dropped.
+     The Diffie-Hellman function is where F5 is enforced: it refuses a
+     public key that is not canonical or is of small order, and an
+     all-zero result, so the rule holds for every key that reaches a
+     Diffie-Hellman operation, whichever message it came from.
+
+  The third was chosen, for the erasure of a long-term key and for
+  having F5 in one place. That it avoids a second copy of three
+  cryptographic crates was not a reason and would not have been enough.
+
+  What it costs: security-sensitive glue that Monolith owns, of a few
+  hundred lines. It contains no cryptographic construction. Each
+  function hands its arguments to one library call: X25519, one AEAD
+  seal or open with the Noise nonce layout, SHA-256 update and
+  finalize, a read from the operating system source. HMAC and HKDF stay
+  those of `snow`. libsignal and rust-libp2p run `snow` in the same
+  way.
+
+  Evidence. A prototype of the resolver ran the handshake of
+  `PROTOCOL.md` section 16.1 with the fixed keys given there and
+  produced the same three messages, the same handshake hash and the
+  same first frame as the independent implementation the vectors come
+  from, and as `snow` with its stock resolver. The session crate has to
+  carry the same test, so that the build fails if the resolver ever
+  differs. A first message whose ephemeral key is a point of small
+  order was refused in the Diffie-Hellman step.
+
+  What it does not solve. `snow` itself keeps the chaining key in its
+  handshake state and copies of derived keys on its stack, and clears
+  neither. The resolver cannot reach them. Section "Key lifecycle" and
+  `CRYPTOGRAPHY.md` section 8 say so.
+
+  Dependencies. `x25519-dalek` 3.0.0 depends on `rand_core` 0.10. The
+  property-test crate, which is used for tests only, depends on
+  `rand_core` 0.9. `deny.toml` gets an exception for that one pair, by
+  name and with the reason, and for nothing else. No cryptographic
+  crate is in the tree twice.
 - F-R2. The five rules have no external review. This is the first thing
   to put in front of a cryptographer if one becomes available, together
   with the handling of stale cards.
@@ -471,7 +519,7 @@ to be a secret, such as the invitation capability.
 - Q7: TLS with raw public keys works with `rustls`; not used.
 - Q8: the onion key is not bound; `PROTOCOL.md` P2 stays open.
 - Q9: limits as above; reconnect, no rekey.
-- Q10: open as F-R1.
+- Q10: `snow` with a resolver over the current crates, F-R1.
 - Q11: the responder first, by the pattern.
 
 ## Sources
