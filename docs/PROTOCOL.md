@@ -185,6 +185,11 @@ In terms of them:
   ContactRequest of 800 bytes, 804 with its header. For P = 1024 this is
   one block, which is where "exactly 1040" comes from.
 
+A pair of values is usable only if P is larger than the 4-byte message
+header, P + T is at most 65535, and the largest message that is legal
+before confirmation fits in the largest plaintext. An implementation
+refuses any other pair.
+
 The limits 1040, 64528, 64512, 64508 and 64490 elsewhere in this document
 are these rules evaluated for P = 1024 and T = 16. An implementation takes
 P and T as parameters, so that changing either is a change of two numbers
@@ -315,6 +320,9 @@ Receiving, in `AuthenticatedUnknown`:
   do.
 - Anything from a peer with no record, declined or blocked: section 12.
 
+Before any of this, a ContactRequest is checked against the proven identity
+(section 8.3). That check does not depend on the record of the peer.
+
 A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 
 ## 7. Session states
@@ -337,7 +345,15 @@ A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 A session never moves backwards, and every session passes through
 `AuthenticatedUnknown`. The implementation of this table is
 `MessageType::may_be_received_in` and `SessionState::can_transition_to` in
-`monolith-protocol`.
+`monolith-protocol`; the logic of sections 6.4 and 12 is `session::Session`.
+
+A session enters `AuthenticatedUnknown` only for the identity that the
+AuthProof received on it named. The session logic refuses to be told that
+identities are proven if no AuthProof arrived, or if the proven identity is
+not the one the proof named.
+
+After a Close was sent or received, the receiver stops reading from the
+stream. Bytes still in flight are dropped without being decoded.
 
 A session leaves `AuthenticatedUnknown` within `UNKNOWN_SESSION_TIMEOUT`,
 by confirmation or by closing.
@@ -402,7 +418,10 @@ answered within `PONG_TIMEOUT` ends the session.
 
 `card` must be a valid contact card (section 11) whose identity key equals
 the identity the sender proved in AuthProof, and it must not carry a
-capability of its own.
+capability of its own. A request with the card of another identity is a
+protocol violation: the stream is closed and nothing is sent. The receiver
+makes this check before it looks at what it holds about the sender, so the
+outcome is the same for a stranger, a blocked identity and a contact.
 
 `capability` is the invitation capability copied from the card of the peer
 being asked (section 12).
@@ -411,7 +430,8 @@ Receiver behavior is in sections 6.4 and 12. The receiver's response to a
 well-formed request from an identity it neither requested nor accepted is
 always the same: it sends Close.
 
-Received in `AuthenticatedContact`, a ContactRequest is ignored.
+Received in `AuthenticatedContact`, a ContactRequest is validated in the
+same way and then ignored.
 
 ### 8.4 ContactAccept (0x0011)
 
@@ -471,8 +491,8 @@ assigned. A Profile equal to the stored one causes no event.
     [139] card   the sender's contact card, no capability
 
 `card` must be a valid contact card whose identity key equals the sender's
-proven identity. The receiver compares it with what it has pinned for this
-contact:
+proven identity; a card of another identity is a protocol violation. The
+receiver compares it with what it has pinned for this contact:
 
 - greater epoch: recorded as a pending endpoint change. In version 1 the
   change takes effect after the user confirms it;
@@ -530,8 +550,17 @@ Every text field rejects:
 - Bidirectional controls are rejected: U+061C, U+200E, U+200F, U+202A to
   U+202E, U+2066 to U+2069.
 - Zero-width and invisible format characters are rejected: U+00AD, U+034F,
-  U+180E, U+200B to U+200D, U+2060 to U+2064, U+FEFF, U+FFF9 to U+FFFB,
-  U+E0000 to U+E007F.
+  U+180E, U+200B to U+200D, U+2060 to U+2065, U+206A to U+206F, U+FEFF,
+  U+FFF9 to U+FFFB, U+1D173 to U+1D17A, U+E0000 to U+E007F.
+- Characters that are drawn as nothing or as a blank without being format
+  characters or whitespace are rejected: U+115F, U+1160, U+3164, U+FFA0
+  (Hangul fillers), U+17B4, U+17B5 (Khmer inherent vowels), U+2800 (blank
+  braille pattern), U+FFFC (object replacement character).
+- Variation selectors (U+FE00 to U+FE0F, U+E0100 to U+E01EF) are allowed.
+  Emoji and some scripts need them, and they do not hide text. The list
+  above is a list of known invisible characters, not a proof that two
+  names that look the same are the same; section 10 is what identifies a
+  contact.
 - U+0020 is the only whitespace character allowed. Every other character
   with the Unicode White_Space property is rejected, and the text must not
   begin or end with U+0020.
@@ -571,18 +600,32 @@ Fingerprints are compared out of band. A display name is never a substitute.
 
 ### 10.1 Valid keys and signatures
 
-A 32-byte string is a valid identity key if it decodes to a point on the
-curve, encoding that point again gives the same 32 bytes, and the point is
-not of small order.
+A 32-byte string is a valid key if all of these hold:
+
+- it decodes to a point on the curve;
+- encoding that point again gives the same 32 bytes;
+- the point is not of small order;
+- the point has no torsion component: multiplying it by the order of the
+  prime-order subgroup gives the identity element.
+
+Together they say that the key is a canonical encoding of a point in the
+prime-order subgroup other than the identity element, which is what every
+honestly generated key is. The last condition is the test Tor applies to
+the key in an onion address.
+
+The same definition is used for identity keys and for onion service keys.
+Honest key generation never produces a point with a torsion component. If
+such points were accepted, the holder of one secret could present up to
+eight public keys, the honest one plus each point of small order, and
+produce signatures that verify under each of them: with a few attempts
+under strict verification, and with none under rules that multiply by the
+cofactor. Refusing them keeps one secret from standing behind several
+pinned identities, whatever verification rules a later implementation
+uses.
 
 A signature is valid if it verifies under the strict rules of the Ed25519
 implementation: the scalar is canonical and the R component is not of small
 order.
-
-An onion service key is valid if it is valid as an identity key is and, in
-addition, has no torsion component: multiplying the point by the order of
-the prime-order subgroup gives the identity element. This is the test Tor
-applies to the key in an onion address.
 
 ## 11. Contact card
 
@@ -655,8 +698,11 @@ In this order; the first failure rejects the card:
 6. The length is exactly what `endpoint_count` and `flags` imply. There are
    no trailing bytes.
 7. `identity_public_key` is a valid identity key (section 10.1).
-8. Every endpoint is a valid onion service key (section 10.1), and no two
-   are equal.
+8. Every endpoint is a valid onion service key (section 10.1), no two are
+   equal, and none is equal to `identity_public_key`. The identity key and
+   the key of an Onion Service are separate keys with separate uses; a card
+   that uses one key for both is rejected, and an implementation does not
+   sign one.
 9. The signature is valid (section 10.1) over the signed bytes built from
    the decoded fields.
 
@@ -672,7 +718,7 @@ Base32 uses the RFC 4648 alphabet without padding. The canonical form is
 upper case, which lets a QR code use alphanumeric mode. The longest card in
 version 1 is 258 characters.
 
-Parsing: input longer than `MAX_CONTACT_CARD_TEXT_LEN` characters is
+Parsing: input longer than `MAX_CONTACT_CARD_TEXT_LEN` bytes is
 rejected. ASCII space, tab, CR and LF are removed wherever they occur.
 Letters are accepted in either case. Any other character, a wrong prefix, or
 unused trailing bits that are not zero reject the input. The decoded bytes
@@ -746,8 +792,12 @@ Processing of the first message received in `AuthenticatedUnknown` from a
 peer that the local side neither requested nor accepted. Peers that are
 requested or accepted are handled by section 6.4.
 
-1. Validate the body. A malformed message is a violation.
-2. If the message is a ContactRequest, decide whether to queue it. The
+1. Validate the body, including that the card in a ContactRequest is the
+   sender's own (section 8.3). A malformed message is a violation.
+2. Send Close. This happens whether a request will be queued or dropped and
+   whatever the reason, so the sender cannot tell the cases apart. A
+   blocked sender sees exactly what a stranger with a bad invitation sees.
+3. If the message is a ContactRequest, decide whether to queue it. The
    request is dropped if the sender is on the block list or the declined
    list, if the policy mode does not admit it, if the capability does not
    match a valid one (compared in constant time), if a request from this
@@ -755,9 +805,9 @@ requested or accepted are handled by section 6.4.
    requests with the same capability (or, in open mode, with none) are
    already pending, or if the queue holds `MAX_PENDING_CONTACT_REQUESTS`
    entries. A ContactAccept is dropped.
-3. Send Close. This happens whether a request was queued or dropped and
-   whatever the reason, so the sender cannot tell the cases apart. A
-   blocked sender sees exactly what a stranger with a bad invitation sees.
+
+The Close is sent before the decision is taken, so that the work of taking
+it happens after the last thing the sender can observe.
 
 If no message arrives within `UNKNOWN_FIRST_MESSAGE_TIMEOUT`, the session
 is closed. When `MAX_UNKNOWN_SESSIONS` such sessions exist and another peer
@@ -831,8 +881,11 @@ Requirements that follow:
 - There is no message, field or code that states a reason. Nothing in the
   protocol says "blocked", "former contact" or "not in the contact list",
   and no such thing may be added for peers that are not confirmed contacts.
-- An accepted contact that is blocked while a session is open sees Close,
-  as for any other end of a session, and from then on the first row.
+- An accepted contact that is blocked or deleted while a session is open
+  sees Close, as for any other end of a session, and from then on the
+  first row.
+- A ContactRequest that carries the card of another identity is a protocol
+  violation in every row.
 
 What a peer can still learn, by design:
 
@@ -974,8 +1027,9 @@ reconnecting, and that neither side depends on the other's schedule.
 
 ### 16.1 Vectors that exist
 
-Both were reproduced by a second implementation written independently of
-the Rust code, from the field lists in this document.
+The fingerprint and the contact card were reproduced by a second
+implementation written independently of the Rust code, from the field
+lists in this document.
 
 Identity: the key pair of RFC 8032 section 7.1, test 1.
 
@@ -1010,6 +1064,24 @@ consists of 32 bytes 0x02.
 The text form is one string; it is wrapped here for the page, and the
 parser ignores the line breaks.
 
+Strict verification (section 10.1): a signature whose R component is the
+identity element. Verification by the plain Ed25519 equation accepts it for
+this key and the message `message` (7 ASCII bytes); a conforming
+implementation rejects it.
+
+    seed       0707070707070707070707070707070707070707070707070707070707070707
+    key        ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c
+    signature  0100000000000000000000000000000000000000000000000000000000000000
+               d4c5323131ff9683cfb3d30197c786c9043f1052d6c2d5293f19d6f36b911104
+
+Key validity (section 10.1), as rules for building the inputs:
+
+- every 32-byte string whose y coordinate is p + k for k from 0 to 18, with
+  either sign bit, is rejected;
+- the identity element with the sign bit set is rejected;
+- a valid key plus the point of order 2 is rejected, both as an identity
+  key and as an onion service key.
+
 ### 16.2 Vectors still to be produced
 
 - onion address derivation from a key, with the Tor backend;
@@ -1040,3 +1112,14 @@ P5. Whether to drop `Profile.profile_text` from version 1.
 
 P6. Receiver behavior when ChatMessage ordering matters across reconnects.
     The current design preserves the sender's queue order and nothing more.
+
+P7. Display names and Unicode versions. Whether a name is in Normalization
+    Form C is decided with the tables of the Unicode version that the
+    implementation was built with. Two builds with different tables can
+    disagree about a name that uses characters assigned in between: the
+    sender considers it valid and the receiver rejects the message, which
+    is a protocol violation and ends the session. Options: restrict names
+    to characters assigned in a fixed Unicode version named in this
+    document; drop the NFC requirement and normalize for display only; or
+    make an invalid display name in a Profile a field that is ignored
+    instead of a violation. Not decided.

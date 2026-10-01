@@ -134,7 +134,12 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 - Mechanism: the session table is keyed by the identity key verified in
   AuthProof. A session has no entry in it before `IdentityAuth` completes.
-- Tests: T-DUP-*.
+  `Session` keeps the proven identity, cannot be authenticated without an
+  AuthProof that named it, and treats a card of any other identity inside
+  a message as a violation.
+- Tests: T-DUP-*, `session::tests` (authentication without a proof, a
+  proof that named another identity, foreign cards in ContactRequest and
+  EndpointUpdate for every standing).
 
 ### S22. Duplicate-connection handling happens only after authentication
 
@@ -185,10 +190,13 @@ Test area names refer to `docs/TEST_PLAN.md`.
 ### S19. Application data is accepted only in an authenticated state
 
 - Mechanism: `MessageType::may_be_received_in(SessionState)` is evaluated
-  for every decoded message before its body is parsed. The handler for an
-  application message takes a session reference type that can only be
-  constructed in `AuthenticatedContact`.
-- Tests: `message::tests`, T-PROTO-STATE (arbitrary message sequences).
+  for every frame before its body is parsed, and again by
+  `Session::receive`, which is the only producer of the `Deliver` action
+  and produces it in `AuthenticatedContact` alone. The application-side
+  handler type that can only be constructed for a confirmed session comes
+  with `monolith-core`.
+- Tests: `message::tests`, T-PROTO-STATE (arbitrary event sequences in the
+  property tests and in the `session_sequence` fuzz target).
 
 ### S26. The parser never buffers an attacker-controlled amount of data
 

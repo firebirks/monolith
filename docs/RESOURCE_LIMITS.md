@@ -156,7 +156,7 @@ Token buckets. "Burst" is the capacity, "per minute" the refill.
 | `INBOUND_CONNECTION_RATE` | 32 | 120 | All inbound streams. |
 | `UNKNOWN_SESSION_RATE` | 8 | 12 | All unknown identities together. |
 | `CHAT_MESSAGE_RATE` | 60 | 300 | Per contact. |
-| `CONTROL_MESSAGE_RATE` | 120 | 600 | Per contact. |
+| `CONTROL_MESSAGE_RATE` | 120 | 600 | Per contact. Ping, Pong, MessageAck, EndpointUpdate, file control messages, and ContactRequest or ContactAccept received after confirmation. |
 | `FILE_OFFER_RATE` | 4 | 6 | Per contact. |
 | `PROFILE_UPDATE_RATE` | 8 | 8 | Per contact. Not below the session rate, because a profile is sent once per session. |
 | `CONTACT_SESSION_RATE` | 6 | 6 | New authenticated sessions per identity. |

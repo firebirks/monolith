@@ -170,6 +170,7 @@ Nothing below is settled. Each is described in the document named.
 | P4 | Invisible declines cause indefinite retries | PROTOCOL.md 17 |
 | P5 | Keep profile text in version 1 | PROTOCOL.md 17 |
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
+| P7 | Display names when two builds have different Unicode tables | PROTOCOL.md 17 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
