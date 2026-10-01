@@ -80,7 +80,6 @@ not need to be unpredictable, but one source is simpler to audit than two.
   scalar must be canonical, and public keys or R values of small order are
   rejected. Plain RFC 8032 verification accepts some of these and is not
   used. A public key must also be canonically encoded; PROTOCOL.md section
-  10.1 gives the exact tests. A public key must also be canonically encoded; PROTOCOL.md section
   10.1 gives the exact tests.
 - The identity key is distinct from the Onion Service key and from every
   Noise key. Compromise of the Onion Service key lets an attacker receive
@@ -259,13 +258,6 @@ reached:
 
 Noise allows 2^64 - 1 messages per cipher state. The frame limit stays a
 factor of 2^32 below that.
-
-The age limit is deferred while a file transfer is active, so that the
-clock does not cut a transfer off, but never beyond 48 hours in total. No
-new transfer starts on a session that is past 24 hours.
-
-Both sides count. A receiver that sees its peer exceed the frame or byte
-limit treats that as a violation.
 
 The age limit is deferred while a file transfer is active, so that the
 clock does not cut a transfer off, but never beyond 48 hours in total. No

@@ -80,10 +80,6 @@ A session that reaches 24 hours while a file transfer is active stays open
 until the transfer ends, starts no new transfer, and is closed at 48 hours
 whatever happens. A 4 GiB file needs under 50 KiB/s to finish in a day.
 
-A session that reaches 24 hours while a file transfer is active stays open
-until the transfer ends, starts no new transfer, and is closed at 48 hours
-whatever happens. A 4 GiB file needs under 50 KiB/s to finish in a day.
-
 ## 4. Timeouts (local)
 
 | Constant | Value | Purpose |
@@ -122,8 +118,6 @@ whatever happens. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | `MAX_ACTIVE_TRANSFERS` | 4 | |
 | `MAX_ENDED_TRANSFER_IDS` | 64 | Per session; lets messages that crossed an abort be discarded. |
 | `FILE_FREE_SPACE_MARGIN` | 64 MiB | Free space required beyond the declared size. |
-| `MAX_ENDED_TRANSFER_IDS` | 64 | Per session; lets messages that crossed an abort be discarded. |
-| `FILE_FREE_SPACE_MARGIN` | 64 MiB | Free space required beyond the declared size. |
 | `MAX_QUEUED_MESSAGES_PER_CONTACT` | 256 | Outbound, not yet acknowledged. |
 | `MAX_QUEUED_MESSAGE_BYTES` | 64 MiB | Outbound, all contacts. |
 | `MESSAGE_DEDUP_WINDOW` | 1024 | Received message identifiers kept per contact. |
@@ -144,19 +138,9 @@ accepted or dialed until one ends. With more than 256 contacts online at the
 same time, some stay unreachable. The value is a starting point to be
 measured, not a claim that 256 is enough for 1000 contacts.
 
-When the budget for strangers is full and another one authenticates, the
-oldest that has not yet sent its message is closed.
-
-When the contact session budget is full, no further contact session is
-accepted or dialed until one ends. With more than 256 contacts online at the
-same time, some stay unreachable. The value is a starting point to be
-measured, not a claim that 256 is enough for 1000 contacts.
-
 When the pending-request queue is full, new requests are dropped and the user
 is told once that the queue is full. Existing entries are not evicted; an
 attacker must not be able to push a legitimate request out. At most 8
-pending requests may share one invitation, so a leaked invitation cannot
-fill the queue. At most 8
 pending requests may share one invitation, so a leaked invitation cannot
 fill the queue.
 
