@@ -16,6 +16,7 @@
 //! - [`codec`]: bounded readers and writers for the fixed-layout encoding.
 //! - [`text`]: validated text fields.
 //! - [`card`]: contact cards, their signed bytes and their text form.
+//! - [`body`]: message bodies.
 //!
 //! What is not here: the handshake, the identity proof and frame encryption.
 //! The session layer is not decided; see `docs/adr/0002-session-protocol.md`.
@@ -23,6 +24,7 @@
 // Tests build their own inputs and do arithmetic and indexing on them.
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
 
+pub mod body;
 pub mod card;
 pub mod codec;
 pub mod limits;
