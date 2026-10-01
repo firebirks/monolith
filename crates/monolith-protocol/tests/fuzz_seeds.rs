@@ -295,11 +295,17 @@ fn committed_seeds_are_current() {
         );
     }
 
-    // Nothing else lives in the seed directories.
-    let mut on_disk = 0;
-    for target in fs::read_dir(&root).unwrap() {
-        on_disk += fs::read_dir(target.unwrap().path()).unwrap().count();
-    }
+    // Nothing else lives in the seed directories of these targets. The
+    // seeds of the session targets belong to `monolith-session`, which
+    // checks its own directories.
+    let targets: std::collections::BTreeSet<&str> = expected
+        .iter()
+        .map(|(path, _)| path.split('/').next().unwrap())
+        .collect();
+    let on_disk: usize = targets
+        .iter()
+        .map(|target| fs::read_dir(root.join(target)).unwrap().count())
+        .sum();
     assert_eq!(
         on_disk,
         expected.len(),

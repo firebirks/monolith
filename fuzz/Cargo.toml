@@ -12,6 +12,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 monolith-identity = { path = "../crates/monolith-identity" }
 monolith-protocol = { path = "../crates/monolith-protocol" }
+monolith-session = { path = "../crates/monolith-session" }
 
 # This project is not a member of the main workspace. It needs a nightly
 # toolchain and has its own lock file.
@@ -20,6 +21,11 @@ monolith-protocol = { path = "../crates/monolith-protocol" }
 [profile.release]
 debug = true
 overflow-checks = true
+
+# cargo-fuzz sets `--cfg fuzzing`. The session crate has code under it that
+# gives the handshake targets fixed ephemeral keys.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [[bin]]
 name = "base32"
@@ -73,6 +79,27 @@ bench = false
 [[bin]]
 name = "session_sequence"
 path = "fuzz_targets/session_sequence.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake_responder"
+path = "fuzz_targets/handshake_responder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake_initiator"
+path = "fuzz_targets/handshake_initiator.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "session_frames"
+path = "fuzz_targets/session_frames.rs"
 test = false
 doc = false
 bench = false

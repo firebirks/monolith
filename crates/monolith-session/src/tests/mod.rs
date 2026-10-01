@@ -4,4 +4,5 @@ mod contacts;
 mod frames;
 mod handshake;
 mod properties;
+mod seeds;
 mod vectors;
