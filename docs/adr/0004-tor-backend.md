@@ -91,7 +91,9 @@ to work there.
 
 - `MaxStreams` value and semantics (TOR_CONTROL_SURFACE.md C1).
 - Proof-of-work queue parameters (C2).
-- Behavior of `ADD_ONION` under `Sandbox 1` on Tails (PLATFORM_TAILS.md T1).
+- Behavior of `ADD_ONION` under `Sandbox 1` on Tails. This blocks the
+  implementation of the backend until it has been tested on Tails
+  (PLATFORM_TAILS.md section 3.4).
 
 ## Sources
 

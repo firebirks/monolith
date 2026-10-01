@@ -4,12 +4,19 @@ Tails is a primary target. Monolith on Tails uses the Tor that Tails runs,
 goes through Tails' control port filter, and by default keeps nothing after
 shutdown.
 
-Status: design. Nothing here has been run on Tails yet. Statements about
-Tails come from the sources in section 9, read on 2026-10-01. Configuration
-quotes are from the Tails source at tag 7.11; the current release is 7.14
-and its release notes list no change to networking, the firewall or
-onion-grater. Items that could only be inferred are marked "unverified" and
-are part of the test matrix in `TEST_PLAN.md`.
+Status: not final, and blocked. Nothing here has been run on Tails. The
+central assumption, that Monolith can create an Onion Service through
+Tails' filtered control port, has not been tested and is contradicted by a
+statement in Tor's own manual (section 3.3). Section 3.4 lists what has to
+be verified by experiment on a current supported Tails release. Those
+checks are a precondition for Phase 3 (Tor integration) and Phase 6
+(Tails): neither starts before the results are recorded in this document.
+
+Statements about Tails come from the sources in section 9, read on
+2026-10-01. Configuration quotes are from the Tails source at tag 7.11; the
+current release is 7.14 and its release notes list no change to networking,
+the firewall or onion-grater. Items that could only be inferred are marked
+"unverified".
 
 ## 1. Platform facts
 
@@ -129,10 +136,44 @@ systems without a filter the port is chosen by the operating system.
 
 Tails runs Tor with `Sandbox 1`. The tor manual says that launching Onion
 Services through the control port is not supported with the syscall sandbox.
-OnionShare on Tails creates its services exactly this way and is a shipped,
-tested feature, so in practice it works. This contradiction is recorded
-here because Monolith depends on the same behavior; it is the first thing
-the Tails test matrix checks.
+OnionShare on Tails appears to create its services exactly this way and is
+a shipped feature. Which of the two statements describes current Tails is
+not known. It has to be found out by experiment, not by reading.
+
+### 3.4 Preconditions to verify on Tails
+
+To be done on a current supported Tails release, before any Tor code is
+written for Monolith. Each result is recorded here with the Tails version
+and date.
+
+1. Whether `ADD_ONION` works through the filtered control interface on port
+   951 while Tor runs with `Sandbox 1`.
+2. How the current OnionShare publishes its Onion Services in that same
+   environment: which commands it sends, through which path, and what Tor
+   answers.
+3. Whether OnionShare gets integration that an ordinary third-party package
+   cannot have: its own network namespace, firewall rule, AppArmor profile,
+   a profile shipped in the image, or anything in Tor's configuration.
+4. The exact onion-grater profile Monolith needs, starting from the draft in
+   `integrations/tails/` and corrected against what the filter accepts.
+5. Whether a production-quality installation requires inclusion in Tails or
+   at least a Debian package, or whether a documented per-session
+   installation is as far as a third-party package can go.
+6. For any workaround that comes up: whether it weakens Tor's sandbox or
+   changes Tails' Tor configuration.
+
+Rules for this work:
+
+- Tor's sandbox is not disabled to make Monolith work.
+- Tails' global Tor settings are not modified.
+- No instruction in Monolith's documentation tells a user to do either.
+- If the current Tails architecture does not let an ordinary third-party
+  package create an Onion Service, this document says so plainly, and
+  Monolith on Tails is then limited to what Tails supports until that
+  changes upstream. An honest limitation is preferred to an unsafe
+  workaround.
+
+Status of each item: not verified.
 
 ## 4. What is needed, by situation
 
@@ -239,8 +280,10 @@ suspend). Monolith does not claim more than Tails does. Tails uses no swap.
 
 ## 7. Open items
 
-T1. Confirm on Tails that `ADD_ONION` with `MaxStreams`, `MaxStreamsCloseCircuit`
-    and `PoWDefensesEnabled` works through onion-grater with `Sandbox 1`.
+T1. The preconditions of section 3.4. Blocking for Phase 3 and Phase 6.
+    Beyond the basic question they include whether `ADD_ONION` with
+    `MaxStreams`, `MaxStreamsCloseCircuit` and `PoWDefensesEnabled` is
+    accepted.
 
 T2. Confirm that onion-grater matches an unconfined `/usr/bin/monolith` by
     executable path, and that the draft profile parses and behaves as

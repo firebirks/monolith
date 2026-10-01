@@ -253,6 +253,21 @@ Confirmation tests (T-CONFIRM)
 
 ## 9. Tails matrix (T-PLAT-TAILS, manual)
 
+Before any Tor code is written (precondition for Phase 3 and Phase 6), on a
+current supported Tails release, without changing Tor's configuration and
+with the sandbox left on:
+
+| Id | Check |
+| --- | --- |
+| T-PLAT-TAILS-PRE-1 | `ADD_ONION` through port 951 with `Sandbox 1`: accepted or refused, with Tor's reply |
+| T-PLAT-TAILS-PRE-2 | Trace of what OnionShare sends to publish a service, and through which path |
+| T-PLAT-TAILS-PRE-3 | List of integration OnionShare has that a third-party package lacks |
+| T-PLAT-TAILS-PRE-4 | The draft Monolith profile loaded and exercised; corrected profile recorded |
+| T-PLAT-TAILS-PRE-5 | What an installation that survives reboot requires |
+| T-PLAT-TAILS-PRE-6 | For each workaround considered: effect on the sandbox and on Tor's configuration |
+
+The results go into `PLATFORM_TAILS.md` section 3.4.
+
 Per release, on the current Tails:
 
 | Case | Expectation |
@@ -264,7 +279,7 @@ Per release, on the current Tails:
 | Tor disconnect and reconnect | service removed and re-created; sessions resume |
 | Profile installed | service publishes through port 951 |
 | Profile missing | clear error naming the filtered command; no crash |
-| `ADD_ONION` under `Sandbox 1` | works (open item T1) |
+| `ADD_ONION` under `Sandbox 1` | as established by T-PLAT-TAILS-PRE-1 |
 | Two Monolith peers | chat both ways |
 | File transfer | offer, accept, complete; reject; abort |
 | Restart of the application | ephemeral identity gone; persistent identity back |

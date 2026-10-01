@@ -134,7 +134,7 @@ Nothing below is settled. Each is described in the document named.
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
-| T1 to T5 | Tails: sandbox, profile matching, AppArmor, namespaces, Debian packaging | PLATFORM_TAILS.md 7 |
+| T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 3 and Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W5 | Whonix: profile test, Qubes addressing, firewall drop-in, upstreaming, SocksPort choice | PLATFORM_WHONIX.md 9 |
 | ST1 to ST5 | Message store, locking, previous generation, permission checks, passphrase policy | STORAGE.md 9 |
 | A2 to A4 | Minimum Rust version, configuration format, CLI parser | ARCHITECTURE.md 13 |
