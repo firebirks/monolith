@@ -18,11 +18,13 @@
 //! - [`card`]: contact cards, their signed bytes and their text form.
 //! - [`body`]: message bodies.
 //! - [`frame`]: the padded frame format and the bounded outer framing.
-//! - [`session`]: session states, contact confirmation.
+//! - [`session`]: session states, the standing of a peer, contact
+//!   confirmation.
 //! - [`duplicate`]: the duplicate-session rule.
 //!
-//! What is not here: the handshake, the identity proof and frame encryption.
-//! The session layer is not decided; see `docs/adr/0002-session-protocol.md`.
+//! What is not here: the handshake and frame encryption. They are in the
+//! session crate, which drives [`session::Session`] with what the handshake
+//! established. See `docs/adr/0002-session-protocol.md`.
 
 // Tests build their own inputs and do arithmetic and indexing on them.
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects))]

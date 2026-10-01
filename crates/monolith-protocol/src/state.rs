@@ -10,12 +10,14 @@
 pub enum SessionState {
     /// The transport stream is being established.
     Connecting,
-    /// Preambles and the cryptographic handshake are being exchanged.
+    /// The three handshake messages are being exchanged.
     CryptoHandshake,
-    /// The encrypted channel exists; identity proofs are being exchanged.
+    /// The handshake is complete. The checks on the peer's card and the
+    /// standing of the peer are being applied. No message is exchanged in
+    /// this state.
     IdentityAuth,
-    /// The peer's identity is proven. Whether the two sides are contacts
-    /// has not been confirmed on this session.
+    /// The peer's identity is authenticated. Whether the two sides are
+    /// contacts has not been confirmed on this session.
     AuthenticatedUnknown,
     /// Both sides hold each other as accepted contacts and have said so on
     /// this session.
@@ -47,7 +49,7 @@ impl SessionState {
         )
     }
 
-    /// Returns true if the peer's identity has been verified in this state.
+    /// Returns true if the peer's identity is authenticated in this state.
     pub const fn is_authenticated(self) -> bool {
         matches!(
             self,

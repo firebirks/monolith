@@ -4,11 +4,11 @@ use crate::SessionState;
 
 /// Message types of protocol version 1.
 ///
-/// The numeric codes are part of the wire format; see `docs/PROTOCOL.md`.
+/// The numeric codes are part of the wire format; see `docs/PROTOCOL.md`
+/// section 8. Code 0x0001 is not assigned: identities are established by
+/// the handshake, and no message exists for that.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MessageType {
-    /// Binds a Monolith identity to the encrypted session.
-    AuthProof,
     /// Announces that the sender is closing the session.
     Close,
     /// Keepalive probe.
@@ -44,8 +44,7 @@ pub enum MessageType {
 
 impl MessageType {
     /// Every message type, in code order.
-    pub const ALL: [Self; 16] = [
-        Self::AuthProof,
+    pub const ALL: [Self; 15] = [
         Self::Close,
         Self::Ping,
         Self::Pong,
@@ -66,7 +65,6 @@ impl MessageType {
     /// Returns the wire code of this message type.
     pub const fn code(self) -> u16 {
         match self {
-            Self::AuthProof => 0x0001,
             Self::Close => 0x0002,
             Self::Ping => 0x0003,
             Self::Pong => 0x0004,
@@ -88,7 +86,6 @@ impl MessageType {
     /// Returns the message type for a wire code, if the code is assigned.
     pub const fn from_code(code: u16) -> Option<Self> {
         Some(match code {
-            0x0001 => Self::AuthProof,
             0x0002 => Self::Close,
             0x0003 => Self::Ping,
             0x0004 => Self::Pong,
@@ -111,16 +108,17 @@ impl MessageType {
     /// Returns true if a peer may send this message while the session is in
     /// `state`.
     ///
-    /// This is the gate behind invariant S19: nothing but an identity proof
-    /// is accepted before authentication, and until a session is confirmed
-    /// as a contact session the peer can do nothing but ask or confirm.
+    /// This is the gate behind invariant S19: nothing is accepted before
+    /// the handshake authenticated the peer, and until a session is
+    /// confirmed as a contact session the peer can do nothing but ask or
+    /// confirm.
     pub const fn may_be_received_in(self, state: SessionState) -> bool {
         match state {
             SessionState::Connecting
             | SessionState::CryptoHandshake
+            | SessionState::IdentityAuth
             | SessionState::Closing
             | SessionState::Closed => false,
-            SessionState::IdentityAuth => matches!(self, Self::AuthProof),
             SessionState::AuthenticatedUnknown => {
                 matches!(
                     self,
@@ -130,7 +128,7 @@ impl MessageType {
             // ContactRequest and ContactAccept may still arrive after
             // confirmation when messages cross. They are validated like any
             // other message and then change nothing.
-            SessionState::AuthenticatedContact => !matches!(self, Self::AuthProof),
+            SessionState::AuthenticatedContact => true,
         }
     }
 }
@@ -164,21 +162,25 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_accepted_before_the_encrypted_channel_exists() {
+    fn nothing_is_accepted_before_the_peer_is_authenticated() {
         for message in MessageType::ALL {
             assert!(!message.may_be_received_in(SessionState::Connecting));
             assert!(!message.may_be_received_in(SessionState::CryptoHandshake));
+            assert!(!message.may_be_received_in(SessionState::IdentityAuth));
         }
     }
 
     #[test]
-    fn only_an_identity_proof_is_accepted_before_authentication() {
+    fn the_code_of_the_former_identity_proof_is_not_assigned() {
+        assert_eq!(MessageType::from_code(0x0001), None);
+        assert_eq!(MessageType::from_code(0x0000), None);
+        assert_eq!(MessageType::from_code(0x0002), Some(MessageType::Close));
+    }
+
+    #[test]
+    fn a_confirmed_session_accepts_every_message_type() {
         for message in MessageType::ALL {
-            let expected = message == MessageType::AuthProof;
-            assert_eq!(
-                message.may_be_received_in(SessionState::IdentityAuth),
-                expected
-            );
+            assert!(message.may_be_received_in(SessionState::AuthenticatedContact));
         }
     }
 
@@ -195,12 +197,6 @@ mod tests {
                 allowed.contains(&message)
             );
         }
-    }
-
-    #[test]
-    fn an_identity_proof_is_accepted_only_once() {
-        assert!(!MessageType::AuthProof.may_be_received_in(SessionState::AuthenticatedUnknown));
-        assert!(!MessageType::AuthProof.may_be_received_in(SessionState::AuthenticatedContact));
     }
 
     #[test]

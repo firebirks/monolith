@@ -26,9 +26,7 @@ use std::path::{Path, PathBuf};
 use monolith_identity::{
     EndpointEpoch, IdentitySecretKey, OnionServiceKey, TransportPublicKey, base32,
 };
-use monolith_protocol::body::{
-    AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId,
-};
+use monolith_protocol::body::{ContactRequest, FileChunk, Message, MessageId, TransferId};
 use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
 use monolith_protocol::frame::{
     FrameParams, OuterDecoder, decode_plaintext, encode_outer, encode_plaintext,
@@ -89,11 +87,6 @@ fn messages() -> Vec<Message> {
     let transfer = TransferId::from_bytes([0x33; 16]);
     let id = MessageId::from_bytes([0x44; 16]);
     let all = vec![
-        Message::AuthProof(Box::new(AuthProof {
-            identity: secret().public_key(),
-            features: 0,
-            signature: secret().sign(b"stands in for a real proof"),
-        })),
         Message::Close,
         Message::Ping([1; 8]),
         Message::Pong([1; 8]),
@@ -224,12 +217,12 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
     .encode_body()
     .unwrap();
     assert_eq!(chat.len(), 47);
-    let mut input = vec![0, 6, 1, 0, 0, 0, 6];
+    let mut input = vec![0, 6, 1, 0, 0, 0, 5];
     input.extend_from_slice(&chat);
-    input.push(2);
+    input.push(1);
     input.extend_from_slice(&[1; 8]);
     add("frame_stream/records_chat_ping.bin", input);
-    add("frame_stream/records_accept.bin", vec![1, 0, 1, 0, 0, 0, 5]);
+    add("frame_stream/records_accept.bin", vec![1, 0, 1, 0, 0, 0, 4]);
 
     // text_fields takes its input as it is.
     for (name, text) in [
@@ -247,22 +240,29 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
         add(&format!("text_fields/{name}.txt"), text.as_bytes().to_vec());
     }
 
-    // session_sequence: progress, standing, events. Events 0 to 15 are the
-    // message types, 16 to 19 are close, block, remove and stream closed;
-    // the high bit asks for a card of another identity.
+    // session_sequence: progress, standing, events. In an event, values 0
+    // to 14 of the low six bits are the message types and 15 to 18 are
+    // close, block, remove and stream closed. The two high bits select the
+    // card inside the message: 0x40 a later card of the peer, 0x80 a card
+    // of another identity, 0xc0 a card of the peer with another transport
+    // key.
     for (name, input) in [
-        ("contact_confirmed", vec![3, 4, 5, 6, 9, 2, 1]),
-        ("stranger_request", vec![3, 0, 4, 6]),
-        ("stranger_accept", vec![3, 0, 5]),
-        ("requested_accepts", vec![3, 3, 5, 6, 8]),
-        ("crossing_requests", vec![3, 3, 4, 5, 6]),
-        ("foreign_request", vec![3, 3, 0x84]),
-        ("foreign_update", vec![3, 4, 5, 0x89]),
-        ("blocked_while_open", vec![3, 4, 5, 6, 17, 6]),
-        ("removed_while_open", vec![3, 4, 5, 18, 5]),
-        ("local_close", vec![3, 4, 5, 16, 6, 19]),
-        ("before_the_proof", vec![2, 4, 6]),
-        ("proof_then_chat", vec![2, 4, 0, 6]),
+        ("contact_confirmed", vec![3, 4, 4, 5, 8, 1, 0]),
+        ("stranger_request", vec![3, 0, 3, 5]),
+        ("stranger_accept", vec![3, 0, 4]),
+        ("requested_accepts", vec![3, 3, 4, 5, 7]),
+        ("crossing_requests", vec![3, 3, 3, 4, 5]),
+        ("foreign_request", vec![3, 3, 0x83]),
+        ("foreign_update", vec![3, 4, 4, 0x88]),
+        ("later_card_request", vec![3, 3, 0x43]),
+        ("later_card_request_outbound", vec![7, 3, 0x43, 4]),
+        ("rekeyed_request_outbound", vec![7, 3, 0xc3]),
+        ("rekeyed_update", vec![3, 4, 4, 0xc8, 5]),
+        ("stale_card_request", vec![3, 5, 3, 5]),
+        ("blocked_while_open", vec![3, 4, 4, 5, 16, 5]),
+        ("removed_while_open", vec![3, 4, 4, 17, 4]),
+        ("local_close", vec![3, 4, 4, 15, 5, 18]),
+        ("before_authentication", vec![2, 4, 5]),
         ("before_the_handshake", vec![1, 0, 0]),
     ] {
         add(&format!("session_sequence/{name}.bin"), input);
@@ -406,6 +406,6 @@ fn seeds_are_accepted_by_what_they_are_meant_for() {
     // string is a valid input. They are checked for their shape only.
     for (path, content) in find("session_sequence/") {
         assert!(content.len() >= 3, "{path} has no event");
-        assert!(content[0] <= 7 && content[1] <= 4, "{path}");
+        assert!(content[0] <= 7 && content[1] <= 5, "{path}");
     }
 }

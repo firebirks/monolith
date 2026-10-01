@@ -25,10 +25,10 @@ use monolith_identity::{
     EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, TransportPublicKey,
     base32,
 };
-use monolith_protocol::body::{
-    AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId,
+use monolith_protocol::body::{ContactRequest, FileChunk, Message, MessageId, TransferId};
+use monolith_protocol::card::{
+    CardChange, ContactCard, EndpointSet, InvitationCapability, evaluate_card,
 };
-use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
 use monolith_protocol::duplicate::{Initiator, ProbeOutcome, Resolution, after_probe, resolve};
 use monolith_protocol::frame::{
     FrameParams, OuterDecoder, decode_plaintext, encode_outer, encode_plaintext,
@@ -37,7 +37,7 @@ use monolith_protocol::limits::{
     MAX_DISPLAY_NAME_LEN, MAX_DISPLAY_NAME_SCALARS, MAX_FILE_SIZE, MAX_FILENAME_LEN,
     MAX_FRAME_CIPHERTEXT_LEN,
 };
-use monolith_protocol::session::{Action, Session, Standing};
+use monolith_protocol::session::{Action, Admission, PeerRecord, Session, Standing};
 use monolith_protocol::text::{ChatText, DisplayName, Filename, IntroductionText, ProfileText};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
 use proptest::collection::vec;
@@ -178,14 +178,6 @@ fn arb_message() -> impl Strategy<Value = Message> {
         Just(Message::ContactAccept),
         any::<[u8; 8]>().prop_map(Message::Ping),
         any::<[u8; 8]>().prop_map(Message::Pong),
-        (any::<[u8; 32]>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(seed, features, s)| {
-            let secret = IdentitySecretKey::from_seed(&seed);
-            Message::AuthProof(Box::new(AuthProof {
-                identity: secret.public_key(),
-                features,
-                signature: secret.sign(&s),
-            }))
-        }),
         (
             arb_card(false),
             proptest::option::of(any::<[u8; 16]>()),
@@ -244,6 +236,7 @@ fn arb_standing() -> impl Strategy<Value = Standing> {
         Standing::None,
         Standing::Declined,
         Standing::Blocked,
+        Standing::StaleCard,
         Standing::Requested,
         Standing::Accepted,
     ])
@@ -253,34 +246,40 @@ fn arb_standing() -> impl Strategy<Value = Standing> {
 // Sessions
 // ---------------------------------------------------------------------------
 
-/// Seed of the identity that the peer of a test session proves.
+/// Seed of the identity of the peer of a test session.
 const PEER: [u8; 32] = [0x51; 32];
 
 /// Seed of an identity that is not the peer.
 const STRANGER: [u8; 32] = [0x77; 32];
 
-/// One message of every type, in the order of `MessageType::ALL`. Cards
-/// inside them are signed by the identity of `seed`.
-fn samples(seed: [u8; 32]) -> Vec<Message> {
-    let secret = IdentitySecretKey::from_seed(&seed);
+/// A card of the identity of `seed`. `variant` 0 is the card the identity
+/// presents in the handshake. Variant 1 is a later card with the same
+/// transport key and another endpoint. Variant 2 states another transport
+/// key.
+fn sample_card(seed: [u8; 32], variant: u8) -> ContactCard {
     let mut endpoint_seed = seed;
     endpoint_seed[0] ^= 0xff;
-    let card = ContactCard::sign(
-        &secret,
-        transport(seed).unwrap(),
-        EndpointEpoch::FIRST,
+    endpoint_seed[1] ^= variant;
+    let mut transport_bytes = seed;
+    if variant == 2 {
+        transport_bytes[0] ^= 0x01;
+    }
+    ContactCard::sign(
+        &IdentitySecretKey::from_seed(&seed),
+        transport(transport_bytes).unwrap(),
+        EndpointEpoch::new(u64::from(variant) + 1).unwrap(),
         EndpointSet::single(endpoint(endpoint_seed)),
         None,
     )
-    .unwrap();
+    .unwrap()
+}
+
+/// One message of every type, in the order of `MessageType::ALL`. The card
+/// inside them is the given one.
+fn samples(card: ContactCard) -> Vec<Message> {
     let transfer = TransferId::from_bytes([3; 16]);
     let id = MessageId::from_bytes([4; 16]);
     let all = vec![
-        Message::AuthProof(Box::new(AuthProof {
-            identity: secret.public_key(),
-            features: 0,
-            signature: secret.sign(b"stands in for a real proof"),
-        })),
         Message::Close,
         Message::Ping([1; 8]),
         Message::Pong([1; 8]),
@@ -320,21 +319,33 @@ fn samples(seed: [u8; 32]) -> Vec<Message> {
     all
 }
 
-static FROM_PEER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(PEER));
-static FROM_STRANGER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(STRANGER));
+/// The card the peer presents in the handshake of the test sessions.
+static PEER_CARD: LazyLock<ContactCard> = LazyLock::new(|| sample_card(PEER, 0));
+static FROM_PEER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(PEER_CARD.clone()));
+/// Messages of the peer that carry a later card of it, with the same
+/// transport key.
+static FROM_PEER_LATER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(sample_card(PEER, 1)));
+/// Messages of the peer that carry a card of it with another transport key.
+static FROM_PEER_REKEYED: LazyLock<Vec<Message>> = LazyLock::new(|| samples(sample_card(PEER, 2)));
+static FROM_STRANGER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(sample_card(STRANGER, 0)));
 static PEER_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity(PEER));
 
-/// The local identity of the test sessions.
-static LOCAL_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity([0x10; 32]));
+/// The seed of the local identity of the test sessions.
+const LOCAL: [u8; 32] = [0x10; 32];
 
-/// Returns true if the message carries a card that the peer did not sign.
+/// The local identity of the test sessions.
+static LOCAL_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity(LOCAL));
+
+/// Returns true if the message carries a card that an inbound session with
+/// the peer must refuse. This restates `docs/PROTOCOL.md` sections 8.3 and
+/// 8.8: the card of a request is the card of the handshake; the card of an
+/// endpoint update is any card of the peer's identity.
 fn has_foreign_card(message: &Message) -> bool {
-    let signer = match message {
-        Message::ContactRequest(request) => request.card.identity(),
-        Message::EndpointUpdate(card) => card.identity(),
-        _ => return false,
-    };
-    *signer != *PEER_IDENTITY
+    match message {
+        Message::ContactRequest(request) => request.card != *PEER_CARD,
+        Message::EndpointUpdate(card) => card.identity() != PEER_CARD.identity(),
+        _ => false,
+    }
 }
 
 /// A message as the peer would send it.
@@ -348,12 +359,21 @@ fn arb_session_message() -> impl Strategy<Value = Message> {
         |message_type: MessageType| -> Message { FROM_PEER[type_index(message_type)].clone() };
     let stranger =
         |message_type: MessageType| -> Message { FROM_STRANGER[type_index(message_type)].clone() };
+    let later = |message_type: MessageType| -> Message {
+        FROM_PEER_LATER[type_index(message_type)].clone()
+    };
+    let rekeyed = |message_type: MessageType| -> Message {
+        FROM_PEER_REKEYED[type_index(message_type)].clone()
+    };
     prop_oneof![
         6 => Just(peer(MessageType::ContactAccept)),
         6 => Just(peer(MessageType::ContactRequest)),
         2 => Just(stranger(MessageType::ContactRequest)),
         2 => Just(stranger(MessageType::EndpointUpdate)),
-        1 => Just(stranger(MessageType::AuthProof)),
+        1 => Just(later(MessageType::ContactRequest)),
+        1 => Just(later(MessageType::EndpointUpdate)),
+        1 => Just(rekeyed(MessageType::ContactRequest)),
+        1 => Just(rekeyed(MessageType::EndpointUpdate)),
         8 => (0..MessageType::ALL.len()).prop_map(|index| FROM_PEER[index].clone()),
     ]
 }
@@ -402,11 +422,7 @@ fn authenticated(standing: Standing) -> (Session, Vec<Action>) {
     let mut session = Session::inbound(*LOCAL_IDENTITY);
     session.stream_established().unwrap();
     session.handshake_completed().unwrap();
-    assert_eq!(
-        session.receive(&FROM_PEER[0]),
-        Ok(vec![Action::VerifyIdentityProof])
-    );
-    let first = session.identities_proven(*PEER_IDENTITY, standing).unwrap();
+    let first = session.authenticated(PEER_CARD.clone(), standing).unwrap();
     (session, first)
 }
 
@@ -728,6 +744,77 @@ proptest! {
     }
 
     #[test]
+    fn the_standing_of_an_inbound_peer_follows_the_table(
+        record in 0..5_usize,
+        pinned_epoch in 1..6_u64,
+        presented_epoch in 1..6_u64,
+        other_transport in any::<bool>(),
+        other_endpoint in any::<bool>(),
+    ) {
+        // PROTOCOL.md 6.2, restated: without a contact record the card is
+        // not compared. With one, a greater epoch keeps the record, the
+        // same epoch keeps it only for the same content, and everything
+        // else is the stale-card standing.
+        let card = |epoch: u64, changed_transport: bool, changed_endpoint: bool| {
+            let mut transport_bytes = PEER;
+            transport_bytes[0] ^= u8::from(changed_transport);
+            let mut endpoint_seed = PEER;
+            endpoint_seed[0] ^= 0xff;
+            endpoint_seed[1] ^= u8::from(changed_endpoint);
+            ContactCard::sign(
+                &IdentitySecretKey::from_seed(&PEER),
+                transport(transport_bytes).unwrap(),
+                EndpointEpoch::new(epoch).unwrap(),
+                EndpointSet::single(endpoint(endpoint_seed)),
+                None,
+            )
+            .unwrap()
+        };
+        let pinned = card(pinned_epoch, false, false);
+        let presented = card(presented_epoch, other_transport, other_endpoint);
+        let same_content = !other_transport && !other_endpoint;
+
+        let (record, as_recorded) = match record {
+            0 => (PeerRecord::None, Standing::None),
+            1 => (PeerRecord::Declined, Standing::Declined),
+            2 => (PeerRecord::Blocked, Standing::Blocked),
+            3 => (PeerRecord::Requested(&pinned), Standing::Requested),
+            _ => (PeerRecord::Accepted(&pinned), Standing::Accepted),
+        };
+        let change = if presented_epoch > pinned_epoch {
+            CardChange::Newer
+        } else if presented_epoch < pinned_epoch {
+            CardChange::Stale
+        } else if same_content {
+            CardChange::Unchanged
+        } else {
+            CardChange::Conflict
+        };
+        prop_assert_eq!(evaluate_card(&pinned, &presented), Ok(change));
+
+        let expected = if !as_recorded.is_contact_record() {
+            Admission { standing: as_recorded, card: None }
+        } else if matches!(change, CardChange::Newer | CardChange::Unchanged) {
+            Admission { standing: as_recorded, card: Some(change) }
+        } else {
+            Admission { standing: Standing::StaleCard, card: Some(change) }
+        };
+        prop_assert_eq!(record.admit(&presented), Ok(expected));
+
+        // A stale card never leaves the peer with a standing that can
+        // become a contact session.
+        let admitted = record.admit(&presented).unwrap();
+        if matches!(admitted.card, Some(CardChange::Stale | CardChange::Conflict)) {
+            prop_assert!(!admitted.standing.is_contact_record());
+        }
+        // The record of another identity is refused.
+        let stranger = sample_card(STRANGER, 0);
+        if as_recorded.is_contact_record() {
+            prop_assert_eq!(record.admit(&stranger), Err(ProtocolError::IdentityMismatch));
+        }
+    }
+
+    #[test]
     fn whitespace_in_a_card_text_changes_nothing(
         card in arb_card(true),
         gaps in vec((any::<prop::sample::Index>(), prop::sample::select(vec![' ', '\t', '\r', '\n'])), 0..40),
@@ -756,7 +843,6 @@ proptest! {
         message_type in arb_message_type(),
         body in vec(any::<u8>(), 0..3000),
     ) {
-        prop_assume!(message_type != MessageType::AuthProof);
         let plaintext = encode_plaintext(&PARAMS, message_type, &body).unwrap();
         prop_assert_eq!(plaintext.len() % 1024, 0);
         let (decoded_type, decoded_body) =
@@ -780,7 +866,6 @@ proptest! {
         // A valid frame with one byte replaced. If it is still accepted,
         // encoding what was decoded gives the same bytes: no frame has two
         // readings.
-        prop_assume!(message_type != MessageType::AuthProof);
         let mut plaintext = encode_plaintext(&PARAMS, message_type, &body).unwrap();
         let index = position.unwrap_or_else(|| anywhere.index(plaintext.len()));
         plaintext[index] = value;
@@ -801,7 +886,6 @@ proptest! {
         position in any::<prop::sample::Index>(),
         value in 1..=255_u8,
     ) {
-        prop_assume!(message_type != MessageType::AuthProof);
         let mut plaintext = encode_plaintext(&PARAMS, message_type, &body).unwrap();
         let padding_start = 4 + body.len();
         prop_assume!(padding_start < plaintext.len());
@@ -1032,7 +1116,7 @@ proptest! {
     }
 
     #[test]
-    fn a_session_without_identity_proof_delivers_nothing(
+    fn a_session_that_is_not_authenticated_delivers_nothing(
         messages in vec(arb_session_message(), 1..12),
         steps in 0..=2_u8,
     ) {
@@ -1056,19 +1140,17 @@ proptest! {
     }
 
     #[test]
-    fn a_session_is_authenticated_only_as_the_identity_its_proof_named(
+    fn a_session_is_authenticated_only_after_the_handshake_and_as_the_right_identity(
         steps in 0..=2_u8,
         outbound in any::<bool>(),
-        proof in proptest::option::of(any::<bool>()),
-        claim_stranger in any::<bool>(),
+        claim in 0..3_u8,
         standing in arb_standing(),
     ) {
-        // The caller says "identities proven" for the peer or for a
-        // stranger, on a session that got some way into the handshake and
-        // received a proof by the peer, by the stranger, or none. That is
-        // accepted in one case only: the handshake finished, and a proof
-        // arrived that named the identity the caller claims. A session
-        // that dialed the peer does not even take a proof by the stranger.
+        // The handshake layer reports the peer, a stranger or the local
+        // identity as authenticated, on a session that got some way into
+        // the handshake. That is accepted in one case only: the handshake
+        // finished, the identity is not the local one, and a session that
+        // dialed the peer is not told about anybody else.
         let mut session = if outbound {
             Session::outbound(*LOCAL_IDENTITY, *PEER_IDENTITY)
         } else {
@@ -1080,19 +1162,15 @@ proptest! {
         if steps >= 2 {
             session.handshake_completed().unwrap();
         }
-        let mut proof_named_stranger = None;
-        if let Some(by_stranger) = proof {
-            let message = if by_stranger { &FROM_STRANGER[0] } else { &FROM_PEER[0] };
-            if session.receive(message).is_ok() {
-                proof_named_stranger = Some(by_stranger);
-            }
-        }
-        let taken = steps == 2 && proof.is_some() && !(outbound && proof == Some(true));
-        prop_assert_eq!(proof_named_stranger.is_some(), taken);
-
-        let claimed = if claim_stranger { identity(STRANGER) } else { *PEER_IDENTITY };
-        let outcome = session.identities_proven(claimed, standing);
-        if proof_named_stranger == Some(claim_stranger) {
+        let card = match claim {
+            0 => PEER_CARD.clone(),
+            1 => sample_card(STRANGER, 0),
+            _ => sample_card(LOCAL, 0),
+        };
+        let claimed = *card.identity();
+        let outcome = session.authenticated(card, standing);
+        let accepted = steps == 2 && claim != 2 && !(outbound && claim == 1);
+        if accepted {
             prop_assert!(outcome.is_ok());
             prop_assert_eq!(session.state(), SessionState::AuthenticatedUnknown);
             prop_assert_eq!(session.peer(), Some(&claimed));
@@ -1101,6 +1179,11 @@ proptest! {
             prop_assert!(outcome.is_err());
             prop_assert!(!session.state().is_authenticated());
             prop_assert_eq!(session.peer(), None);
+            // Nothing can be received on it afterwards.
+            if let Ok(actions) = session.receive(&FROM_PEER[type_index(MessageType::ContactAccept)]) {
+                prop_assert!(actions.is_empty());
+            }
+            prop_assert!(!session.state().is_authenticated());
         }
     }
 
@@ -1112,6 +1195,7 @@ proptest! {
         let reference = transcript(Standing::None, &events);
         prop_assert_eq!(&transcript(Standing::Declined, &events), &reference);
         prop_assert_eq!(&transcript(Standing::Blocked, &events), &reference);
+        prop_assert_eq!(&transcript(Standing::StaleCard, &events), &reference);
     }
 
     #[test]

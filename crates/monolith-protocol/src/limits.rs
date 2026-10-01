@@ -13,8 +13,10 @@ use core::time::Duration;
 // Protocol version
 // ---------------------------------------------------------------------------
 
-/// Protocol major version spoken by this implementation.
-pub const PROTOCOL_MAJOR: u16 = 1;
+/// Protocol version spoken by this implementation. It is not a field on
+/// the wire: the label in the handshake prologue carries it, and nothing is
+/// negotiated (`docs/PROTOCOL.md` section 3).
+pub const PROTOCOL_VERSION: u16 = 1;
 
 /// Virtual port of a Monolith Onion Service. Peers connect to this port on
 /// the `.onion` name. Not a limit, but it lives here so that every protocol
@@ -22,30 +24,38 @@ pub const PROTOCOL_MAJOR: u16 = 1;
 pub const ONION_VIRTUAL_PORT: u16 = 29170;
 
 // ---------------------------------------------------------------------------
-// Handshake records. All of them have a fixed size; a peer cannot make the
-// handshake carry a variable amount of data.
+// Handshake messages. All of them have a fixed size; a peer cannot make the
+// handshake carry a variable amount of data. See docs/PROTOCOL.md section 4.
 // ---------------------------------------------------------------------------
 
-/// Length of the cleartext preamble each side sends before the handshake.
-pub const PREAMBLE_LEN: usize = 8;
-
-/// Length of a Curve25519 public key as used by the session handshake.
+/// Length of an X25519 public key: a transport key or an ephemeral key of
+/// the session handshake.
 pub const DH_PUBLIC_KEY_LEN: usize = 32;
 
 /// Length of a ChaCha20-Poly1305 authentication tag.
 pub const AEAD_TAG_LEN: usize = 16;
 
-/// Length of the first handshake message: one ephemeral key.
-pub const HANDSHAKE_MSG1_LEN: usize = DH_PUBLIC_KEY_LEN;
+/// Length of the label at the start of the handshake prologue. The label
+/// names the protocol and its version.
+pub const SESSION_LABEL_LEN: usize = 19;
 
-/// Length of the second handshake message: an ephemeral key, an encrypted
-/// static key with its tag, and the tag of an empty payload.
-pub const HANDSHAKE_MSG2_LEN: usize =
-    DH_PUBLIC_KEY_LEN + DH_PUBLIC_KEY_LEN + AEAD_TAG_LEN + AEAD_TAG_LEN;
+/// Length of the handshake prologue: the label and the identity public key
+/// of the responder.
+pub const HANDSHAKE_PROLOGUE_LEN: usize = SESSION_LABEL_LEN + 32;
 
-/// Length of the third handshake message: an encrypted static key with its
-/// tag, and the tag of an empty payload.
-pub const HANDSHAKE_MSG3_LEN: usize = DH_PUBLIC_KEY_LEN + AEAD_TAG_LEN + AEAD_TAG_LEN;
+/// Length of the first handshake message: an ephemeral key and the tag of
+/// an empty payload.
+pub const HANDSHAKE_MSG1_LEN: usize = DH_PUBLIC_KEY_LEN + AEAD_TAG_LEN;
+
+/// Length of the second handshake message: an ephemeral key and the tag of
+/// an empty payload.
+pub const HANDSHAKE_MSG2_LEN: usize = DH_PUBLIC_KEY_LEN + AEAD_TAG_LEN;
+
+/// Length of the third handshake message: the initiator's transport key,
+/// encrypted, with its tag, and the initiator's contact card, encrypted,
+/// with its tag. The card is the one without invitation capability.
+pub const HANDSHAKE_MSG3_LEN: usize =
+    DH_PUBLIC_KEY_LEN + AEAD_TAG_LEN + CONTACT_CARD_BASE_LEN + AEAD_TAG_LEN;
 
 // ---------------------------------------------------------------------------
 // Transport frames
@@ -80,11 +90,8 @@ pub const MIN_FRAME_CIPHERTEXT_LEN: usize = MIN_FRAME_PLAINTEXT_LEN + FRAME_SESS
 /// Largest value the 16-bit frame length prefix can carry.
 pub const MAX_FRAME_LENGTH_VALUE: usize = 65_535;
 
-/// Bytes the session layer adds to each frame.
-///
-/// Provisional: 16 is the authentication tag of the session candidate that
-/// is written up. Framing code takes the overhead as a parameter. See
-/// `docs/adr/0002-session-protocol.md`.
+/// Bytes the session layer adds to each frame: the authentication tag of a
+/// Noise transport message. Framing code takes the overhead as a parameter.
 pub const FRAME_SESSION_OVERHEAD_LEN: usize = AEAD_TAG_LEN;
 
 /// Length of the header inside the plaintext: message type and body length.
@@ -169,10 +176,6 @@ pub const CONTACT_CARD_BASE_LEN: usize = CONTACT_CARD_FIXED_LEN + CONTACT_CARD_E
 pub const MAX_CONTACT_CARD_LEN: usize = CONTACT_CARD_FIXED_LEN
     + MAX_ACTIVE_ENDPOINTS * CONTACT_CARD_ENDPOINT_LEN
     + INVITATION_CAPABILITY_LEN;
-
-/// Length of an AuthProof body: identity key, feature bits, signature.
-/// Provisional, like the session layer it belongs to.
-pub const AUTH_PROOF_BODY_LEN: usize = 32 + 8 + SIGNATURE_LEN;
 
 /// Largest body of a message that is legal before a session is confirmed.
 /// That message is a ContactRequest: a card without invitation, the
@@ -529,9 +532,14 @@ pub const MAX_RENDERED_MESSAGE_LINES: usize = 200;
 // ---------------------------------------------------------------------------
 
 const _: () = {
-    assert!(HANDSHAKE_MSG1_LEN == 32);
-    assert!(HANDSHAKE_MSG2_LEN == 96);
-    assert!(HANDSHAKE_MSG3_LEN == 64);
+    assert!(HANDSHAKE_PROLOGUE_LEN == 51);
+    assert!(HANDSHAKE_MSG1_LEN == 48);
+    assert!(HANDSHAKE_MSG2_LEN == 48);
+    assert!(HANDSHAKE_MSG3_LEN == 235);
+    // The third handshake message has a fixed size because a card of
+    // version 1 has exactly one endpoint. More endpoints per card need a
+    // new protocol label, which is where this size would change.
+    assert!(MAX_ACTIVE_ENDPOINTS == 1);
 
     assert!(MAX_FRAME_PLAINTEXT_LEN == 64_512);
     assert!(MAX_FRAME_CIPHERTEXT_LEN == 64_528);
@@ -546,8 +554,6 @@ const _: () = {
     assert!(MAX_CONTACT_CARD_LEN <= MAX_MESSAGE_BODY_LEN);
 
     assert!(MAX_UNCONFIRMED_BODY_LEN == 832);
-    assert!(AUTH_PROOF_BODY_LEN == 104);
-    assert!(AUTH_PROOF_BODY_LEN <= MAX_UNCONFIRMED_BODY_LEN);
     // With the working padding block, every message before confirmation
     // fits in one block.
     assert!(MAX_UNCONFIRMED_BODY_LEN + MESSAGE_HEADER_LEN <= FRAME_PADDING_BLOCK_LEN);

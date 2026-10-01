@@ -12,15 +12,16 @@ use monolith_identity::IdentityError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ProtocolError {
-    /// The preamble did not carry the expected magic value.
-    BadPreamble,
-    /// The peer speaks a protocol major version this build does not.
+    /// A structure carries a version this build does not know.
     UnsupportedVersion,
     /// The cryptographic handshake failed.
     HandshakeFailed,
-    /// The identity proof was missing, malformed or did not verify.
+    /// The handshake completed, but it did not establish an identity for
+    /// the peer: the key it authenticated is not the one in the card the
+    /// peer presented, or the peer is the local identity.
     AuthenticationFailed,
-    /// The proven identity differs from the one pinned for this contact.
+    /// The peer is not the identity that was dialed, or a card inside a
+    /// message does not belong to the authenticated peer.
     IdentityMismatch,
     /// A frame length was outside the permitted range.
     FrameLengthOutOfRange,
@@ -61,7 +62,6 @@ pub enum ProtocolError {
 impl fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::BadPreamble => "bad preamble",
             Self::UnsupportedVersion => "unsupported protocol version",
             Self::HandshakeFailed => "handshake failed",
             Self::AuthenticationFailed => "authentication failed",

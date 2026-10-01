@@ -11,8 +11,9 @@
 //!   session layer adds. See [`encode_outer`] and [`OuterDecoder`].
 //!
 //! Nothing here does I/O or cryptography. The padding block and the session
-//! overhead are parameters ([`FrameParams`]), because neither is decided:
-//! see `docs/adr/0003-wire-format.md` and `docs/adr/0002-session-protocol.md`.
+//! overhead are parameters ([`FrameParams`]). The overhead is the 16-byte
+//! tag of the session layer (`docs/adr/0002-session-protocol.md`); the
+//! padding block is not decided (`docs/adr/0003-wire-format.md`).
 
 use core::fmt;
 
@@ -32,7 +33,7 @@ pub struct FrameParams {
 
 impl FrameParams {
     /// The working values: a 1024-byte padding block and 16 bytes of session
-    /// overhead. Both are provisional.
+    /// overhead. The padding block is provisional.
     pub const PROVISIONAL: Self = Self {
         padding_block: FRAME_PADDING_BLOCK_LEN,
         overhead: FRAME_SESSION_OVERHEAD_LEN,
@@ -137,10 +138,10 @@ impl FrameParams {
     ///
     /// Before a session is confirmed it is the padded size of the largest
     /// message that is legal then. In states where nothing may be received
-    /// it is zero.
+    /// it is zero; no frame exists before the peer is authenticated.
     pub const fn max_plaintext_len_in(&self, state: SessionState) -> usize {
         match state {
-            SessionState::IdentityAuth | SessionState::AuthenticatedUnknown => {
+            SessionState::AuthenticatedUnknown => {
                 match self.padded_len(MAX_UNCONFIRMED_BODY_LEN) {
                     Some(len) => len,
                     // Not reached: `new` refuses such parameters.
@@ -150,6 +151,7 @@ impl FrameParams {
             SessionState::AuthenticatedContact => self.max_plaintext_len(),
             SessionState::Connecting
             | SessionState::CryptoHandshake
+            | SessionState::IdentityAuth
             | SessionState::Closing
             | SessionState::Closed => 0,
         }
@@ -409,7 +411,7 @@ mod tests {
         assert_eq!(P.max_plaintext_len(), MAX_FRAME_PLAINTEXT_LEN);
         assert_eq!(P.max_body_len(), MAX_MESSAGE_BODY_LEN);
         assert_eq!(P.max_plaintext_len_in(UNKNOWN), 1024);
-        assert_eq!(P.max_plaintext_len_in(SessionState::IdentityAuth), 1024);
+        assert_eq!(P.max_plaintext_len_in(SessionState::IdentityAuth), 0);
         assert_eq!(P.max_plaintext_len_in(CONTACT), 64_512);
         assert_eq!(P.max_plaintext_len_in(SessionState::Closing), 0);
         assert_eq!(
@@ -473,7 +475,7 @@ mod tests {
     fn other_parameters_follow_the_same_rules() {
         let small = FrameParams::new(480, 16).unwrap();
         assert_eq!(small.max_plaintext_len(), 136 * 480);
-        // The largest unconfirmed message is 804 bytes with its header: two
+        // The largest unconfirmed message is 836 bytes with its header: two
         // blocks of 480.
         assert_eq!(small.max_plaintext_len_in(UNKNOWN), 960);
         let unprotected = FrameParams::new(1024, 0).unwrap();
@@ -510,22 +512,21 @@ mod tests {
                 "{bad}"
             );
         }
-        // Before confirmation only one block is allowed, and the same
-        // before the identities are proven.
-        for state in [UNKNOWN, SessionState::IdentityAuth] {
-            assert_eq!(P.check_outer_len(1040, state), Ok(1024));
-            for bad in [2064, MAX_FRAME_CIPHERTEXT_LEN] {
-                assert_eq!(
-                    P.check_outer_len(bad, state),
-                    Err(ProtocolError::FrameLengthOutOfRange),
-                    "{bad} in {state:?}"
-                );
-            }
+        // Before confirmation only one block is allowed.
+        assert_eq!(P.check_outer_len(1040, UNKNOWN), Ok(1024));
+        for bad in [2064, MAX_FRAME_CIPHERTEXT_LEN] {
+            assert_eq!(
+                P.check_outer_len(bad, UNKNOWN),
+                Err(ProtocolError::FrameLengthOutOfRange),
+                "{bad}"
+            );
         }
-        // In states that receive nothing, every length is refused.
+        // In states that receive nothing, every length is refused. No
+        // frame is accepted before the peer is authenticated.
         for state in [
             SessionState::Connecting,
             SessionState::CryptoHandshake,
+            SessionState::IdentityAuth,
             SessionState::Closing,
             SessionState::Closed,
         ] {
@@ -689,18 +690,28 @@ mod tests {
             decode_plaintext(&P, UNKNOWN, &chat),
             Err(ProtocolError::MessageNotPermitted)
         );
-        assert_eq!(
-            decode_plaintext(&P, SessionState::IdentityAuth, &chat),
-            Err(ProtocolError::MessageNotPermitted)
-        );
         assert!(decode_plaintext(&P, CONTACT, &chat).is_ok());
 
-        let proof = encode_plaintext(&P, MessageType::AuthProof, &[0; 104]).unwrap();
-        assert!(decode_plaintext(&P, SessionState::IdentityAuth, &proof).is_ok());
+        // Before the peer is authenticated no plaintext length is legal,
+        // so a frame is refused before its type is looked at.
+        let accept = encode_plaintext(&P, MessageType::ContactAccept, &[]).unwrap();
         assert_eq!(
-            decode_plaintext(&P, CONTACT, &proof),
-            Err(ProtocolError::MessageNotPermitted)
+            decode_plaintext(&P, SessionState::IdentityAuth, &accept),
+            Err(ProtocolError::FrameLengthOutOfRange)
         );
+        assert!(decode_plaintext(&P, UNKNOWN, &accept).is_ok());
+    }
+
+    #[test]
+    fn the_code_of_the_former_identity_proof_is_refused() {
+        let mut plaintext = vec![0_u8; 1024];
+        plaintext[..4].copy_from_slice(&[0x00, 0x01, 0x00, 0x00]);
+        for state in [UNKNOWN, CONTACT] {
+            assert_eq!(
+                decode_plaintext(&P, state, &plaintext),
+                Err(ProtocolError::UnknownMessageType)
+            );
+        }
     }
 
     #[test]

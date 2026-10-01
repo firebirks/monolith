@@ -1,15 +1,17 @@
 //! Session logic: an arbitrary sequence of events against a session of
 //! arbitrary standing never produces application data before the session is
-//! confirmed, never moves a session backwards, never accepts a card of
-//! another identity, and treats every identity that is not a contact alike.
+//! confirmed, never moves a session backwards, never accepts a card that
+//! does not belong to the authenticated peer, and treats every identity
+//! that is not a contact alike.
 //!
 //! Input: the low two bits of the first byte select how far the session got
 //! before the events arrive, and the next bit whether the local side opened
 //! it. The second byte selects the standing of the peer. Every further byte
-//! is one event. Its low seven bits select a message type or one of four
-//! local events (close, block, remove, stream closed). Its high bit makes
-//! the message come from another identity: the card it carries, or the
-//! identity an AuthProof names.
+//! is one event. Its low six bits select a message type or one of four
+//! local events (close, block, remove, stream closed). Its two high bits
+//! select the card inside the message: the card of the handshake, a later
+//! card of the peer with the same transport key, a card of another
+//! identity, or a card of the peer with another transport key.
 
 #![no_main]
 
@@ -19,20 +21,19 @@ use libfuzzer_sys::fuzz_target;
 use monolith_identity::{
     EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey, TransportPublicKey,
 };
-use monolith_protocol::body::{
-    AuthProof, ContactRequest, FileChunk, Message, MessageId, TransferId,
-};
+use monolith_protocol::body::{ContactRequest, FileChunk, Message, MessageId, TransferId};
 use monolith_protocol::card::{ContactCard, EndpointSet};
 use monolith_protocol::session::{Action, Session, Standing};
 use monolith_protocol::text::{ChatText, DisplayName, Filename, IntroductionText, ProfileText};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
 
-const STANDINGS: [Standing; 5] = [
+const STANDINGS: [Standing; 6] = [
     Standing::None,
     Standing::Declined,
     Standing::Blocked,
     Standing::Requested,
     Standing::Accepted,
+    Standing::StaleCard,
 ];
 
 const PEER: [u8; 32] = [0x51; 32];
@@ -41,12 +42,13 @@ const STRANGER: [u8; 32] = [0x77; 32];
 /// Number of local events that follow the message types in the selector.
 const LOCAL_EVENTS: usize = 4;
 
-/// One message of every type, in the order of `MessageType::ALL`. Cards
-/// inside them are signed by the identity of `seed`.
-fn samples(seed: [u8; 32]) -> Vec<Message> {
-    let secret = IdentitySecretKey::from_seed(&seed);
+/// A card of the identity of `seed`. Variant 0 is the card of the
+/// handshake. Variant 1 is a later card with the same transport key and
+/// another endpoint. Variant 2 states another transport key.
+fn sample_card(seed: [u8; 32], variant: u8) -> ContactCard {
     let mut endpoint_seed = seed;
     endpoint_seed[0] ^= 0xff;
+    endpoint_seed[1] ^= variant;
     let endpoint = OnionServiceKey::from_bytes(
         IdentitySecretKey::from_seed(&endpoint_seed)
             .public_key()
@@ -55,22 +57,25 @@ fn samples(seed: [u8; 32]) -> Vec<Message> {
     .unwrap();
     let mut transport = seed;
     transport[31] &= 0x7f;
-    let card = ContactCard::sign(
-        &secret,
+    if variant == 2 {
+        transport[0] ^= 0x01;
+    }
+    ContactCard::sign(
+        &IdentitySecretKey::from_seed(&seed),
         TransportPublicKey::from_bytes(&transport).unwrap(),
-        EndpointEpoch::FIRST,
+        EndpointEpoch::new(u64::from(variant) + 1).unwrap(),
         EndpointSet::single(endpoint),
         None,
     )
-    .unwrap();
+    .unwrap()
+}
+
+/// One message of every type, in the order of `MessageType::ALL`. The card
+/// inside them is the given one.
+fn samples(card: ContactCard) -> Vec<Message> {
     let transfer = TransferId::from_bytes([3; 16]);
     let id = MessageId::from_bytes([4; 16]);
     let all = vec![
-        Message::AuthProof(Box::new(AuthProof {
-            identity: secret.public_key(),
-            features: 0,
-            signature: secret.sign(b"stands in for a real proof"),
-        })),
         Message::Close,
         Message::Ping([1; 8]),
         Message::Pong([1; 8]),
@@ -110,10 +115,21 @@ fn samples(seed: [u8; 32]) -> Vec<Message> {
     all
 }
 
-static FROM_PEER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(PEER));
-static FROM_STRANGER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(STRANGER));
-static PEER_IDENTITY: LazyLock<IdentityPublicKey> =
-    LazyLock::new(|| IdentitySecretKey::from_seed(&PEER).public_key());
+/// The card that stands for the peer: the one it presents in the handshake
+/// of an inbound session, and the pinned one an outbound session dials.
+static PEER_CARD: LazyLock<ContactCard> = LazyLock::new(|| sample_card(PEER, 0));
+
+/// The four sources of messages, in the order the two high bits of an
+/// event select them.
+static SOURCES: LazyLock<[Vec<Message>; 4]> = LazyLock::new(|| {
+    [
+        samples(PEER_CARD.clone()),
+        samples(sample_card(PEER, 1)),
+        samples(sample_card(STRANGER, 0)),
+        samples(sample_card(PEER, 2)),
+    ]
+});
+
 static LOCAL_IDENTITY: LazyLock<IdentityPublicKey> =
     LazyLock::new(|| IdentitySecretKey::from_seed(&[0x10; 32]).public_key());
 
@@ -126,9 +142,8 @@ enum Event {
 }
 
 fn event(byte: u8) -> Event {
-    let foreign = byte & 0x80 != 0;
-    let selector = usize::from(byte & 0x7f) % (MessageType::ALL.len() + LOCAL_EVENTS);
-    let source = if foreign { &FROM_STRANGER } else { &FROM_PEER };
+    let source = &SOURCES[usize::from(byte >> 6)];
+    let selector = usize::from(byte & 0x3f) % (MessageType::ALL.len() + LOCAL_EVENTS);
     match source.get(selector) {
         Some(message) => Event::Receive(message),
         None => match selector - MessageType::ALL.len() {
@@ -140,13 +155,30 @@ fn event(byte: u8) -> Event {
     }
 }
 
-fn has_foreign_card(message: &Message) -> bool {
-    let signer = match message {
-        Message::ContactRequest(request) => request.card.identity(),
-        Message::EndpointUpdate(card) => card.identity(),
+/// Returns true if the message carries a card that the session must
+/// refuse. This restates `docs/PROTOCOL.md` sections 8.3 and 8.8 without
+/// using the code under test: a card of another identity is always
+/// refused; the card of a request is the card of the handshake when the
+/// peer opened the session, and states the authenticated transport key
+/// when the local side did; an endpoint update may carry any card of the
+/// peer.
+fn has_foreign_card(message: &Message, outbound: bool) -> bool {
+    let (card, is_request) = match message {
+        Message::ContactRequest(request) => (&request.card, true),
+        Message::EndpointUpdate(card) => (&**card, false),
         _ => return false,
     };
-    *signer != *PEER_IDENTITY
+    if card.identity() != PEER_CARD.identity() {
+        return true;
+    }
+    if !is_request {
+        return false;
+    }
+    if outbound {
+        card.transport() != PEER_CARD.transport()
+    } else {
+        *card != *PEER_CARD
+    }
 }
 
 fn apply(session: &mut Session, event: &Event) -> Result<Vec<Action>, ProtocolError> {
@@ -162,12 +194,16 @@ fn apply(session: &mut Session, event: &Event) -> Result<Vec<Action>, ProtocolEr
     }
 }
 
+fn is_outbound(selector: u8) -> bool {
+    selector & 0x04 != 0
+}
+
 fn start(selector: u8, standing: Standing) -> Session {
     let steps = selector & 0x03;
-    let mut session = if selector & 0x04 == 0 {
-        Session::inbound(*LOCAL_IDENTITY)
+    let mut session = if is_outbound(selector) {
+        Session::outbound(*LOCAL_IDENTITY, *PEER_CARD.identity())
     } else {
-        Session::outbound(*LOCAL_IDENTITY, *PEER_IDENTITY)
+        Session::inbound(*LOCAL_IDENTITY)
     };
     if steps >= 1 {
         session.stream_established().unwrap();
@@ -176,8 +212,7 @@ fn start(selector: u8, standing: Standing) -> Session {
         session.handshake_completed().unwrap();
     }
     if steps >= 3 {
-        session.receive(&FROM_PEER[0]).unwrap();
-        session.identities_proven(*PEER_IDENTITY, standing).unwrap();
+        session.authenticated(PEER_CARD.clone(), standing).unwrap();
     }
     session
 }
@@ -211,6 +246,7 @@ fuzz_target!(|data: &[u8]| {
     };
     let steps = *steps;
     let authenticated = steps & 0x03 == 3;
+    let outbound = is_outbound(steps);
     let standing = STANDINGS[usize::from(*standing_selector) % STANDINGS.len()];
 
     let mut session = start(steps, standing);
@@ -223,6 +259,11 @@ fuzz_target!(|data: &[u8]| {
 
         assert!(before == after || before.can_transition_to(after));
         assert_eq!(session.peer().is_some(), authenticated);
+        if authenticated {
+            // The session keeps the card it was authenticated with,
+            // whatever cards arrive in messages.
+            assert_eq!(session.peer_card(), Some(&*PEER_CARD));
+        }
 
         let live = matches!(
             before,
@@ -233,8 +274,14 @@ fuzz_target!(|data: &[u8]| {
             if live && !legal {
                 assert_eq!(result, Err(ProtocolError::MessageNotPermitted));
             }
-            if live && legal && has_foreign_card(message) {
-                assert_eq!(result, Err(ProtocolError::IdentityMismatch));
+            if live && legal {
+                let refused = result == Err(ProtocolError::IdentityMismatch);
+                assert_eq!(refused, has_foreign_card(message, outbound));
+            }
+            if !live && !matches!(before, SessionState::Closing | SessionState::Closed) {
+                // Before the peer is authenticated every message is a
+                // violation.
+                assert_eq!(result, Err(ProtocolError::MessageNotPermitted));
             }
         }
 
@@ -277,28 +324,32 @@ fuzz_target!(|data: &[u8]| {
         }
 
         // Application messages may be sent on a confirmed session only, and
-        // nothing at all before the encrypted channel exists.
+        // nothing at all before the peer is authenticated.
         for message_type in MessageType::ALL {
             if !session.may_send(message_type) {
                 continue;
             }
             match after {
                 SessionState::AuthenticatedContact => {}
-                SessionState::IdentityAuth => assert_eq!(message_type, MessageType::AuthProof),
                 SessionState::AuthenticatedUnknown => assert!(matches!(
                     message_type,
                     MessageType::Close | MessageType::ContactAccept | MessageType::ContactRequest
                 )),
                 SessionState::Closing => assert_eq!(message_type, MessageType::Close),
-                SessionState::Connecting | SessionState::CryptoHandshake | SessionState::Closed => {
+                SessionState::Connecting
+                | SessionState::CryptoHandshake
+                | SessionState::IdentityAuth
+                | SessionState::Closed => {
                     panic!("{message_type:?} may be sent in {after:?}")
                 }
             }
         }
     }
 
-    // Identities that are not contacts are indistinguishable to the peer.
+    // Identities that are not contacts are indistinguishable to the peer,
+    // and so is a contact that presented a stale card.
     let reference = observe(steps, Standing::None, rest);
     assert_eq!(observe(steps, Standing::Declined, rest), reference);
     assert_eq!(observe(steps, Standing::Blocked, rest), reference);
+    assert_eq!(observe(steps, Standing::StaleCard, rest), reference);
 });

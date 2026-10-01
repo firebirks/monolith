@@ -12,14 +12,13 @@
 use core::fmt;
 
 use monolith_identity::redact::REDACTED;
-use monolith_identity::{IdentityPublicKey, Signature};
 
 use crate::card::{ContactCard, InvitationCapability};
 use crate::codec::{Reader, Writer};
 use crate::limits::{
-    AUTH_PROOF_BODY_LEN, DIGEST_LEN, MAX_CHAT_TEXT_LEN, MAX_DISPLAY_NAME_LEN, MAX_FILE_CHUNK_LEN,
-    MAX_FILE_SIZE, MAX_FILENAME_LEN, MAX_INTRODUCTION_TEXT_LEN, MAX_PROFILE_TEXT_LEN,
-    MESSAGE_ID_LEN, PING_NONCE_LEN, TRANSFER_ID_LEN,
+    DIGEST_LEN, MAX_CHAT_TEXT_LEN, MAX_DISPLAY_NAME_LEN, MAX_FILE_CHUNK_LEN, MAX_FILE_SIZE,
+    MAX_FILENAME_LEN, MAX_INTRODUCTION_TEXT_LEN, MAX_PROFILE_TEXT_LEN, MESSAGE_ID_LEN,
+    PING_NONCE_LEN, TRANSFER_ID_LEN,
 };
 use crate::text::{ChatText, DisplayName, Filename, IntroductionText, ProfileText};
 use crate::{MessageType, ProtocolError};
@@ -68,33 +67,12 @@ impl fmt::Debug for TransferId {
     }
 }
 
-/// The fields of an AuthProof.
-///
-/// Provisional. The identity proof belongs to the session layer, which is
-/// not decided (`docs/adr/0002-session-protocol.md`). This type carries the
-/// three fields of the body and nothing else: it does not build the signed
-/// input and does not verify the signature.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct AuthProof {
-    /// The identity the sender claims.
-    pub identity: IdentityPublicKey,
-    /// Feature bits of the sender.
-    pub features: u64,
-    /// Signature over the session's proof input. Not verified here.
-    pub signature: Signature,
-}
-
-impl fmt::Debug for AuthProof {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "AuthProof({REDACTED})")
-    }
-}
-
 /// A request to become a contact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContactRequest {
     /// The sender's own card. It carries no invitation capability. The
-    /// receiver must check that its identity is the one the sender proved.
+    /// receiver must check it against the handshake of the session; that
+    /// is done by [`crate::session::Session`].
     pub card: ContactCard,
     /// The invitation capability copied from the receiver's card, if any.
     pub invitation: Option<InvitationCapability>,
@@ -145,8 +123,6 @@ impl fmt::Debug for FileChunk {
 /// The `Debug` output is the message type and nothing of the content.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Message {
-    /// Identity proof. Provisional; see [`AuthProof`].
-    AuthProof(Box<AuthProof>),
     /// The sender is closing the session.
     Close,
     /// Keepalive probe.
@@ -213,7 +189,6 @@ impl Message {
     /// Returns the type of this message.
     pub const fn message_type(&self) -> MessageType {
         match self {
-            Self::AuthProof(_) => MessageType::AuthProof,
             Self::Close => MessageType::Close,
             Self::Ping(_) => MessageType::Ping,
             Self::Pong(_) => MessageType::Pong,
@@ -243,11 +218,6 @@ impl Message {
     pub fn encode_body(&self) -> Result<Vec<u8>, ProtocolError> {
         let mut writer = Writer::new();
         match self {
-            Self::AuthProof(proof) => {
-                writer.raw(proof.identity.as_bytes());
-                writer.u64(proof.features);
-                writer.raw(proof.signature.as_bytes());
-            }
             Self::Close | Self::ContactAccept => {}
             Self::Ping(nonce) | Self::Pong(nonce) => writer.raw(nonce),
             Self::ContactRequest(request) => {
@@ -314,19 +284,6 @@ impl Message {
     pub fn decode(message_type: MessageType, body: &[u8]) -> Result<Self, ProtocolError> {
         let mut reader = Reader::new(body);
         let message = match message_type {
-            MessageType::AuthProof => {
-                if body.len() != AUTH_PROOF_BODY_LEN {
-                    return Err(ProtocolError::BadMessageLength);
-                }
-                let identity = IdentityPublicKey::from_bytes(&reader.array()?)?;
-                let features = reader.u64()?;
-                let signature = Signature::from_bytes(reader.array()?);
-                Self::AuthProof(Box::new(AuthProof {
-                    identity,
-                    features,
-                    signature,
-                }))
-            }
             MessageType::Close => Self::Close,
             MessageType::Ping => Self::Ping(reader.array()?),
             MessageType::Pong => Self::Pong(reader.array()?),
@@ -463,11 +420,6 @@ mod tests {
     /// One message of every type, at ordinary sizes.
     fn samples() -> Vec<Message> {
         vec![
-            Message::AuthProof(Box::new(AuthProof {
-                identity: secret(1).public_key(),
-                features: 0,
-                signature: secret(1).sign(b"not a real proof"),
-            })),
             Message::Close,
             Message::Ping([1; 8]),
             Message::Pong([1; 8]),
@@ -532,7 +484,6 @@ mod tests {
     fn body_sizes_match_the_specification() {
         let size = |message: &Message| message.encode_body().unwrap().len();
         let all = samples();
-        assert_eq!(size(&all[0]), 104);
         assert_eq!(size(&Message::Close), 0);
         assert_eq!(size(&Message::Ping([0; 8])), 8);
         assert_eq!(size(&Message::ContactAccept), 0);
@@ -547,7 +498,7 @@ mod tests {
             48
         );
         // Smallest and largest contact request.
-        assert_eq!(size(&all[5]), 176);
+        assert_eq!(size(&all[4]), 176);
         let largest = Message::ContactRequest(Box::new(ContactRequest {
             card: card(false),
             invitation: Some(InvitationCapability::from_bytes([5; 16])),
@@ -704,7 +655,7 @@ mod tests {
 
     #[test]
     fn presence_byte_must_be_zero_or_one() {
-        let request = &samples()[5];
+        let request = &samples()[4];
         let mut body = request.encode_body().unwrap();
         assert_eq!(body[171], 0);
         body[171] = 2;
@@ -730,16 +681,6 @@ mod tests {
     }
 
     #[test]
-    fn auth_proof_rejects_an_invalid_identity_key() {
-        let mut body = vec![0_u8; 104];
-        body[0] = 1;
-        assert_eq!(
-            Message::decode(MessageType::AuthProof, &body),
-            Err(ProtocolError::InvalidKey)
-        );
-    }
-
-    #[test]
     fn debug_output_shows_no_content() {
         // Nothing but the type: no text, no nonce, no digest, no size, no
         // identifier.
@@ -749,9 +690,9 @@ mod tests {
                 format!("Message({:?})", message.message_type())
             );
         }
-        let request = samples().swap_remove(4);
+        let request = samples().swap_remove(3);
         let Message::ContactRequest(request) = request else {
-            panic!("sample 4 is a contact request");
+            panic!("sample 3 is a contact request");
         };
         let text = format!("{request:?}");
         assert!(!text.contains("Alice"));
@@ -766,8 +707,8 @@ mod tests {
     #[test]
     fn oracle_3_no_message_states_a_reason() {
         // T-ORACLE-3. The messages that exist before a session is confirmed
-        // are AuthProof, then Close, ContactRequest and ContactAccept. Close
-        // and ContactAccept have empty bodies and accept no other, so they
+        // are Close, ContactRequest and ContactAccept. Close and
+        // ContactAccept have empty bodies and accept no other, so they
         // cannot say why. A ContactRequest carries only its sender's own
         // card, name and introduction. There is no message that says
         // "blocked", "former contact" or "not in the contact list".

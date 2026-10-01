@@ -9,7 +9,7 @@
 
 use std::process::ExitCode;
 
-use monolith_protocol::limits::PROTOCOL_MAJOR;
+use monolith_protocol::limits::PROTOCOL_VERSION;
 
 const USAGE: &str = "\
 Usage: monolith <command>
@@ -39,7 +39,7 @@ fn main() -> ExitCode {
         }
         ["version" | "--version" | "-V"] => {
             println!(
-                "monolith {} (protocol {PROTOCOL_MAJOR})",
+                "monolith {} (protocol {PROTOCOL_VERSION})",
                 env!("CARGO_PKG_VERSION")
             );
             ExitCode::SUCCESS
