@@ -31,9 +31,10 @@ fn is_forbidden_everywhere(character: char) -> bool {
 }
 
 /// Characters that display names and filenames reject in addition:
-/// tab, line feed and carriage return; bidirectional controls; zero-width
-/// and other invisible format characters; and every whitespace character
-/// other than U+0020.
+/// tab, line feed and carriage return; bidirectional controls; the code
+/// points that are ignorable by default, variation selectors excepted; a few
+/// more that are drawn as nothing; and every whitespace character other than
+/// U+0020.
 fn is_forbidden_in_names(character: char) -> bool {
     matches!(
         u32::from(character),
@@ -41,14 +42,16 @@ fn is_forbidden_in_names(character: char) -> bool {
         0x09 | 0x0A | 0x0D
         // Bidirectional controls.
         | 0x061C | 0x200E | 0x200F | 0x202A..=0x202E | 0x2066..=0x2069
-        // Zero-width and invisible format characters.
-        | 0x00AD | 0x034F | 0x180E | 0x200B..=0x200D | 0x2060..=0x2065 | 0x206A..=0x206F
-        | 0xFEFF | 0xFFF9..=0xFFFB | 0x1D173..=0x1D17A | 0xE0000..=0xE007F
-        // Characters that are drawn as nothing or as a blank although they
-        // are neither format characters nor whitespace: the Hangul fillers,
-        // two Khmer vowels, the blank braille pattern and the object
-        // replacement character.
-        | 0x115F | 0x1160 | 0x17B4 | 0x17B5 | 0x2800 | 0x3164 | 0xFFA0 | 0xFFFC
+        // Default_Ignorable_Code_Point, except the bidirectional controls
+        // above and the variation selectors (U+180B to U+180D, U+180F,
+        // U+FE00 to U+FE0F, U+E0100 to U+E01EF), which stay allowed.
+        | 0x00AD | 0x034F | 0x115F | 0x1160 | 0x17B4 | 0x17B5 | 0x180E | 0x200B..=0x200D
+        | 0x2060..=0x2065 | 0x206A..=0x206F | 0x3164 | 0xFEFF | 0xFFA0 | 0xFFF0..=0xFFF8
+        | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A | 0xE0000..=0xE00FF | 0xE01F0..=0xE0FFF
+        // Not ignorable by default, but drawn as nothing or as a blank: the
+        // blank braille pattern, the interlinear annotation controls and
+        // the object replacement character.
+        | 0x2800 | 0xFFF9..=0xFFFC
         // White_Space other than U+0020. The remaining members of the
         // property are rejected by is_forbidden_everywhere.
         | 0x00A0 | 0x1680 | 0x2000..=0x200A | 0x202F | 0x205F | 0x3000
@@ -681,6 +684,14 @@ mod tests {
             '\u{fffc}',
             '\u{1d173}',
             '\u{1d17a}',
+            '\u{fff0}',
+            '\u{fff8}',
+            '\u{1bca0}',
+            '\u{1bca3}',
+            '\u{e0080}',
+            '\u{e00ff}',
+            '\u{e01f0}',
+            '\u{e0fff}',
         ] {
             let text = format!("a{character}b");
             assert_eq!(
@@ -701,6 +712,21 @@ mod tests {
         // Variation selectors stay allowed: emoji and some scripts need
         // them.
         assert!(DisplayName::new("\u{2764}\u{fe0f}").is_ok());
+        for selector in [
+            '\u{180b}',
+            '\u{180d}',
+            '\u{180f}',
+            '\u{fe00}',
+            '\u{fe0f}',
+            '\u{e0100}',
+            '\u{e01ef}',
+        ] {
+            assert!(
+                Filename::new(&format!("a{selector}b")).is_ok(),
+                "{:x}",
+                u32::from(selector)
+            );
+        }
     }
 
     #[test]

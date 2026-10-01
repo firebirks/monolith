@@ -32,7 +32,7 @@ const REJECTED_EVERYWHERE: [(u32, u32); 7] = [
 ];
 
 /// Rejected in display names and filenames in addition.
-const REJECTED_IN_NAMES: [(u32, u32); 29] = [
+const REJECTED_IN_NAMES: [(u32, u32); 31] = [
     // Tab, line feed, carriage return.
     (0x0009, 0x000A),
     (0x000D, 0x000D),
@@ -41,7 +41,8 @@ const REJECTED_IN_NAMES: [(u32, u32); 29] = [
     (0x200E, 0x200F),
     (0x202A, 0x202E),
     (0x2066, 0x2069),
-    // Zero-width and invisible characters.
+    // Code points that are ignorable by default, without the variation
+    // selectors, and a few more that are drawn as nothing.
     (0x00AD, 0x00AD),
     (0x034F, 0x034F),
     (0x115F, 0x1160),
@@ -54,9 +55,11 @@ const REJECTED_IN_NAMES: [(u32, u32); 29] = [
     (0x3164, 0x3164),
     (0xFEFF, 0xFEFF),
     (0xFFA0, 0xFFA0),
-    (0xFFF9, 0xFFFC),
+    (0xFFF0, 0xFFFC),
+    (0x1BCA0, 0x1BCA3),
     (0x1D173, 0x1D17A),
-    (0xE0000, 0xE007F),
+    (0xE0000, 0xE00FF),
+    (0xE01F0, 0xE0FFF),
     // Whitespace other than U+0020.
     (0x00A0, 0x00A0),
     (0x1680, 0x1680),
