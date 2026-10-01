@@ -28,24 +28,14 @@ limits marked "local"; the others are part of the wire protocol.
 | `MESSAGE_HEADER_LEN` | 4 | type and body length |
 | `MAX_MESSAGE_BODY_LEN` | 64508 | |
 
-Session layer. ADR 0002 selects TLS 1.3. The values in this document
-still describe the protocol core as it is implemented, with the frame
-overhead and handshake sizes of the earlier draft. They change together
-with the code when the session layer is implemented:
+The preamble and handshake sizes belong to the session layer candidate
+that is currently written up and are provisional (ADR 0002). With that
+candidate, the handshake has no variable-size record. A peer that has not completed the
+handshake can make Monolith read at most 8 + 96 bytes (as initiator) or
+8 + 32 + 64 bytes (as responder).
 
-- the frame length field loses the 16-byte overhead: 1024 to 64512 in
-  steps of 1024, and exactly 1024 before confirmation;
-- the handshake sizes are replaced by `MAX_HANDSHAKE_INPUT_LEN` = 4096, the
-  number of bytes a side accepts before the handshake must be complete.
-  The three flights of the profile are about 200, 370 and 190 bytes;
-- an unfinished inbound handshake costs the responder one key generation,
-  one X25519 operation and one signature, measured at well under a
-  millisecond for a complete handshake on both sides. The memory it holds
-  is bounded by the byte cap and the fixed buffers of the TLS library and
-  is measured when the code exists.
-
-The frame ceiling follows from the 16-bit length field: 63 padding blocks
-is the largest multiple that fits, with or without an overhead of 16.
+The frame ceiling follows from the session cipher: a Noise message is at most
+65535 bytes. 63 padding blocks plus the tag is the largest multiple that fits.
 
 State-dependent ceiling: in `IdentityAuth` and `AuthenticatedUnknown` the only
 legal messages (AuthProof, ContactRequest, ContactAccept, Close) fit in one

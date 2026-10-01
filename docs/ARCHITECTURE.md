@@ -247,7 +247,7 @@ the platform's packaging.
 | --- | --- |
 | 0 | Design, specifications, workspace skeleton. This phase. |
 | 1 | Protocol core without cryptography or Tor: framing, encoding, identity types, contact cards, state machine; unit, property and fuzz tests. |
-| 2 | Cryptographic session: TLS 1.3 with raw public keys (ADR 0002), identity checks, test vectors, hostile-handshake tests. |
+| 2 | Cryptographic session: Noise handshake, identity proof, test vectors, hostile-handshake tests. |
 | 3 | System Tor: SOCKS5, control client, mock backend, two-node CLI chat. |
 | 4 | Contacts and queue: acceptance, pinning, vault, duplicate resolution, reconnect scheduling. |
 | 5 | File transfer. |

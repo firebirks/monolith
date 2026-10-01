@@ -23,8 +23,8 @@ Provisional, and not to be built on yet:
 
 | Area | State | Decided where |
 | --- | --- | --- |
-| Session cryptography | decided: TLS 1.3 with raw public keys, `rustls` and `ring`; not implemented | ADR 0002 |
-| Probing behavior of the handshake | a responder shows its identity key to any party that connects and speaks the profile; accepted and stated | ADR 0002 |
+| Session cryptography | two finalists: TLS 1.3 with raw public keys, and Noise XK with a transport key certified in the contact card; the second is recommended; decision pending | ADR 0002 |
+| Probing behavior of the handshake | depends on the above; public keys are never access control | ADR 0002 |
 | Tails Onion Service integration | blocked on experiments on a current Tails | PLATFORM_TAILS.md 3.4 |
 | Whonix isolation and firewall integration | measures specified, untested | PLATFORM_WHONIX.md 4.5 |
 | Vault KDF parameters | proposed, benchmark pending | STORAGE.md 3.3 |
@@ -56,27 +56,11 @@ Decided in the review of Phase 1:
 - The order of the identity proofs is not decided in Phase 1. It is Q11 of
   ADR 0002.
 
-Decided at the start of Phase 2, in ADR 0002:
-
-- The session layer is TLS 1.3 (RFC 8446) with raw public keys (RFC 7250)
-  on both sides, through `rustls` 0.23.45 with `ring`, one suite, one
-  group. The identity key is the TLS authentication key. Noise is not
-  used.
-- The responder is authenticated first. An initiator sends its identity
-  only to a responder that proved the identity that was dialed. Q11 is
-  closed.
-- No identity proof of Monolith's own exists. The preamble, the handshake
-  records and the AuthProof message of earlier drafts are removed, and the
-  frame overhead becomes zero.
-- The invitation capability stays inside the ContactRequest. Nothing is
-  placed in front of the handshake.
-- Sessions are never rekeyed and never resumed.
-
 ## 1. Answers
 
 | # | Question | Answer | Where |
 | --- | --- | --- | --- |
-| 1 | Noise XX with an Ed25519 transcript proof, or TLS 1.3 | TLS 1.3 with raw public keys on both sides. Four constructions were compared in ADR 0002. TLS leaves Monolith no authentication construction of its own. A review by a cryptographer has not happened and is listed there as desirable. | ADR 0002, CRYPTOGRAPHY.md |
+| 1 | Noise XX with an Ed25519 transcript proof, or TLS 1.3 | Not decided. Four constructions are compared in ADR 0002: Noise XX with a transcript proof, Noise NN with a transcript proof, a certified persistent static key, and TLS 1.3 with pinned raw public keys. The decision is due before Phase 2 and needs a cryptographer's review. | ADR 0002, CRYPTOGRAPHY.md |
 | 2 | Canonical wire encoding | Fixed-layout binary, hand-written encoders and decoders, no serialization framework. One valid encoding per structure. | ADR 0003, PROTOCOL.md 2, 5 |
 | 3 | Fingerprint encoding | SHA-256 over a prefix, a key-type byte and the key; base32; 52 characters full, 24 compact. | PROTOCOL.md 10 |
 | 4 | Contact card format | A signed statement of an identity's endpoint set at an epoch. With the one endpoint that version 1 allows: 139 bytes, or 155 with an invitation. Text form `MONOLITH1:` plus base32. | PROTOCOL.md 11 |
@@ -148,8 +132,8 @@ Protocol and cryptography
     contact card with a greater epoch; the extra field adds no protection.
 13. File chunk of up to 64 KiB in a frame of up to 64 KiB. Cannot fit. The
     frame maximum is 64528 bytes and a chunk carries 64490.
-14. Handshake record of up to 8 KiB. The handshake is TLS; a side reads at
-    most 4096 bytes before it must be complete.
+14. Handshake record of up to 8 KiB. The handshake records are fixed at 32,
+    96 and 64 bytes.
 15. Contact card of up to 8 KiB. It is exactly 139 or 155 bytes in version 1.
 15a. One endpoint per identity. The card now states a set of endpoints with
     a count, limited to one in version 1, so that rotation with overlap,
@@ -180,10 +164,11 @@ Dependencies and tooling
 22. `minicbor` does not enforce canonical decoding, which is why CBOR was
     not chosen.
 23. `snow` was described as unaudited. It was audited in 2024; the finding
-    that it does not clear keys is still open. Noise is not used.
+    that it does not clear keys is still open. The session library is not
+    chosen.
 23a. The prologue binding was described as if it kept probers out. It does
-    not: the identity key is public data. The selected design has no such
-    binding and says so.
+    not: the identity key is public data. It is now described as
+    opportunistic probing resistance.
 23b. `ring` was banned in `deny.toml`. The ban is removed; a cryptographic
     library is not excluded for containing C or assembly.
 24. Toolchain. The minimum supported Rust version is 1.85.1 and is separate
@@ -199,9 +184,9 @@ Nothing below is settled. Each is described in the document named.
 
 | Id | Question | Document |
 | --- | --- | --- |
-| R1 to R7 | Risks of the selected session layer: parser exposed to unauthenticated peers, future of the crypto provider, announced interface change of the TLS library, age of its audit, deterministic handshake vectors, disclosure to probers, memory per unfinished handshake | ADR 0002 |
+| Q1 to Q11 | Choice of session construction, responder identity disclosure, the prologue precondition, the proof input, XX or NN, certificate lifetime, practicality of TLS with raw public keys, binding the onion key, session limits, crypto back end, order of the identity proofs | CRYPTOGRAPHY.md 11, ADR 0002 |
 | P1 | Padding block size | PROTOCOL.md 17 |
-| P2 | Bind the session to the dialed onion key | PROTOCOL.md 17 |
+| P2 | Bind the dialed onion key in the proof | PROTOCOL.md 17 |
 | P3 | Epoch after restoring a backup | PROTOCOL.md 17 |
 | P4 | Invisible declines cause indefinite retries | PROTOCOL.md 17 |
 | P5 | Keep profile text in version 1 | PROTOCOL.md 17 |
@@ -233,7 +218,7 @@ choice is made in the phase that first needs them.
 | `unicode-normalization` | 0.1.25 | NFC for the vault passphrase only; not used by the protocol | 4 |
 | `getrandom` | 0.3 or 0.4 | CSPRNG | 1 |
 | `zeroize`, `subtle` | 1.9, 2.6 | secret handling | 1 |
-| `rustls` with `ring` | 0.23.45, 0.17.14 (decided, not yet added) | session layer (ADR 0002) | 2 |
+| `snow` or `rustls` | not chosen | session layer (ADR 0002) | 2 |
 | `tokio` | 1.53 (LTS) | runtime | 3 |
 | `tracing` | 0.1.44 | logging | 3 |
 | `argon2`, `chacha20poly1305`, `hkdf` | 0.6, 0.11 | vault | 4 |
@@ -244,10 +229,10 @@ choice is made in the phase that first needs them.
 | `libfuzzer-sys`, `arbitrary` | 0.4, 1.4 | fuzzing | 1 |
 
 The cryptographic crates are those of the current RustCrypto and dalek
-generation; `DEPENDENCIES.md` section 2 records the decision. The session
-layer brings `ring`, which has its own implementations of the primitives
-TLS needs; no crate appears in two versions because of it, except
-`getrandom`.
+generation; `DEPENDENCIES.md` section 2 records the decision. `snow` 0.10
+depends on the previous generation, and mixing the two would put two
+versions of the same cryptographic crate into the binary, which
+`deny.toml` forbids. ADR 0002 has to resolve that if it selects `snow`.
 
 Not used: `anyhow` in libraries, `serde` for anything signed or on the wire,
 any HTTP client, any resolver. A session library and its crypto back end

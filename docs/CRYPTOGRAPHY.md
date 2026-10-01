@@ -1,8 +1,11 @@
 # Cryptography
 
-Status: the design is decided; the session layer is not implemented yet.
-ADR 0002 selects TLS 1.3 with raw public keys on both sides, and sections 4
-to 8 describe it. Identity keys (section 3) are implemented. The storage
+Status: the session layer is not decided and not implemented. ADR 0002
+has two finalists. Sections 4 to 8 and 10 of this document, and the parts
+of sections 1 to 3 that speak of TLS, are a draft for one of them,
+finalist D (TLS 1.3 with raw public keys on both sides). If the other
+finalist, Noise XK with a transport key in the contact card, is chosen,
+they are rewritten. Identity keys (section 3) are implemented. The storage
 design (section 9) is specified separately and belongs to a later phase.
 
 Monolith defines no primitive, no key exchange, no key schedule and no

@@ -2,12 +2,15 @@
 
 Status: the protocol core (framing, messages, text rules, contact cards,
 session states, contact confirmation, duplicate resolution) is implemented
-and accepted. The session layer, sections 3, 4 and 6.1 to 6.3, is the
-design selected in ADR 0002: TLS 1.3 with raw public keys. It is specified
-here and not implemented yet. Until it is, the code of the protocol core
-still carries two things from the earlier draft that this document no
-longer has: a message type for an identity proof, and a frame overhead of
-16 bytes. Both go away with the implementation.
+and accepted.
+
+The session layer is not decided. ADR 0002 has two finalists. Sections 3,
+4 and 6.1 to 6.3 of this document, and the frame overhead of zero in
+section 5, are a draft for one of them, finalist D (TLS 1.3 with raw
+public keys). If the other finalist is chosen, those sections are replaced
+and the contact card of section 11 gains a field. Nothing of either is
+implemented. The code of the protocol core still has the message type for
+an identity proof and the frame overhead of 16 bytes of the earlier draft.
 
 The padding block size in section 5 is a parameter whose production value
 is not decided. Open questions are listed in section 17.
@@ -402,8 +405,8 @@ A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 | State | Meaning | Messages accepted from the peer |
 | --- | --- | --- |
 | Connecting | Stream being opened | none |
-| CryptoHandshake | TLS handshake in progress | none (TLS handshake messages only) |
-| IdentityAuth | TLS handshake complete; the checks of section 4.4 are applied to its result | none |
+| CryptoHandshake | TLS handshake in progress; each side checks the other's key and signature inside it, the initiator before it sends its own | none (TLS handshake messages only) |
+| IdentityAuth | TLS handshake complete; the checks after Finished of section 4.4 are applied | none |
 | AuthenticatedUnknown | Peer's identity proven; contact relationship not confirmed on this session | ContactRequest, ContactAccept, Close |
 | AuthenticatedContact | Both sides hold each other as accepted contacts and have said so on this session | every message type |
 | Closing | Close sent; the stream is being shut down | none |

@@ -50,10 +50,10 @@ output. Unsuitable for anything that is signed or specified.
 
 Option B for everything on the wire and for the vault payload.
 
-- Framing: a 2-byte length and one frame, inside the channel the session
-  layer provides (ADR 0002). The length is checked against a
-  state-dependent range before anything is read.
-- The message type is inside the frame, and so inside the encryption.
+- Framing: fixed-size handshake records; then a 2-byte length and one
+  encrypted frame. The length is checked against a state-dependent range
+  before anything is read.
+- The message type is inside the encrypted frame.
 - Plaintext: type, body length, body, zero padding to a multiple of 1024
   bytes. Exactly minimal padding is required, so a body has one valid frame
   size.
@@ -61,9 +61,9 @@ Option B for everything on the wire and for the vault payload.
   have a maximum in the specification. A body must be consumed exactly;
   trailing bytes are an error.
 - Signed structures are verified over the received bytes.
-- Extensibility: the protocol identifier negotiated in the handshake
-  names the version and any extension. A new message type may be sent only
-  on a connection whose identifier includes it. There are no ignorable
+- Extensibility: a major version in the preamble for incompatible changes;
+  feature bits in AuthProof for compatible ones. A new message type may be
+  sent only to a peer that advertised the feature. There are no ignorable
   types in version 1, so an unknown type is always an error.
 - Text encoding of contact cards: a fixed prefix and unpadded base32, which
   is case-insensitive, safe to copy and compact in a QR code. The card's
@@ -120,7 +120,7 @@ What it costs, per frame, with a 2-byte length prefix and a 16-byte tag:
   at most one block on the last chunk of a file, for any P.
 - Unconfirmed sessions. The largest message before confirmation is 804
   bytes with its header. With P = 1024 every such frame is exactly one
-  block, which gives the simple rule "exactly one block". A smaller P
+  block, which gives the simple rule "exactly 1040 bytes". A smaller P
   needs two or more blocks for that message and a slightly looser rule.
 
 Candidates: 480 (one Tor cell per small frame), 512, 1024. The choice needs
@@ -138,3 +138,5 @@ Accessed 2026-10-01.
 - https://rustsec.org/advisories/RUSTSEC-2021-0127.html
 - RFC 8446, section 3 (presentation language) and 4.4.3:
   https://www.rfc-editor.org/rfc/rfc8446
+- Noise specification, section 13 (application responsibilities):
+  https://noiseprotocol.org/noise.html

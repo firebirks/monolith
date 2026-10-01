@@ -61,9 +61,9 @@ contact store.
 
 Identity (T-ID)
 
-1. An endpoint that does not prove the pinned identity in the handshake
-   is a hard failure and raises the mismatch event, and the dialing side
-   has not sent its own identity. In the session logic: an outbound
+1. An endpoint that does not prove the pinned identity, at handshake
+   message 2 or in its proof, is a hard failure and raises the mismatch
+   event. The proof half is covered in the session logic: an outbound
    session ends when the proof names any identity but the dialed one, or
    the local one.
 2. No code path replaces a pinned key.
@@ -206,8 +206,7 @@ Targets in `fuzz/`:
 | `frame_stream` | byte stream split at arbitrary points | exists |
 | `text_fields` | bytes, against every text type and the save-name suggestion | exists |
 | `session_sequence` | sequence of messages and local events against a session | exists |
-| `handshake_input` | bytes fed to an initiator and to a responder before authentication | with the session layer |
-| `session_records` | bytes fed to an authenticated session | with the session layer |
+| `preamble`, `handshake_record` | bytes | with the session layer |
 | `socks_reply`, `control_reply` | bytes | with the Tor backend |
 | `vault_header` | bytes | with storage |
 
@@ -236,7 +235,7 @@ is kept in the repository once it exists. Crashes become regression tests.
 
 Run against a real session over `MockTorBackend`:
 
-- endless input without completing the handshake or a frame;
+- endless input without completing a handshake record or a frame;
 - frames at maximum length and at maximum plus one;
 - length prefixes of 0, 1, 65535;
 - truncated handshake and truncated frames;

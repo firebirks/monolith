@@ -52,23 +52,25 @@ Can open streams to the Onion Service and send arbitrary bytes.
 
 With the address alone, and no contact card:
 
-- It can start a TLS handshake and is shown the responder's identity key,
-  with a signature that proves the identity is live at this address. The
-  responder authenticates first and to whoever connects (ADR 0002). The
-  identity key is public data and is on every contact card; knowing the
-  address without the card is the only case in which this tells the party
-  something new.
-- It learns that the service is reachable, that it speaks Monolith, and
-  which TLS library answers. All of that is inherent in running a service
-  at a known address.
-- To get any further it has to authenticate with a key of its own, which
-  makes it the adversary of the next paragraph without a card.
+- Under the handshake candidate currently written up, it does not complete
+  the normal handshake and is not handed an identity proof, because
+  completing it requires the responder's identity key. This is
+  opportunistic probing resistance, not access control. The identity key is
+  public data: anyone who obtains it, from a contact card or anywhere else,
+  is past this point. The session design is provisional (ADR 0002), and
+  some of the candidates show the identity key to any party that connects.
+- It learns that the service is reachable and that it answers the Monolith
+  preamble. Both are inherent in running a service at a known address.
+- If it holds a list of candidate identity keys, it can test which of them
+  is served at the address, because the responder's second handshake
+  message is authenticated under a hash that includes the identity key. It
+  cannot learn a key that is not on its list.
 
 With the contact card (address, identity key, possibly an invitation):
 
 - It can authenticate as an identity of its choice and send one contact
-  request (S7). The handshake tells it that the identity on the card is
-  live at that address, and nothing else:
+  request (S7). It receives the responder's identity proof, which tells it
+  that the identity on the card is live at that address, and nothing else:
   no profile, no contact information, no acceptance or rejection signal
   (S23).
 - A request without a currently valid invitation is dropped in the default
@@ -95,8 +97,7 @@ send an endpoint update.
 - Cannot learn anything about other contacts (S24).
 - Can sign an endpoint binding that names an Onion Service it does not
   control. Monolith will dial it after the user confirms; the handshake
-  fails because that service cannot prove the contact's identity, and the
-  dialing side has not revealed its own identity at that point. The
+  fails because that service cannot prove the contact's identity. The
   effect is connection attempts on the normal reconnect schedule to an
   address of the contact's choosing, through Tor, for as long as the user
   keeps the contact.
@@ -108,8 +109,7 @@ Residual: everything a conversation partner can do by nature.
 ### C. Many Tor connections to the Onion Service
 
 - Unauthenticated streams are limited in number and in time; the oldest is
-  evicted for a new one. A handshake that is not complete after 4096
-  bytes or after the timeout is dropped.
+  evicted for a new one. All handshake records are fixed-size.
 - The inbound rate is capped globally. Beyond the cap, streams are closed
   at accept.
 - Tor's proof-of-work defense and a per-circuit stream cap are requested
@@ -133,10 +133,9 @@ against an Onion Service.
 
 ### E. Replay
 
-- Within a session: TLS numbers every record and authenticates the
-  number. A replayed, dropped or reordered record ends the session.
-- Across sessions: each side's signature covers a transcript with fresh
-  random values from both sides and fits no other session.
+- Within a session: cipher nonces are counters.
+- Across sessions: an identity proof is bound to the handshake hash and is
+  useless in any other session.
 - Chat messages resent after a reconnect are dropped by identifier. The
   record of identifiers is in memory unless history is enabled, so after a
   restart of the receiver a resent message can be delivered twice.
@@ -292,7 +291,7 @@ removes each class, so that the class is hard to reintroduce.
 | --- | --- | --- |
 | No contact authorization; profile sent to anyone who pings | Contact and profile exchange ran before any consent | Only a user command creates a contact (S7). Unknown peers get one bounded request and no data (S23). |
 | Communication confirmation through a spoofed ID | Behavior depended on a claimed address: "double connection" reply or a back-connection | A connection speaks only for an identity it proved. No claimed identities, no back-connection, no third-party fields (S8, S22, S24). |
-| No length limits | Reader buffered until a newline; no field limits | A handshake capped in bytes and in time, length-prefixed frames checked before reading, per-field maxima, rendering limits (S10, S11, S26). |
+| No length limits | Reader buffered until a newline; no field limits | Fixed-size handshake, length-prefixed frames checked before reading, per-field maxima, rendering limits (S10, S11, S26). |
 | `profile_name` injection into the contact file | Line-based file assembled from peer text | Typed records, no text configuration built from peer input (S28). Names are not identifiers (S20). |
 | Predictable handshake cookie | Non-cryptographic generator | One CSPRNG source (S17). Authentication is a signature over the session transcript, not a shared random value. |
 | Non-default Tor configuration, outdated bundled Tor | Application shipped and configured Tor | No bundled Tor, no Tor configuration (S4, S5). |

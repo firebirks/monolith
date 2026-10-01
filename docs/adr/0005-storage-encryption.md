@@ -69,9 +69,9 @@ The two kinds of data have different needs.
 
 The generation is decided: Monolith uses the current one
 (`DEPENDENCIES.md` section 2), so storage uses `chacha20poly1305` 0.11 and
-the matching `argon2` and `hkdf`. The session layer (ADR 0002) uses the
-crypto provider of the TLS library and shares no cipher crate with
-storage.
+the matching `argon2` and `hkdf`. `snow` 0.10 depends on the previous
+generation (`chacha20poly1305` 0.10, `sha2` 0.10); that conflict is ADR
+0002's to resolve and does not change the choice for storage.
 
 ## Consequences
 

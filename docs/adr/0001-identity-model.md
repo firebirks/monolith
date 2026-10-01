@@ -93,11 +93,10 @@ service from per-contact endpoint services.
 ## Alternatives considered
 
 - Onion address as identity. Rejected for the coupling described above.
-- One key for identity and for a Diffie-Hellman static key (Ed25519
-  converted to X25519). Rejected: using one key in two algorithms is the
-  kind of composition this project avoids. The session layer that was
-  selected later (ADR 0002) needs no static Diffie-Hellman key at all; the
-  identity key only signs.
+- One key for identity and for the Noise static key (Ed25519 converted to
+  X25519). Rejected: the Noise specification advises against using a static
+  key outside Noise, and using one key in two algorithms is the kind of
+  composition this project avoids.
 - An offline root identity that certifies device keys. More machinery than
   version 1 needs; could be added later without changing the pinning rule,
   as a new card version.
@@ -107,7 +106,8 @@ service from per-contact endpoint services.
 - `ed25519-dalek`, strict verification only. Monolith uses version 3.0.0
   (July 2026) with `curve25519-dalek` 5; Phase 1 started on 2.2 and moved
   before any other cryptographic code existed. `DEPENDENCIES.md` section 2
-  has the reasons.
+  has the reasons. `snow` 0.10 still depends on `curve25519-dalek` 4, which
+  ADR 0002 has to take into account.
 - Known advisory: RUSTSEC-2022-0093 (fixed in 2.0). The last public audit of
   the dalek crates was in 2019 and predates the current major versions.
 

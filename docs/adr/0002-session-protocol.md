@@ -1,9 +1,17 @@
 # ADR 0002: Session protocol
 
-Status: decided. The session layer is TLS 1.3 with mutually authenticated
-raw public keys. Implementation has not started and waits for review of
-this record.
+Status: not decided. Two finalists remain, D (TLS 1.3 with raw public keys)
+and F (Noise XK with a transport key certified in the contact card). This
+record recommends F and gives the reasons; the choice is the project
+owner's. No session code exists.
 Date: 2026-10-01
+
+An earlier revision of this record selected D. A review of that revision
+asked for one more candidate to be compared before anything is frozen: a
+Noise pattern in which the responder's static key is known in advance and
+is bound to the identity by the signed contact card. That candidate is F
+below. It is a concrete form of what the earlier revision listed as C and
+set aside too quickly.
 
 ## Context
 
@@ -28,11 +36,6 @@ Fixed points, whatever construction is chosen:
 Not required: deniability, post-quantum security, early data, session
 resumption, group security. Nothing is added for them.
 
-Phase 0 proposed Noise XX with per-connection static keys and a signed
-identity proof. The review of Phase 0 kept it as a candidate and asked for
-a comparison that does not assume it wins. This record is that comparison
-and its outcome.
-
 ## Candidates
 
 ### A. Noise XX, per-connection static keys, signature over the handshake hash
@@ -42,521 +45,511 @@ for every connection. After the handshake each side sends, inside the
 channel, an Ed25519 signature by its identity key over the handshake hash
 and a few other fields (the AuthProof of the earlier drafts).
 
-What Noise provides here: a forward-secret channel between the holders of
-two single-use static keys that stand for nothing. What Monolith provides:
-all long-term authentication, through a signature construction of its own.
-The Noise specification mentions this use in one sentence (section 11.2,
-channel binding) and does not analyze it. Structurally it is SIGMA: sign
-the transcript, and let the AEAD under the derived key play the part of the
-MAC over the signer's identity.
-
-The static keys of XX are used for a side effect: message 3 shows the
-responder that the initiator computed the same handshake hash, prologue
-included, so an initiator has to know the responder's identity key to get
-a proof. That is friction for a prober, not access control (see "Public
-keys are not secrets").
+Noise provides a forward-secret channel between the holders of two
+single-use static keys that stand for nothing. All long-term authentication
+comes from a signature construction of Monolith's own. The Noise
+specification mentions this use in one sentence (section 11.2, channel
+binding) and does not analyze it. The static keys exist for a side effect:
+an initiator has to know the responder's identity key, through the
+prologue, to be handed a proof.
 
 A variant, A2, is what libp2p specifies: sign the Noise static public key
-with the identity key and send the signature in the handshake payload.
-go-libp2p uses a new static key per handshake. This is the most widely
-deployed construction of the family. Its signature covers nothing but the
-static key: no session, no time, no peer. Whoever obtains one static
+with the identity key and send the signature in the handshake payload. The
+signature covers nothing but the static key, so whoever obtains one static
 private key together with the public signature holds a credential for the
-identity that never expires. With per-connection keys that requires
-reading the memory of a running session, and `snow` does not erase keys.
+identity that never expires.
+
+Not pursued. The authentication is Monolith's composition, and the static
+keys carry no meaning.
 
 ### B. Noise NN and signatures over the handshake hash
 
-`Noise_NN_25519_ChaChaPoly_SHA256`, then the same signatures as in A.
-Noise provides an unauthenticated ephemeral exchange and nothing else, and
-the pattern claims nothing it does not deliver. This describes the security
-model more honestly than A. It is still Monolith's own composition, and it
-rebuilds by hand the structure that TLS 1.3 standardizes: ephemeral
-exchange, signature over the transcript with a role-specific context, key
-confirmation. NN has no third handshake message, so a responder cannot see
-that the initiator knows its identity before it answers; the responder
-proves its identity to any party that connects, as in D.
+`Noise_NN_25519_ChaChaPoly_SHA256`, then the same signatures as in A. More
+honest than A about what Noise provides. It is TLS 1.3's authentication
+written again by hand, without its analysis, and the responder proves its
+identity to any party that connects.
 
-### C. Noise with a persistent X25519 static key bound to the identity
+Not pursued.
 
-Each identity holds a long-lived X25519 key, signed by the Ed25519
-identity. C1 carries the signature in an XX payload (libp2p with a stored
-key). C2 publishes the static key in the contact card and uses XK, which
-gives the strongest identity hiding of all options: the responder's static
-key is never transmitted and the initiator's is sent to an authenticated
-responder.
+### C. Noise with a persistent static key bound to the identity
 
-Costs. A second long-term secret to store, back up and rotate. A signature
-over a static key is a standing credential, so C needs expiry or
-revocation rules that no deployed specification provides and Monolith
-would have to design. C2 changes the contact card, which is a Phase 1 wire
-format with published test vectors, and couples card distribution to
-transport key lifetime. The X25519 key must not be derived from the
-Ed25519 key for convenience; kept separate, it is one more thing a user
-has to carry between devices and one more key whose theft impersonates the
-identity.
+Each identity holds a long-lived X25519 key that the Ed25519 identity
+certifies. The earlier revision described two forms, the certificate in the
+handshake payload (C1, libp2p with a stored key) and the static key in the
+contact card (C2), and rejected both for needing a new credential with
+lifetime rules of its own. That was too coarse for C2: the contact card is
+already a signed, versioned statement with an epoch, and a transport key
+can be one more field of it. F is that design, worked out.
 
 ### D. TLS 1.3 with raw public keys on both sides
 
-TLS 1.3 (RFC 8446) with RFC 7250 raw public keys. The Ed25519 identity key
-is the TLS authentication key of each side. The initiator accepts exactly
-one key, the identity it dialed. The responder accepts any valid key and
-leaves the question of who that is to the layers above.
-
-What TLS provides: everything cryptographic. Each side's CertificateVerify
-is a signature by its identity key over the handshake transcript with a
-role-specific context string; Finished confirms the keys; the client sends
-its key and signature only after it has verified the server. What Monolith
-provides: two decisions (is this the key I dialed; is this key well
-formed) and a configuration that switches off what is not needed.
+TLS 1.3 with RFC 7250 raw public keys. The Ed25519 identity key is the TLS
+authentication key of each side. The initiator accepts exactly one key, the
+identity it dialed. The responder accepts any valid key and leaves the
+question of who that is to the layers above. Detailed below.
 
 ### E. Other constructions
 
 Other maintained Noise implementations in Rust (`clatter` 2.3.0,
 `noise-protocol` 0.2.1 with `noise-rust-crypto` 0.6.2) have no audit and no
-known deployment of note, and they depend on the same older generation of
-cryptographic crates as `snow`. They change the library under A to C, not
+known deployment of note. They change the library under a Noise option, not
 the comparison. No other session stack was found that is mature, reviewed
-and a better fit than the four above. Experimental frameworks were not
-searched further.
+and a better fit.
+
+### F. Noise XK or IK with a transport key certified in the contact card
+
+Each identity has three keys with three jobs:
+
+    identity key    Ed25519   signs contact cards, nothing else
+    transport key   X25519    authenticates sessions
+    onion key       Ed25519   reachability, used by Tor
+
+The contact card, which the identity key signs, states the transport key
+next to the endpoints, under the same epoch. A party that holds a card
+therefore knows the responder's transport key before it connects, which is
+the situation the Noise patterns with a known responder key are made for.
+Noise authenticates the transport keys. The card says whose they are. No
+signature is made during a session.
+
+The review proposed IK. Both IK and XK fit; they differ in when the
+initiator's key is sent.
+
+    IK   -> e, es, s, ss        the initiator's key in the first message
+         <- e, ee, se
+
+    XK   -> e, es               the initiator's key in the third message,
+         <- e, ee               after the responder has answered
+         -> s, se
+
+IK saves a message and pays for it. Its first message carries the
+initiator's static key encrypted to the responder's static key without
+forward secrecy, and it can be replayed. The Noise specification rates the
+hiding of the initiator's identity 4 for IK ("if an attacker learns the
+responder's private key they can decrypt the initiator's public key") and 8
+for XK ("encrypted with forward secrecy to an authenticated party").
+Concretely: someone who holds the onion key but not the transport key can
+answer at the address and record first messages. With IK, a transport key
+obtained later reveals who tried to connect. With XK there is nothing to
+decrypt, because the initiator sends its key only after the responder has
+proved that it holds the transport key. Monolith does not need the round
+trip IK saves and does require that order. F is therefore XK.
 
 ## Comparison
 
-The table states what was found, with sources at the end. "Composition"
-means security-critical protocol logic that Monolith would specify itself
-and that no standard or published analysis covers.
+"Composition" means security-critical protocol logic that Monolith would
+specify itself and that no standard or published analysis covers.
 
-| | A: XX + signature over h | B: NN + signature over h | C: persistent certified static key | D: TLS 1.3 raw public keys |
+| | A: XX + signature over h | B: NN + signature over h | D: TLS 1.3 raw public keys | F: XK, transport key in the card |
 | --- | --- | --- | --- | --- |
-| Cryptographic maturity | X25519, ChaCha20-Poly1305, SHA-256, Ed25519 | same | same | same primitives, in the TLS 1.3 key schedule (HKDF-SHA256) |
-| Protocol maturity | Noise revision 34 (2018), status "official/unstable"; the signature step is not part of it | same | Noise as designed; the certificate is outside the specification | RFC 8446 (2018) and RFC 7250 (2014), IETF standards |
-| Implementation maturity | `snow` 0.10.0 (2025-07); single owner, "reasonable-effort" maintenance, no release since | same | same | `rustls` 0.23.45 (2026-09); a team, frequent releases; 0.24 and 1.0 planned for late 2026 |
-| Audit history | Trail of Bits, January 2024, of an earlier `snow` commit: ten findings, eight fixed, two open (one of them: keys are not cleared). The proof construction: none | same | same; the certificate rules: none | Cure53, 2020, of `rustls` with `ring` and `webpki`: four low or informational findings. Nothing later was found |
-| Known deployments | `snow`: libp2p, libsignal (attestation), 1Password. A signature over h: one deployment found | same | static keys with Noise: Lightning, I2P, WireGuard; certified static: libp2p, Nebula | TLS 1.3 everywhere; raw public keys with `rustls`: iroh, over QUIC, with an Ed25519 signer of its own and a server that accepts any client key |
-| MSRV | 1.85 | 1.85 | 1.85 | `rustls` 1.71, `ring` 1.66 |
-| Licence | Apache-2.0 OR MIT | same | same | `rustls` Apache-2.0 OR ISC OR MIT; `ring` Apache-2.0 AND ISC |
-| Transitive footprint (measured) | 23 crates more than today | same | same | 17 crates more than today |
-| Unsafe and non-Rust code | `snow` forbids unsafe; its crypto crates contain some | same | same | `rustls` forbids unsafe; `ring` contains C and assembly from the BoringSSL lineage |
-| Long-term maintenance | one maintainer; open requests for key erasure since 2017 | same | same | `rustls` well staffed; `ring` has had no release since 2025-03, its author stepped back in 2025 and the `rustls` team can publish fixes; the provider is replaceable |
-| Forward secrecy | yes | yes | yes | yes; resumption and early data disabled |
-| Mutual authentication | by Monolith's signatures | by Monolith's signatures | by Noise, through a certificate | by TLS CertificateVerify on both sides |
-| Responder authentication | after the handshake, first frame | same | in the handshake | in the handshake, first server flight |
-| Initiator identity privacy | hidden from all but a responder that proved the dialed identity | same | C2: same, from Noise itself | same, from TLS itself (RFC 8446 appendix E.1) |
-| Resistance to active probing | a prober needs the responder's public identity key to be handed a proof; with it, it gets one | none: any prober gets the proof | C1 none; C2 a prober needs the public static key | none: any prober that speaks the profile learns the responder's identity key and gets a fresh signature |
-| Transcript binding | signature over h, by Monolith | same | Noise handshake hash; the certificate is not bound to the session | CertificateVerify and Finished over the transcript hash, by TLS |
-| Replay resistance | fresh ephemerals in h | same | certificate replayable by design; handshake fresh | fresh randoms and key shares in the transcript |
-| Downgrade resistance | one suite, no negotiation | same | same | one version, one suite, one group configured; negotiation is covered by the transcript |
-| Reflection resistance | role byte in the signed input, by Monolith | same | Noise roles | distinct context strings for client and server, by TLS |
-| Role confusion resistance | by Monolith's signed input | same | by Noise | by TLS |
-| Key separation | identity key signs under a Monolith prefix only | same | a second long-term key, kept separate | identity key signs contact cards and TLS CertificateVerify; the two inputs cannot collide |
-| Key rotation | identity independent of transport keys | same | static key rotation rules to be designed | identity independent of transport keys |
-| Session resumption | none exists | none exists | none exists | exists in TLS; disabled on both sides |
-| 0-RTT | none exists | none exists | IK has it; not used | exists in TLS; disabled, and impossible without resumption |
-| Implementation complexity | small; proof encoding, order rule, state handling | smallest | largest of the Noise options | configuration and two verifiers; no protocol logic |
-| Monolith-owned composition | one construction: the proof | one; two with a confirmation step | one, plus credential lifetime rules | none |
-| Parser complexity before authentication | three fixed-size records, 192 bytes | two fixed-size records | fixed-size if the certificate is | the TLS handshake parser: variable-size messages and extensions, bounded by the library at 64 KiB per message |
-| Fuzzability | glue is small; `snow` has fuzz targets | same | same | glue is small; `rustls` is fuzzed upstream continuously |
-| Test vectors | Noise vectors exist; deterministic handshakes possible through an ungated test hook | same | same | RFC 8448 traces for TLS; a deterministic handshake needs a test-only provider |
-| Zeroization | `snow` clears nothing; open audit finding | same | same, and a long-term key lives in it | `rustls` clears traffic secrets and keys on drop; `ring` does not clear its own state |
-| Duplicate dependencies | a second `curve25519-dalek` (4 next to 5), `sha2`, `digest`; or a resolver written by Monolith | same | same | none among cryptographic crates; `getrandom` 0.2 next to 0.3, which today is a test dependency |
-| Tails and Whonix | pure Rust | pure Rust | pure Rust | needs a C compiler to build; Debian 13 packages `rustls` 0.23.26 and `ring` 0.17.14 |
+| Cryptographic maturity | X25519, ChaCha20-Poly1305, SHA-256, Ed25519 | same | same primitives, in the TLS 1.3 key schedule | X25519, ChaCha20-Poly1305, SHA-256; Ed25519 for cards only |
+| Protocol maturity | Noise revision 34 (2018), "official/unstable"; the signature step is outside it | same | RFC 8446 (2018), now RFC 9846 (2026); RFC 7250 | Noise revision 34; XK as specified; certificates for static keys are the method the specification names (section 14) |
+| Implementation maturity | `snow` 0.10.0 (2025-07); one owner, "reasonable-effort", no release since | same | `rustls` 0.23.45 (2026-09); a team, frequent releases | `snow` 0.10.0, as A |
+| Audit history | `snow`: Trail of Bits, January 2024, earlier commit; ten findings, eight fixed, two open (keys are not cleared). The proof: none | same | `rustls`: Cure53, 2020; four low or informational findings. Nothing later found | `snow` as A. The binding rules: none |
+| Known deployments | a signature over h: one found | same | TLS 1.3 everywhere; raw public keys with `rustls`: iroh, over QUIC | XK with a static key published in a signed record: I2P NTCP2; Lightning (XK with the node key); Tor's ntor handshake has the same shape for one side |
+| MSRV | 1.85 | 1.85 | `rustls` 1.71, `ring` 1.66 | 1.85 |
+| Licence | Apache-2.0 OR MIT | same | Apache-2.0 OR ISC OR MIT; `ring` Apache-2.0 AND ISC | Apache-2.0 OR MIT |
+| Transitive footprint (measured) | 23 crates more than today | same | 17 crates more than today | 23 with the stock resolver; fewer with a resolver over current crates |
+| Unsafe and non-Rust code | `snow` forbids unsafe | same | `rustls` forbids unsafe; `ring` contains C and assembly | `snow` forbids unsafe |
+| Long-term maintenance | one maintainer; key erasure requested since 2017 | same | `rustls` well staffed, 0.24 and 1.0 planned for late 2026; `ring` without a release since 2025-03 | as A |
+| Forward secrecy | yes | yes | yes; resumption and early data disabled | yes |
+| Mutual authentication | by Monolith's signatures | same | by TLS CertificateVerify | by Noise, of the transport keys; the card binds them to identities |
+| Responder authentication | after the handshake | same | first server flight | second message |
+| Initiator identity privacy | hidden from all but a responder that proved the dialed identity | same | same, RFC 9846 appendix F.1 | same, with forward secrecy; Noise rating 8 |
+| Responder identity privacy | shown to a prober that knows the identity key | shown to any prober | shown to any prober, with a signature | never transmitted; Noise rating 3 |
+| Resistance to active probing | friction: a prober needs the public identity key | none | none: a prober gets the identity key and a fresh signature over a transcript it chose part of | a prober without the card gets nothing, not even a reply; with the card it learns that the key holder is live |
+| Transcript binding | signature over h, by Monolith | same | CertificateVerify and Finished, by TLS | Noise handshake hash; every message is authenticated under it |
+| Replay resistance | fresh ephemerals in h | same | fresh randoms and key shares | fresh ephemerals; a replayed first message gets a reply nobody can use |
+| Downgrade resistance | one suite | same | one version, suite and group configured; negotiation covered by the transcript | one suite; the version is in the prologue |
+| Reflection and role confusion | role byte, by Monolith | same | context strings, by TLS | roles are fixed by the pattern |
+| Key separation | identity key signs under a Monolith prefix | same | identity key signs cards and, online at every handshake, TLS transcripts | identity key signs cards only and is not needed for a session |
+| Key rotation | none needed | none needed | none needed | a new transport key is a new card epoch; no revocation |
+| Session resumption | none exists | none exists | exists; disabled | none exists |
+| 0-RTT | none exists | none exists | exists; disabled | not with XK |
+| Implementation complexity | small | smallest | configuration, two verifiers, a signer | small: fixed messages, card checks |
+| Monolith-owned composition | the proof | the proof | no cryptographic construction; the verifiers, the signer and the configuration are Monolith's | five binding rules, listed below |
+| Parser before authentication | 192 bytes, fixed | fixed, less | the TLS handshake parser: variable messages and extensions, up to 64 KiB per message | 48 bytes, fixed; then 48 and 235 |
+| Fuzzability | glue is small | same | glue is small; `rustls` is fuzzed upstream | glue is small |
+| Test vectors | deterministic handshakes through a test hook in `snow` | same | a deterministic handshake needs a test-only provider | as A; Noise vectors exist for XK |
+| Zeroization | `snow` clears nothing | same | `rustls` clears what it holds; `ring` does not | `snow` clears nothing, and here it would hold a long-term key |
+| Duplicate dependencies | a second `curve25519-dalek` and `sha2`, or a resolver of our own | same | `getrandom` 0.2 next to 0.3 | as A |
+| Tails and Whonix | pure Rust | pure Rust | needs a C compiler; Debian 13 packages older versions | pure Rust |
 
-## Decision
+## The two finalists
 
-Monolith uses TLS 1.3 with raw public keys on both sides (candidate D).
+A and B are out: both leave the long-term authentication to a construction
+of Monolith's own with nothing gained in return. D and F each avoid that,
+in different ways.
 
-- Protocol: TLS 1.3, RFC 8446. Certificates: raw public keys, RFC 7250, in
-  both directions.
-- Library: `rustls` 0.23.45, pinned exactly, with the features `ring` and
-  `std` and nothing else. TLS 1.2 is not compiled in.
-- Crypto provider: `ring` 0.17.14, restricted to the algorithms below.
-- Suite: `TLS_CHACHA20_POLY1305_SHA256` (0x1303). Group: x25519 (0x001D).
-  Signature scheme: ed25519 (0x0807). There is no second choice for any of
-  them, so there is nothing to negotiate.
-- Identity binding: the TLS end-entity key of each side is its Monolith
-  identity key, as an Ed25519 SubjectPublicKeyInfo. No certificate, no
-  second key, no Monolith-defined proof.
-- Signatures with the identity key are made and verified by
-  `ed25519-dalek`, through the signing and verification interfaces of
-  `rustls`. The private key is not handed to the provider, and
-  verification is strict, as everywhere else in Monolith.
-- Application protocol: ALPN identifier `monolith/1`.
+### What decides between them
 
-`PROTOCOL.md` sections 3, 4 and 6 give the profile at the level of bytes.
-`CRYPTOGRAPHY.md` gives the properties and the key lifecycle.
+| | D: TLS 1.3 raw public keys | F: Noise XK, key in the card |
+| --- | --- | --- |
+| Bytes an unauthenticated peer can make the responder parse | a ClientHello with extensions, then encrypted handshake messages; bounded by a cap of ours and by the library | 48, of fixed layout |
+| Code reachable before authentication | a general TLS state machine and its parsers | one Diffie-Hellman operation and one tag check |
+| What a prober without the card gets | the identity key and a signature | nothing |
+| What a prober with the card gets | the same, as transferable evidence that the key answered | knowledge that the key holder is live; nothing it can show to others |
+| Use of the identity private key | online, one signature per handshake | only when a card is issued |
+| Authentication rests on | TLS 1.3, analyzed in many models | Noise XK, analyzed symbolically and computationally, and five rules of ours |
+| What Monolith has to get right | verifiers, signer, a dozen configuration choices, checks after the handshake | the five rules |
+| Library | well staffed, audited in 2020, three advisories in three years, interface about to change | one maintainer, audited in 2024, one advisory, clears no keys |
+| Long-term secrets | one | two |
+| Change to Phase 1 formats | none to cards; AuthProof and preamble removed; frame overhead 0 | contact card gains a field; AuthProof and preamble removed; frame overhead stays 16 |
+| Measured handshake, both sides, one machine | 0.31 ms; 203, 368 and 193 bytes | 0.44 ms; 48, 48 and 235 bytes |
 
-### Why D
+### The rules F needs
 
-1. It leaves Monolith no cryptographic composition to get wrong. In A and
-   B the step that authenticates the long-term identity is Monolith's own.
-   It is small and it follows a known shape, but nobody has analyzed it,
-   and this project has no cryptographer to review it. In D the same step
-   is TLS 1.3's CertificateVerify, which has been analyzed in several
-   formal models and attacked in deployment for years.
-2. The properties Monolith needs are stated by the standard and not derived
-   by Monolith: forward secrecy, mutual authentication, binding of each
-   signature to the transcript and to the role, downgrade protection, and
-   protection of the client's identity against active attackers.
-3. The privacy order comes from the protocol. A TLS client sends its key
-   only after it has verified the server's key, signature and Finished. The
-   prototype confirms it for `rustls`: with a server key other than the
-   pinned one, the client sends an alert and never sends its own key.
-4. The implementation is the better maintained one, by a wide margin, and
-   it erases the secrets it holds.
-5. Another implementer needs no Monolith-specific cryptography. Any TLS 1.3
-   stack with raw public key support can speak the profile.
+Certifying a Diffie-Hellman key with a signing key is the method the Noise
+specification names for exactly this situation. It is still composition,
+and it is where F can go wrong. The rules, with the reason for each:
 
-### What D costs
+F1. The card carries the transport key, and the card signature covers it.
+    The card is the certificate. No second signed structure is introduced.
 
-- A larger parser in front of unauthenticated peers. Noise reads 192 bytes
-  in three fixed records. TLS parses a ClientHello with extensions and
-  accepts handshake messages of up to 64 KiB. The parser is memory-safe
-  Rust and is fuzzed upstream, and Monolith adds a cap of its own (see
-  below), but the surface is larger and that is a real cost.
-- A provider that contains C and assembly, and needs a C compiler to build.
-- More to switch off: TLS 1.2, resumption, tickets, early data, server name
-  indication, certificate compression. Each is disabled by configuration
-  or by not compiling it, and each has a test.
-- A handshake that shows the peer which TLS library and version is in use.
-  Only the peer sees it; the stream is inside Tor.
-- No fixed-size handshake records and no deterministic handshake with the
-  stock provider.
-- Two cryptographic libraries in the process: `ed25519-dalek` and `sha2`
-  for identities, `ring` for the session. The rule "one implementation of
-  each primitive" in `DEPENDENCIES.md` is relaxed to say so.
-- The probing friction of A is gone. See the next section.
-- Changes to provisional parts of the Phase 1 protocol. See "Consequences
-  for Phase 1".
+F2. The Noise prologue contains the responder's identity key. Without it
+    there is an attack. Mallory signs a card of her own that names Bob's
+    endpoint and Bob's transport key. Alice imports it, connects, reaches
+    Bob, and Noise succeeds, because Bob does hold that transport key.
+    Alice now attributes Bob's messages to Mallory. Nothing in Noise
+    prevents this: a certificate says the identity vouches for the key,
+    and nothing says the key holder accepts the identity. With the
+    identity key in the prologue, Alice hashes Mallory's key and Bob his
+    own, and the first message fails. This is the misbinding that the
+    SIGMA paper describes for certified Diffie-Hellman keys. Tor's ntor
+    handshake mixes the relay identity into its key derivation for the same
+    reason.
 
-### Why not the others
+F3. The initiator sends its own contact card, without capability, as the
+    payload of the third message. The responder checks the card signature
+    under strict rules, the validity of the identity key, that the
+    identity is not its own, and that the transport key in the card is
+    byte for byte the static key Noise authenticated. Only then is the
+    initiator's identity the one in the card. The card is inside the
+    handshake, so it is the key holder who presents it.
 
-- A. The static keys carry no meaning and exist for the prologue effect,
-  which is friction and not protection. The authentication is Monolith's
-  composition. `snow` clears no key material, has one maintainer, and
-  either duplicates the curve implementation or needs a resolver written
-  by Monolith, which is more security-sensitive code of our own.
-- A2. A signature over a static key is a reusable credential. That is
-  acceptable for libp2p's threat model and not attractive here, least of
-  all on a library that leaves keys in freed memory.
-- B. Honest about what Noise provides, but it is TLS 1.3's authentication
-  written again by hand, without TLS 1.3's analysis, and with the same
-  disclosure to probers as D.
-- C. A second long-term secret and a lifetime policy for a credential,
-  both of which Monolith would have to design. C2 would also change the
-  contact card.
+F4. A card presented in a handshake whose epoch is lower than the one the
+    responder has pinned for that identity does not make the session a
+    contact session. The peer is treated as any identity that is not a
+    contact, with the same generic Close. This keeps a stolen, retired
+    transport key from being used against contacts who know the newer one,
+    without telling the peer why. Against a responder that has never seen
+    the identity there is no defense: version 1 has no revocation, for
+    transport keys as for identity keys.
 
-Dependency duplication did not decide this. Had a Noise option been the
-better construction, the duplicate would have been accepted and
-documented.
+F5. A transport key of small order is invalid, in a card and in a
+    handshake, and a Diffie-Hellman result of all zeros ends the
+    handshake. `snow` checks neither.
 
-## Public keys are not secrets
+A review of the earlier revision, which selected D, is a useful measure of
+what "no composition" is worth. It found one contradiction in the
+specification that would have led an implementer to send the initiator's
+identity before verifying the responder, and half a dozen cases the
+specification did not cover: a HelloRetryRequest, a responder that sends no
+CertificateRequest, the signature algorithm field, KeyUpdate, the alerts a
+library sends on its own. None is a flaw of TLS. Each is something Monolith
+has to specify and test. D has no cryptographic construction of ours, but
+its glue is not smaller than the five rules above.
 
-In D any party that can reach the listener and speak the profile learns
-the responder's identity public key and receives a signature that proves
-the identity is live at that address. Candidate A made that depend on
-knowing the identity key beforehand.
+### Assessment
 
-That key is public data. It is in every contact card, next to the onion
-address, and the two travel together. Knowing it is not possession of a
-secret and was never access control, authorization or authentication of
-the initiator. What A offered was that a party holding only the onion
-address was not handed a proof. Onion addresses of version 3 services are
-not enumerable, so that party is rare. The property is given up, knowingly.
+F is recommended, as XK with the five rules.
 
-What a prober cannot learn, in any candidate: whether an identity it
-presents is a contact, blocked, declined or unknown (`PROTOCOL.md`
-section 12.1).
+1. The attack surface in front of unauthenticated peers is the smallest of
+   any candidate: 48 bytes of fixed layout, one Diffie-Hellman operation,
+   one tag. The listener is reachable by anyone who has a contact card.
+   Monolith has no update mechanism by design, so a parser error in a
+   large dependency stays reachable until the user upgrades by hand.
+2. It gives nothing to a prober. D hands every caller the identity key and
+   a signature over a transcript the caller contributed to, which the
+   caller can show to others as evidence that the key was online. F sends
+   no signature in a session at all.
+3. The identity key leaves the session path. It signs cards and nothing
+   else, and can stay locked while the application runs. In D it signs
+   whenever anyone connects.
+4. The authentication is that of Noise XK, which has symbolic and
+   computational analyses. What Monolith adds is a certificate, in the
+   form the Noise specification suggests and I2P has deployed since 2018.
+5. The frame layer of Phase 1 stays as it is.
 
-If Monolith ever requires a real secret before it does anything
-identifying, that secret has to be a secret. TLS has a place for one, an
-external pre-shared key. It is not used in version 1: `rustls` 0.23 has no
-interface for it, and inventing a challenge in front of the handshake is
-exactly the kind of construction this record avoids.
+What is accepted with F:
 
-## Authentication
+- Five rules of Monolith's own, reviewed by nobody outside the project.
+  F2 shows how such a rule is missed. They are few, each is stated with
+  its reason, and each gets tests that fail when it is removed.
+- A change to the contact card before anything is deployed: one more
+  field, new test vectors, a longer text form.
+- A second long-term secret in the vault and in every backup.
+- `snow`: one maintainer, no release in fourteen months, and no erasure of
+  keys. With F the transport key is long-lived, so the last point weighs
+  more than it did for A. See F-R1.
+- No revocation. A new transport key reaches a contact only when the two
+  next talk.
 
-There is no AuthProof. The authentication messages are those of TLS 1.3.
+D remains a sound choice if the owner prefers to own no binding rules at
+all and accepts the larger parser, the disclosure to probers and the
+identity key on the session path. Its specification is drafted in
+`PROTOCOL.md` and `CRYPTOGRAPHY.md`; the corrections it needs are listed
+under "Finalist D in detail".
 
-    Initiator (TLS client)                      Responder (TLS server)
+## Finalist F in detail
 
-      ClientHello
-        x25519 key share, suite 0x1303,
-        ALPN monolith/1, raw public key
-        for both certificate types      ---->
-                                                ServerHello (key share)
-                                                {EncryptedExtensions}
-                                                {CertificateRequest}
-                                                {Certificate: responder
-                                                   identity key}
-                                                {CertificateVerify}
-                                        <----   {Finished}
-      checks: the key is the identity
-        that was dialed; the signature;
-        Finished
+This section is a design, at the level needed to judge it. If F is chosen,
+`PROTOCOL.md` and `CRYPTOGRAPHY.md` are rewritten from it and the exact
+bytes are fixed there.
 
-      {Certificate: initiator identity key}
-      {CertificateVerify}
-      {Finished}                        ---->
-                                                checks: the key is a valid
-                                                  key and not its own; the
-                                                  signature; Finished
+Pattern and suite: `Noise_XK_25519_ChaChaPoly_SHA256`.
 
-      [frames]                          <--->   [frames]
+Prologue, 51 bytes: the 19 ASCII bytes `MONOLITH-SESSION-V1` followed by
+the responder's identity public key. The label carries the protocol
+version. The initiator takes the identity key from the contact it dials;
+the responder uses its own.
 
-Braces mark messages encrypted under handshake keys, brackets under
-application keys.
+Pre-message: the responder's static key is the transport key in the card
+the initiator holds for that identity.
 
-Each CertificateVerify is an Ed25519 signature over these 130 bytes, as
-RFC 8446 section 4.4.3 defines them:
+    Initiator                                   Responder
 
-    64 bytes   0x20 repeated
-    33 bytes   "TLS 1.3, server CertificateVerify" for the responder,
-               "TLS 1.3, client CertificateVerify" for the initiator
-     1 byte    0x00
-    32 bytes   SHA-256 transcript hash of the handshake up to and
-               including the signer's Certificate message
+      e, es                    48 bytes  ---->
+                                                checks the tag: the caller
+                                                  knows my transport key
+                                                  and my identity key
+                               48 bytes  <----  e, ee
+      checks the tag: the peer holds
+        the transport key of the
+        identity I dialed
+      s, se, card             235 bytes  ---->
+                                                checks rules F3 to F5
 
-The transcript covers both hello messages, so it binds the protocol
-version, the suite, the group, both key shares, both random values, the
-ALPN identifier and the certificate types. The context string binds the
-role. The responder's transcript ends before the initiator's key appears;
-the initiator's includes the responder's key and signature.
+      [frames]                           <--->  [frames]
 
-Order. The responder proves its identity first. The initiator reveals its
-identity only after it has verified that proof against the identity it
-dialed. This resolves the order that Phase 1 left open.
+Sizes are those of the prototype, with a card of 171 bytes.
+
+Order. The responder proves possession of its transport key in the second
+message. The initiator sends its transport key and its card only after
+that, encrypted with forward secrecy.
 
 What each party learns:
 
 | Party | Learns |
 | --- | --- |
-| Passive observer of the stream | That TLS 1.3 is spoken and that the ALPN identifier is `monolith/1`. No identity. Inside Tor, only the two endpoints see the stream at all. |
-| Active party that connects and speaks the profile, without authenticating | The responder's identity key and a signature showing that it is live at this address. |
-| Active party that answers at the address without the identity key | That someone connected, and what the ClientHello shows of the library. Not the initiator's identity: the initiator stops when the proof fails. |
-| Authenticated initiator the responder does not hold as a contact | The same as the prober above, and that its own first message is answered with Close. Nothing about the contact list. |
-| Authenticated responder | The initiator's identity key. |
+| Passive observer of the stream | Three messages of fixed size. Nothing readable. |
+| Active party without the responder's card | Nothing. Its first message fails the tag and the responder closes without replying. |
+| Active party with the responder's card | That the holder of the transport key is live at the address. No signature and nothing transferable. |
+| Party that answers at the address without the transport key | 48 bytes it cannot use. The initiator stops at the second message and has sent no identity. Obtaining the transport key later reveals nothing from what was recorded. |
+| Authenticated responder | The initiator's card: identity, transport key, endpoints. |
 
-Outbound pinning. The initiator's verifier accepts one key: the identity
-passed to the dial. Anything else ends the handshake with
-`IdentityMismatch`. There is no option to accept another key and no
-fallback to an unknown peer.
+The last row is not a new disclosure. An initiator dials only identities
+it holds as contacts or has asked to become contacts, and both receive its
+card anyway.
 
-Inbound authentication. The responder's verifier accepts any key that is a
-valid Monolith key and not its own. It must not look at the contact list,
-the block list or any other record of the identity: a handshake that
-succeeded or failed depending on standing would be an oracle. What the
-identity is allowed to do is decided afterwards, by the contact
-confirmation of `PROTOCOL.md` section 6.4.
+Contact card. One field is added to the signed bytes and to the binary
+form: the 32-byte transport key. A card grows from 139 to 171 bytes, 187
+with a capability. The epoch covers the transport key as it covers the
+endpoints: a card with the same epoch and another transport key is a
+conflict, and a new transport key needs a greater epoch.
 
-Checks that are Monolith's, on both sides:
+Transport. Frames are Noise transport messages, as Phase 1 assumes: a
+16-byte tag per frame, nonces counting from zero, a frame that fails
+authentication ends the session. Replay, loss and reordering of frames are
+detected by Noise. Limits per session are unchanged: 24 hours, 2^32
+frames, 2^40 bytes, far below the 2^64 nonces of a cipher state, and there
+is no rekey.
 
-1. The certificate is a raw public key and there is exactly one.
-2. It is the 44-byte SubjectPublicKeyInfo of an Ed25519 key, byte for
-   byte: the 12 bytes `30 2a 30 05 06 03 2b 65 70 03 21 00` and the key.
-3. The key is valid under `PROTOCOL.md` section 10.1.
-4. The key is not the local identity key.
-5. Initiator only: the key is the one that was dialed.
-6. The CertificateVerify signature verifies under strict Ed25519 rules.
-7. After the handshake: the version is TLS 1.3, the suite is 0x1303, and
-   the negotiated ALPN identifier is `monolith/1`. A handshake that
-   completed without ALPN is rejected.
+Invitation capability. Unchanged: inside the ContactRequest, compared in
+constant time, looked at after the Close. It can be checked only after a
+complete handshake, which costs a responder three Diffie-Hellman
+operations and one signature verification.
 
-Every rejection by these checks ends the handshake in the same way.
-
-## Invitation capability
-
-The capability stays where Phase 1 put it: in the ContactRequest, inside
-the authenticated channel. It is never on the wire in clear, it is
-compared in constant time, and it is looked at only after the Close has
-been sent. It is not an identity, a key or a transport secret, and it does
-not authenticate anyone.
-
-It can be checked only after a complete handshake. An attacker with a
-contact card can therefore make a responder perform one key generation,
-one X25519 operation, one signature and one verification per attempt, and
-hold one session slot until the first message or the timeout. The inbound
-rate limits and the budget for unknown sessions bound this
-(`RESOURCE_LIMITS.md`). No challenge is placed in front of the handshake.
-
-## Transport, replay and limits
-
-Frames. Monolith frames (`PROTOCOL.md` section 5) are written into the TLS
-stream as application data, with the frame overhead parameter T = 0: the
-layer below protects them. A frame may span several TLS records. Padding
-is unchanged.
-
-Replay and order. TLS numbers every record and authenticates the number. A
-record that is replayed, dropped, reordered or taken from another session
-fails authentication and ends the session. Monolith adds no sequence
-numbers of its own. Application-level repetition is a different thing and
-is handled where it arises: a chat message that is sent again after a
-reconnect carries the same MessageId and is delivered once; a contact card
-that is sent again is judged by its epoch.
-
-Rekeying. Monolith never rekeys a session. When a limit is reached it sends
-Close and connects again with a full handshake. A KeyUpdate from the peer
-is legal TLS and is handled by the library.
-
-Limits per session, whichever comes first:
-
-| Limit | Value |
-| --- | --- |
-| Age | 24 hours |
-| Frames sent in one direction | 2^32 |
-| Plaintext bytes sent in one direction | 2^40 |
-
-None of these is forced by the cipher. TLS 1.3 with ChaCha20-Poly1305 has
-no confidentiality limit below the 2^64 record sequence space (RFC 8446
-section 5.5), and a single failed record ends the session, so an attacker
-gets one forgery attempt. The limits exist so that a session key has a
-bounded life and a long-running session regularly gets new ephemeral keys.
-The age limit is the one that is reached in practice. Ciphertext is at
-most 22 bytes more per TLS record than plaintext.
-
-Resumption and early data are disabled on both sides: the responder issues
-no tickets and keeps no session store, the initiator neither offers nor
-stores sessions. Every connection is a full handshake.
-
-Handshake bounds. A side stops and closes if it has received more than
-4096 bytes of TLS data and the handshake is not complete. The flights of
-this profile are 203, 368 and 193 bytes with `rustls` 0.23.45. The
-handshake timeout of `RESOURCE_LIMITS.md` applies as before.
-
-## Key lifecycle
+Key lifecycle:
 
 | Secret | Generated | Lives | Stored | Erased |
 | --- | --- | --- | --- | --- |
-| Identity private key | by Monolith, OS CSPRNG | until the identity is discarded | vault, or memory in ephemeral mode | by Monolith's key type on drop |
-| TLS ephemeral X25519 key | by `ring`, OS CSPRNG | one handshake | never | not explicitly; `ring` does not clear |
-| Handshake and traffic secrets | TLS key schedule | one session | never | by `rustls` on drop |
-| Record keys inside the provider | from the traffic secrets | one session | never | not explicitly; `ring` does not clear |
-| Invitation capability | by Monolith, OS CSPRNG | until revoked | vault | by its type on drop |
-| Signature buffers | per handshake | one handshake | never | not secret |
+| Identity private key | by Monolith | until the identity is discarded | vault | by its type; needed only to issue a card |
+| Transport private key | by Monolith, independently | until replaced by a new card epoch | vault | by its type; inside `snow` only if the resolver is ours |
+| Noise ephemeral key | by the Noise library | one handshake | never | not by `snow` |
+| Chaining key, cipher keys | by Noise | one session | never | not by `snow` |
+| Invitation capability | by Monolith | until revoked | vault | by its type |
 
-Erasure on drop removes the copies a type controls. It does not reach
-copies made by the compiler, memory that was swapped out, crash dumps, or
-state inside the provider. This is stated as a limit, not hidden.
+The transport key is not derived from the identity key or from a shared
+seed.
 
-## Consequences for Phase 1
+Consequences for Phase 1:
 
-The parts of `PROTOCOL.md` that were marked provisional are replaced. No
-Monolith peer has been deployed, so nothing on any network is affected.
+- the contact card format changes as above, with new test vectors and fuzz
+  seeds; ContactRequest and EndpointUpdate grow by 32 bytes and still fit
+  one padding block before confirmation;
+- the preamble and AuthProof are removed, with the feature bits; message
+  code 0x0001 becomes unassigned;
+- the handshake record sizes become 48, 48 and 235;
+- the frame format, the frame overhead of 16 and every other message are
+  unchanged;
+- the session logic is told by the handshake which identity was
+  authenticated, as with D.
 
-- The 8-byte preamble is removed. Version selection is the ALPN
-  identifier, which the handshake authenticates.
-- The three Noise handshake records are removed.
-- AuthProof is removed, and with it the feature bits. Message code 0x0001
-  becomes unassigned. A later extension is selected by a new ALPN
-  identifier.
-- The frame overhead T becomes 0. The value of the frame length field is
-  16 less than before; plaintext sizes, the largest body and the chunk
-  size do not change.
-- The session states keep their names. `IdentityAuth` no longer waits for
-  a message; it is the point at which the checks listed above are applied
-  to a completed handshake.
-- The session logic no longer receives an AuthProof. It is told by the
-  handshake which identity was authenticated.
+Risks and open points of F:
 
-Unchanged: contact cards, fingerprints, key validity, every other message,
-text rules, frame plaintext layout and padding, contact confirmation, and
-the published test vectors of `PROTOCOL.md` section 16. The fuzz seeds for
-frames and messages are regenerated because the message list and the frame
-overhead change.
+- F-R1. Library and provider. Three ways to run XK through `snow`: its
+  stock resolver, which brings a second `curve25519-dalek`, `sha2` and
+  `chacha20poly1305` and leaves the transport key in memory it never
+  clears; its `ring` resolver, which has no X25519 and so cannot serve
+  this suite alone; or a resolver of Monolith's own over `x25519-dalek`
+  3, `chacha20poly1305` 0.11 and `sha2` 0.11, as libsignal and
+  rust-libp2p do, which keeps the transport key in an erasing type and
+  can enforce F5, at the cost of security-sensitive glue of ours that has
+  to pass the Noise test vectors. Avoiding duplicate crates is not a
+  reason for the third; erasing a long-term key and rejecting degenerate
+  results are. To be decided with evidence before code, in this record.
+- F-R2. The five rules have no external review.
+- F-R3. `snow` may stop being maintained. The Noise handshake is small
+  and specified; replacing the library is contained in one crate.
+- F-R4. No revocation of a transport key.
+- F-R5. A stale card presented to a responder that never saw a newer one
+  is accepted. Same root as F-R4.
 
-## Implementation boundary
+## Finalist D in detail
 
-One new crate holds everything that touches the TLS library. Nothing else
-in Monolith calls it.
+- Protocol: TLS 1.3 (RFC 9846, which replaced RFC 8446 in July 2026 without
+  changing what is used here) with raw public keys (RFC 7250) in both
+  directions.
+- Library: `rustls` 0.23.45, pinned exactly, features `ring` and `std`.
+  Provider: `ring` 0.17.14. Suite `TLS_CHACHA20_POLY1305_SHA256`, group
+  x25519, signature scheme ed25519. ALPN identifier `monolith/1`.
+- The TLS end-entity key of each side is its Monolith identity key, as the
+  44-byte Ed25519 SubjectPublicKeyInfo. Signatures are made and verified
+  with `ed25519-dalek` through the library's interfaces.
 
-- `Initiator` and `Responder` drive a handshake from bytes in to bytes out,
-  without sockets. Neither can send or receive a frame.
-- A completed handshake yields an `AuthenticatedSession` and the identity
-  that was proven. Only that type can send and receive frames, and it
-  applies the Phase 1 session logic to every message.
-- The rest of Monolith sees plaintext messages on one side and opaque bytes
-  for the stream on the other. Replacing the TLS library or the provider
-  does not touch contact logic.
+The handshake, the 130-byte signed input of CertificateVerify, the checks
+of each side and what each party learns are specified in `PROTOCOL.md`
+sections 3, 4 and 6 and `CRYPTOGRAPHY.md` sections 4 to 8.
 
-## Risks and open points
+    Initiator (TLS client)                      Responder (TLS server)
 
-- R1. The pre-authentication parser is that of a general TLS library. An
-  error in it is reachable by anyone who knows the onion address. The
-  byte cap, the timeout and upstream fuzzing reduce the exposure; they do
-  not remove it.
-- R2. `ring` has had no release since March 2025 and its author stepped
-  back that year; the `rustls` team can publish fixes. If fixes stop, the
-  provider has to change. `aws-lc-rs` is the alternative and needs NASM
-  or prebuilt objects on Windows.
-- R3. `rustls` 0.24 and 1.0 are planned for late 2026 and change the raw
-  public key interface. The pin will need a planned migration. Version
-  0.23.45 is the first without RUSTSEC-2026-0285; nothing older is
-  acceptable, which rules out the version Debian 13 ships.
-- R4. The last public audit of `rustls` is from 2020. Monolith's verifiers
-  and configuration are not audited at all.
-- R5. A deterministic handshake for test vectors needs a provider written
-  for tests. Whether that is worth it is decided during implementation.
-- R6. The responder shows its identity key and a fresh signature to any
-  prober. Accepted above; listed because it is the visible difference to
-  the Phase 0 proposal.
-- R7. Per-handshake memory has not been measured. It is bounded by the
-  byte cap and the library's fixed buffers; the number goes into
-  `RESOURCE_LIMITS.md` when the code exists.
+      ClientHello                       ---->
+                                                ServerHello
+                                                {EncryptedExtensions}
+                                                {CertificateRequest}
+                                                {Certificate}
+                                                {CertificateVerify}
+                                        <----   {Finished}
+      verifies the responder
+      {Certificate}
+      {CertificateVerify}
+      {Finished}                        ---->
+                                                verifies the initiator
+      [frames]                          <--->   [frames]
 
-For external review, if one becomes possible: the two verifiers and the
-checks after the handshake; the configuration that disables resumption,
-tickets and early data; and the decision to use the identity key directly
-as the TLS key.
+The message order is TLS's. That the initiator applies its pin before it
+sends its Certificate is the behavior of the verifier and the library; the
+prototype confirms it for `rustls`.
 
-## Questions closed by this record
+Corrections the drafted specification needs if D is chosen, from the review
+of the earlier revision:
 
-- Q1: D.
-- Q2: disclosure of the responder's key to a connecting party is accepted.
-- Q3, Q5: no prologue; Noise is not used.
-- Q4: no Monolith proof input exists.
-- Q6: no certificate exists.
-- Q7: answered by the prototype: mutual raw public keys work; a responder
-  can accept any key; no server name is sent; resumption and tickets can
-  be switched off; an exporter is available.
-- Q8: the onion service key is not bound into the handshake. Open question
-  P2 of `PROTOCOL.md` stays as it is.
-- Q9: limits as above; reconnect, no rekey.
-- Q10: `ring`; `snow` is not used.
-- Q11: the responder proves first, by TLS.
+- The checks on the peer's key and signature run inside the handshake,
+  before the initiator's own flight. `IdentityAuth` applies only the checks
+  after Finished. One sentence in the earlier text said otherwise and has
+  been corrected.
+- Alerts. Rejections that come from Monolith's verifiers use one alert.
+  The library sends others on its own, for example for an empty client
+  certificate. None depends on what the responder holds about the
+  initiator. RFC 9846 asks for `decrypt_error` on a bad signature; the
+  profile has to say which it uses.
+- The signature algorithm in CertificateVerify must be checked to be
+  ed25519; the library hands it to the verifier unchecked.
+- A responder that sends no CertificateRequest, and a HelloRetryRequest,
+  have to be specified. A side that receives a KeyUpdate request must
+  answer it.
+- The signer handed to the library should refuse any input that is not
+  the 130-byte TLS form for its role, so that "the identity key signs two
+  kinds of input" does not depend on the library.
+- Session limits belong in `PROTOCOL.md`, with the unit that is counted.
+- Statements that the handshake proves the identity "live at this
+  address" are too strong: the session is not bound to the onion address
+  (`PROTOCOL.md` open question P2), so a relay that forwards bytes is not
+  detected. This applies to F as well.
+- A TLS client cannot know that the server accepted its authentication
+  until the server sends application data (RFC 9846 appendix F.1.2).
+- Leftovers of the earlier draft in `TEST_PLAN.md`, `RESOURCE_LIMITS.md`,
+  `ARCHITECTURE.md` and ADR 0003 that still describe a 16-byte overhead
+  or an identity proof.
 
-`native-tls` and `openssl-sys` stay banned. Nothing here needs either.
+Risks of D: the size of the parser in front of unauthenticated peers; the
+future of `ring`; the announced change of the `rustls` interface, with
+0.23.45 as the oldest acceptable version because of RUSTSEC-2026-0285; an
+audit from 2020; no deterministic handshake without a test provider;
+disclosure of the identity key and a signature to probers; unmeasured
+memory per unfinished handshake.
+
+Consequences of D for Phase 1: the preamble, the handshake records and
+AuthProof are removed; the frame overhead becomes 0 and the frame length
+field 16 less; contact cards and the published test vectors do not change.
+
+## Common to both finalists
+
+- Authentication and authorization stay separate. A session authenticates
+  an identity. Whether that identity is a contact is decided afterwards by
+  `PROTOCOL.md` section 6.4, and a responder's handshake never depends on
+  it.
+- An outbound session accepts only the identity that was dialed. Anything
+  else is `IdentityMismatch`, with no option to continue.
+- One suite, no negotiation, no resumption, no early data, no rekey.
+- The invitation capability is checked after the handshake, in the
+  ContactRequest.
+- One crate holds every call to the session library. A handshake object
+  cannot send or receive frames; only the authenticated session it yields
+  can, and that object owns the session logic of the protocol core.
+- AuthProof, the preamble and the feature bits of the earlier drafts are
+  removed. Message code 0x0001 becomes unassigned.
+- `native-tls` and `openssl-sys` stay banned. Neither finalist needs them.
+- Monolith's own part of either design has not been audited.
+
+## Public keys are not secrets
+
+Knowing a responder's public keys is not possession of a secret and is
+never access control, authorization or authentication of the initiator. In
+F a caller needs the responder's identity key and transport key to get any
+reply. Both are in every contact card. What F provides is that a party
+with the onion address alone learns nothing, and that nobody is handed a
+signature. It keeps nobody out who holds a card.
+
+If Monolith ever requires a real secret before it answers, that secret has
+to be a secret, such as the invitation capability. Noise has a place for
+one, a pre-shared key. It is not used in version 1.
 
 ## Sources
 
 Accessed 2026-10-01. Measurements were made with throwaway prototypes that
 are not part of the repository.
 
-- TLS 1.3: https://www.rfc-editor.org/rfc/rfc8446 (4.4.3 CertificateVerify,
-  5.5 limits, appendix E.1 identity protection)
+- TLS 1.3: https://www.rfc-editor.org/rfc/rfc9846 , which obsoletes
+  https://www.rfc-editor.org/rfc/rfc8446
 - Raw public keys: https://www.rfc-editor.org/rfc/rfc7250
 - Ed25519 in SubjectPublicKeyInfo: https://www.rfc-editor.org/rfc/rfc8410
 - rustls: https://docs.rs/rustls/0.23.45 ,
   https://github.com/rustls/rustls/releases ,
-  https://github.com/rustls/rustls/issues/2400 (0.24 and 1.0)
-- rustls raw public key example:
-  https://github.com/rustls/rustls/blob/v/0.23.45/openssl-tests/src/raw_key_openssl_interop.rs
+  https://github.com/rustls/rustls/issues/2400
 - rustls audit: https://github.com/rustls/rustls/blob/main/audit/TLS-01-report.pdf
 - rustls advisories: https://rustsec.org/packages/rustls.html
-- ring: https://github.com/briansmith/ring/discussions/2414 ,
-  https://rustsec.org/advisories/RUSTSEC-2025-0007.html
+- ring: https://github.com/briansmith/ring/discussions/2414
 - iroh: https://docs.rs/crate/iroh/1.3.0/source/src/tls.rs
 - Noise specification, revision 34: https://noiseprotocol.org/noise.html
-- Noise Explorer: https://eprint.iacr.org/2018/766
-- fACCE analysis of Noise: https://eprint.iacr.org/2019/436
+  (7.7 payload properties, 7.8 identity hiding, 14 application
+  responsibilities)
+- Noise Explorer: https://eprint.iacr.org/2018/766 ,
+  https://noiseexplorer.com/patterns/XK/
+- fACCE analysis of Noise, including XK: https://eprint.iacr.org/2019/436
 - A Spectral Analysis of Noise:
   https://www.usenix.org/conference/usenixsecurity20/presentation/girol
 - SIGMA: https://www.iacr.org/archive/crypto2003/27290399/27290399.pdf
+- Tor ntor handshake:
+  https://spec.torproject.org/proposals/216-ntor-handshake.html
+- I2P NTCP2: https://i2p.net/en/docs/specs/ntcp2
+- Lightning transport: https://github.com/lightning/bolts/blob/master/08-transport.md
 - snow: https://github.com/mcginty/snow , https://docs.rs/snow/0.10.0 ,
   https://rustsec.org/advisories/RUSTSEC-2024-0011.html
 - snow audit:
   https://github.com/trailofbits/publications/blob/master/reviews/2024-03-agilebits-snow-securityreview.pdf
+- libsignal's resolver for snow:
+  https://github.com/signalapp/libsignal/blob/main/rust/attest/src/snow_resolver.rs
 - libp2p Noise: https://github.com/libp2p/specs/blob/master/noise/README.md
-- libp2p TLS: https://github.com/libp2p/specs/blob/master/tls/tls.md
 - clatter: https://github.com/jmlepisto/clatter
 - noise-rust: https://github.com/blckngm/noise-rust
-- Lightning transport: https://github.com/lightning/bolts/blob/master/08-transport.md
-- I2P NTCP2: https://i2p.net/en/docs/specs/ntcp2

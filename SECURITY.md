@@ -47,7 +47,4 @@ Out of scope, because the design does not claim to defend against them
 - vulnerabilities in Tails, Whonix or Tor; report those upstream.
 
 Design flaws are as welcome as implementation bugs, in particular anything
-concerning the way identities are authenticated, described in
-`docs/CRYPTOGRAPHY.md` and `docs/adr/0002-session-protocol.md`. That part
-is Monolith's own use of TLS 1.3 and has not been reviewed by anyone
-outside the project.
+concerning the identity proof described in `docs/CRYPTOGRAPHY.md`.
