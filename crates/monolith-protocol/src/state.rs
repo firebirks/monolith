@@ -20,7 +20,8 @@ pub enum SessionState {
     /// Both sides hold each other as accepted contacts and have said so on
     /// this session.
     AuthenticatedContact,
-    /// A Close message was sent or received; the stream is being shut down.
+    /// A Close message was sent; the stream is being shut down. A Close
+    /// that is received leads straight to `Closed`.
     Closing,
     /// The session is over. No further input is processed.
     Closed,

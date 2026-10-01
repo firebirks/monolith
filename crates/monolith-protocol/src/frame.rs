@@ -18,8 +18,8 @@ use core::fmt;
 
 use crate::limits::{
     FIELD_LENGTH_PREFIX_LEN, FRAME_LENGTH_PREFIX_LEN, FRAME_PADDING_BLOCK_LEN,
-    FRAME_SESSION_OVERHEAD_LEN, MAX_FRAME_LENGTH_VALUE, MAX_UNCONFIRMED_BODY_LEN,
-    MESSAGE_HEADER_LEN, TRANSFER_ID_LEN,
+    FRAME_SESSION_OVERHEAD_LEN, MAX_FILE_CHUNK_LEN, MAX_FRAME_LENGTH_VALUE, MAX_NON_CHUNK_BODY_LEN,
+    MAX_UNCONFIRMED_BODY_LEN, MESSAGE_HEADER_LEN, TRANSFER_ID_LEN,
 };
 use crate::{MessageType, ProtocolError, SessionState};
 
@@ -43,8 +43,9 @@ impl FrameParams {
     /// `padding_block` is the block the plaintext is padded to. `overhead`
     /// is what the session layer adds to each frame. Returns `None` if a
     /// block cannot hold a message header, if one block plus the overhead
-    /// does not fit in a 16-bit length, or if the largest message that is
-    /// legal before a session is confirmed does not fit in a frame.
+    /// does not fit in a 16-bit length, or if the largest frame cannot hold
+    /// every message other than a file chunk at its largest size. File
+    /// chunks are cut to the frame; see [`Self::max_file_chunk_len`].
     pub const fn new(padding_block: usize, overhead: usize) -> Option<Self> {
         if padding_block <= MESSAGE_HEADER_LEN {
             return None;
@@ -56,7 +57,9 @@ impl FrameParams {
             },
             _ => return None,
         };
-        if params.padded_len(MAX_UNCONFIRMED_BODY_LEN).is_none() {
+        // This covers the messages that are legal before confirmation as
+        // well: none of them is larger.
+        if params.padded_len(MAX_NON_CHUNK_BODY_LEN).is_none() {
             return None;
         }
         Some(params)
@@ -92,18 +95,24 @@ impl FrameParams {
         self.max_plaintext_len().saturating_sub(MESSAGE_HEADER_LEN)
     }
 
-    /// Returns the most file data one FileChunk can carry: what is left of
-    /// the largest body after the transfer identifier and the length of the
-    /// data field.
+    /// Returns the size of a full FileChunk: what is left of the largest
+    /// body after the transfer identifier and the length of the data field,
+    /// and never more than [`MAX_FILE_CHUNK_LEN`], which is what the body
+    /// codec accepts.
     ///
-    /// The body codec checks chunks against
-    /// [`MAX_FILE_CHUNK_LEN`](crate::limits::MAX_FILE_CHUNK_LEN), which is
-    /// this value for the provisional parameters. A sender that runs with
-    /// other parameters must also stay within this value.
+    /// This is the chunk size of `docs/PROTOCOL.md` section 13.1 for these
+    /// parameters. It is at least 1 for every parameter set that
+    /// [`Self::new`] accepts.
     pub const fn max_file_chunk_len(&self) -> usize {
-        self.max_body_len()
+        let fits = self
+            .max_body_len()
             .saturating_sub(TRANSFER_ID_LEN)
-            .saturating_sub(FIELD_LENGTH_PREFIX_LEN)
+            .saturating_sub(FIELD_LENGTH_PREFIX_LEN);
+        if fits < MAX_FILE_CHUNK_LEN {
+            fits
+        } else {
+            MAX_FILE_CHUNK_LEN
+        }
     }
 
     /// Returns the plaintext length of a message with a body of `body_len`
@@ -319,6 +328,12 @@ impl OuterDecoder {
     /// its payload. The caller feeds the rest of `input` again. `state` is
     /// the session state at the time the length prefix completes; it decides
     /// how long the frame may be.
+    ///
+    /// A call never goes past the end of one frame, and the caller must
+    /// pass that frame through the session before it feeds the rest: the
+    /// message in it may change the state, and with it the limit for the
+    /// frame that follows. A caller that collected several frames first
+    /// would check the later ones against a state that is out of date.
     pub fn feed(
         &mut self,
         input: &[u8],
@@ -403,6 +418,15 @@ mod tests {
             "a full chunk fills a maximum frame"
         );
         assert_eq!(P.max_file_chunk_len(), MAX_FILE_CHUNK_LEN);
+        // A frame with room to spare does not make chunks larger than the
+        // body codec accepts, and a smaller frame makes them smaller.
+        assert_eq!(
+            FrameParams::new(65_535, 0).unwrap().max_file_chunk_len(),
+            MAX_FILE_CHUNK_LEN
+        );
+        let small = FrameParams::new(1024, 48_000).unwrap();
+        assert_eq!(small.max_body_len(), 17 * 1024 - 4);
+        assert_eq!(small.max_file_chunk_len(), 17 * 1024 - 4 - 16 - 2);
         assert_eq!(
             FrameParams::new(FRAME_PADDING_BLOCK_LEN, FRAME_SESSION_OVERHEAD_LEN),
             Some(P),
@@ -421,7 +445,11 @@ mod tests {
         // One block of 500 with this overhead fits the length prefix, but no
         // second one does, and the largest contact request needs two.
         assert_eq!(FrameParams::new(500, 65_000), None);
-        assert!(FrameParams::new(500, 64_000).is_some());
+        // Room for a contact request, but not for the longest chat message.
+        assert_eq!(FrameParams::new(500, 64_000), None);
+        assert_eq!(FrameParams::new(1024, 49_000), None);
+        assert!(FrameParams::new(1024, 48_000).is_some());
+        assert!(FrameParams::new(500, 40_000).is_some());
         // Whatever the constructor accepts can carry every message that is
         // legal before confirmation, in every state that receives any.
         for (block, overhead) in [(5, 0), (5, 65_000), (480, 16), (804, 0), (65_535, 0)] {
@@ -432,6 +460,12 @@ mod tests {
             assert_eq!(params.max_plaintext_len_in(UNKNOWN), needed);
             assert!(needed <= params.max_plaintext_len());
             assert!(needed + overhead <= MAX_FRAME_LENGTH_VALUE);
+            // And the longest chat message and at least one byte of file
+            // data on a confirmed session.
+            assert!(params.max_body_len() >= MAX_NON_CHUNK_BODY_LEN);
+            assert!(params.max_file_chunk_len() >= 1);
+            let chat = vec![0_u8; MAX_NON_CHUNK_BODY_LEN];
+            assert!(encode_plaintext(&params, MessageType::ChatMessage, &chat).is_ok());
         }
     }
 

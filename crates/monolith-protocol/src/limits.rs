@@ -193,6 +193,25 @@ pub const MAX_CONTACT_CARD_TEXT_LEN: usize = 512;
 pub const MAX_FILE_CHUNK_LEN: usize =
     MAX_MESSAGE_BODY_LEN - TRANSFER_ID_LEN - FIELD_LENGTH_PREFIX_LEN;
 
+/// Largest body of any message other than a FileChunk: a ChatMessage with
+/// the longest text. A usable set of frame parameters can carry it. File
+/// chunks are cut to what a frame holds.
+pub const MAX_NON_CHUNK_BODY_LEN: usize =
+    MESSAGE_ID_LEN + FIELD_LENGTH_PREFIX_LEN + MAX_CHAT_TEXT_LEN;
+
+const _: () = {
+    assert!(MAX_NON_CHUNK_BODY_LEN <= MAX_MESSAGE_BODY_LEN);
+    assert!(MAX_NON_CHUNK_BODY_LEN >= MAX_UNCONFIRMED_BODY_LEN);
+    // Profile and FileOffer, the other bodies with variable fields.
+    assert!(
+        MAX_NON_CHUNK_BODY_LEN
+            >= 2 * FIELD_LENGTH_PREFIX_LEN + MAX_DISPLAY_NAME_LEN + MAX_PROFILE_TEXT_LEN
+    );
+    assert!(
+        MAX_NON_CHUNK_BODY_LEN >= TRANSFER_ID_LEN + 8 + FIELD_LENGTH_PREFIX_LEN + MAX_FILENAME_LEN
+    );
+};
+
 /// Largest file size accepted in an offer. The field is 64 bits wide; larger
 /// values are a violation. Local policy sets a lower limit, see
 /// [`DEFAULT_MAX_FILE_SIZE`].
