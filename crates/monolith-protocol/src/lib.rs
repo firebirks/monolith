@@ -18,6 +18,8 @@
 //! - [`card`]: contact cards, their signed bytes and their text form.
 //! - [`body`]: message bodies.
 //! - [`frame`]: the padded frame format and the bounded outer framing.
+//! - [`session`]: session states, contact confirmation.
+//! - [`duplicate`]: the duplicate-session rule.
 //!
 //! What is not here: the handshake, the identity proof and frame encryption.
 //! The session layer is not decided; see `docs/adr/0002-session-protocol.md`.
@@ -28,8 +30,10 @@
 pub mod body;
 pub mod card;
 pub mod codec;
+pub mod duplicate;
 pub mod frame;
 pub mod limits;
+pub mod session;
 pub mod text;
 
 mod error;
