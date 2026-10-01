@@ -54,10 +54,16 @@ deny = [
     # S17: one randomness source.
     { crate = "fastrand", reason = "not a CSPRNG (S17)" },
     { crate = "oorandom", reason = "not a CSPRNG (S17)" },
-    # A system TLS or OpenSSL binding would arrive through a dependency that
-    # needs its own decision record first; see docs/adr/0002 and 0005.
-    { crate = "openssl-sys", reason = "no OpenSSL without an ADR" },
-    { crate = "native-tls", reason = "no OpenSSL without an ADR" },
+    # Dependency control, not a verdict on OpenSSL's cryptography. Both bans
+    # are explained in docs/DEPENDENCIES.md section 1.
+    #
+    # native-tls picks a different TLS implementation on each platform.
+    # Monolith must not get its TLS stack chosen by the host it runs on.
+    { crate = "native-tls", reason = "TLS implementation would depend on the host platform" },
+    # openssl-sys is banned by default so that it cannot arrive unnoticed
+    # through a dependency. ADR 0002 may lift this ban, in the open, if the
+    # review of the session transport finds a strong technical reason.
+    { crate = "openssl-sys", reason = "not without a decision in ADR 0002" },
 ]
 
 # No cryptographic library is banned for the language it is written in.

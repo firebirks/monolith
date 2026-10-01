@@ -18,6 +18,14 @@ downloaded by cargo, `cargo audit` and `cargo deny`.
 - One implementation of each primitive. `deny.toml` forbids two versions of
   the same crate.
 - Features are switched off by default and enabled one by one.
+- `deny.toml` bans `native-tls` and `openssl-sys`. This is dependency
+  control and says nothing about the quality of OpenSSL's cryptography.
+  `native-tls` stays banned because it selects a different TLS
+  implementation on each host platform, and Monolith must behave the same
+  wherever it runs. `openssl-sys` is banned by default so that it cannot
+  enter through a transitive dependency without a decision; ADR 0002 may
+  reconsider that ban if the transport review finds a strong technical
+  reason. Neither ban is removed without such a record.
 - Every version in `Cargo.lock` must build with the minimum supported Rust
   version, 1.85.1. CI checks it.
 - Monolith's own crates forbid `unsafe`. Dependencies may contain it; where
