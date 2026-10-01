@@ -91,7 +91,7 @@ const PLAIN_CHARS: [char; 11] = [
 /// Characters that display names and filenames must reject: controls, line
 /// breaks, bidirectional controls, invisible characters, whitespace other
 /// than the ordinary space, separators and noncharacters.
-const FORBIDDEN_IN_NAMES: [char; 30] = [
+const FORBIDDEN_IN_NAMES: [char; 34] = [
     '\u{0}',
     '\t',
     '\n',
@@ -116,6 +116,10 @@ const FORBIDDEN_IN_NAMES: [char; 30] = [
     '\u{fffc}',
     '\u{1d173}',
     '\u{e0001}',
+    '\u{fff8}',
+    '\u{1bca0}',
+    '\u{e0080}',
+    '\u{e01f0}',
     '\u{a0}',
     '\u{2003}',
     '\u{3000}',
@@ -305,6 +309,9 @@ static FROM_PEER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(PEER));
 static FROM_STRANGER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(STRANGER));
 static PEER_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity(PEER));
 
+/// The local identity of the test sessions.
+static LOCAL_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity([0x10; 32]));
+
 /// Returns true if the message carries a card that the peer did not sign.
 fn has_foreign_card(message: &Message) -> bool {
     let signer = match message {
@@ -377,7 +384,7 @@ fn apply(session: &mut Session, event: &Event) -> Result<Vec<Action>, ProtocolEr
 }
 
 fn authenticated(standing: Standing) -> (Session, Vec<Action>) {
-    let mut session = Session::new();
+    let mut session = Session::inbound(*LOCAL_IDENTITY);
     session.stream_established().unwrap();
     session.handshake_completed().unwrap();
     assert_eq!(
@@ -574,15 +581,62 @@ proptest! {
     }
 
     #[test]
-    fn arbitrary_bytes_are_not_a_card(
+    fn arbitrary_bytes_do_not_panic_the_card_decoder(
         bytes in prop_oneof![
             vec(any::<u8>(), 0..200),
             vec(any::<u8>(), 139),
             vec(any::<u8>(), 155),
         ],
     ) {
-        // Without the signing key, a valid card cannot be produced.
+        // Arbitrary bytes stop at the length or the version byte. This is a
+        // check for panics; the next property gets to the signature.
         prop_assert!(ContactCard::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn a_well_formed_card_with_another_signature_is_rejected(
+        identity_seed in any::<[u8; 32]>(),
+        endpoint_seed in any::<[u8; 32]>(),
+        epoch in 1..=u64::MAX,
+        capability in proptest::option::of(any::<[u8; 16]>()),
+        signature in prop_oneof![
+            // Arbitrary bytes.
+            (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(r, s)| [r, s].concat()),
+            // A real signature by the same identity over something else.
+            vec(any::<u8>(), 0..120).prop_map(|message| vec![0xff; 64].into_iter().chain(message).collect()),
+        ],
+        as_text in any::<bool>(),
+    ) {
+        // Every field is valid: version, keys, epoch, count, flags, length.
+        // Only the signature is not the right one, so the decoder runs
+        // every check and fails at the last.
+        prop_assume!(identity_seed != endpoint_seed);
+        let secret = IdentitySecretKey::from_seed(&identity_seed);
+        let mut bytes = vec![0x01];
+        bytes.extend_from_slice(secret.public_key().as_bytes());
+        bytes.extend_from_slice(&epoch.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(endpoint(endpoint_seed).as_bytes());
+        match capability {
+            Some(capability) => {
+                bytes.push(0x01);
+                bytes.extend_from_slice(&capability);
+            }
+            None => bytes.push(0x00),
+        }
+        if signature.len() == 64 {
+            bytes.extend_from_slice(&signature);
+        } else {
+            // The marker is followed by the message to sign instead.
+            bytes.extend_from_slice(secret.sign(&signature[64..]).as_bytes());
+        }
+
+        let result = if as_text {
+            ContactCard::from_text(&format!("MONOLITH1:{}", base32::encode(&bytes)))
+        } else {
+            ContactCard::decode(&bytes)
+        };
+        prop_assert_eq!(result, Err(ProtocolError::BadSignature));
     }
 
     #[test]
@@ -625,8 +679,8 @@ proptest! {
         bytes in prop_oneof![vec(any::<u8>(), 139), vec(any::<u8>(), 155)],
         lower in any::<bool>(),
     ) {
-        // The prefix and the base32 are right, so the parser gets as far as
-        // the card itself.
+        // The prefix and the base32 are right, so the text parser hands
+        // the bytes to the card decoder, which stops early as above.
         let mut text = format!("MONOLITH1:{}", base32::encode(&bytes));
         if lower {
             text = text.to_ascii_lowercase();
@@ -959,7 +1013,7 @@ proptest! {
         messages in vec(arb_session_message(), 1..12),
         steps in 0..=2_u8,
     ) {
-        let mut session = Session::new();
+        let mut session = Session::inbound(*LOCAL_IDENTITY);
         if steps >= 1 {
             session.stream_established().unwrap();
         }
@@ -981,6 +1035,7 @@ proptest! {
     #[test]
     fn a_session_is_authenticated_only_as_the_identity_its_proof_named(
         steps in 0..=2_u8,
+        outbound in any::<bool>(),
         proof in proptest::option::of(any::<bool>()),
         claim_stranger in any::<bool>(),
         standing in arb_standing(),
@@ -989,8 +1044,13 @@ proptest! {
         // stranger, on a session that got some way into the handshake and
         // received a proof by the peer, by the stranger, or none. That is
         // accepted in one case only: the handshake finished, and a proof
-        // arrived that named the identity the caller claims.
-        let mut session = Session::new();
+        // arrived that named the identity the caller claims. A session
+        // that dialed the peer does not even take a proof by the stranger.
+        let mut session = if outbound {
+            Session::outbound(*LOCAL_IDENTITY, *PEER_IDENTITY)
+        } else {
+            Session::inbound(*LOCAL_IDENTITY)
+        };
         if steps >= 1 {
             session.stream_established().unwrap();
         }
@@ -1004,7 +1064,8 @@ proptest! {
                 proof_named_stranger = Some(by_stranger);
             }
         }
-        prop_assert_eq!(proof_named_stranger.is_some(), steps == 2 && proof.is_some());
+        let taken = steps == 2 && proof.is_some() && !(outbound && proof == Some(true));
+        prop_assert_eq!(proof_named_stranger.is_some(), taken);
 
         let claimed = if claim_stranger { identity(STRANGER) } else { *PEER_IDENTITY };
         let outcome = session.identities_proven(claimed, standing);

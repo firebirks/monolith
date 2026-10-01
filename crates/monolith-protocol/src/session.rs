@@ -10,6 +10,10 @@
 //!
 //! - It takes decoded messages, so nothing reaches it that has not passed
 //!   the frame and body decoders.
+//! - It knows the local identity and, for a session the local side opened,
+//!   the identity that was dialed. A proof that names the local identity, or
+//!   on an outbound session any identity but the dialed one, ends the
+//!   session.
 //! - It knows the identity the peer proved. A card inside a message that was
 //!   signed by any other identity is a violation, and that is checked before
 //!   the standing of the peer is looked at.
@@ -28,6 +32,7 @@
 use monolith_identity::IdentityPublicKey;
 
 use crate::body::Message;
+use crate::duplicate::Initiator;
 use crate::{MessageType, ProtocolError, SessionState};
 
 /// What the local side holds about the identity a peer has proven.
@@ -63,14 +68,17 @@ pub enum Action {
     SendContactAccept,
     /// Send a ContactRequest.
     SendContactRequest,
-    /// Send a Close and then close the stream.
+    /// Send a Close and then close the stream. Both are done before any
+    /// action that follows this one in the same list is carried out, so
+    /// that nothing the peer can time depends on the later actions.
     SendClose,
     /// Close the stream without sending anything.
     Disconnect,
     /// Record the peer as an accepted contact.
     MarkAccepted,
     /// Decide whether the contact request that just arrived goes into the
-    /// pending queue. Nothing about the decision is sent to the peer.
+    /// pending queue. Nothing about the decision is sent to the peer, and
+    /// the stream is already closed when it is taken.
     ConsiderRequest,
     /// The session is now a confirmed contact session.
     Confirmed,
@@ -96,26 +104,54 @@ impl Action {
 pub struct Session {
     state: SessionState,
     standing: Standing,
+    /// The local identity. A peer that claims it is refused.
+    local: IdentityPublicKey,
+    /// On a session the local side opened: the identity it dialed.
+    expected: Option<IdentityPublicKey>,
     /// The identity named in the peer's AuthProof, until it is verified.
     claimed: Option<IdentityPublicKey>,
     /// The identity the peer proved.
     peer: Option<IdentityPublicKey>,
-}
-
-impl Default for Session {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// A ContactRequest arrived before the session was confirmed.
+    request_received: bool,
 }
 
 impl Session {
-    /// Creates a session in `Connecting`.
-    pub const fn new() -> Self {
+    const fn new(local: IdentityPublicKey, expected: Option<IdentityPublicKey>) -> Self {
         Self {
             state: SessionState::Connecting,
             standing: Standing::None,
+            local,
+            expected,
             claimed: None,
             peer: None,
+            request_received: false,
+        }
+    }
+
+    /// Creates a session for a stream that a peer opened. It starts in
+    /// `Connecting`. `local` is the local identity.
+    pub const fn inbound(local: IdentityPublicKey) -> Self {
+        Self::new(local, None)
+    }
+
+    /// Creates a session for a stream the local side opened to reach the
+    /// identity `expected`. It starts in `Connecting`.
+    ///
+    /// The session can only ever be authenticated as `expected`. An
+    /// endpoint that proves any other identity ends it with
+    /// [`ProtocolError::IdentityMismatch`], which the caller reports to the
+    /// user and never resolves by itself (`docs/PROTOCOL.md` section 6.2).
+    pub const fn outbound(local: IdentityPublicKey, expected: IdentityPublicKey) -> Self {
+        Self::new(local, Some(expected))
+    }
+
+    /// Returns which side opened the session.
+    pub const fn initiator(&self) -> Initiator {
+        if self.expected.is_some() {
+            Initiator::Local
+        } else {
+            Initiator::Remote
         }
     }
 
@@ -165,15 +201,20 @@ impl Session {
         self.transition(SessionState::IdentityAuth)
     }
 
-    /// The authentication layer verified the peer's identity proof.
+    /// The authentication layer verified the peer's identity proof, and the
+    /// local proof has been sent.
     ///
     /// `peer` is the proven identity and `standing` what the local side
     /// holds about it. This fails unless an AuthProof was received on this
     /// session and named the same identity, so a caller cannot authenticate
-    /// a session that never presented a proof.
+    /// a session that never presented a proof. That failure ends the
+    /// session.
     ///
     /// The session enters `AuthenticatedUnknown`. The returned actions are
     /// the first message of `docs/PROTOCOL.md` section 6.4.
+    ///
+    /// The order in which the two proofs are sent is not checked here. It
+    /// belongs to the authentication layer, which is not decided.
     pub fn identities_proven(
         &mut self,
         peer: IdentityPublicKey,
@@ -183,7 +224,7 @@ impl Session {
             return Err(ProtocolError::MessageNotPermitted);
         }
         if self.claimed != Some(peer) {
-            return Err(ProtocolError::AuthenticationFailed);
+            return self.violation(ProtocolError::AuthenticationFailed);
         }
         self.transition(SessionState::AuthenticatedUnknown)?;
         self.peer = Some(peer);
@@ -240,6 +281,17 @@ impl Session {
         if self.claimed.is_some() {
             return self.violation(ProtocolError::MessageNotPermitted);
         }
+        if proof.identity == self.local {
+            // Nobody else holds the local identity key. Whoever names it
+            // cannot prove it, and a session with oneself is not a session.
+            return self.violation(ProtocolError::AuthenticationFailed);
+        }
+        if self
+            .expected
+            .is_some_and(|expected| expected != proof.identity)
+        {
+            return self.violation(ProtocolError::IdentityMismatch);
+        }
         self.claimed = Some(proof.identity);
         Ok(vec![Action::VerifyIdentityProof])
     }
@@ -253,6 +305,14 @@ impl Session {
             return Ok(vec![Action::Disconnect]);
         }
         let is_request = message_type == MessageType::ContactRequest;
+        if is_request {
+            // A request is made once per session. A second one would only
+            // make the receiver verify another signature.
+            if self.request_received {
+                return self.violation(ProtocolError::MessageNotPermitted);
+            }
+            self.request_received = true;
+        }
         match self.standing {
             Standing::Accepted => {
                 if is_request {
@@ -401,6 +461,9 @@ pub(crate) mod testing {
     /// Seed of the peer in session tests.
     pub(crate) const PEER: u8 = 0x51;
 
+    /// Seed of the local identity in session tests.
+    pub(crate) const LOCAL: u8 = 0x10;
+
     pub(crate) fn secret(seed: u8) -> IdentitySecretKey {
         IdentitySecretKey::from_seed(&[seed; 32])
     }
@@ -431,10 +494,21 @@ pub(crate) mod testing {
     });
 
     static PEER_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity(PEER));
+    static LOCAL_IDENTITY: LazyLock<IdentityPublicKey> = LazyLock::new(|| identity(LOCAL));
 
     /// The identity of the peer in session tests.
     pub(crate) fn peer() -> IdentityPublicKey {
         *PEER_IDENTITY
+    }
+
+    /// The local identity in session tests.
+    pub(crate) fn local() -> IdentityPublicKey {
+        *LOCAL_IDENTITY
+    }
+
+    /// A new session for a stream the peer opened.
+    pub(crate) fn inbound() -> Session {
+        Session::inbound(local())
     }
 
     /// One message of the given type. Cards inside it are signed by the
@@ -498,7 +572,7 @@ pub(crate) mod testing {
     /// A session that has gone through the handshake and received the peer's
     /// identity proof, but has not been told that the proof verified.
     pub(crate) fn awaiting_verification() -> Session {
-        let mut session = Session::new();
+        let mut session = inbound();
         session.stream_established().unwrap();
         session.handshake_completed().unwrap();
         assert_eq!(
@@ -519,7 +593,12 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
-    use super::testing::{authenticated, awaiting_verification, from_peer, identity, peer, sample};
+    use super::testing::{
+        LOCAL, PEER, authenticated, awaiting_verification, from_peer, identity, inbound, local,
+        peer, sample,
+    };
+    use std::collections::VecDeque;
+
     use super::*;
     use crate::card::InvitationCapability;
 
@@ -566,9 +645,238 @@ mod tests {
         (seen, outcome, session.state())
     }
 
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Side {
+        A,
+        B,
+    }
+
+    /// Two sessions connected to each other. `a` has the identity of seed
+    /// `LOCAL` and opened the stream to `b`, which has the identity of seed
+    /// `PEER`. What one side is told to send is built as a real message and
+    /// delivered to the other, in order, as a stream would.
+    struct Link {
+        a: Session,
+        b: Session,
+        /// Every action each side was told to take, in order.
+        a_actions: Vec<Action>,
+        b_actions: Vec<Action>,
+    }
+
+    impl Link {
+        /// Runs the two sessions until neither has anything left to send.
+        /// Each side holds the other with the given standing.
+        fn connect(a_holds_b: Standing, b_holds_a: Standing) -> Self {
+            let mut link = Self {
+                a: Session::outbound(local(), peer()),
+                b: Session::inbound(peer()),
+                a_actions: Vec::new(),
+                b_actions: Vec::new(),
+            };
+            for session in [&mut link.a, &mut link.b] {
+                session.stream_established().unwrap();
+                session.handshake_completed().unwrap();
+            }
+            let mut wire = VecDeque::new();
+
+            // The responder proves its identity first, then the initiator.
+            assert_eq!(
+                link.a.receive(&sample(MessageType::AuthProof, PEER)),
+                Ok(vec![Action::VerifyIdentityProof])
+            );
+            let first = link.a.identities_proven(peer(), a_holds_b).unwrap();
+            link.act(Side::A, first, &mut wire);
+            assert_eq!(
+                link.b.receive(&sample(MessageType::AuthProof, LOCAL)),
+                Ok(vec![Action::VerifyIdentityProof])
+            );
+            let first = link.b.identities_proven(local(), b_holds_a).unwrap();
+            link.act(Side::B, first, &mut wire);
+
+            link.run(wire);
+            link
+        }
+
+        /// Records what one side was told to do and puts what it sends on
+        /// the wire.
+        fn act(&mut self, side: Side, actions: Vec<Action>, wire: &mut VecDeque<(Side, Message)>) {
+            let (session, seed, to) = match side {
+                Side::A => (&self.a, LOCAL, Side::B),
+                Side::B => (&self.b, PEER, Side::A),
+            };
+            for action in &actions {
+                let message = match action {
+                    Action::SendContactAccept => Message::ContactAccept,
+                    Action::SendContactRequest => sample(MessageType::ContactRequest, seed),
+                    Action::SendClose => Message::Close,
+                    _ => continue,
+                };
+                assert!(session.may_send(message.message_type()), "{action:?}");
+                wire.push_back((to, message));
+            }
+            match side {
+                Side::A => self.a_actions.extend(actions),
+                Side::B => self.b_actions.extend(actions),
+            }
+        }
+
+        fn run(&mut self, mut wire: VecDeque<(Side, Message)>) {
+            while let Some((to, message)) = wire.pop_front() {
+                let session = match to {
+                    Side::A => &mut self.a,
+                    Side::B => &mut self.b,
+                };
+                let actions = session.receive(&message).unwrap();
+                self.act(to, actions, &mut wire);
+            }
+            // A Close ends with the stream gone for both sides.
+            let closed = self
+                .a_actions
+                .iter()
+                .chain(&self.b_actions)
+                .any(|action| matches!(action, Action::SendClose | Action::Disconnect));
+            if closed {
+                self.a.stream_closed();
+                self.b.stream_closed();
+            }
+        }
+
+        /// One side sends an application message on the running link.
+        fn send(&mut self, from: Side, message: Message) {
+            let (session, to) = match from {
+                Side::A => (&self.a, Side::B),
+                Side::B => (&self.b, Side::A),
+            };
+            assert!(session.may_send(message.message_type()));
+            self.run(VecDeque::from([(to, message)]));
+        }
+    }
+
+    #[test]
+    fn crossing_requests_accept_each_other() {
+        // T-CONTACT-2. Both users imported the other's card. Each side
+        // sends a request, takes the other's request as the acceptance, and
+        // the session is confirmed on both ends without a reconnect.
+        let link = Link::connect(Standing::Requested, Standing::Requested);
+        let expected = vec![
+            Action::SendContactRequest,
+            Action::MarkAccepted,
+            Action::SendContactAccept,
+            Action::Confirmed,
+        ];
+        assert_eq!(link.a_actions, expected);
+        assert_eq!(link.b_actions, expected);
+        for session in [&link.a, &link.b] {
+            assert_eq!(session.state(), SessionState::AuthenticatedContact);
+            assert_eq!(session.standing(), Standing::Accepted);
+        }
+    }
+
+    #[test]
+    fn a_request_to_an_accepting_side_confirms_both() {
+        // T-CONTACT-5. The requester learns of the acceptance on this
+        // session.
+        let mut link = Link::connect(Standing::Requested, Standing::Accepted);
+        assert_eq!(
+            link.a_actions,
+            vec![
+                Action::SendContactRequest,
+                Action::MarkAccepted,
+                Action::SendContactAccept,
+                Action::Confirmed
+            ]
+        );
+        assert_eq!(
+            link.b_actions,
+            vec![Action::SendContactAccept, Action::Confirmed]
+        );
+
+        // Application data flows in both directions afterwards.
+        link.send(Side::A, sample(MessageType::ChatMessage, LOCAL));
+        assert_eq!(link.b_actions.last(), Some(&Action::Deliver));
+        link.send(Side::B, sample(MessageType::EndpointUpdate, PEER));
+        assert_eq!(link.a_actions.last(), Some(&Action::Deliver));
+    }
+
+    #[test]
+    fn one_sided_contact_is_never_confirmed() {
+        // T-CONTACT-4. One side holds the other as accepted, the other side
+        // has no record (deleted, lost its state, restored a backup). In
+        // either direction the keeper offers ContactAccept and gets a Close.
+        let link = Link::connect(Standing::Accepted, Standing::None);
+        assert_eq!(
+            link.a_actions,
+            vec![Action::SendContactAccept, Action::Disconnect]
+        );
+        assert_eq!(link.b_actions, vec![Action::SendClose]);
+
+        let link = Link::connect(Standing::None, Standing::Accepted);
+        assert_eq!(link.a_actions, vec![Action::SendClose]);
+        assert_eq!(
+            link.b_actions,
+            vec![Action::SendContactAccept, Action::Disconnect]
+        );
+        assert_eq!(link.a.state(), SessionState::Closed);
+        assert_eq!(link.b.state(), SessionState::Closed);
+    }
+
+    #[test]
+    fn a_requester_cannot_tell_why_it_was_turned_away() {
+        // T-ORACLE-1 from the other end of the stream. A real requester
+        // runs against a side that does not know it, declined it or
+        // blocked it. Everything the requester is told to do, and the state
+        // it ends in, is the same in the three cases.
+        let reference = Link::connect(Standing::Requested, Standing::None);
+        assert_eq!(
+            reference.a_actions,
+            vec![Action::SendContactRequest, Action::Disconnect]
+        );
+        assert_eq!(
+            reference.b_actions,
+            vec![Action::SendClose, Action::ConsiderRequest]
+        );
+        for standing in [Standing::Declined, Standing::Blocked] {
+            let link = Link::connect(Standing::Requested, standing);
+            assert_eq!(link.a_actions, reference.a_actions, "{standing:?}");
+            assert_eq!(link.a.state(), reference.a.state());
+            assert_eq!(link.a.standing(), Standing::Requested);
+            assert_eq!(link.b_actions, vec![Action::SendClose]);
+        }
+    }
+
+    #[test]
+    fn every_pair_of_standings_ends_consistently() {
+        // A session is confirmed on both sides or on neither, and exactly
+        // when each side holds the other as requested or accepted.
+        for a_holds_b in ALL_STANDINGS {
+            for b_holds_a in ALL_STANDINGS {
+                let link = Link::connect(a_holds_b, b_holds_a);
+                let pair = format!("{a_holds_b:?} / {b_holds_a:?}");
+                let confirmed =
+                    |session: &Session| session.state() == SessionState::AuthenticatedContact;
+                let expected = a_holds_b.is_contact_record() && b_holds_a.is_contact_record();
+                assert_eq!(confirmed(&link.a), expected, "{pair}");
+                assert_eq!(confirmed(&link.b), expected, "{pair}");
+
+                for (actions, held) in [(&link.a_actions, a_holds_b), (&link.b_actions, b_holds_a)]
+                {
+                    assert!(!actions.contains(&Action::Deliver), "{pair}");
+                    assert_eq!(actions.contains(&Action::Confirmed), expected, "{pair}");
+                    // Nobody becomes a contact that the user did not ask
+                    // for, and nobody becomes one against the other side.
+                    assert_eq!(
+                        actions.contains(&Action::MarkAccepted),
+                        expected && held == Standing::Requested,
+                        "{pair}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn states_are_entered_in_order() {
-        let mut session = Session::new();
+        let mut session = inbound();
         assert_eq!(session.state(), SessionState::Connecting);
         assert!(session.handshake_completed().is_err());
         assert!(
@@ -585,14 +893,15 @@ mod tests {
 
     #[test]
     fn a_session_cannot_be_authenticated_without_a_proof() {
-        let mut session = Session::new();
+        let mut session = inbound();
         session.stream_established().unwrap();
         session.handshake_completed().unwrap();
         assert_eq!(
             session.identities_proven(peer(), Standing::Accepted),
             Err(ProtocolError::AuthenticationFailed)
         );
-        assert_eq!(session.state(), SessionState::IdentityAuth);
+        assert_eq!(session.state(), SessionState::Closed);
+        assert_eq!(session.peer(), None);
     }
 
     #[test]
@@ -602,17 +911,87 @@ mod tests {
             session.identities_proven(identity(STRANGER), Standing::Accepted),
             Err(ProtocolError::AuthenticationFailed)
         );
+        // The failure ends the session. It cannot be tried again.
+        assert_eq!(session.state(), SessionState::Closed);
+        assert!(session.identities_proven(peer(), Standing::None).is_err());
+        assert_eq!(session.peer(), None);
+
+        let mut session = awaiting_verification();
         assert_eq!(
             session.identities_proven(peer(), Standing::None),
             Ok(Vec::new())
         );
         assert_eq!(session.peer(), Some(&peer()));
         assert_eq!(session.state(), SessionState::AuthenticatedUnknown);
+        // Calling it again is refused and changes nothing.
         assert!(
             session
                 .identities_proven(peer(), Standing::Accepted)
                 .is_err()
         );
+        assert_eq!(session.state(), SessionState::AuthenticatedUnknown);
+        assert_eq!(session.standing(), Standing::None);
+    }
+
+    #[test]
+    fn an_outbound_session_accepts_only_the_identity_it_dialed() {
+        // PROTOCOL.md 6.2 step 2. The endpoint proves another identity,
+        // which the local side even holds as an accepted contact. The
+        // session ends; it does not become a session with that contact.
+        let outbound = || {
+            let mut session = Session::outbound(local(), peer());
+            session.stream_established().unwrap();
+            session.handshake_completed().unwrap();
+            session
+        };
+
+        let mut session = outbound();
+        assert_eq!(session.initiator(), Initiator::Local);
+        assert_eq!(
+            session.receive(&sample(MessageType::AuthProof, STRANGER)),
+            Err(ProtocolError::IdentityMismatch)
+        );
+        assert_eq!(session.state(), SessionState::Closed);
+        assert!(
+            session
+                .identities_proven(identity(STRANGER), Standing::Accepted)
+                .is_err()
+        );
+        assert_eq!(session.peer(), None);
+
+        let mut session = outbound();
+        assert_eq!(
+            session.receive(&from_peer(MessageType::AuthProof)),
+            Ok(vec![Action::VerifyIdentityProof])
+        );
+        assert_eq!(
+            session.identities_proven(peer(), Standing::Accepted),
+            Ok(vec![Action::SendContactAccept])
+        );
+
+        // An inbound session takes whoever proves an identity.
+        let mut session = inbound();
+        assert_eq!(session.initiator(), Initiator::Remote);
+        session.stream_established().unwrap();
+        session.handshake_completed().unwrap();
+        assert!(
+            session
+                .receive(&sample(MessageType::AuthProof, STRANGER))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn a_proof_that_names_the_local_identity_is_refused() {
+        for mut session in [inbound(), Session::outbound(local(), local())] {
+            session.stream_established().unwrap();
+            session.handshake_completed().unwrap();
+            assert_eq!(
+                session.receive(&sample(MessageType::AuthProof, LOCAL)),
+                Err(ProtocolError::AuthenticationFailed)
+            );
+            assert_eq!(session.state(), SessionState::Closed);
+        }
     }
 
     #[test]
@@ -621,11 +1000,11 @@ mod tests {
         for message_type in MessageType::ALL {
             let message = from_peer(message_type);
 
-            let mut session = Session::new();
+            let mut session = inbound();
             assert!(session.receive(&message).is_err(), "{message_type:?}");
             assert_eq!(session.state(), SessionState::Closed);
 
-            let mut session = Session::new();
+            let mut session = inbound();
             session.stream_established().unwrap();
             assert!(session.receive(&message).is_err(), "{message_type:?}");
         }
@@ -682,6 +1061,21 @@ mod tests {
     }
 
     #[test]
+    fn a_second_request_before_confirmation_is_a_violation() {
+        for standing in [Standing::Accepted, Standing::Requested] {
+            let (mut session, _) = authenticated(standing);
+            let request = from_peer(MessageType::ContactRequest);
+            assert!(session.receive(&request).is_ok());
+            assert_eq!(
+                session.receive(&request),
+                Err(ProtocolError::MessageNotPermitted),
+                "{standing:?}"
+            );
+            assert_eq!(session.state(), SessionState::Closed);
+        }
+    }
+
+    #[test]
     fn a_requested_peer_that_accepts_becomes_a_contact() {
         // T-CONTACT-5.
         let (mut session, _) = authenticated(Standing::Requested);
@@ -695,37 +1089,6 @@ mod tests {
         );
         assert_eq!(session.state(), SessionState::AuthenticatedContact);
         assert_eq!(session.standing(), Standing::Accepted);
-    }
-
-    #[test]
-    fn crossing_requests_accept_each_other() {
-        // T-CONTACT-2. Both sides hold the other as requested and both sent
-        // a ContactRequest.
-        let (mut a, first_a) = authenticated(Standing::Requested);
-        let (mut b, first_b) = authenticated(Standing::Requested);
-        assert_eq!(first_a, vec![Action::SendContactRequest]);
-        assert_eq!(first_b, vec![Action::SendContactRequest]);
-
-        let request = from_peer(MessageType::ContactRequest);
-        let from_a = a.receive(&request).unwrap();
-        let from_b = b.receive(&request).unwrap();
-        assert_eq!(
-            from_a,
-            vec![Action::MarkAccepted, Action::SendContactAccept]
-        );
-        assert_eq!(from_b, from_a);
-        assert_eq!(a.state(), SessionState::AuthenticatedUnknown);
-
-        assert_eq!(
-            a.receive(&Message::ContactAccept),
-            Ok(vec![Action::Confirmed])
-        );
-        assert_eq!(
-            b.receive(&Message::ContactAccept),
-            Ok(vec![Action::Confirmed])
-        );
-        assert_eq!(a.state(), SessionState::AuthenticatedContact);
-        assert_eq!(b.state(), SessionState::AuthenticatedContact);
     }
 
     #[test]
@@ -914,7 +1277,7 @@ mod tests {
                 .collect()
         };
 
-        let mut session = Session::new();
+        let mut session = inbound();
         assert_eq!(each(&session), Vec::new(), "Connecting");
         session.stream_established().unwrap();
         assert_eq!(each(&session), Vec::new(), "CryptoHandshake");
@@ -1016,30 +1379,6 @@ mod tests {
     }
 
     #[test]
-    fn one_sided_contact_is_never_confirmed() {
-        // T-CONTACT-4. One side holds the other as accepted, the other side
-        // has no record (deleted, lost its state, restored a backup).
-        let (mut keeper, first_keeper) = authenticated(Standing::Accepted);
-        let (mut deleter, first_deleter) = authenticated(Standing::None);
-        assert_eq!(first_keeper, vec![Action::SendContactAccept]);
-        assert_eq!(first_deleter, Vec::new());
-
-        // The deleter receives the ContactAccept and answers with Close.
-        assert_eq!(
-            deleter.receive(&Message::ContactAccept),
-            Ok(vec![Action::SendClose])
-        );
-        // The keeper receives Close. It was never confirmed and never
-        // delivered or sent anything else.
-        assert_eq!(
-            keeper.receive(&Message::Close),
-            Ok(vec![Action::Disconnect])
-        );
-        assert_eq!(keeper.state(), SessionState::Closed);
-        assert!(!keeper.may_send(MessageType::ChatMessage));
-    }
-
-    #[test]
     fn confirmed_sessions_ignore_late_confirmation_messages() {
         let (mut session, _) = authenticated(Standing::Accepted);
         session.receive(&Message::ContactAccept).unwrap();
@@ -1069,12 +1408,12 @@ mod tests {
 
     #[test]
     fn local_close_in_every_state() {
-        let mut session = Session::new();
+        let mut session = inbound();
         assert_eq!(session.close(), vec![Action::Disconnect]);
         assert_eq!(session.state(), SessionState::Closed);
         assert_eq!(session.close(), Vec::new());
 
-        let mut session = Session::new();
+        let mut session = inbound();
         session.stream_established().unwrap();
         assert_eq!(session.close(), vec![Action::Disconnect]);
 

@@ -3,11 +3,13 @@
 //! confirmed, never moves a session backwards, never accepts a card of
 //! another identity, and treats every identity that is not a contact alike.
 //!
-//! Input: the first byte selects how far the session got before the events
-//! arrive, the second the standing of the peer. Every further byte is one
-//! event. Its low seven bits select a message type or one of four local
-//! events (close, block, remove, stream closed). Its high bit makes a
-//! message that carries a card carry the card of another identity.
+//! Input: the low two bits of the first byte select how far the session got
+//! before the events arrive, and the next bit whether the local side opened
+//! it. The second byte selects the standing of the peer. Every further byte
+//! is one event. Its low seven bits select a message type or one of four
+//! local events (close, block, remove, stream closed). Its high bit makes
+//! the message come from another identity: the card it carries, or the
+//! identity an AuthProof names.
 
 #![no_main]
 
@@ -107,6 +109,8 @@ static FROM_PEER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(PEER));
 static FROM_STRANGER: LazyLock<Vec<Message>> = LazyLock::new(|| samples(STRANGER));
 static PEER_IDENTITY: LazyLock<IdentityPublicKey> =
     LazyLock::new(|| IdentitySecretKey::from_seed(&PEER).public_key());
+static LOCAL_IDENTITY: LazyLock<IdentityPublicKey> =
+    LazyLock::new(|| IdentitySecretKey::from_seed(&[0x10; 32]).public_key());
 
 enum Event {
     Receive(&'static Message),
@@ -153,8 +157,13 @@ fn apply(session: &mut Session, event: &Event) -> Result<Vec<Action>, ProtocolEr
     }
 }
 
-fn start(steps: u8, standing: Standing) -> Session {
-    let mut session = Session::new();
+fn start(selector: u8, standing: Standing) -> Session {
+    let steps = selector & 0x03;
+    let mut session = if selector & 0x04 == 0 {
+        Session::inbound(*LOCAL_IDENTITY)
+    } else {
+        Session::outbound(*LOCAL_IDENTITY, *PEER_IDENTITY)
+    };
     if steps >= 1 {
         session.stream_established().unwrap();
     }
@@ -195,7 +204,8 @@ fuzz_target!(|data: &[u8]| {
     let [steps, standing_selector, rest @ ..] = data else {
         return;
     };
-    let steps = steps % 4;
+    let steps = *steps;
+    let authenticated = steps & 0x03 == 3;
     let standing = STANDINGS[usize::from(*standing_selector) % STANDINGS.len()];
 
     let mut session = start(steps, standing);
@@ -207,7 +217,7 @@ fuzz_target!(|data: &[u8]| {
         let after = session.state();
 
         assert!(before == after || before.can_transition_to(after));
-        assert_eq!(session.peer().is_some(), steps == 3);
+        assert_eq!(session.peer().is_some(), authenticated);
 
         let live = matches!(
             before,
