@@ -7,6 +7,12 @@ review described in `docs/ARCHITECTURE.md` section 9.
 The invariants are grouped by topic, so the numbers are not in order.
 S29 to S32 were added after the first list was written.
 
+Implemented so far, in the protocol core: the frame and field bounds of
+S10, S11 and S26, the state gate of S19, the single encoding of S30, the
+text and filename rules behind S14, S15 and S20, and the message logic of
+S7, S23 and S24. Everything that involves the network, session
+cryptography, storage or a user interface is still a planned mechanism.
+
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single
 choke point, a missing capability), not a convention that reviewers have to

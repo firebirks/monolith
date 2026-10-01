@@ -55,6 +55,7 @@ The full list of limits is in `docs/THREAT_MODEL.md`, section 6.
 | `docs/RESOURCE_LIMITS.md` | Every limit and its reason |
 | `docs/TEST_PLAN.md` | Tests, fuzzing, platform matrices |
 | `docs/DESIGN_QUESTIONS.md` | Answers to the design questions, changes to the initial proposals, open questions |
+| `docs/DEPENDENCIES.md` | Third-party crates in use and what was checked |
 | `docs/adr/` | Decision records |
 
 ## Building
@@ -75,16 +76,17 @@ Checks run in CI:
 
 ## Layout
 
-    crates/monolith-identity   identity and endpoint types
-    crates/monolith-protocol   limits, messages, session states
-    crates/monolith-tor        Tor backend interface
-    crates/monolith-storage    storage policy types
-    crates/monolith-core       application core
-    crates/monolith-cli        the monolith binary
+    crates/monolith-identity   identity keys, signatures, fingerprints
+    crates/monolith-protocol   limits, encoding, contact cards, messages,
+                               frames, session logic
+    crates/monolith-tor        Tor backend interface (no implementation)
+    crates/monolith-storage    storage policy types (no implementation)
+    crates/monolith-core       application core (types only)
+    crates/monolith-cli        the monolith binary (no commands yet)
     crates/monolith-desktop    desktop front end (placeholder)
     integrations/tails         Tails control port profile (draft)
-    integrations/whonix        Whonix profile and firewall drop-in (draft)
-    fuzz/                      fuzz targets (planned)
+    integrations/whonix        Whonix profile and firewall rule (draft)
+    fuzz/                      fuzz targets for the protocol core
     docs/                      specifications and decision records
 
 ## Security

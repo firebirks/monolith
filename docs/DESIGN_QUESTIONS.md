@@ -183,8 +183,11 @@ Nothing below is settled. Each is described in the document named.
 
 ## 4. Proposed dependencies
 
-None is in `Cargo.lock` yet. Versions are the current ones on 2026-10-01;
-the final choice is made in the phase that first needs the crate.
+Crates that are in use are recorded in `DEPENDENCIES.md` with what was
+checked before they were added: `ed25519-dalek` 2.2.0, `sha2` 0.10.9,
+`unicode-normalization` 0.1.25, and `proptest` for tests. The table below
+lists what was considered at the start; for crates not yet in use the final
+choice is made in the phase that first needs them.
 
 | Crate | Version | For | Phase |
 | --- | --- | --- | --- |

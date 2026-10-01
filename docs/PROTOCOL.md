@@ -972,14 +972,50 @@ reconnecting, and that neither side depends on the other's schedule.
 
 ## 16. Test vectors
 
-Phase 1 and Phase 2 produce and commit test vectors for:
+### 16.1 Vectors that exist
 
-- contact card: binary and text forms, valid and invalid, with fixed keys;
-- fingerprint: full and compact forms;
-- onion address derivation from a key;
-- AuthProof signature input and signature for a fixed handshake transcript;
-- the complete handshake with fixed ephemeral and static keys;
-- frame encoding of every message type at minimum and maximum size.
+Both were reproduced by a second implementation written independently of
+the Rust code, from the field lists in this document.
+
+Identity: the key pair of RFC 8032 section 7.1, test 1.
+
+    seed      9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60
+    identity  d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+
+Fingerprint of that identity (section 10):
+
+    full      YIRR UZHO JELC AIYD AIKQ AHCH XAGT EYDA AX3D VLUH 6WO3 ZSYJ BYYQ
+    compact   YIRR UZHO JELC AIYD AIKQ AHCH
+
+Contact card of that identity (section 11): epoch 1, one endpoint, no
+invitation. The endpoint is the Ed25519 public key of the seed that
+consists of 32 bytes 0x02.
+
+    endpoint   8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394
+    signature  781d3a8ae5359cbbd13055d9521ef15d83c02dda6f5dac448f5d4d963e5f8027
+               053d23296fd29c4328b34c56cd1123333d0a6a61ad7a88e49e96fe7da0f43200
+
+    signed bytes (99)
+               4d4f4e4f4c4954482d434f4e544143542d434152442d5631 01
+               d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+               0000000000000001 01
+               8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394
+               00
+
+    text form  MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRU
+               AAAAAAAAAAAAEAYCOLXB2UH2F27K2RVIZWDJR7MZS4NRKI3J3RXUJO7MD23R7E3
+               HFAAPAOTVCXFGWOLXUJQKXMVEHXRLWB4ALO2N5O2YREPLVGZMPS7QATQKPJDFFX
+               5FHCDFCZUYVWNCERTGPIKNJQ226UI4SPJN7T5UD2DEAA
+
+The text form is one string; it is wrapped here for the page, and the
+parser ignores the line breaks.
+
+### 16.2 Vectors still to be produced
+
+- onion address derivation from a key, with the Tor backend;
+- frame encoding of every message type at minimum and maximum size;
+- whatever the session layer needs once it is decided: the handshake with
+  fixed keys, and the identity proof for a fixed transcript.
 
 ## 17. Open questions
 

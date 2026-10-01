@@ -1,8 +1,16 @@
 # Test plan
 
-Status: plan. Phase 0 has tests for what exists: the limits table, the
-message type gate, the session state table, endpoint epochs, the storage
-and peer state mappings, and redaction of secret types.
+Status: the protocol core has tests; everything else is a plan.
+
+What exists after Phase 1: unit tests in `monolith-identity` and
+`monolith-protocol` for keys, signatures, fingerprints, base32, the field
+codec, text rules, contact cards, message bodies, frames, session logic and
+the duplicate rule; property tests in `tests/properties.rs` of both crates;
+eight fuzz targets under `fuzz/`. Of the identifiers below, these are
+covered at the level the protocol core allows: T-FRAME-1 to 6, T-FIELD,
+T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ENDPOINT-1, T-CONTACT-2, 4
+and 5, T-DUP-1 to 3 and 7, T-ORACLE-1 to 5. The rest need the core, the
+session layer, Tor or storage, and are not written yet.
 
 ## 1. Principles
 
@@ -159,23 +167,24 @@ Logging (T-LOG)
 
 ## 5. Fuzzing
 
-Targets (planned, `fuzz/`):
+Targets in `fuzz/`:
 
-| Target | Input |
-| --- | --- |
-| `preamble` | bytes |
-| `handshake_record` | bytes for each of the three messages |
-| `frame_decoder` | byte stream split at arbitrary points |
-| `message_decoder` | plaintext frame, with each session state |
-| `contact_card` | binary card |
-| `contact_card_text` | text card |
-| `endpoint_update` | message body |
-| `text_validation` | bytes, per field kind |
-| `filename` | bytes |
-| `socks_reply` | bytes |
-| `control_reply` | byte stream |
-| `vault_header` | bytes |
-| `session_sequence` | sequence of decrypted messages against a session |
+| Target | Input | State |
+| --- | --- | --- |
+| `base32` | text | exists |
+| `contact_card` | binary card | exists |
+| `contact_card_text` | text card | exists |
+| `message_body` | type selector and body; covers endpoint updates | exists |
+| `frame_plaintext` | state selector and plaintext frame | exists |
+| `frame_stream` | byte stream split at arbitrary points | exists |
+| `text_fields` | bytes, against every text type and the save-name suggestion | exists |
+| `session_sequence` | sequence of message types against a session | exists |
+| `preamble`, `handshake_record` | bytes | with the session layer |
+| `socks_reply`, `control_reply` | bytes | with the Tor backend |
+| `vault_header` | bytes | with storage |
+
+The existing targets have had short smoke runs only. Seed corpora and long
+runs are not done; see `fuzz/README.md`.
 
 The property every target enforces:
 
