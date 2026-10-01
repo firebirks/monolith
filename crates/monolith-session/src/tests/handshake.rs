@@ -371,6 +371,99 @@ fn another_label_or_prologue_fails_the_first_message() {
 }
 
 #[test]
+fn another_noise_pattern_fails_the_first_message() {
+    // The same primitives in another pattern. NK also starts with an
+    // ephemeral key and a tag, 48 bytes, made with the responder's
+    // transport key. The protocol name is part of the handshake hash, so
+    // the tag does not verify. Nothing is negotiated and nothing can be
+    // downgraded: a peer that speaks anything else is a peer that fails.
+    let bob_prologue = prologue(LABEL, &identity(BOB));
+    let bob_transport = transport_public(BOB);
+    for name in [
+        "Noise_NK_25519_ChaChaPoly_SHA256",
+        "Noise_XKpsk3_25519_ChaChaPoly_SHA256",
+    ] {
+        let mut builder = snow::Builder::with_resolver(
+            name.parse().unwrap(),
+            Box::new(Resolver::with_fixed_ephemeral(EPHEMERAL_I)),
+        )
+        .remote_public_key(&bob_transport)
+        .unwrap()
+        .prologue(&bob_prologue)
+        .unwrap();
+        let static_secret = transport_bytes(ALICE);
+        if name.contains("XK") {
+            builder = builder
+                .local_private_key(&static_secret)
+                .unwrap()
+                .psk(3, &[7; 32])
+                .unwrap();
+        }
+        let mut raw = builder.build_initiator().unwrap();
+        let mut message_1 = [0_u8; HANDSHAKE_MSG1_LEN];
+        assert_eq!(raw.write_message(&[], &mut message_1), Ok(48), "{name}");
+        assert_eq!(
+            bob_waiting().read_message_1(&message_1, start()).err(),
+            Some(failed(ProtocolError::HandshakeFailed)),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_pinned_card_with_an_invitation_can_be_dialed() {
+    // The card a user imports may carry an invitation capability. The
+    // handshake uses its identity key and its transport key; the
+    // capability goes into the contact request, inside the session.
+    let imported = card_of(BOB, BOB, 1, true);
+    assert!(imported.invitation().is_some());
+    let (outbound, inbound, transcript) =
+        handshake_with(&party(ALICE), &party(BOB), &imported).unwrap();
+    // It is the same handshake as with the card without the capability.
+    let (_, _, plain) = handshake(&party(ALICE), &party(BOB));
+    assert_eq!(transcript.message_1, plain.message_1);
+    assert_eq!(transcript.message_3, plain.message_3);
+    let (alice, first) = outbound.admit(Standing::Requested).unwrap();
+    assert_eq!(
+        first,
+        vec![monolith_protocol::session::Action::SendContactRequest]
+    );
+    assert_eq!(alice.peer_card(), &imported);
+    assert_eq!(inbound.card(), &card(ALICE));
+}
+
+#[test]
+fn an_older_pinned_card_with_the_current_transport_key_still_reaches_the_peer() {
+    // Bob has issued a card of epoch 2 with a new endpoint and the same
+    // transport key. Alice still holds epoch 1. The handshake depends on
+    // the identity key and the transport key, which did not change.
+    let bob_now = LocalParty::new(
+        card_with(BOB, BOB, 2, MALLORY, false),
+        crate::testing::transport_secret(BOB),
+    )
+    .unwrap();
+    assert!(handshake_with(&party(ALICE), &bob_now, &card(BOB)).is_ok());
+
+    // After Bob replaced his transport key, the old card reaches nobody:
+    // to Alice this is an identity mismatch.
+    let bob_rekeyed = LocalParty::new(
+        card_of(BOB, MALLORY, 2, false),
+        crate::testing::transport_secret(MALLORY),
+    )
+    .unwrap();
+    let (alice, message_1) = alice_dialing_bob();
+    let waiting =
+        HandshakeResponder::new_with_ephemeral(&bob_rekeyed, start(), EPHEMERAL_R).unwrap();
+    assert_eq!(
+        waiting.read_message_1(&message_1, start()).err(),
+        Some(failed(ProtocolError::HandshakeFailed))
+    );
+    drop(alice);
+    // With the new card she reaches him.
+    assert!(handshake_with(&party(ALICE), &bob_rekeyed, bob_rekeyed.card()).is_ok());
+}
+
+#[test]
 fn a_responder_with_another_label_is_not_accepted() {
     // Both sides of a complete handshake under another label, with Bob's
     // real keys. Its second message means nothing to an initiator of this
