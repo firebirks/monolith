@@ -1,6 +1,7 @@
 # ADR 0002: Session protocol
 
-Status: proposed, pending Phase 0 review and review by a cryptographer
+Status: provisional. No option is selected. A decision is required before
+Phase 2 starts, and nothing in Phase 1 depends on it.
 Date: 2026-10-01
 
 ## Context
@@ -8,154 +9,324 @@ Date: 2026-10-01
 Two peers connected over a Tor stream need mutual authentication of their
 Monolith identities, a confidential channel with forward secrecy, and
 resistance to replay and relay. Tor already encrypts Onion Service traffic
-end to end; the session layer is defense in depth and is what ties a
+end to end. The session layer is defense in depth, and it is what ties a
 connection to an identity that is independent of the onion address.
 
-Requirements beyond the usual ones:
+Fixed points, whatever construction is chosen:
 
 - nothing home-made: no custom key exchange, cipher or key schedule;
-- the least possible novel composition;
-- bounded, simple parsing in front of unauthenticated peers;
-- no identity disclosure to a party that only knows the onion address;
-- nothing that fingerprints the implementation or platform.
+- the least possible novel security-critical composition;
+- the Monolith identity is an Ed25519 key that is distinct from the Onion
+  Service key (ADR 0001);
+- an initiator does not reveal its identity to an endpoint that has not
+  proved the identity it dialed;
+- bounded parsing in front of unauthenticated peers;
+- nothing sent to a peer that describes the platform or the build.
 
-The starting proposal was Noise XX with BLAKE2s followed by a signed
-identity proof, with TLS 1.3 to be evaluated as an alternative.
+Phase 0 proposed Noise XX with per-connection static keys and a signed
+identity proof. Review of Phase 0 found that proposal acceptable as a
+candidate but not ready to be frozen, for three reasons:
 
-## Options
+1. The persistent identity is not the Noise static identity. Long-term
+   authentication comes from a signature layered on top of Noise. That
+   layer is a protocol composition owned by Monolith and has to be judged
+   as one.
+2. The Phase 0 text described the prologue binding as if it restricted who
+   can talk to a responder. It does not. See "The prologue is not access
+   control" below.
+3. TLS 1.3 was set aside partly because its crypto providers contain C and
+   assembly. That is not a security argument by itself.
 
-### A. Noise XX, then a signature over the handshake hash
+## Criteria
 
-Each side signs the Noise handshake hash with its identity key and sends
-the signature inside the encrypted channel. The Noise specification
-describes exactly this in section 11.2. Structurally it is the SIGMA
-pattern, as in TLS 1.3 CertificateVerify.
+Each option is described under the same eleven headings:
 
-### B. Noise XX with a signed static key in the handshake payload
+1. authentication semantics
+2. forward secrecy
+3. identity privacy
+4. probing behavior
+5. number of custom protocol constructions
+6. dependency maturity
+7. implementation complexity
+8. parsing surface before authentication
+9. auditability
+10. key storage implications
+11. compatibility with identity rotation and endpoint migration
 
-What libp2p specifies: the identity key signs a prefix and the Noise static
-public key; the signature travels in the payloads of messages 2 and 3. It
-is widely deployed and can be copied verbatim.
+Implementation language is not a criterion. A cryptographic library is
+judged on audit history, deployment history, cryptographic review, exposure
+of memory-unsafe code to hostile input, parser complexity, dependency
+surface, maintenance, published advisories, and how much Monolith-specific
+composition it leaves to be written.
 
-Weaknesses for this project: the signature is a long-lived credential with
-no freshness and no expiry, so a leaked static private key plus one
-captured payload is a standing impersonation capability. The responder's
-identity goes out in message 2 to anyone who connects.
+## Option A: Noise XX, per-connection static keys, transcript signature
 
-### C. TLS 1.3 with mutual authentication and pinned raw public keys
+`Noise_XX_25519_ChaChaPoly_SHA256`. Each side generates a new static key for
+every connection. After the handshake each side sends an Ed25519 signature
+over the handshake hash inside the channel. This is the construction
+written up in `CRYPTOGRAPHY.md`.
 
-`rustls` supports RFC 7250 raw public keys on both sides and Ed25519. With
-the identity key as the TLS authentication key there is no composition to
-design at all: the transcript signature is part of TLS and has been
-analyzed extensively.
+1. Authentication. The Noise handshake authenticates only a single-use
+   static key that stands for nothing. All long-term authentication comes
+   from the Ed25519 signature over the handshake hash, which the Noise
+   specification describes as channel binding (section 11.2) and which has
+   the shape of SIGMA. The static-key tokens of XX are used for a side
+   effect: message 3 shows the responder that the initiator computed the
+   same handshake hash, prologue included.
+2. Forward secrecy. Yes. Every Diffie-Hellman key is single-use.
+3. Identity privacy. Nothing is visible to a passive observer. The
+   responder proves first, to whoever completed the handshake. The
+   initiator proves only after it has verified the responder.
+4. Probing. Completing the handshake requires the responder's identity
+   public key in the prologue. A party that has it receives a fresh
+   signature showing that the identity is live at that address. A party
+   that holds candidate keys can test them against message 2.
+5. Custom constructions. One: the identity proof (its signed input and the
+   order rule). In addition it uses two standard features in a non-standard
+   role: XX static keys that carry no identity, and the prologue as a
+   precondition.
+6. Dependencies. `snow` 0.10: the usual Noise implementation in Rust and
+   the back end of `libp2p-noise`; no formal audit; does not zeroize key
+   material; slow release cadence; one advisory, fixed
+   (RUSTSEC-2024-0011). Its crypto back end is selectable and not chosen.
+7. Complexity. Low. Three fixed-size records and two fixed-size frames.
+8. Parsing before authentication. 8 bytes, then 32, 96 and 64 byte records,
+   then one 1040-byte frame with a 104-byte body.
+9. Auditability. The specification is short. Noise XX has been analyzed
+   formally, but those results are about static keys that identify a party.
+   They say nothing about this proof. A reviewer has to reason about the
+   composition from scratch and about why the static keys are there at all.
+10. Key storage. None beyond the identity key.
+11. Rotation. The identity is independent of transport keys and endpoints.
 
-Costs:
+## Option B: Noise NN and transcript signatures
 
-- The default verifier does not accept self-managed keys. Both sides need
-  custom verifiers written against the `danger` traits. That code is
-  Monolith's and is as security-critical as an identity proof would be.
-- The crypto provider is `ring` or `aws-lc-rs`, C and assembly. The pure
-  Rust provider is experimental.
-- A large state machine and parser face unauthenticated peers. Recent
-  advisories in that surface include a panic in the acceptor and an
-  infinite loop (RUSTSEC-2024-0399, RUSTSEC-2024-0336) and a handshake
-  message boundary bug (RUSTSEC-2026-0285). All were fixed quickly; the
-  point is the size of the surface.
-- Handshake records are variable-length and the ClientHello is
-  characteristic of the library and its version.
-- The server sends its certificate to any client. There is no simple
-  equivalent of binding the responder's identity into the handshake so that
-  only parties who already know it get a proof. External PSKs could do it
-  at the price of more configuration.
-- Session resumption and tickets would have to be disabled and kept
-  disabled.
+`Noise_NN_25519_ChaChaPoly_SHA256`, then the same signed proofs as in A.
 
-The only public audit of `rustls` is from 2020.
+1. Authentication. Noise provides an unauthenticated ephemeral key exchange
+   and nothing else. Authentication is entirely the transcript signature,
+   sent under the derived keys. This is SIGMA written with Noise, and the
+   handshake claims nothing it does not deliver: there are no static keys
+   that could be mistaken for identities.
+2. Forward secrecy. Yes.
+3. Identity privacy. Same ordering choice as A. But NN has no handshake
+   message from the initiator after the responder's ephemeral key, and
+   transport keys do not depend on the prologue, so a responder cannot see
+   prologue agreement before it sends its proof. Responder-first then shows
+   the responder's identity to any party that connects. Initiator-first
+   would show the initiator's identity to whoever answers at the address,
+   including someone who took over the Onion Service key.
+4. Probing. With responder-first, any connecting party obtains the proof.
+   Getting A's behavior back needs an extra confirmation step from the
+   initiator, which is a second custom construction.
+5. Custom constructions. One, or two with a confirmation step.
+6. Dependencies. As A.
+7. Complexity. Lowest. Two fixed-size records (32 and 48 bytes), one
+   Diffie-Hellman operation per side where XX has three, one round trip
+   less.
+8. Parsing before authentication. Smaller than A.
+9. Auditability. Maps directly onto the SIGMA literature and onto the
+   structure of TLS 1.3. No degenerate use of a Noise feature to explain.
+10. Key storage. None beyond the identity key.
+11. Rotation. As A.
 
-### D. Noise with the identity key as the static key (XK or IK)
+## Option C: persistent X25519 static key certified by the identity
 
-What Lightning and I2P do. Conflicts with ADR 0001: identity must be
-separate from transport keys.
+Each identity has a long-lived X25519 key. The Ed25519 identity signs it.
+Two variants: C1, XX with the certificate in the handshake payload, as
+libp2p specifies; C2, XK or IK with the responder's static key published in
+the contact card.
 
-## Decision
+1. Authentication. Noise is used as designed: the static key is the
+   long-term transport identity and the handshake authenticates it. The
+   Ed25519 identity is reached through a certificate, a signature over a
+   prefix and the static key.
+2. Forward secrecy. Yes against later compromise of static keys. In IK the
+   first payload has weaker protection.
+3. Identity privacy. C1: the responder's certificate in message 2 goes to
+   any prober, unless it is deferred. C2 with XK: the responder's static key
+   is never transmitted, and the initiator's key and certificate are sent
+   encrypted to an authenticated responder. This is the strongest identity
+   hiding of the four options and it comes from Noise itself.
+4. Probing. C2: a party without the responder's static key cannot complete
+   the handshake. The static key is in the contact card and is public data
+   in the same sense as the identity key.
+5. Custom constructions. One: the certificate. Its format can be copied
+   from the libp2p specification. It creates a standing credential,
+   however: a stolen static private key plus one certificate impersonates
+   the identity for as long as contacts accept that static key. That needs
+   an expiry or revocation rule, which libp2p does not have and Monolith
+   would have to design.
+6. Dependencies. As A.
+7. Complexity. Highest of the Noise options. A second long-term secret, its
+   rotation, a larger contact card, certificate validation, and rules for
+   contacts to learn a new static key.
+8. Parsing before authentication. Fixed-size if the certificate has a fixed
+   layout.
+9. Auditability. Good. The formal analyses of XX, XK and IK apply directly,
+   and the certificate step is conventional. Lightning and I2P use Noise
+   with long-term static keys; libp2p uses exactly C1.
+10. Key storage. One more persistent secret in the vault, to protect and to
+    back up.
+11. Rotation. The static key becomes something a contact must learn and
+    update, like an endpoint. Card distribution and transport key lifetime
+    become coupled.
 
-Option A, with these parameters:
+## Option D: TLS 1.3, mutual authentication, pinned raw public keys
 
-- `Noise_XX_25519_ChaChaPoly_SHA256`. SHA-256 instead of the proposed
-  BLAKE2s: the Noise specification is neutral, this exact suite is the one
-  libp2p deploys, and SHA-2 is already present through Ed25519.
-- Prologue: the preamble and the responder's identity public key.
-- Fresh static keys per connection, never stored.
-- Empty handshake payloads, so the three messages are 32, 96 and 64 bytes.
-- AuthProof as the first frame in each direction, responder first. The
-  signed input is fixed-layout: prefix, role, version, handshake hash, both
-  static keys, identity key, features (`CRYPTOGRAPHY.md` section 5).
-- No in-band rekey. Sessions are bounded in time, frames and bytes and are
-  replaced by a new handshake.
-- Implementation: `snow` with its default pure-Rust resolver.
+TLS 1.3 with RFC 7250 raw public keys on both sides. The Ed25519 identity
+key is the TLS authentication key. Pinning is done in custom verifiers.
 
-On whether to retain or replace the starting proposal: retain Noise XX with
-a transcript-bound identity proof, with the changes above.
+1. Authentication. CertificateVerify: each side signs the transcript with
+   its identity key. This is part of TLS. Monolith writes no cryptographic
+   composition, only the decision whether a presented key is the pinned
+   one.
+2. Forward secrecy. Yes with ephemeral key exchange. Resumption, session
+   tickets and early data have to be disabled and kept disabled.
+3. Identity privacy. As RFC 8446 states it: the server's identity is
+   protected against passive attackers, the client's against passive and
+   active ones. The server sends its key to any client that connects. This
+   is the same shape as A without the prologue.
+4. Probing. Any party that reaches the listener learns the server's
+   identity key. Requiring something first would need an external
+   pre-shared key; whether that is practical is not established.
+5. Custom constructions. None cryptographic. Custom code: one verifier per
+   side and the configuration that switches off what is not needed.
+6. Dependencies. `rustls`: widely deployed, actively maintained, audited in
+   2020, advisories handled promptly. Its providers (`ring`, `aws-lc-rs`)
+   contain C and assembly with long deployment history and the review
+   lineage of BoringSSL and AWS-LC. The dependency surface is larger than
+   that of `snow`.
+7. Complexity. Moderate, and of a different kind: configuration and
+   verifier code instead of protocol design. Monolith's framing and padding
+   are still needed inside the stream.
+8. Parsing before authentication. The whole TLS 1.3 handshake: a state
+   machine and extension parsing with variable-size messages. It is the
+   largest surface in this comparison and also the most tested and fuzzed.
+   It is written in memory-safe Rust above the provider.
+9. Auditability. Best. TLS 1.3 has been analyzed extensively and reviewers
+   know it. The implementation has an audit. What is specific to Monolith is
+   small.
+10. Key storage. None beyond the identity key. The library signs through an
+    interface, so the key can stay in Monolith's own type.
+11. Rotation. As A.
 
-## Reasoning
+Other: the ClientHello is characteristic of the library and its version. It
+is visible to the peer only, since the stream is inside Tor.
 
-On the amount of novel composition, TLS 1.3 with raw public keys is
-strictly lower: zero. Option A has one small step that Monolith defines
-itself. That step is the one the Noise specification describes, it mirrors
-the structure of TLS 1.3's own authentication, and it is about ten lines of
-specification.
+## Summary
 
-TLS was not chosen because the requirements are not only about
-composition:
+| | A: XX + proof | B: NN + proof | C: certified static | D: TLS 1.3 |
+| --- | --- | --- | --- | --- |
+| Authentication comes from | Monolith's proof | Monolith's proof | Noise, via a certificate | TLS |
+| Forward secrecy | yes | yes | yes | yes, resumption off |
+| Responder identity shown to | holder of its public key | anyone connecting | C1 anyone, C2 holder of its static key | anyone connecting |
+| Initiator identity shown to | verified responder | verified responder | authenticated responder | authenticated server |
+| Custom constructions | 1 | 1 or 2 | 1, plus credential lifetime rules | 0 |
+| Main dependency | `snow` | `snow` | `snow` | `rustls` and a provider |
+| Audit of main dependency | none | none | none | 2020 |
+| Bytes parsed before authentication | fixed, about 1.2 KiB | fixed, less | fixed | variable, bounded by the library |
+| Extra long-term secrets | none | none | one | none |
 
-- Parsing surface before authentication. Option A reads three fixed-size
-  records and one fixed-size frame before the peer is authenticated. Every
-  invariant about bounded input can be checked by inspection. TLS cannot
-  offer that.
-- No C or assembly in the session path, and a small dependency.
-- Probe resistance through the prologue.
-- No library fingerprint beyond "speaks Monolith version 1".
-- The custom verifiers TLS would need are comparable in risk to the
-  identity proof, so the practical difference in "code we must get right"
-  is smaller than the theoretical one.
+## The prologue is not access control
 
-Option B was not chosen because of the standing credential and because the
-responder's identity would go to any prober.
+Option A puts the responder's identity public key into the Noise prologue,
+so that an initiator has to know that key to complete the handshake.
 
-This is a judgment, and a reasonable reviewer could weigh audit history
-higher. If review rejects option A, option C is the fallback, with
-identities as raw public keys and resumption disabled.
+A public key is public data. Knowing it is not possession of a secret, and
+this mechanism is not access control, not authorization and not
+authentication of the initiator. It must not be described as strong
+protection against probing. What it does is narrower: completing the normal
+Monolith handshake requires knowledge of the expected responder identity,
+which keeps a party that has only the onion address from being handed an
+identity proof. Call it opportunistic probing resistance.
 
-## Consequences
+Its practical value is also smaller than Phase 0 implied. The onion address
+is distributed in the contact card, and the card contains the identity key.
+The two normally travel together, so the set of parties that know the
+address but not the key is small.
 
-- Connection setup takes two and a half round trips over an established
-  circuit.
-- The identity key signs once per session.
-- The handshake costs five X25519 operations, a signature and a
-  verification per side.
-- Monolith owns the correctness of the AuthProof input and of the order
-  rule "responder first, initiator only after verifying".
+If Monolith ever requires a real secret before it does anything expensive or
+identifying, the mechanism for that is a high-entropy secret such as the
+invitation capability, not the identity key. The invitation capability is
+an anti-spam and anti-probing token. It is checked after authentication
+today, and it is not an identity. Whether to move a secret of that kind in
+front of the handshake (for example as a pre-shared key) is an open
+question listed below.
 
-## Risks
+## Assessment so far
 
-- `snow` has had no formal audit, and its README says so. It is the
-  de-facto standard Noise implementation in Rust and the backend of
-  `libp2p-noise`.
-- `snow` does not zeroize key material. Issues about this have been open
-  since 2017. Monolith's own secrets are zeroized; session keys inside
-  `snow` are not. Options: contribute zeroization upstream, wrap and
-  minimize lifetimes, or evaluate `clatter`, which zeroizes but is less
-  used and itself recommends `snow` for ordinary targets.
-- `snow` releases are slow (0.10.0 is from July 2025) and it depends on the
-  previous generation of the RustCrypto and dalek crates. Expect to align
-  other crypto dependencies with it or carry duplicates.
-- RUSTSEC-2024-0011 affected `snow` before 0.9.5. Require 0.9.5 or later.
+Nothing is selected. What can be said:
+
+- Ranked only by the amount of novel security-critical composition, D comes
+  first with none, A and B follow with one small construction, and C has
+  one construction plus rules for a long-lived credential.
+- A and B rest on the same proof. They differ in what the Noise layer
+  appears to claim. B claims less and is easier to explain; A keeps the
+  prologue precondition.
+- The difference in probing behavior between A and D is real but, for the
+  reason given above, worth less than Phase 0 assumed.
+- D's costs are the size of the pre-authentication parser, the custom
+  verifiers, and a larger dependency tree. Its benefits are the depth of
+  analysis and the audit history. Neither side of that trade has been
+  measured yet.
+
+`CRYPTOGRAPHY.md` keeps describing option A, as the candidate that happens
+to be written up. That is a documentation state, not a decision.
+
+## What has to happen before Phase 2
+
+1. Decide the privacy requirement. Is it acceptable that a responder shows
+   its identity key to any party that reaches the listener? If not, specify
+   the gate, and make it a secret.
+2. Check the practicality of D with a throwaway prototype that is not
+   merged: mutual raw public keys in `rustls`; a server-side verifier that
+   accepts any client key and leaves classification to the application;
+   no server name; resumption and tickets off; how unknown or malformed
+   keys are handled; the largest handshake the library will buffer; whether
+   an exporter is available for later use.
+3. If a Noise option is kept, choose between A and B explicitly, decide on
+   C, and choose the crypto back end by the criteria above.
+4. Have the chosen construction reviewed by a cryptographer.
+5. Record the decision here and bring `CRYPTOGRAPHY.md` and `PROTOCOL.md`
+   in line with it.
+
+## What Phase 1 does in the meantime
+
+- The outer frame is a length-prefixed opaque payload. The code takes the
+  per-frame overhead of the session layer as a parameter (16 bytes for an
+  AEAD tag under Noise, none if the stream is already protected).
+- The handshake record sizes and the AuthProof layout in `PROTOCOL.md` are
+  marked provisional. Phase 1 implements neither.
+- No session library is added as a dependency.
+
+## Risks that hold for any Noise option
+
+- `snow` has no formal audit and does not zeroize key material. Issues
+  about zeroization have been open since 2017.
+- `snow` releases are slow, and it depends on the previous generation of
+  the RustCrypto and dalek crates.
 - The handshake hash is available only before the transition to transport
-  mode. The implementation must capture it at that point.
+  mode.
 
 ## Open questions
 
-See `CRYPTOGRAPHY.md` section 11 (Q1 to Q6).
+These are the questions that remain for the session layer. They are also
+listed in `CRYPTOGRAPHY.md` section 11.
+
+- Q1. Which of A, B, C, D.
+- Q2. Is disclosure of the responder's identity key to any connecting party
+  acceptable, and if not, which secret gates it and where.
+- Q3. Is the prologue precondition of A worth keeping, given what it is.
+- Q4. For A and B: is the proof input sufficient and unambiguous.
+- Q5. For A: is there any reason for XX over NN other than the prologue
+  precondition.
+- Q6. For C: what bounds the lifetime of a certificate.
+- Q7. For D: the practicality points in step 2 above.
+- Q8. Should the authentication also bind the onion service key that was
+  dialed.
+- Q9. Session limits and "reconnect, do not rekey".
+- Q10. Crypto back end, and the zeroization gap in `snow`.
 
 ## Sources
 
@@ -172,6 +343,10 @@ Accessed 2026-10-01.
 - rustls features: https://docs.rs/rustls/0.23.45/rustls/manual/_04_features/
 - rustls audit: https://cure53.de/pentest-report_rustls.pdf
 - https://rustsec.org/packages/rustls.html
+- Lightning transport (Noise XK): https://github.com/lightning/bolts/blob/master/08-transport.md
+- I2P NTCP2 (Noise XK): https://i2p.net/en/docs/specs/ntcp2
 - CVE-2022-24759, signature validation failure in a libp2p Noise
   implementation: https://osv.dev/vulnerability/CVE-2022-24759
 - Noise Explorer: https://eprint.iacr.org/2018/766
+- A Spectral Analysis of Noise:
+  https://www.usenix.org/conference/usenixsecurity20/presentation/girol

@@ -54,11 +54,14 @@ deny = [
     # S17: one randomness source.
     { crate = "fastrand", reason = "not a CSPRNG (S17)" },
     { crate = "oorandom", reason = "not a CSPRNG (S17)" },
-    # Reviewed case by case; see docs/adr/0002 and 0005.
+    # A system TLS or OpenSSL binding would arrive through a dependency that
+    # needs its own decision record first; see docs/adr/0002 and 0005.
     { crate = "openssl-sys", reason = "no OpenSSL without an ADR" },
     { crate = "native-tls", reason = "no OpenSSL without an ADR" },
-    { crate = "ring", reason = "session crypto uses the pure-Rust resolver (ADR 0002)" },
 ]
+
+# No cryptographic library is banned for the language it is written in.
+# Candidates are evaluated on the criteria in docs/CRYPTOGRAPHY.md section 1.
 
 [sources]
 unknown-registry = "deny"

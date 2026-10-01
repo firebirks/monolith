@@ -24,9 +24,9 @@ Invariant numbers (S1 and so on) refer to `SECURITY_INVARIANTS.md`.
   degree as Monolith.
 - Tor works as designed, within its own threat model. Monolith adds nothing
   to Tor's anonymity and must not subtract from it.
-- The cryptographic primitives in `CRYPTOGRAPHY.md` are sound, and the Rust
-  implementations used are correct. The session implementation (`snow`) has
-  had no formal audit.
+- The cryptographic primitives in `CRYPTOGRAPHY.md` are sound, and the
+  implementations used are correct. The session construction and its
+  implementation are not chosen yet (ADR 0002).
 - The user keeps the storage passphrase secret and exchanges contact cards
   over a channel that suits their own situation.
 - A peer is hostile until it has been bounded, parsed, validated,
@@ -52,10 +52,13 @@ Can open streams to the Onion Service and send arbitrary bytes.
 
 With the address alone, and no contact card:
 
-- It cannot complete the handshake. The handshake prologue contains the
-  responder's identity key, and until the initiator has shown that it used
-  the same prologue the responder sends nothing that reveals its identity
-  to a party that does not already hold the key.
+- Under the handshake candidate currently written up, it does not complete
+  the normal handshake and is not handed an identity proof, because
+  completing it requires the responder's identity key. This is
+  opportunistic probing resistance, not access control. The identity key is
+  public data: anyone who obtains it, from a contact card or anywhere else,
+  is past this point. The session design is provisional (ADR 0002), and
+  some of the candidates show the identity key to any party that connects.
 - It learns that the service is reachable and that it answers the Monolith
   preamble. Both are inherent in running a service at a known address.
 - If it holds a list of candidate identity keys, it can test which of them

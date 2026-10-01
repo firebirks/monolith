@@ -1,8 +1,15 @@
 # Monolith protocol, version 1
 
-Status: draft for review. Nothing here is frozen. No implementation of the
-handshake or framing exists yet; Phase 1 and Phase 2 implement this document
-and nothing else. Open questions are listed in section 17.
+Status: accepted for implementation of the protocol core in Phase 1. Not
+frozen. Open questions are listed in section 17.
+
+Provisional parts: section 3 (preamble), section 4 (handshake) and sections
+6.1 to 6.3 (identity proof) describe one candidate for the session layer.
+The session layer is not decided (ADR 0002) and Phase 1 implements none of
+it. The padding block size in section 5 is a parameter whose production
+value is not decided either. Everything else is what Phase 1 implements:
+framing, messages, text rules, contact cards, session states, contact
+confirmation and duplicate resolution.
 
 Related documents: `CRYPTOGRAPHY.md` (primitives, handshake analysis),
 `RESOURCE_LIMITS.md` (every numeric limit), `SECURITY_INVARIANTS.md`.
@@ -115,10 +122,13 @@ After message 3 both sides hold:
 
 A responder completes message 3 only if the initiator used the same
 prologue, which means the initiator already knew the responder's identity
-key. A party that knows only the onion address cannot get past this point.
-It has received message 2, whose authentication tags depend on the
+key. A party that knows only the onion address does not get past this
+point. It has received message 2, whose authentication tags depend on the
 prologue, so it can test identity keys it already holds against the
-address. It learns nothing about a key it does not hold.
+address.
+
+This is opportunistic probing resistance. It is not access control: the
+identity key is public data and is in every contact card. See ADR 0002.
 
 ## 5. Frames
 

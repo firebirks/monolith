@@ -1,15 +1,19 @@
 # Cryptography
 
-Status: draft for review by an independent cryptographer. No cryptographic
-code exists yet. Phase 2 implements this document.
+Status: provisional. No cryptographic code exists. The session layer
+(sections 4 to 7) is not decided: ADR 0002 compares four constructions and
+selects none. Sections 4 to 7 describe one of them, option A, because it is
+the one that has been written up in detail. Identity keys (section 3) and
+the storage design (section 9) do not depend on that choice.
 
 Monolith defines no primitive, no key exchange and no key schedule of its
-own. It uses the Noise Protocol Framework as specified, Ed25519 as
-specified, and standard hashes, KDFs and AEADs through maintained Rust
-implementations. The one piece of composition that Monolith itself is
-responsible for is the identity proof in section 5. It follows a
-construction the Noise specification describes, and it is the part of this
-document that most needs outside review.
+own. It uses established protocols and Ed25519 as specified, and standard
+hashes, KDFs and AEADs through maintained implementations. In option A the
+one piece of composition that Monolith itself is responsible for is the
+identity proof in section 5. The persistent identity is not the Noise
+static identity there; long-term authentication comes from that proof,
+layered on top of Noise. It is Monolith's construction and has to be
+reviewed as one.
 
 Tor provides anonymity and transport. Everything below is in addition to
 Tor's own onion service encryption and does not replace any of it.
@@ -19,7 +23,7 @@ Tor's own onion service encryption and does not replace any of it.
 | Purpose | Primitive | Implementation (candidate) |
 | --- | --- | --- |
 | Identity signatures | Ed25519, RFC 8032, PureEdDSA | `ed25519-dalek` |
-| Session handshake and transport | `Noise_XX_25519_ChaChaPoly_SHA256`, Noise revision 34 | `snow` with its default pure-Rust resolver |
+| Session handshake and transport (provisional, option A) | `Noise_XX_25519_ChaChaPoly_SHA256`, Noise revision 34 | `snow`; crypto back end not chosen |
 | Fingerprint, file digest | SHA-256 | `sha2` |
 | Onion address checksum | SHA3-256 | `sha3` |
 | Vault key derivation | Argon2id, RFC 9106 | `argon2` |
@@ -35,8 +39,12 @@ analyzed function, because `Noise_XX_25519_ChaChaPoly_SHA256` is the exact
 suite libp2p deploys at scale, and because SHA-2 is in the dependency tree
 anyway through Ed25519. BLAKE2s would add a hash for no benefit.
 
-Dependency selection, versions, audit status and known advisories are in
-ADR 0002 and ADR 0005.
+Dependency selection is recorded in `DEPENDENCIES.md` for crates that are
+in use, and in ADR 0002 and ADR 0005 for candidates. A library is judged on
+audit history, deployment history, cryptographic review, exposure of
+memory-unsafe code to hostile input, parser complexity, dependency surface,
+maintenance and published advisories. Being written in Rust, or containing
+C or assembly, decides nothing by itself.
 
 ## 2. Randomness
 
@@ -86,7 +94,7 @@ not need to be unpredictable, but one source is simpler to audit than two.
   connections at that address; it does not let the attacker pass the
   identity proof.
 
-## 4. Session handshake
+## 4. Session handshake (provisional, option A)
 
 Pattern: Noise XX.
 
@@ -115,21 +123,26 @@ static keys here are single-use and mean nothing by themselves, the
 handshake establishes a confidential, forward-secret channel between two
 parties who have not yet shown who they are. Identity comes from section 5.
 
-Why XX and not a two-message pattern with no static keys: the third message
-is encrypted with `h` as associated data, so the responder learns that the
-initiator computed the same `h`, including the same prologue. The initiator
-therefore must already know the responder's identity key. A party that
-knows only the onion address cannot complete the handshake, and the
-responder has not yet sent anything that reveals its identity to someone
-who does not already hold the key (section 5.4, probing).
+What XX adds over a two-message pattern with no static keys (option B):
+the third message is encrypted with `h` as associated data, so the
+responder learns that the initiator computed the same `h`, including the
+same prologue. Completing the normal handshake therefore requires knowledge
+of the expected responder identity key, and a party that has only the
+onion address is not handed an identity proof.
 
-Why not a pattern in which the responder's static key is known in advance
-(XK, IK): that would require a long-lived Noise static key published in the
-contact card, a new persistent secret with its own rotation rules. The
-prologue binding gives the property that matters here, that probes without
-the card learn nothing, without one.
+This is opportunistic probing resistance and nothing more. The identity key
+is public data. Knowing it is not possession of a secret, so this is not
+access control, not authorization and not authentication of the initiator.
+The key is in every contact card next to the onion address, so the two
+usually travel together. If a real secret is ever required before the
+responder does anything identifying or expensive, it has to be a secret,
+such as the invitation capability; ADR 0002 lists that as an open question.
 
-## 5. Identity proof
+A pattern in which the responder's static key is known in advance (XK, IK)
+is option C in ADR 0002. It needs a long-lived Noise static key published
+in the contact card, a new persistent secret with its own rotation rules.
+
+## 5. Identity proof (provisional, options A and B)
 
 ### 5.1 Construction
 
@@ -164,11 +177,13 @@ long-term key over the transcript hash with a role-specific context, sent
 under keys derived from the exchange.
 
 The alternative that libp2p deploys signs the Noise static key instead of
-the transcript and carries the signature in the handshake payloads. It was
-not chosen because that signature is a long-lived credential: whoever
-obtains a static private key and one captured payload can impersonate the
-identity for as long as the static key is accepted, and there is no expiry.
-A signature over `h` is valid for one session and delegates nothing.
+the transcript and carries the signature in the handshake payloads (option
+C in ADR 0002). Its drawback is that the signature is a long-lived
+credential: whoever obtains a static private key and one captured payload
+can impersonate the identity for as long as the static key is accepted,
+and there is no expiry. A signature over `h` is valid for one session and
+delegates nothing. Its advantage is that it uses Noise static keys for what
+they were designed for.
 
 Neither construction has a published formal analysis as a composition with
 Noise XX. This one is small and follows the specification's own description,
@@ -212,11 +227,11 @@ way to encode it.
   attacker impersonate A. It does not let the attacker impersonate B to A,
   which needs B's signature.
 - Probing. Section 4: the responder sends its proof only after message 3
-  verified, that is, only to an initiator that knew its identity key.
-  One thing remains possible: the authentication tags in message 2 depend
-  on `h`, so a prober that holds a list of candidate identity keys can
-  check, offline, which of them is served at an address. It learns nothing
-  about a key that is not on its list.
+  verified, that is, only to an initiator that used its identity key. That
+  key is public data, so this limits who is handed a proof by accident; it
+  does not keep anyone out. The authentication tags in message 2 depend on
+  `h`, so a prober that holds a list of candidate identity keys can check,
+  offline, which of them is served at an address.
 - Disclosure order. The initiator reveals its identity only after it has
   verified the responder's. An attacker who took over the Onion Service key
   but not the identity key therefore does not learn who tries to connect.
@@ -308,41 +323,60 @@ with XChaCha20-Poly1305 with the header as associated data.
 
 ## 10. Implementation rules
 
-- Noise is driven only through the `snow` API. No Monolith code implements
-  a Noise step.
-- The handshake hash is read from the handshake state before it is
-  converted to transport state; `snow` does not expose it afterwards.
-- `snow` 0.9.5 or later is required (RUSTSEC-2024-0011).
-- The `ring` resolver is not used. The default resolver is pure Rust.
+If a Noise option is chosen:
+
+- Noise is driven only through the library's API. No Monolith code
+  implements a Noise step.
+- With `snow`, the handshake hash is read from the handshake state before
+  it is converted to transport state; it is not exposed afterwards. Version
+  0.9.5 or later is required (RUSTSEC-2024-0011).
+- The crypto back end is chosen by the criteria in section 1. No back end
+  is excluded or preferred for the language it is written in.
 - The exact pattern string is a constant, and a test asserts it.
+
+In any case:
+
 - Ed25519 verification is always `verify_strict`. A lint will ban the
   non-strict `verify` in Monolith crates once the dependency is added.
 - Test vectors with fixed keys are committed for every signed structure and
   for a complete handshake (PROTOCOL.md section 16).
 
-## 11. Questions for the reviewer
+## 11. Open questions
 
-Q1. Is the AuthProof input sufficient and free of ambiguity? Is anything in
-    it harmful to include?
+The same list as in ADR 0002. All of them are open.
 
-Q2. Is binding the responder's identity key through the prologue sound for
-    the stated purpose (no identity disclosure to a party that does not
-    already know the key)? Is there a reason to prefer a PSK modifier or an
-    XK-style pattern?
+Q1. Which construction: Noise XX with per-connection static keys and a
+    transcript signature (A), Noise NN with transcript signatures (B), a
+    persistent X25519 static key certified by the identity (C), or TLS 1.3
+    with pinned raw public keys (D).
 
-Q3. Fresh static keys per connection make the `s` tokens of XX carry no
-    long-term meaning. Is there any downside compared with an NN handshake
-    followed by the same proofs, apart from the prologue confirmation that
-    motivates XX here?
+Q2. Is it acceptable that a responder shows its identity key to any party
+    that reaches the listener? If not, which secret gates that, and where
+    in the handshake.
 
-Q4. Should the proofs also bind the onion service key that was dialed
-    (PROTOCOL.md open question P2)?
+Q3. Is the prologue precondition of option A worth keeping, given that it
+    rests on public data.
 
-Q5. Are the session limits in section 7 reasonable, and is "reconnect, do
-    not rekey" acceptable?
+Q4. For A and B: is the proof input in section 5.1 sufficient and free of
+    ambiguity, and is anything in it harmful to include.
 
-Q6. Is the absence of zeroization in `snow` acceptable for an audit
-    candidate, or must it be fixed upstream or worked around first?
+Q5. For A: is there any reason for XX over NN other than the prologue
+    precondition.
+
+Q6. For C: what bounds the lifetime of a certificate over a static key.
+
+Q7. For D: can `rustls` do mutual raw public keys with a server that
+    accepts any client key, no server name, and resumption off; what does
+    it buffer before authentication; is an exporter available.
+
+Q8. Should the authentication also bind the onion service key that was
+    dialed (PROTOCOL.md open question P2).
+
+Q9. Are the session limits in section 7 reasonable, and is "reconnect, do
+    not rekey" acceptable.
+
+Q10. Which crypto back end, and whether the absence of zeroization in
+     `snow` is acceptable for an audit candidate.
 
 ## 12. Sources
 

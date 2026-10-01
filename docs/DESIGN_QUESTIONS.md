@@ -12,7 +12,7 @@ Sources were read on 2026-10-01.
 
 | # | Question | Answer | Where |
 | --- | --- | --- | --- |
-| 1 | Noise XX with an Ed25519 transcript proof, or TLS 1.3 | Noise XX with a transcript-bound proof is retained, with SHA-256, a prologue that binds the responder identity, per-connection static keys and fixed-size handshake messages. TLS 1.3 has less novel composition but a much larger surface before authentication. Needs a cryptographer's review. | ADR 0002, CRYPTOGRAPHY.md |
+| 1 | Noise XX with an Ed25519 transcript proof, or TLS 1.3 | Not decided. Four constructions are compared in ADR 0002: Noise XX with a transcript proof, Noise NN with a transcript proof, a certified persistent static key, and TLS 1.3 with pinned raw public keys. The decision is due before Phase 2 and needs a cryptographer's review. | ADR 0002, CRYPTOGRAPHY.md |
 | 2 | Canonical wire encoding | Fixed-layout binary, hand-written encoders and decoders, no serialization framework. One valid encoding per structure. | ADR 0003, PROTOCOL.md 2, 5 |
 | 3 | Fingerprint encoding | SHA-256 over a prefix, a key-type byte and the key; base32; 52 characters full, 24 compact. | PROTOCOL.md 10 |
 | 4 | Contact card format | 138 bytes, or 154 with an invitation; signed; text form `MONOLITH1:` plus base32. | PROTOCOL.md 11 |
@@ -105,7 +105,13 @@ Dependencies and tooling
     the type is `SysRng`.
 22. `minicbor` does not enforce canonical decoding, which is why CBOR was
     not chosen.
-23. `snow` has no audit and does not zeroize. Kept, with the risk recorded.
+23. `snow` has no audit and does not zeroize. Recorded as a risk of every
+    Noise option; the session library is not chosen.
+23a. The prologue binding was described as if it kept probers out. It does
+    not: the identity key is public data. It is now described as
+    opportunistic probing resistance.
+23b. `ring` was banned in `deny.toml`. The ban is removed; a cryptographic
+    library is not excluded for containing C or assembly.
 24. Toolchain. The pinned toolchain is 1.95.0. Stable has moved on (1.98
     and later); the pin should be raised in a reviewed change.
 25. The 2015 TorChat analysis is a Master's thesis by Rain Viigipuu titled
@@ -118,7 +124,7 @@ Nothing below is settled. Each is described in the document named.
 
 | Id | Question | Document |
 | --- | --- | --- |
-| Q1 to Q6 | Review of the identity proof, the prologue binding, XX with single-use static keys, binding the onion key, session limits, zeroization | CRYPTOGRAPHY.md 11 |
+| Q1 to Q10 | Choice of session construction, responder identity disclosure, the prologue precondition, the proof input, XX or NN, certificate lifetime, practicality of TLS with raw public keys, binding the onion key, session limits, crypto back end | CRYPTOGRAPHY.md 11, ADR 0002 |
 | P1 | Padding block size | PROTOCOL.md 17 |
 | P2 | Bind the dialed onion key in the proof | PROTOCOL.md 17 |
 | P3 | Epoch after restoring a backup | PROTOCOL.md 17 |
@@ -150,7 +156,7 @@ the final choice is made in the phase that first needs the crate.
 | `unicode-normalization` | 0.1.25 | NFC for names and passphrases | 1 |
 | `getrandom` | 0.3 or 0.4 | CSPRNG | 1 |
 | `zeroize`, `subtle` | 1.9, 2.6 | secret handling | 1 |
-| `snow` | 0.10.0 | Noise session | 2 |
+| `snow` or `rustls` | not chosen | session layer (ADR 0002) | 2 |
 | `tokio` | 1.53 (LTS) | runtime | 3 |
 | `tracing` | 0.1.44 | logging | 3 |
 | `argon2`, `chacha20poly1305`, `hkdf` | 0.5 or 0.6, 0.10 or 0.11 | vault | 4 |
@@ -165,4 +171,5 @@ on. Mixing generations would put two versions of the same cryptographic
 crate into the binary, which `deny.toml` forbids.
 
 Not used: `anyhow` in libraries, `serde` for anything signed or on the wire,
-`ring`, OpenSSL bindings, any HTTP client, any resolver.
+any HTTP client, any resolver. A session library and its crypto back end
+are not chosen; see ADR 0002.

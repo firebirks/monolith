@@ -27,7 +27,9 @@ limits marked "local"; the others are part of the wire protocol.
 | `MESSAGE_HEADER_LEN` | 4 | type and body length |
 | `MAX_MESSAGE_BODY_LEN` | 64508 | |
 
-The handshake has no variable-size record. A peer that has not completed the
+The preamble and handshake sizes belong to the session layer candidate
+that is currently written up and are provisional (ADR 0002). With that
+candidate, the handshake has no variable-size record. A peer that has not completed the
 handshake can make Monolith read at most 8 + 96 bytes (as initiator) or
 8 + 32 + 64 bytes (as responder).
 
