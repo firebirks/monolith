@@ -728,4 +728,35 @@ mod tests {
         assert!(!text.contains("notes.txt"));
         assert!(!text.contains("conference"));
     }
+
+    #[test]
+    fn oracle_3_no_message_states_a_reason() {
+        // T-ORACLE-3. The messages that exist before a session is confirmed
+        // are AuthProof, then Close, ContactRequest and ContactAccept. Close
+        // and ContactAccept have empty bodies and accept no other, so they
+        // cannot say why. A ContactRequest carries only its sender's own
+        // card, name and introduction. There is no message that says
+        // "blocked", "former contact" or "not in the contact list".
+        use crate::SessionState;
+
+        let unconfirmed: Vec<MessageType> = MessageType::ALL
+            .into_iter()
+            .filter(|message| message.may_be_received_in(SessionState::AuthenticatedUnknown))
+            .collect();
+        assert_eq!(
+            unconfirmed,
+            [
+                MessageType::Close,
+                MessageType::ContactRequest,
+                MessageType::ContactAccept
+            ]
+        );
+
+        for message in [Message::Close, Message::ContactAccept] {
+            assert_eq!(message.encode_body().unwrap(), Vec::<u8>::new());
+            for byte in 0..=255_u8 {
+                assert!(Message::decode(message.message_type(), &[byte]).is_err());
+            }
+        }
+    }
 }
