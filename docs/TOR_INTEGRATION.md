@@ -148,7 +148,8 @@ implementing that derivation.
 - Tor on the same machine: `127.0.0.1`, port chosen by the operating system,
   except where the platform profile fixes the port (Tails).
 - Tor on another machine (Whonix): one specific internal address and a fixed
-  port. See `PLATFORM_WHONIX.md` section 4.
+  port, and connections are accepted only from the Gateway address. See
+  `PLATFORM_WHONIX.md` sections 4.2 and 4.5.
 - Never a wildcard address.
 
 The listener is reachable by local processes without going through Tor. That

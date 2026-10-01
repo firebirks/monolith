@@ -247,9 +247,19 @@ backpressure. Peer-influenced memory has a computed ceiling.
 
 ### O. Local processes and other machines on a private network
 
-- Local processes can reach the loopback listener without Tor; on Whonix,
-  other Workstations on the same Gateway can reach the listener. They are
+- Local processes can reach the loopback listener without Tor. They are
   treated as any unknown peer. This is why authentication is mandatory.
+- On non-Qubes Whonix, Workstations that share a Gateway share a network
+  segment. Monolith binds one address, closes connections that do not come
+  from the Gateway address before exchanging a byte, and installs a
+  firewall rule that accepts the port from the Gateway only
+  (`PLATFORM_WHONIX.md` section 4.5). These measures are untested. They
+  stop an unprivileged process in another Workstation. They do not stop a
+  compromised Workstation with root that impersonates the Gateway on the
+  shared segment: it reaches the handshake as an unknown peer and, if it
+  holds the user's contact card, can confirm that the identity runs on that
+  virtual machine. Qubes-Whonix or a Gateway of its own closes this;
+  Monolith cannot.
 - File permissions keep other users out of the data directory.
 - A process of the same user is inside the trust boundary (section 2).
 
@@ -342,6 +352,9 @@ interface must not suggest otherwise.
   the disk.
 - Tails and Whonix integration has not been tested yet. Until it has, the
   platform documents describe intent.
+- On a non-Qubes Whonix Gateway shared with other Workstations, Monolith
+  does not keep a compromised Workstation from reaching its listener. That
+  configuration is not supported.
 - Early releases have had no independent audit.
 
 ## 7. Sources

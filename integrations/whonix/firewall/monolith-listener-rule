@@ -1,0 +1,41 @@
+#!/bin/bash
+
+## Accept connections to the Monolith listener from the Whonix-Gateway only.
+##
+## DRAFT. Not yet run on Whonix. See docs/PLATFORM_WHONIX.md section 4.5 and
+## open item W3.
+##
+## Install on the Workstation as /usr/libexec/monolith/monolith-listener-rule
+## (root, mode 0755). It is run by the systemd drop-in next to this file,
+## after the Whonix firewall has loaded its ruleset.
+##
+## The Whonix-Workstation firewall drops incoming connections by default.
+## Its supported way to open a port, EXTERNAL_OPEN_PORTS, has no source
+## restriction, so on a Gateway shared by several Workstations it would open
+## the port to all of them. This script inserts one rule that accepts new
+## connections to the listener port from the Gateway address and from nowhere
+## else. Do not also list the port in EXTERNAL_OPEN_PORTS.
+##
+## If this script does not run, the port stays closed.
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+listener_port="29170"
+
+## Same logic as the Whonix firewall uses for GATEWAY_IP. Set
+## MONOLITH_GATEWAY_IP in the drop-in if the Gateway address was changed.
+if [ -n "${MONOLITH_GATEWAY_IP:-}" ]; then
+  gateway_ip="${MONOLITH_GATEWAY_IP}"
+elif [ -f /usr/share/qubes/marker-vm ]; then
+  gateway_ip="$(qubesdb-read /qubes-gateway)"
+else
+  gateway_ip="10.152.152.10"
+fi
+
+## "insert", not "add": the chain ends with reject rules, and a rule added
+## after them would never match. Established connections are accepted by the
+## firewall's own rule, so only new connections need to be named here.
+nft insert rule inet filter input \
+  ip saddr "${gateway_ip}" tcp dport "${listener_port}" ct state new counter accept

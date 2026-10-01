@@ -315,6 +315,23 @@ Per release, on the current Tails:
 
 ## 10. Whonix matrix (T-PLAT-WHONIX, manual)
 
+Before Phase 7, with one Gateway and two Workstations (W1 runs Monolith, W2
+is the attacker), on VirtualBox or KVM, and separately on Qubes-Whonix:
+
+| Id | Check | Expectation |
+| --- | --- | --- |
+| T-PLAT-WHONIX-ISO-1 | The rule of section 4.5 is present after boot and after a restart of the firewall service | present; the port is not in `EXTERNAL_OPEN_PORTS` |
+| T-PLAT-WHONIX-ISO-2 | W2 connects to W1 port 29170 from its own address | no connection |
+| T-PLAT-WHONIX-ISO-3 | Same, with the port opened the supported way instead (no source restriction) | connection is accepted by the kernel and closed by Monolith with no byte sent |
+| T-PLAT-WHONIX-ISO-4 | W1 listener over IPv6 and on any other interface | not reachable |
+| T-PLAT-WHONIX-ISO-5 | Manual firewall reload on W1 | port closed until the service is restarted |
+| T-PLAT-WHONIX-ISO-6 | W2, with root, takes the Gateway's address on the shared segment | recorded as found. Expected on non-Qubes: W2 reaches the handshake as an unknown peer. Expected on Qubes: not possible |
+| T-PLAT-WHONIX-ISO-7 | With W2 past the network layers and holding W1's contact card | W2 learns that the identity runs on W1 and nothing else; without the card, what it learns is recorded against the session layer in use |
+| T-PLAT-WHONIX-ISO-8 | The Monolith onion-grater profile enabled on the Gateway | W2 can create services pointing at its own port 29170 only |
+
+The isolation of the listener is not described as working anywhere in the
+documentation until these have been run.
+
 Per release, on the current Whonix, VirtualBox or KVM, and Qubes-Whonix:
 
 | Case | Expectation |
@@ -327,8 +344,8 @@ Per release, on the current Whonix, VirtualBox or KVM, and Qubes-Whonix:
 | Gateway restart | service re-created after reconnect |
 | SOCKS isolation | streams of two contacts use different circuits (checked on the Gateway) |
 | Unauthorized control commands | `SETCONF`, `GETINFO address` and other commands outside the merged profile are refused by the Gateway |
-| Listener exposure | bound to the Workstation's internal address only; not on any other interface |
-| Second Workstation connects to the listener directly | treated as an unknown peer; cannot pass authentication |
+| Listener exposure | bound to the Workstation's internal IPv4 address only; not on any other interface |
+| Second Workstation connects to the listener directly | T-PLAT-WHONIX-ISO-2 and 3 |
 | One Tor | no tor process in the Workstation |
 | Qubes-Whonix | control address, listener address and firewall drop-in work with dynamic addresses |
 

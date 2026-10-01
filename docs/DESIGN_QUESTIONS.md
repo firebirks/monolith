@@ -49,7 +49,7 @@ identity has a set of endpoints, limited to one in version 1.
 | 7 | Maximum sizes and budgets | One table per category; worst-case memory about 119 MiB. | RESOURCE_LIMITS.md |
 | 8 | Rekey and reconnect thresholds | 24 hours, 2^32 frames or 2^40 bytes per direction; then a new handshake. No in-band rekey. | CRYPTOGRAPHY.md 7 |
 | 9 | Tails control path | `amnesia` process to onion-grater on `127.0.0.1:951`, matched by executable path and user, to Tor's control port 9052; service target `127.0.0.1:29170`. | PLATFORM_TAILS.md 3 |
-| 10 | Whonix profile and port mapping | Opt-in profile merged on the Gateway; `ADD_ONION` target rewritten to `{client-address}:29170`; Workstation firewall opens 29170; listener bound to the Workstation's internal address. | PLATFORM_WHONIX.md 4 to 6 |
+| 10 | Whonix profile and port mapping | Opt-in profile merged on the Gateway; `ADD_ONION` target rewritten to `{client-address}:29170`; listener bound to the Workstation's internal IPv4 address; connections accepted from the Gateway address only, by Monolith and by a source-restricted firewall rule. Untested. | PLATFORM_WHONIX.md 4 to 6 |
 | 11 | Local storage encryption | Vault: Argon2id, wrapped random key, XChaCha20-Poly1305, atomic replace. Message store: open, SQLCipher recommended. | STORAGE.md, ADR 0005 |
 | 12 | History off by default on ordinary Linux and Whonix | Yes, off by default on every platform. | STORAGE.md 1 |
 | 13 | GUI framework | Undecided. Leaning GTK 4; Qt 6 is the runner-up. | ADR 0006 |
@@ -78,6 +78,12 @@ Tor and platforms
    work there.
 5. Whonix recommends listening on `0.0.0.0`. Monolith binds one address
    instead.
+5a. Opening the listener port with `EXTERNAL_OPEN_PORTS`. On non-Qubes
+   Whonix that opens it to every Workstation on the Gateway, which Whonix
+   documents as a feature. Monolith checks the source address itself and
+   uses a firewall rule restricted to the Gateway. A compromised
+   Workstation on the same segment can still impersonate the Gateway; only
+   Qubes-Whonix or a Gateway of its own closes that.
 6. Proof-of-work capability detection. Tor does not report whether the
    proof-of-work module is compiled in, and `ADD_ONION` succeeds without
    it. Only the version can be checked. The keyword exists from 0.4.9.2,
@@ -168,7 +174,7 @@ Nothing below is settled. Each is described in the document named.
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 3 and Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
-| W1 to W5 | Whonix: profile test, Qubes addressing, firewall drop-in, upstreaming, SocksPort choice | PLATFORM_WHONIX.md 9 |
+| W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
 | ST1 to ST6 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending) | STORAGE.md 9 |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
