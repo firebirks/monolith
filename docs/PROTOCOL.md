@@ -1,16 +1,12 @@
 # Monolith protocol, version 1
 
-Status: the protocol core (framing, messages, text rules, contact cards,
-session states, contact confirmation, duplicate resolution) is implemented
-and accepted.
-
-The session layer is not decided. ADR 0002 has two finalists. Sections 3,
-4 and 6.1 to 6.3 of this document, and the frame overhead of zero in
-section 5, are a draft for one of them, finalist D (TLS 1.3 with raw
-public keys). If the other finalist is chosen, those sections are replaced
-and the contact card of section 11 gains a field. Nothing of either is
-implemented. The code of the protocol core still has the message type for
-an identity proof and the frame overhead of 16 bytes of the earlier draft.
+Status: the protocol core (framing, messages, text rules, session states,
+contact confirmation, duplicate resolution) is implemented and accepted.
+The session layer is decided in ADR 0002: Noise XK with a transport key
+that the identity certifies in the contact card. Sections 3, 4 and 6.1 to
+6.3 specify it, and section 11 gives the contact card with the transport
+key. These parts are specified here before they are implemented; the
+implementation follows this document.
 
 The padding block size in section 5 is a parameter whose production value
 is not decided. Open questions are listed in section 17.
@@ -26,11 +22,13 @@ reliable ordered byte stream.
 
 A connection goes through these steps:
 
-1. A TLS 1.3 handshake creates an encrypted channel and authenticates the
-   Monolith identity of each side. The responder is authenticated first
-   (sections 3, 4 and 6).
-2. Messages are exchanged as padded frames inside that channel (section
-   5), subject to the session state (section 7).
+1. A Noise XK handshake of three fixed-size messages creates an encrypted
+   channel and authenticates the transport key of each side. The
+   responder is authenticated first (section 4).
+2. The contact cards bind the transport keys to Monolith identities
+   (sections 4.4, 6 and 11).
+3. Messages are exchanged as encrypted, padded frames (section 5), subject
+   to the session state (section 7).
 
 Design rules that hold throughout:
 
@@ -60,197 +58,227 @@ longer or shorter than its fields require is a violation.
 
 ## 3. Protocol version
 
-There is no preamble. The first bytes on the stream are a TLS 1.3
-ClientHello.
+There is no preamble and no version field on the wire. The first bytes on
+the stream are handshake message 1.
 
-The protocol version is selected with application-layer protocol
-negotiation (ALPN, RFC 7301). This version of the protocol has the
-identifier
+The version is part of the handshake prologue (section 4.1), as the label
+`MONOLITH-SESSION-V1`. Both sides hash it into the handshake. A peer that
+uses another label fails the first message, in the same way as a peer that
+uses another key.
 
-    "monolith/1"      10 bytes: 6d 6f 6e 6f 6c 69 74 68 2f 31
-
-- An initiator offers this identifier and no other.
-- A responder that supports it selects it. A responder that supports none
-  of the identifiers offered fails the handshake, as RFC 7301 requires.
-- After the handshake each side checks that the negotiated identifier is
-  `monolith/1`. A handshake that completed with another identifier, or
-  with none, is a violation.
-
-The offer and the selection are part of the handshake transcript, which
-both sides sign, so neither can be changed without the handshake failing.
-An initiator never retries with another version on its own; a failed
-negotiation is reported to the user.
-
-A later version of the protocol, or an optional extension of this one,
-gets a new identifier. There are no feature bits.
-
-The ClientHello shows that the endpoint speaks Monolith and which version.
-It also shows what TLS library produced it. It contains no build, no
-platform and no identity.
+- Nothing is negotiated, so nothing can be downgraded.
+- A version mismatch cannot be told from any other handshake failure. An
+  initiator never retries with another version on its own.
+- A later version of the protocol, or an optional extension of this one,
+  gets a new label. There are no feature bits.
 
 ## 4. Handshake
 
-The handshake is TLS 1.3 (RFC 8446). The initiator is the TLS client and
-the responder is the TLS server. Each side authenticates with its Monolith
-identity key, carried as a raw public key (RFC 7250).
+The handshake is the Noise protocol `Noise_XK_25519_ChaChaPoly_SHA256`, as
+defined by the Noise Protocol Framework, revision 34. The initiator is the
+Noise initiator and the responder the Noise responder. Nothing in this
+section redefines Noise; it fixes the parameters and says what Monolith
+checks.
 
-### 4.1 Profile
+    XK:
+      <- s
+      ...
+      -> e, es
+      <- e, ee
+      -> s, se
 
-| Parameter | Value |
-| --- | --- |
-| Version | TLS 1.3 only (0x0304) |
-| Cipher suite | `TLS_CHACHA20_POLY1305_SHA256` (0x1303) |
-| Key exchange group | x25519 (0x001D) |
-| Signature scheme | ed25519 (0x0807) |
-| Server certificate type (extension 20) | RawPublicKey (2) |
-| Client certificate type (extension 19) | RawPublicKey (2) |
-| Application protocol (extension 16) | `monolith/1` |
-| Client authentication | required |
-| Server name (extension 0) | not sent |
-| Pre-shared keys, early data | not used |
-| Session tickets | not sent by a responder, not stored by an initiator |
-| Certificate compression | not used |
+### 4.1 Parameters
 
-An implementation offers and accepts no other version, suite, group,
-signature scheme or certificate type. X.509 certificates are not accepted.
-An initiator sends its x25519 key share in the first ClientHello.
+Protocol name, 32 ASCII bytes:
 
-Extensions that a TLS library sends by default and that do not change any
-parameter above are tolerated on receipt, as TLS requires.
+    Noise_XK_25519_ChaChaPoly_SHA256
 
-Every connection is a full handshake. Nothing from one connection is
-reused in another.
+It is exactly as long as a SHA-256 output, so the initial handshake hash
+is the name itself.
 
-### 4.2 The identity key in the handshake
+- DH: X25519 (RFC 7748). Cipher: ChaCha20-Poly1305 (RFC 8439), with the
+  96-bit nonce formed as 32 zero bits followed by the 64-bit counter in
+  little-endian order. Hash: SHA-256, with HMAC-SHA256 in the Noise HKDF.
+- Static keys: the transport key of each side (section 10.2). The
+  transport key of a responder is the one stated in its contact card
+  (section 11). It is a long-term key.
+- Ephemeral keys: generated for each handshake and discarded with it.
+- Pre-message: the responder's transport public key, which the initiator
+  takes from the contact card it holds for the identity it dials.
+- Prologue, 51 bytes:
 
-The Certificate message of each side carries exactly one entry, with no
-extensions. The entry is the SubjectPublicKeyInfo of the sender's identity
-key (RFC 8410), 44 bytes:
+      "MONOLITH-SESSION-V1"            19 bytes
+      responder identity public key    32 bytes
 
-    30 2a                     SEQUENCE, 42 bytes
-       30 05                  SEQUENCE, 5 bytes
-          06 03 2b 65 70      OBJECT IDENTIFIER 1.3.101.112, Ed25519
-       03 21 00               BIT STRING, 33 bytes, no unused bits
-          key[32]             the identity public key
+  The initiator uses the identity key of the contact it dials. The
+  responder uses its own. Section 4.6 says why the identity key is there.
+- Payloads: empty in messages 1 and 2. The payload of message 3 is the
+  initiator's contact card (section 4.4).
+- No pre-shared key.
 
-A receiver compares the first 12 bytes with this prefix and takes the
-remaining 32 as the key. Anything else is rejected: another algorithm,
-algorithm parameters, another length, trailing bytes, or more than one
-entry. There is no ASN.1 parser in this path.
+### 4.2 Messages
 
-### 4.3 Signatures
+Every message has a fixed size. Each is read as exactly that many bytes.
+There is no length prefix and no variable part.
 
-Each side sends one CertificateVerify. It is an Ed25519 signature by the
-identity key over these 130 bytes (RFC 8446 section 4.4.3):
+| Message | Direction | Size | Content |
+| --- | --- | --- | --- |
+| 1 | initiator -> responder | 48 | ephemeral public key (32), tag of the empty payload (16) |
+| 2 | responder -> initiator | 48 | ephemeral public key (32), tag of the empty payload (16) |
+| 3 | initiator -> responder | 235 | encrypted transport public key (32 + 16), encrypted contact card (171 + 16) |
 
-| Size | Value |
-| --- | --- |
-| 64 | 0x20, repeated |
-| 33 | "TLS 1.3, server CertificateVerify" from the responder, "TLS 1.3, client CertificateVerify" from the initiator |
-| 1 | 0x00 |
-| 32 | SHA-256 over all handshake messages so far, up to and including the signer's Certificate |
+The ephemeral public key in messages 1 and 2 is sent in clear and must be
+a valid X25519 key (section 10.2). The card in message 3 is the binary
+form of section 11.1 without invitation capability, which is 171 bytes in
+version 1.
 
-Monolith defines no signature of its own for the session.
+Processing, in the terms of the Noise specification, section 5:
 
-### 4.4 Order and checks
+    h = protocol name;  ck = h
+    MixHash(prologue)
+    MixHash(responder transport public key)
+
+    message 1:  e                MixHash(e)
+                es               MixKey(DH(initiator e, responder s))
+                payload          EncryptAndHash(empty)
+
+    message 2:  e                MixHash(e)
+                ee               MixKey(DH(responder e, initiator e))
+                payload          EncryptAndHash(empty)
+
+    message 3:  s                EncryptAndHash(initiator transport public key)
+                se               MixKey(DH(initiator s, responder e))
+                payload          EncryptAndHash(card)
+
+    Split():    first key        frames from initiator to responder
+                second key       frames from responder to initiator
+
+An X25519 result of all zeros ends the handshake.
+
+### 4.3 Order
 
     Initiator                                   Responder
 
-      ClientHello                       ---->
-                                                ServerHello
-                                                {EncryptedExtensions}
-                                                {CertificateRequest}
-                                                {Certificate}
-                                                {CertificateVerify}
-                                        <----   {Finished}
-      verifies the responder
-      {Certificate}
-      {CertificateVerify}
-      {Finished}                        ---->
-                                                verifies the initiator
-      [frames]                          <--->   [frames]
+      message 1                         ---->
+                                                checks message 1
+                                        <----   message 2
+      checks message 2: the responder
+        holds the transport key of the
+        identity that was dialed
+      message 3                         ---->
+                                                checks message 3 and the
+                                                  card in it
+      frames                            <--->   frames
 
-Messages in braces are encrypted under handshake keys, frames under
-application keys.
+The responder proves that it holds its transport key in message 2. The
+initiator sends its transport key and its contact card only after that,
+in message 3, encrypted so that only that responder can read them.
 
-The initiator, on the responder's Certificate and CertificateVerify:
+After message 3 both sides hold two cipher states, one per direction, and
+the handshake hash `h`.
 
-1. The entry has the form of section 4.2.
-2. The key is a valid key (section 10.1).
-3. The key is not the initiator's own identity key.
-4. The key is byte for byte the identity that was dialed.
-5. The signature of section 4.3 verifies under strict rules (section 10.1).
+### 4.4 Checks
 
-If any of these fails, the initiator ends the handshake. It has not sent
-its own Certificate at that point, and it does not send it. A failure of
-check 4 is reported to the user as an identity mismatch: the service at
-the contact's address did not prove the contact's identity. This is never
-resolved automatically, and there is no option to continue with the key
-that was presented.
+The initiator:
 
-The responder, on the initiator's Certificate and CertificateVerify:
+1. Before it sends anything: the contact it dials has a pinned card; the
+   identity of that card is not the initiator's own.
+2. Message 2 is 48 bytes, its ephemeral key is valid (section 10.2), and
+   Noise accepts it. A message 2 that Noise accepts shows that the sender
+   holds the transport key of the pinned card and used the pinned
+   identity key in its prologue.
 
-1. The entry has the form of section 4.2. An empty Certificate is a
-   failure: client authentication is required.
-2. The key is a valid key (section 10.1).
-3. The key is not the responder's own identity key.
-4. The signature of section 4.3 verifies under strict rules.
+If check 2 fails the initiator closes. It has sent 48 bytes that carry no
+identity. The failure is reported to the user as an identity mismatch: the
+service at the contact's address did not prove the contact's identity. An
+initiator cannot tell an impostor from a contact whose transport key has
+changed (section 11.4) or from a service that is not Monolith at all, and
+the interface says so. This is never resolved automatically, and there is
+no option to continue.
 
-The responder checks nothing else here. In particular it does not look at
-its contacts, its block list or any other record of the identity, so the
-handshake behaves the same for every initiator with a valid key.
+The responder:
 
-Both sides, after Finished:
+1. Message 1 is 48 bytes, its ephemeral key is valid, and Noise accepts
+   it. A message 1 that Noise accepts shows that the sender knows the
+   responder's transport public key and identity public key. Both are
+   public data; see section 4.6.
+2. Message 3 is 235 bytes and Noise accepts it. Noise then knows the
+   initiator's transport public key and has verified that the initiator
+   holds the matching private key.
+3. The payload is a valid contact card (section 11.2) that carries no
+   invitation capability.
+4. The transport key in the card is byte for byte the transport key Noise
+   authenticated in step 2.
+5. The identity key in the card is not the responder's own.
 
-1. The negotiated version is TLS 1.3 and the suite is 0x1303.
-2. The negotiated application protocol is `monolith/1` (section 3).
+When these hold, the initiator's identity is the identity key of the
+card. The responder checks nothing else here. In particular it does not
+look at its contacts, its block list or any other record of the identity,
+so the handshake behaves the same for every initiator with a valid card.
 
-The key that passed these checks is the peer's identity for the session.
-It does not change for the lifetime of the session; TLS 1.3 has no
-renegotiation, and post-handshake client authentication is not offered.
+What the responder holds about the identity is looked at afterwards, to
+decide the standing of the peer for this session (section 6.2). That
+includes the epoch of the card that was presented.
 
 ### 4.5 Bounds and failures
 
-- A side that has received more than `MAX_HANDSHAKE_INPUT_LEN` (4096)
-  bytes while the handshake is not complete closes the stream. The three
-  flights of this profile are about 200, 370 and 190 bytes.
+- A side reads exactly the bytes of the message it expects: 48 for
+  message 1, 48 for message 2, 235 for message 3. It reads nothing more
+  before the handshake is complete.
 - The handshake must complete within `HANDSHAKE_TIMEOUT`.
-- A handshake that fails ends with the stream closed. A TLS alert may be
-  sent first. Every rejection that comes from the checks of section 4.4
-  produces the same alert, `handshake_failure`, whichever check failed.
-  Nothing specific to Monolith is sent.
-- After the handshake, a violation of this document ends the session by
-  closing the stream. No alert and no message is sent.
+- Any failure ends the handshake by closing the stream. Nothing is sent:
+  Noise has no error messages and Monolith adds none. Every failure looks
+  the same to the peer, whichever check failed.
+- The cost a caller can impose: with a first message that Noise rejects,
+  one X25519 operation. With a valid first message, two X25519 operations
+  and one key generation, and one pending handshake until message 3
+  arrives or the timeout expires. With a valid third message, one more
+  X25519 operation and the validation of one contact card.
 
-### 4.6 After the handshake
+### 4.6 What the keys in the handshake stand for
 
-- A KeyUpdate from the peer is legal and is handled by the TLS layer. An
-  implementation of this profile does not need to send one.
-- A NewSessionTicket that is received is discarded.
-- A side that ends a session on purpose sends the Close message (section
-  8.1) and may follow it with a TLS `close_notify`. Receivers do not
-  depend on `close_notify`: a stream that ends without the Close message
-  is a transport failure whether or not it was sent.
+Noise authenticates transport keys. Two things bind them to identities.
+
+The contact card. An identity states its transport key in its card and
+signs the card. The initiator holds the responder's card before it dials.
+The responder receives the initiator's card in message 3 and checks that
+its transport key is the one Noise authenticated.
+
+The prologue. A card says that an identity vouches for a transport key. It
+does not say that the holder of the transport key agrees to be that
+identity. Without something more, an identity could sign a card that names
+another party's endpoint and transport key. A peer that imported that card
+would reach the other party, complete the handshake, and attribute the
+session to the wrong identity. The responder therefore puts its own
+identity key into the prologue, and the initiator the identity key of the
+card it dialed. If they differ, message 1 fails. For the initiator's side
+the same binding comes from message 3: the card is inside the handshake,
+so it is the holder of the transport key who presents it.
+
+Knowing a responder's transport key and identity key is not possession of
+a secret. Both are in every contact card. A caller without them gets no
+reply at all, which keeps a party that has only the onion address from
+learning anything, and that is all it does. It is not access control.
 
 ## 5. Frames
 
 After the handshake every transmission is a frame:
 
-    u16 length || plaintext[length]
+    u16 length || ciphertext[length]
 
 `length` must satisfy
 
-    1024 <= length <= 64512  and  length mod 1024 == 0
+    1040 <= length <= 64528  and  (length - 16) mod 1024 == 0
 
 and, while the session is in `AuthenticatedUnknown`, `length` must be
-exactly 1024. No frame is accepted before that state. A length that fails
-these checks is a violation and is detected before the frame is read.
+exactly 1040. No frame is accepted before that state. A length that fails
+these checks is a violation and is detected before the ciphertext is read.
 
-Frames are written to the TLS stream as application data. TLS protects
-them; a frame is not encrypted a second time. A frame may be split across
-TLS records, and record boundaries mean nothing to this layer. Frames
-cannot be reordered, dropped or replayed without the TLS layer failing,
-which ends the session.
+The ciphertext is one Noise transport message: the plaintext encrypted with
+the cipher state of that direction (section 4.2), nonces counting from
+zero, empty associated data. A decryption failure is a violation. Frames
+cannot be reordered, dropped or replayed without causing one, and a frame
+of another session does not decrypt.
 
 The plaintext is:
 
@@ -261,8 +289,7 @@ The plaintext is:
   padding than necessary, or a non-zero padding byte, is a violation.
 - `type` must be an assigned code (section 8). An unassigned code is a
   violation. There are no ignorable message types in version 1; a type that
-  is added later may be sent only on a connection whose protocol
-  identifier (section 3) includes it.
+  is added later needs a new protocol label (section 3).
 - The message must be legal in the current session state (section 7). This
   is checked before the body is parsed.
 
@@ -274,9 +301,8 @@ Two numbers in this section are parameters, not constants of the design:
 
 - P, the padding block. This document uses P = 1024. That value is
   provisional; ADR 0003 gives the trade-off and the alternatives.
-- T, the number of bytes the session layer adds to each frame. With TLS
-  underneath, the stream is already protected and T = 0. A session layer
-  that encrypted each frame itself would add its authentication tag here.
+- T, the number of bytes the session layer adds to each frame: 16, the
+  authentication tag of a Noise transport message.
 
 In terms of them:
 
@@ -285,8 +311,8 @@ In terms of them:
 - `length` is the plaintext length plus T;
 - before a session is confirmed, the plaintext is no longer than the padded
   size of the largest message that is legal then. That message is a
-  ContactRequest of 800 bytes, 804 with its header. For P = 1024 this is
-  one block, which is where "exactly 1024" comes from.
+  ContactRequest of 832 bytes, 836 with its header. For P = 1024 this is
+  one block, which is where "exactly 1040" comes from.
 
 A pair of values is usable only if P is larger than the 4-byte message
 header, P + T is at most 65535, and the largest plaintext can hold every
@@ -297,37 +323,68 @@ A FileChunk is cut to the frame: a full chunk carries as much data as the
 largest body holds after the 16-byte transfer identifier and the 2-byte
 length, and never more than 64490 bytes.
 
-The limits 1024, 64512, 64508 and 64490 elsewhere in this document are
-these rules evaluated for P = 1024 and T = 0. An implementation takes
+The limits 1040, 64528, 64512, 64508 and 64490 elsewhere in this document
+are these rules evaluated for P = 1024 and T = 16. An implementation takes
 P and T as parameters, so that changing either is a change of two numbers
 and not of the frame decoder.
 
 Padding hides the exact length of short messages from anyone who can see
-record lengths on the path between the application and Tor. It is not a
+ciphertext lengths on the path between the application and Tor. It is not a
 defense against traffic analysis; see `THREAT_MODEL.md`.
 
 ## 6. Identity authentication
 
 ### 6.1 Authentication by the handshake
 
-The identity of each side is authenticated by the TLS handshake of section
-4. There is no separate identity proof and no message for one. Message
-code 0x0001, which earlier drafts gave to such a message, is not assigned.
+The identity of each side is established by the handshake of section 4
+and the contact cards. There is no separate identity proof and no message
+for one. Message code 0x0001, which earlier drafts gave to such a message,
+is not assigned. No signature is made or verified during a session other
+than the signature of a contact card.
 
-### 6.2 Result
+- For the initiator, the peer's identity is the identity of the card it
+  dialed. Message 2 proved it.
+- For the responder, the peer's identity is the identity key of the card
+  in message 3, after the checks of section 4.4.
+
+### 6.2 Result and standing
 
 When the handshake and the checks of section 4.4 have succeeded, both
 sides are in `AuthenticatedUnknown`: the peer's identity is proven, and
 whether the two are contacts has not yet been confirmed on this session.
 Section 6.4 says how a session leaves that state.
 
-The responder was authenticated first. The initiator's identity was sent
-only to a responder that had already proved the identity that was dialed.
+An initiator has no confirmation that the responder accepted message 3
+until the first frame from the responder decrypts. A responder can
+produce such a frame only if it processed message 3.
 
 Authentication says who the peer is. It does not say what the peer may
-do. A peer with a valid key that the local side has never seen, has
+do. A peer with a valid card that the local side has never seen, has
 declined, has blocked or has deleted is authenticated exactly like a
 contact, and is then handled by sections 6.4 and 12.
+
+The responder decides the standing of the peer from its own record of
+the identity and from the card that was presented:
+
+| Record of the identity | Card presented in message 3 | Standing for this session |
+| --- | --- | --- |
+| none, declined or blocked | any valid card | not a contact (section 12) |
+| requested or accepted | greater epoch than the pinned card | as the record says; the card is a pending change (section 11.4) |
+| requested or accepted | same epoch, same transport key and endpoints | as the record says |
+| requested or accepted | same epoch, another transport key or endpoint set | not a contact; reported to the user as a conflict |
+| requested or accepted | lower epoch than the pinned card | not a contact |
+
+The last two rows are the stale-card rule. A card that is older than the
+one the responder has pinned, or that contradicts it, does not open a
+contact session, even though its signature is valid and the peer holds its
+transport key. The peer is treated like any identity that is not a
+contact and sees the same generic behavior (section 12.1); it is not told
+why. This keeps a transport key that an identity has retired from being
+used against the contacts that already know its successor.
+
+The initiator presents no comparison of this kind: it dialed with the
+card it has pinned, and a responder that no longer holds that transport
+key cannot answer message 1.
 
 Budgets are applied at this point according to the local record of the
 proven identity. A session with an identity the responder holds as an
@@ -345,10 +402,10 @@ unknown.
 
 ### 6.3 Extensions
 
-Version 1 has no optional extensions and no negotiation beyond the
-protocol identifier of section 3. An extension that is added later is a
-new identifier. Identifiers describe protocol behavior only and are never
-used to convey platform, build or product information.
+Version 1 has no optional extensions and no negotiation. An extension that
+is added later is a new protocol label (section 3). Labels describe
+protocol behavior only and are never used to convey platform, build or
+product information.
 
 ### 6.4 Contact confirmation
 
@@ -405,8 +462,8 @@ A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 | State | Meaning | Messages accepted from the peer |
 | --- | --- | --- |
 | Connecting | Stream being opened | none |
-| CryptoHandshake | TLS handshake in progress; each side checks the other's key and signature inside it, the initiator before it sends its own | none (TLS handshake messages only) |
-| IdentityAuth | TLS handshake complete; the checks after Finished of section 4.4 are applied | none |
+| CryptoHandshake | Noise handshake messages are exchanged | none (the three fixed-size handshake messages only) |
+| IdentityAuth | Noise handshake complete; the card checks of section 4.4 and the standing of section 6.2 are being applied | none |
 | AuthenticatedUnknown | Peer's identity proven; contact relationship not confirmed on this session | ContactRequest, ContactAccept, Close |
 | AuthenticatedContact | Both sides hold each other as accepted contacts and have said so on this session | every message type |
 | Closing | Close sent; the stream is being shut down | none |
@@ -417,13 +474,12 @@ A session never moves backwards, and every session passes through
 `MessageType::may_be_received_in` and `SessionState::can_transition_to` in
 `monolith-protocol`; the logic of sections 6.4 and 12 is `session::Session`.
 
-A session enters `AuthenticatedUnknown` only for the identity whose key
-the handshake authenticated. The session logic is given that identity by
-the handshake and by nothing else. It ends the session when that identity
-is the local one, and, on a session the local side opened, when it is any
-identity other than the one that was dialed (section 4.4). An
-implementation does not let a caller move a session into
-`AuthenticatedUnknown` by any other route.
+A session enters `AuthenticatedUnknown` only for the identity that the
+handshake established (section 6.1), and only through a completed
+handshake. The session ends if that identity is the local one, and, on a
+session the local side opened, if it is any identity other than the one
+that was dialed. An implementation does not let a caller move a session
+into `AuthenticatedUnknown` by any other route.
 
 A Close that is received ends the session at once: the receiver goes to
 `Closed`. After a Close was sent or received, a side stops reading from the
@@ -441,12 +497,12 @@ All sizes are body sizes. "States" lists where the message may be received.
 | 0x0002 | Close | 0 | Unknown, Contact |
 | 0x0003 | Ping | 8 | Contact |
 | 0x0004 | Pong | 8 | Contact |
-| 0x0010 | ContactRequest | 144 to 800 | Unknown, Contact |
+| 0x0010 | ContactRequest | 176 to 832 | Unknown, Contact |
 | 0x0011 | ContactAccept | 0 | Unknown, Contact |
 | 0x0020 | ChatMessage | 19 to 16402 | Contact |
 | 0x0021 | MessageAck | 16 | Contact |
 | 0x0030 | Profile | 4 to 1156 | Contact |
-| 0x0031 | EndpointUpdate | 139 | Contact |
+| 0x0031 | EndpointUpdate | 171 | Contact |
 | 0x0040 | FileOffer | 27 to 281 | Contact |
 | 0x0041 | FileAccept | 16 | Contact |
 | 0x0042 | FileReject | 16 | Contact |
@@ -485,18 +541,20 @@ answered within `PONG_TIMEOUT` ends the session.
 
 ### 8.3 ContactRequest (0x0010)
 
-    [139]        card           the sender's contact card, no capability
+    [171]        card           the sender's contact card, no capability
     u8           has_capability 0x00 or 0x01
     [16]         capability     present only if has_capability is 0x01
     text<0..128> display_name
     text<0..512> introduction
 
-`card` must be a valid contact card (section 11) whose identity key equals
-the identity the sender proved in the handshake, and it must not carry a
-capability of its own. A request with the card of another identity is a
-protocol violation: the stream is closed and nothing is sent. The receiver
-makes this check before it looks at what it holds about the sender, so the
-outcome is the same for a stranger, a blocked identity and a contact.
+`card` must be a valid contact card (section 11) whose identity key and
+transport key are those the sender authenticated in the handshake of this
+session, and it must not carry a capability of its own. If the sender is
+the initiator, the card is byte for byte the card of message 3. A request
+whose card fails these checks is a protocol violation: the stream is
+closed and nothing is sent. The receiver makes this check before it looks
+at what it holds about the sender, so the outcome is the same for a
+stranger, a blocked identity and a contact.
 
 `capability` is the invitation capability copied from the card of the peer
 being asked (section 12).
@@ -563,27 +621,30 @@ assigned. A Profile equal to the stored one causes no event.
 
 ### 8.8 EndpointUpdate (0x0031)
 
-    [139] card   the sender's contact card, no capability
+    [171] card   the sender's contact card, no capability
 
 `card` must be a valid contact card whose identity key equals the sender's
 proven identity; a card of another identity is a protocol violation. The
-receiver compares it with what it has pinned for this contact:
+card may state another transport key than the one this session was
+authenticated with: that is how a new transport key is announced. The
+receiver compares the card with what it has pinned for this contact:
 
-- greater epoch: recorded as a pending endpoint change. In version 1 the
-  change takes effect after the user confirms it;
-- same epoch and the same endpoint set: nothing to do. This is the normal
-  case;
-- same epoch and a different endpoint set: the owner signed two statements
-  with one epoch. Ignored, and reported to the user as an anomaly;
+- greater epoch: recorded as a pending change of the endpoint set, of the
+  transport key, or of both. In version 1 the change takes effect after
+  the user confirms it;
+- same epoch, same endpoint set and same transport key: nothing to do.
+  This is the normal case;
+- same epoch and a different endpoint set or transport key: the owner
+  signed two statements with one epoch. Ignored, and reported to the user
+  as an anomaly;
 - lower epoch: ignored and counted.
 
-Nothing but a greater epoch ever changes the pinned endpoint.
+Nothing but a greater epoch ever changes what is pinned.
 
-Each side sends its current card once after a session is confirmed, and
-again if its endpoint changes during the session. Sending it every time
-keeps the sender from having to track what each contact already knows, and
-it is how a contact learns a new endpoint: the owner dials out from the new
-endpoint and says so.
+A responder sends its current card once after a session is confirmed. The
+initiator's card was presented in the handshake. Either side sends its
+card again if it changes during the session. This is how a contact learns
+a new endpoint or a new transport key: the owner dials out and says so.
 
 ### 8.9 File transfer (0x0040 to 0x0045)
 
@@ -738,10 +799,43 @@ A signature is valid if it verifies under the strict rules of the Ed25519
 implementation: the scalar is canonical and the R component is not of small
 order.
 
+### 10.2 Valid X25519 keys
+
+A 32-byte string is a valid X25519 public key for Monolith only when both
+of these hold:
+
+1. It is the canonical encoding of a field element: read as a
+   little-endian integer it is less than 2^255 - 19. The top bit of the
+   last byte is therefore zero.
+2. It is not one of the five points of small order:
+
+       0000000000000000000000000000000000000000000000000000000000000000
+       0100000000000000000000000000000000000000000000000000000000000000
+       e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800
+       5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157
+       ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f
+
+The rule applies to the transport key in a contact card, to the transport
+key an initiator sends in message 3, and to the ephemeral keys in messages
+1 and 2.
+
+RFC 7748 accepts any 32 bytes as a public key: it ignores the top bit and
+reduces the rest. Monolith requires the canonical form so that a key, and
+with it a contact card, has exactly one encoding. With a point of small
+order the shared secret is zero whatever the private key is, so such a
+point proves nothing about who holds it. Whether a point lies on the curve
+or on its twist is not checked; X25519 is safe for both, and RFC 7748 asks
+for no such check.
+
+A transport key is generated from 32 bytes of CSPRNG output of its own. It
+is not derived from the identity key, and it is used for nothing but the
+handshake of section 4.
+
 ## 11. Contact card
 
-A contact card is a signed statement by an identity: "as of this epoch, I
-can be reached at this set of endpoints".
+A contact card is a signed statement by an identity: "as of this epoch, my
+sessions are authenticated by this transport key, and I can be reached at
+this set of endpoints".
 
 ### 11.1 Binary form
 
@@ -750,18 +844,22 @@ With n = `endpoint_count`:
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 1 | version = 0x01 |
-| 1 | 32 | identity_public_key |
-| 33 | 8 | endpoint_epoch (`u64`, at least 1) |
-| 41 | 1 | endpoint_count (n) |
-| 42 | 32 x n | endpoints: one onion_service_key each |
-| 42 + 32n | 1 | flags |
-| 43 + 32n | 0 or 16 | invitation_capability |
+| 1 | 32 | identity_public_key (Ed25519) |
+| 33 | 32 | transport_public_key (X25519) |
+| 65 | 8 | epoch (`u64`, at least 1) |
+| 73 | 1 | endpoint_count (n) |
+| 74 | 32 x n | endpoints: one onion_service_key each |
+| 74 + 32n | 1 | flags |
+| 75 + 32n | 0 or 16 | invitation_capability |
 | then | 64 | signature |
 
 `endpoint_count` is at least 1 and at most `MAX_ACTIVE_ENDPOINTS`. In
 version 1 that maximum is 1, so every valid card has exactly one endpoint
-and is 139 bytes long without a capability, 155 with one. The endpoints in
+and is 171 bytes long without a capability, 187 with one. The endpoints in
 a card are distinct.
+
+`transport_public_key` is the X25519 key with which the identity
+authenticates its sessions (section 4).
 
 `flags`: bit 0 set means `invitation_capability` is present. Bits 1 to 7 are
 zero; a card with any of them set is invalid.
@@ -776,6 +874,10 @@ defines:
 Storing the key instead of the address means a card cannot carry a wrong
 checksum or version byte. Only version 3 services can be expressed.
 
+The version byte is 0x01. Drafts of this document before the session layer
+was decided described a card without the transport key, 139 or 155 bytes
+long. No release produced such cards, and they are not valid.
+
 ### 11.1.1 Signed bytes
 
 `signature` is an Ed25519 signature by `identity_public_key` over the
@@ -785,7 +887,8 @@ field, and not by reference to the transport layout:
     "MONOLITH-CONTACT-CARD-V1"   24 bytes
     version                       1 byte
     identity_public_key          32 bytes
-    endpoint_epoch                8 bytes, big-endian
+    transport_public_key         32 bytes
+    epoch                         8 bytes, big-endian
     endpoint_count                1 byte
     endpoints                    32 bytes each, in card order
     flags                         1 byte
@@ -795,7 +898,9 @@ In version 1 these are the bytes of the binary form up to the signature,
 after the prefix. An implementation still builds them with a function of
 its own, separate from the transport encoder, so that a later change to
 the transport layout cannot change what a signature means. With one
-endpoint the signed bytes are 99 or 115 bytes long.
+endpoint the signed bytes are 131 or 147 bytes long.
+
+This is the only signature the identity key makes.
 
 ### 11.2 Validation
 
@@ -803,35 +908,42 @@ In this order; the first failure rejects the card:
 
 1. Length is at least the size of the fixed fields.
 2. `version` is 0x01.
-3. `endpoint_epoch` is at least 1.
+3. `epoch` is at least 1.
 4. `endpoint_count` is between 1 and `MAX_ACTIVE_ENDPOINTS`.
 5. `flags` has no reserved bit set.
 6. The length is exactly what `endpoint_count` and `flags` imply. There are
    no trailing bytes.
-7. `identity_public_key` is a valid identity key (section 10.1).
-8. Every endpoint is a valid onion service key (section 10.1), no two are
-   equal, and none is byte for byte equal to `identity_public_key`. The
-   last part is key separation; see below.
-9. The signature is valid (section 10.1) over the signed bytes built from
-   the decoded fields.
+7. `identity_public_key` is a valid key (section 10.1).
+8. `transport_public_key` is a valid X25519 key (section 10.2), and it is
+   not the Montgomery form of `identity_public_key` or of an endpoint.
+9. Every endpoint is a valid onion service key (section 10.1), no two are
+   equal, and none is byte for byte equal to `identity_public_key`.
+10. The signature is valid (section 10.1) over the signed bytes built from
+    the decoded fields.
 
 The decoder accepts exactly one encoding of a card, so the signed bytes
 built from the decoded fields are determined by the received bytes and by
 nothing else.
 
-Key separation. The Monolith identity key and the master key of a Tor
-Onion Service belong to different cryptographic domains. The first signs
-contact cards under Monolith's prefix and TLS handshake transcripts
-under the context strings of TLS; the second is
-used by Tor, under Tor's rules, to certify the keys of a service. A key
-must never be used in both. A card in which an endpoint is the identity
-key states that it is, so the card is invalid, and an implementation
-refuses to sign one. This is an invariant of the protocol and not a
-side effect of validation: it is S33 in `SECURITY_INVARIANTS.md`.
+Key separation. A Monolith identity has three keys with three jobs:
+
+    identity key    Ed25519   signs contact cards and nothing else
+    transport key   X25519    authenticates sessions (section 4)
+    onion key       Ed25519   reachability; used by Tor under Tor's rules
+
+They belong to different cryptographic domains and are generated
+independently. A key must never be used in two of them. A card states the
+three public keys side by side, so it can show a violation: an endpoint
+that is the identity key, or a transport key that is the identity key or
+an endpoint key carried over to the other curve form. The Montgomery form
+of an Ed25519 public key with coordinate y is u = (1 + y) / (1 - y) modulo
+2^255 - 19, encoded in 32 bytes, little-endian. A card with such a
+coincidence is invalid, and an implementation refuses to sign one. This is
+invariant S33 in `SECURITY_INVARIANTS.md`.
 
 The rule catches a key that is reused on purpose or by a bug in key
-handling. It cannot catch two keys derived from one secret by different
-means; `CRYPTOGRAPHY.md` section 3 requires the two keys to be generated
+handling. It cannot catch keys derived from one secret by other means;
+`CRYPTOGRAPHY.md` section 3 requires the keys to be generated
 independently.
 
 ### 11.3 Text form
@@ -839,8 +951,8 @@ independently.
     "MONOLITH1:" || base32(card)
 
 Base32 uses the RFC 4648 alphabet without padding. The canonical form is
-upper case, which lets a QR code use alphanumeric mode. The longest card in
-version 1 is 258 characters.
+upper case, which lets a QR code use alphanumeric mode. A card of version
+1 is 284 characters long, 310 with a capability.
 
 Parsing: input longer than `MAX_CONTACT_CARD_TEXT_LEN` bytes is
 rejected. ASCII space, tab, CR and LF are removed wherever they occur.
@@ -857,11 +969,14 @@ is reachable at the moment. Monolith does not hide endpoint availability
 from anyone who holds the card. Cards and QR codes are produced locally and
 are never uploaded anywhere.
 
-### 11.4 Endpoint sets and epochs
+### 11.4 Epochs, endpoint sets and transport keys
+
+A card states the whole of what an identity publishes at one moment: one
+transport key and one set of endpoints. The epoch orders these statements.
 
 An identity has a set of endpoints, not one endpoint. The model is
 
-    identity -> endpoint set, as of an epoch
+    identity -> transport key and endpoint set, as of an epoch
 
 and version 1 limits the set to one member (`MAX_ACTIVE_ENDPOINTS` = 1).
 The count field, the signed bytes and the epoch rule are already those of a
@@ -878,19 +993,55 @@ a new identity model or a new signature format:
 None of these is implemented in version 1, and a version 1 card with more
 than one endpoint is invalid.
 
-The owner of an identity keeps a counter. Each time its endpoint set changes
-it increments the counter and signs a new card. A card always states the
-whole set; there is no "add" or "remove".
+The owner of an identity keeps a counter. Each time its endpoint set or
+its transport key changes it increments the counter and signs a new card.
+A card always states the whole set and the transport key; there is no
+"add" or "remove".
 
-A receiver pins, per contact, the identity key, the endpoint set and the
-epoch. A card signed by the pinned identity replaces the pinned set only if
-its epoch is strictly greater, and only when it arrives
+A receiver pins, per contact, the identity key, the transport key, the
+endpoint set and the epoch. A card signed by the pinned identity replaces
+what is pinned only if its epoch is strictly greater, and only when it
+arrives
 
+- as the card an initiator presents in the handshake of a session with
+  that contact,
 - in an EndpointUpdate on an authenticated session with that contact, or
 - as a card the user imports by hand.
 
 A card with a different identity key is a different contact, whatever
 display name comes with it.
+
+Two cards of one identity with the same epoch must be identical in
+transport key and endpoint set. If they are not, the identity has signed
+two statements for one epoch; the receiver keeps what it has and reports
+the conflict.
+
+Stale cards. A card whose epoch is lower than the pinned one is never
+accepted as the current statement of a contact. Presented in a handshake,
+it does not open a contact session (section 6.2). Received in an
+EndpointUpdate, it is ignored (section 8.8). A receiver that has no record
+of the identity cannot know that a card is stale: it has nothing to
+compare it with.
+
+Changing the transport key. An identity replaces its transport key by
+signing a card with a greater epoch that states the new key. From that
+moment it answers only handshakes made with the new key. Version 1 has no
+period in which both keys are answered.
+
+- A contact that still holds the previous card cannot open a session: its
+  first message is made for a key the identity no longer uses, and it
+  gets no reply. To the contact this looks like any other identity
+  mismatch (section 4.4).
+- The contact learns the new card when the identity opens a session to it
+  and presents the card in the handshake, or out of band. Until then the
+  two can talk only when the identity dials.
+- There is no revocation. Replacing a transport key does not make the
+  old one worthless to someone who obtained its private half: against a
+  party that has pinned the newer card it is useless, by the stale-card
+  rule, and against a party that has never seen the identity, or has
+  pinned only the older card, it still authenticates as the identity.
+  The same is true of the identity key itself, which cannot be replaced
+  at all without becoming a new identity.
 
 If every endpoint a contact knows has disappeared before an update reached
 it, there is no way for the contact to learn the new endpoint from the
@@ -990,19 +1141,19 @@ identity, by the local record of that identity.
 | blocked | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
 | deleted former contact | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
 | declined | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
+| a contact that presented a stale or conflicting card (section 6.2) | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
 | requested by the local user | ContactRequest | ContactAccept | ContactAccept | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
 | accepted, verified out of band | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
 | accepted, not verified | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
 
-For every row: the handshake is the same, a
-protocol violation ends the stream with nothing sent, and Close has an
-empty body.
+For every row: the handshake is the same, a protocol violation ends the
+stream with nothing sent, and Close has an empty body.
 
 Requirements that follow:
 
-- The first four rows are the same row. Message types, their number and
+- The first five rows are the same row. Message types, their number and
   order, and the conditions under which the session is closed must not
-  depend on which of the four applies. The implementation takes one code
+  depend on which of the five applies. The implementation takes one code
   path for them, and the record is consulted only to decide whether a
   request is put in the queue, which the peer cannot see.
 - The last two rows are the same row. Whether the user has verified a
@@ -1024,7 +1175,7 @@ What a peer can still learn, by design:
 - A peer that was a contact and no longer gets ContactAccept knows that it
   is not confirmed. It cannot tell deletion from blocking, from a restored
   backup, or from the other side having lost its data.
-- When the budget for strangers is exhausted, the first four rows are closed
+- When the budget for strangers is exhausted, the first five rows are closed
   right after authentication while the last three are not. This separates
   the same two groups that the messages already separate.
 
@@ -1156,49 +1307,114 @@ reconnecting, and that neither side depends on the other's schedule.
 
 ## 16. Test vectors
 
-### 16.1 Vectors that exist
+### 16.1 Vectors
 
-The fingerprint and the contact card were reproduced by a second
-implementation written independently of the Rust code, from the field
-lists in this document.
+Every value below was produced by an implementation written independently
+of the Rust code, from this document, RFC 7748, RFC 8032, RFC 8439 and the
+Noise specification. The handshake was also reproduced with a Noise
+library. All keys are test values and must never be used.
 
-Identity: the key pair of RFC 8032 section 7.1, test 1.
+Two parties. R is the responder and I the initiator.
 
-    seed      9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60
-    identity  d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+    R identity seed     9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60
+    R identity          d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+    R transport secret  77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a
+    R transport         8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a
+    R endpoint          8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394
 
-The same key as it appears in a TLS Certificate entry (section 4.2):
+    I identity seed     4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb
+    I identity          3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c
+    I transport secret  5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb
+    I transport         de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f
+    I endpoint          ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1
 
-    spki      302a300506032b6570032100
-              d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+The identity keys are tests 1 and 2 of RFC 8032 section 7.1. The transport
+keys are the two key pairs of RFC 7748 section 6.1. The endpoints are the
+Ed25519 public keys of the seeds that consist of 32 bytes 0x02 and 0x03.
 
-Fingerprint of that identity (section 10):
+Fingerprint of R's identity (section 10):
 
     full      YIRR UZHO JELC AIYD AIKQ AHCH XAGT EYDA AX3D VLUH 6WO3 ZSYJ BYYQ
     compact   YIRR UZHO JELC AIYD AIKQ AHCH
 
-Contact card of that identity (section 11): epoch 1, one endpoint, no
-invitation. The endpoint is the Ed25519 public key of the seed that
-consists of 32 bytes 0x02.
+Montgomery form of R's identity key (section 11.2), which a card of R must
+not state as its transport key:
 
-    endpoint   8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394
-    signature  781d3a8ae5359cbbd13055d9521ef15d83c02dda6f5dac448f5d4d963e5f8027
-               053d23296fd29c4328b34c56cd1123333d0a6a61ad7a88e49e96fe7da0f43200
+    d85e07ec22b0ad881537c2f44d662d1a143cf830c57aca4305d85c7a90f6b62e
 
-    signed bytes (99)
+Contact card of R (section 11): epoch 1, one endpoint, no invitation.
+
+    signed bytes (131)
                4d4f4e4f4c4954482d434f4e544143542d434152442d5631 01
                d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+               8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a
                0000000000000001 01
                8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394
                00
 
-    text form  MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRU
-               AAAAAAAAAAAAEAYCOLXB2UH2F27K2RVIZWDJR7MZS4NRKI3J3RXUJO7MD23R7E3
-               HFAAPAOTVCXFGWOLXUJQKXMVEHXRLWB4ALO2N5O2YREPLVGZMPS7QATQKPJDFFX
-               5FHCDFCZUYVWNCERTGPIKNJQ226UI4SPJN7T5UD2DEAA
+    signature  de2f9f4d97b9083972d602de79f255a8824e9400be6e57b841f02f1bd9b3c8fa
+               13b89ba8aae47e229e3e49df1a422f57702d740f578452f1d7643c7321c94c03
 
-The text form is one string; it is wrapped here for the page, and the
-parser ignores the line breaks.
+    text form  MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRV
+               BJA6AEYSMFHKR2IW7O4WQ7POWQNX45A2JRYDL2OXJFJR2VJWTTKAAAAAAAAAAAA
+               CAMBHF3Q5KD5C5PVNI2UM3BUY7WMZOGYVENU5Y32EXPWB5NY7SNTSQAN4L47JWL
+               3SCBZOLLAFXTZ6JK2RASOSQAL43SXXBA7ALY33GZ4R6QTXCN2RKXEPYRJ4PSJ34
+               NEEL2XOAWXID2XQRJPDV3EHRZSDSKMAM
+
+The text form is one string of 284 characters; it is wrapped here for the
+page, and the parser ignores the line breaks.
+
+Contact card of I, as it appears in message 3 (171 bytes): epoch 1, one
+endpoint, no invitation.
+
+    013d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af466
+    0cde9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b
+    4f000000000000000101ed4928c628d1c2c6eae90338905995612959273a5c63
+    f93636c14614ac8737d1007c98b9a384ab4a8dd22e7b752249ae282a5d4072de
+    c9c640f2d1d59de1844e5f3192e3263077fd11c77b5afb9f9b80d2e2d77b1648
+    7b43119b9746b95f2e2f0d
+
+Handshake (section 4). I dials R. The ephemeral secret keys are fixed for
+this vector:
+
+    I ephemeral secret  1111111111111111111111111111111111111111111111111111111111111111
+    I ephemeral         7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13
+    R ephemeral secret  2222222222222222222222222222222222222222222222222222222222222222
+    R ephemeral         0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20
+
+    prologue (51)
+               4d4f4e4f4c4954482d53455353494f4e2d5631
+               d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+
+    message 1 (48)
+               7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13
+               c4613ae914614af97813408bce932efc
+
+    message 2 (48)
+               0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20
+               04bdc426ae5793c3d04345705141dfbc
+
+    message 3 (235)
+               30daabb09afb8c0ac3ab7397a17abdddbd1e51bb900dde33066249b26217d6e2
+               9d6ab023301792b938bc608f195d252b8ab93333f1347d12417c36b28a88709f
+               9bd9c35fc186e3137e0cf5821cc0fa8ecfed61861537004d0d158d40876abf47
+               5886d070d79c147a6fdd424de135041ea7fb24b233841dc38611edb24427d4c5
+               77d3025b18eba9a5467abb80bc931570f1055817fa7f4ab92d030b47fd845194
+               3b221b2891bbd72e367b943a235f4972838c034bff66d46487e07c51fdb23786
+               77a37b6f62792193522f75c3b4eb9aec237f8daf83e8ae9341f681ed2a618802
+               db7d3684d5fc2968897ac9
+
+    handshake hash h after message 3
+               ef8f280b4bc4ccc6f2e5164984de6738f1b467a970841480f6ebdf61a69716a9
+
+Frames (section 5). The first frame each side sends is a ContactAccept:
+plaintext `00 11 00 00` and 1020 zero bytes, 1042 bytes on the wire with
+the length prefix `04 10`. SHA-256 of those 1042 bytes:
+
+    first frame of I    b11fcacca95b6d25e038cc84eadeea2ede1e5e881fb6aa3a6138f743ec659785
+    first frame of R    d2e82f5edebfb960a8ef4e58c29889a741c481f0990ad048662965c612c7fb19
+    second frame of I,
+    same plaintext      990ee883b76ee5ed77d00281c72569765ad8afdccd36d2736b629fa47cdf7c5a
 
 Strict verification (section 10.1): a signature whose R component is the
 identity element. Verification by the plain Ed25519 equation accepts it for
@@ -1225,13 +1441,15 @@ Key validity (section 10.1), as rules for building the inputs:
 
 Each holds for identity keys and for onion service keys alike.
 
+X25519 key validity (section 10.2): the five strings listed there are
+rejected; so is any string whose value is 2^255 - 19 or more, for example
+`ed` followed by 30 bytes `ff` and `7f`, and any string with the top bit
+set; the transport keys above are accepted.
+
 ### 16.2 Vectors still to be produced
 
 - onion address derivation from a key, with the Tor backend;
-- frame encoding of every message type at minimum and maximum size;
-- a complete handshake with fixed keys and fixed randomness, if a provider
-  built for tests makes that practical (ADR 0002, R5). The signed input
-  of section 4.3 is defined by RFC 8446, whose traces are in RFC 8448.
+- frame encoding of every message type at minimum and maximum size.
 
 ## 17. Open questions
 
@@ -1240,10 +1458,13 @@ P1. Padding block size. 1024 bytes is a judgment call between overhead and
     traffic-analysis limits in the threat model.
 
 P2. Whether a session should also be bound to the onion service key the
-    connection was made to. It would tie the session to the endpoint as
-    well as the identity. Both sides could compare a value from the TLS
-    exporter mixed with that key. It complicates endpoint migration, when
-    a responder serves two endpoints for a while. Currently not bound.
+    connection was made to, by adding that key to the prologue. It would
+    tie the session to the endpoint as well as the identity. It
+    complicates endpoint migration, when a responder serves two endpoints
+    for a while and has to know which one a stream arrived at. Currently
+    not bound. A party that only forwards bytes between an initiator and
+    the real responder is therefore not detected; it learns nothing and
+    can change nothing.
 
 P3. Epoch after restoring an old backup. A restored identity may hold an
     epoch lower than one it issued later. Proposed handling: a restore
@@ -1264,3 +1485,13 @@ P7. Closed. Display names had to be in Normalization Form C, which is
     over it. Normalization is no longer part of protocol validity: section
     9 uses only byte lengths, scalar counts and code point lists written
     out in this document. A front end may normalize for presentation.
+
+P8. A period in which an identity answers handshakes for both its previous
+    and its new transport key, so that contacts with the older card are
+    not cut off (section 11.4). A responder would have to try message 1
+    against two keys. Not in version 1.
+
+P9. Whether the card in a ContactRequest is still needed, now that the
+    initiator presents its card in the handshake. It is kept so that a
+    request is complete in itself when it is queued, and required to be
+    consistent with the handshake (section 8.3).

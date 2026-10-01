@@ -23,8 +23,8 @@ Provisional, and not to be built on yet:
 
 | Area | State | Decided where |
 | --- | --- | --- |
-| Session cryptography | two finalists: TLS 1.3 with raw public keys, and Noise XK with a transport key certified in the contact card; the second is recommended; decision pending | ADR 0002 |
-| Probing behavior of the handshake | depends on the above; public keys are never access control | ADR 0002 |
+| Session cryptography | decided: Noise XK with a transport key certified in the contact card. Open: the crypto provider under the Noise library (F-R1) | ADR 0002 |
+| Probing behavior of the handshake | a caller without the contact card gets no reply; with it, it learns that the key holder is live. Public keys are never access control | ADR 0002 |
 | Tails Onion Service integration | blocked on experiments on a current Tails | PLATFORM_TAILS.md 3.4 |
 | Whonix isolation and firewall integration | measures specified, untested | PLATFORM_WHONIX.md 4.5 |
 | Vault KDF parameters | proposed, benchmark pending | STORAGE.md 3.3 |
@@ -55,6 +55,21 @@ Decided in the review of Phase 1:
   closed.
 - The order of the identity proofs is not decided in Phase 1. It is Q11 of
   ADR 0002.
+
+Decided at the start of Phase 2, in ADR 0002:
+
+- The session layer is `Noise_XK_25519_ChaChaPoly_SHA256`. Every identity
+  has an X25519 transport key, generated independently of its other keys,
+  which is the Noise static key.
+- The contact card states the transport key and is the certificate for
+  it. The responder's identity key is in the Noise prologue. The
+  initiator presents its card in the third handshake message.
+- The responder is authenticated first. No signature is made during a
+  session, and there is no identity proof message; Q11 is closed.
+- A card older than the pinned one does not open a contact session.
+- A new transport key is a new card epoch. There is no overlap period and
+  no revocation in version 1.
+- TLS 1.3 with raw public keys was the other finalist and was not chosen.
 
 ## 1. Answers
 
@@ -184,13 +199,15 @@ Nothing below is settled. Each is described in the document named.
 
 | Id | Question | Document |
 | --- | --- | --- |
-| Q1 to Q11 | Choice of session construction, responder identity disclosure, the prologue precondition, the proof input, XX or NN, certificate lifetime, practicality of TLS with raw public keys, binding the onion key, session limits, crypto back end, order of the identity proofs | CRYPTOGRAPHY.md 11, ADR 0002 |
+| F-R1 to F-R6 | Open points of the session layer: crypto provider under the Noise library, no external review of the binding rules, one maintainer of the library, no revocation of transport keys, stale cards towards parties without a record, no binding to the onion address | ADR 0002 |
 | P1 | Padding block size | PROTOCOL.md 17 |
-| P2 | Bind the dialed onion key in the proof | PROTOCOL.md 17 |
+| P2 | Bind the session to the dialed onion key | PROTOCOL.md 17 |
 | P3 | Epoch after restoring a backup | PROTOCOL.md 17 |
 | P4 | Invisible declines cause indefinite retries | PROTOCOL.md 17 |
 | P5 | Keep profile text in version 1 | PROTOCOL.md 17 |
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
+| P8 | A period in which two transport keys are answered | PROTOCOL.md 17 |
+| P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
