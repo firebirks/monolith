@@ -103,12 +103,11 @@ service from per-contact endpoint services.
 
 ## Implementation notes
 
-- `ed25519-dalek`, strict verification only. Version 3.0.0 (July 2026) is
-  current; `snow` 0.10 still depends on `curve25519-dalek` 4. Using
-  `ed25519-dalek` 2.2 keeps a single curve implementation in the tree.
-  Decide at the start of Phase 1, together with the generation of every
-  other cryptographic crate (ADR 0005), after checking whether 2.x still
-  receives fixes.
+- `ed25519-dalek`, strict verification only. Monolith uses version 3.0.0
+  (July 2026) with `curve25519-dalek` 5; Phase 1 started on 2.2 and moved
+  before any other cryptographic code existed. `DEPENDENCIES.md` section 2
+  has the reasons. `snow` 0.10 still depends on `curve25519-dalek` 4, which
+  ADR 0002 has to take into account.
 - Known advisory: RUSTSEC-2022-0093 (fixed in 2.0). The last public audit of
   the dalek crates was in 2019 and predates the current major versions.
 

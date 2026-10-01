@@ -179,22 +179,21 @@ Nothing below is settled. Each is described in the document named.
 | ST1 to ST6 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending) | STORAGE.md 9 |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
-| - | Which generation of the RustCrypto and dalek crates to standardize on | ADR 0001, ADR 0005 |
 | - | Security contact address and key | SECURITY.md |
 
 ## 4. Proposed dependencies
 
 Crates that are in use are recorded in `DEPENDENCIES.md` with what was
-checked before they were added: `ed25519-dalek` 2.2.0, `sha2` 0.10.9,
-`unicode-normalization` 0.1.25, and `proptest` for tests. The table below
+checked before they were added: `ed25519-dalek` 3.0.0, `sha2` 0.11.0,
+`subtle` 2.6.1, `unicode-normalization` 0.1.25, and `proptest` for tests. The table below
 lists what was considered at the start; for crates not yet in use the final
 choice is made in the phase that first needs them.
 
 | Crate | Version | For | Phase |
 | --- | --- | --- | --- |
-| `ed25519-dalek` | 2.2.0 or 3.0.0 | identity signatures | 1 |
-| `sha2` | 0.10 or 0.11 | fingerprint, file digest | 1 |
-| `sha3` | 0.10 or 0.12 | onion address checksum | 1 |
+| `ed25519-dalek` | 3.0.0 (decided) | identity signatures | 1 |
+| `sha2` | 0.11 (decided) | fingerprint, file digest | 1 |
+| `sha3` | 0.11 or 0.12, decided with the Tor backend | onion address checksum | 3 |
 | `data-encoding` | 2.11 | base32, base64 | 1 |
 | `unicode-normalization` | 0.1.25 | NFC for names and passphrases | 1 |
 | `getrandom` | 0.3 or 0.4 | CSPRNG | 1 |
@@ -202,16 +201,18 @@ choice is made in the phase that first needs them.
 | `snow` or `rustls` | not chosen | session layer (ADR 0002) | 2 |
 | `tokio` | 1.53 (LTS) | runtime | 3 |
 | `tracing` | 0.1.44 | logging | 3 |
-| `argon2`, `chacha20poly1305`, `hkdf` | 0.5 or 0.6, 0.10 or 0.11 | vault | 4 |
+| `argon2`, `chacha20poly1305`, `hkdf` | 0.6, 0.11 | vault | 4 |
 | `rusqlite` with SQLCipher | to be decided | message store | 4 |
 | `qrcodegen` | 1.8.0 | QR codes | 8 |
 | `gtk4` | 0.10 | desktop | 8 |
 | `proptest` | 1.11 | property tests | 1 |
 | `libfuzzer-sys`, `arbitrary` | 0.4, 1.4 | fuzzing | 1 |
 
-Where two versions are given, the older one matches what `snow` 0.10 depends
-on. Mixing generations would put two versions of the same cryptographic
-crate into the binary, which `deny.toml` forbids.
+The cryptographic crates are those of the current RustCrypto and dalek
+generation; `DEPENDENCIES.md` section 2 records the decision. `snow` 0.10
+depends on the previous generation, and mixing the two would put two
+versions of the same cryptographic crate into the binary, which
+`deny.toml` forbids. ADR 0002 has to resolve that if it selects `snow`.
 
 Not used: `anyhow` in libraries, `serde` for anything signed or on the wire,
 any HTTP client, any resolver. A session library and its crypto back end

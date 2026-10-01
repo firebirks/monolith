@@ -305,7 +305,12 @@ to be written up. That is a documentation state, not a decision.
 - `snow` has no formal audit and does not zeroize key material. Issues
   about zeroization have been open since 2017.
 - `snow` releases are slow, and it depends on the previous generation of
-  the RustCrypto and dalek crates.
+  the RustCrypto and dalek crates. Monolith is on the current generation
+  (`DEPENDENCIES.md` section 2), so `snow` 0.10 would bring a second
+  `curve25519-dalek` and a second `sha2` into the binary. `deny.toml`
+  forbids two versions of one crate. Any option built on `snow` has to say
+  how that is resolved: a `snow` release on the current generation, another
+  Noise implementation, or a justified exception.
 - The handshake hash is available only before the transition to transport
   mode.
 

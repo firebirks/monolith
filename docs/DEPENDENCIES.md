@@ -22,7 +22,8 @@ downloaded by cargo, `cargo audit` and `cargo deny`.
   version, 1.85.1. CI checks it.
 - Monolith's own crates forbid `unsafe`. Dependencies may contain it; where
   they do, the count below says how much, as a pointer for review and not
-  as a verdict.
+  as a verdict. The count is the number of lines under `src/` that contain
+  the keyword, without comments and lint attributes.
 
 ## 2. Generation of the RustCrypto and dalek crates
 
@@ -34,29 +35,42 @@ Two generations exist side by side:
 | `curve25519-dalek` | 4.1.3 (2024-06-18) | 5.0.0 (2026-07-06) |
 | `sha2` | 0.10.9 (2025-04-30) | 0.11.0 (2026-03-25) |
 
-Monolith uses the previous generation for now.
+Monolith uses the current generation.
+
+It started on the previous one and moved before any session or storage
+cryptography was written, so that the major-version step did not have to
+be taken with more code depending on it. The move needed no source change:
+the calls Monolith makes (`VerifyingKey::from_bytes`, `verify_strict`,
+`is_weak`, `to_edwards`, `is_torsion_free`, `SigningKey::from_bytes`,
+`Sha256`) are the same in both generations. Every known-answer test, the
+strict-verification vector and the committed fuzz seeds are unchanged, so
+no signed or wire byte changed.
 
 Reasons:
 
-- It has been in wide use for years. The current generation's Ed25519 and
-  curve crates became stable three months ago.
+- The previous generation is at its end. `curve25519-dalek` 4.1.3 is its
+  newest release that was not withdrawn (4.2.0 was yanked), and
+  `ed25519-dalek` has had no 2.x release since 2.2.0. A fix that lands only
+  in the current generation would have forced the move later, under
+  pressure.
+- The current generation supports Rust 1.85, the project's minimum.
 - It is a coherent family: one `curve25519-dalek`, one `sha2`, one
   `digest`.
-- The session layer is not chosen (ADR 0002). If it turns out to be `snow`
-  0.10, that crate depends on this generation, and mixing generations would
-  put two curve implementations into the binary.
 
 Risks, recorded so that they are not forgotten:
 
-- The previous generation may no longer receive fixes. `curve25519-dalek`
-  4.1.3 is its newest release that was not withdrawn (4.2.0 was yanked),
-  and `ed25519-dalek` has had no 2.x release since 2.2.0.
-- An advisory fixed only in the current generation forces a migration.
+- The stable releases of `ed25519-dalek` 3 and `curve25519-dalek` 5 are
+  three months old. They have had less use than the previous generation.
+- No public audit of these major versions is known.
+- `snow` 0.10, one candidate for the session layer, depends on the
+  previous generation. Choosing it would put a second curve implementation
+  and a second `sha2` into the binary, which `deny.toml` forbids. ADR 0002
+  has to weigh that; it is not a reason to move back.
 
-The choice is revisited when the session layer is decided, and at once if
-an advisory appears that is not fixed in this generation. The migration is
-mechanical for Monolith: the two crates are used behind `monolith-identity`
-and nowhere else.
+Features that stay off unless a decision record asks for them and says
+why: `legacy_compatibility` (verification rules that accept encodings
+strict verification rejects) and `hazmat` (access to expanded secret keys
+and prehashed signing).
 
 ## 3. Crates in use
 
@@ -66,21 +80,27 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 
 | Crate | Version | Licence | MSRV | Used for | Features |
 | --- | --- | --- | --- | --- | --- |
-| `ed25519-dalek` | 2.2.0 | BSD-3-Clause | 1.81 | identity signatures, key validation | `fast`, `zeroize`; no default features |
-| `sha2` | 0.10.9 | MIT OR Apache-2.0 | not declared | identity fingerprint | no default features |
+| `ed25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | identity signatures, key validation | `fast`, `zeroize`; no default features |
+| `sha2` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | identity fingerprint | none; no default features |
 | `subtle` | 2.6.1 | BSD-3-Clause | not declared | constant-time comparison of invitation capabilities | no default features |
 | `unicode-normalization` | 0.1.25 | MIT OR Apache-2.0 | 1.36 | NFC check of display names | no default features |
 
 `ed25519-dalek`
 
-- Maintained by the dalek-cryptography organization. Last 2.x release
-  2025-07-09.
+- Maintained by the dalek-cryptography organization. 3.0.0 was released on
+  2026-07-06 after a year of pre-releases.
+- Enabled: `fast` (precomputed tables in `curve25519-dalek`) and `zeroize`
+  (signing keys are wiped when dropped). These are the crate's own
+  defaults, listed explicitly.
+- Not enabled: `legacy_compatibility`, `hazmat`, `rand_core`, `batch`,
+  `digest`, `serde`, `pkcs8`, `pem`, `alloc`. None of them is needed, and
+  the first two change what the crate accepts or exposes.
 - Review: Quarkslab audited the dalek libraries in 2019. The main scope was
   `curve25519-dalek` and `subtle`; `ed25519-dalek` got a brief look. That
-  predates the 2.x line. No later public audit is known.
+  predates the 2.x and 3.x lines. No later public audit is known.
 - Advisories: RUSTSEC-2022-0093 (signing oracle through a mismatched public
-  key), fixed in 2.0. Not applicable to 2.2.0.
-- Unsafe: none; the crate forbids it outside tests.
+  key), fixed in 2.0. Not applicable to 3.0.0.
+- Unsafe: none.
 - Usage rules in Monolith: verification is always `verify_strict`; keys are
   additionally checked for canonical encoding, small order and a torsion
   component (`PROTOCOL.md` section 10.1).
@@ -91,8 +111,9 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 
 - Maintained by RustCrypto. Already in the tree through `ed25519-dalek`,
   which uses SHA-512.
+- Not enabled: `alloc`, `oid`, `zeroize`.
 - Advisories: RUSTSEC-2021-0100, fixed long before 0.10.
-- Unsafe: 29 lines, in the CPU-specific compression back ends.
+- Unsafe: 50 lines, in the CPU-specific compression back ends.
 
 `subtle`
 
@@ -122,27 +143,35 @@ Production dependencies of `monolith-identity` and `monolith-protocol`.
 
 | Crate | Version | Licence | Through | Unsafe lines |
 | --- | --- | --- | --- | --- |
-| `curve25519-dalek` | 4.1.3 | BSD-3-Clause | `ed25519-dalek` | 35 |
+| `curve25519-dalek` | 5.0.0 | BSD-3-Clause | `ed25519-dalek` | 33 |
 | `curve25519-dalek-derive` | 0.1.1 | MIT OR Apache-2.0 | `curve25519-dalek`, build time | - |
-| `ed25519` | 2.2.3 | Apache-2.0 OR MIT | `ed25519-dalek` | 0 |
-| `signature` | 2.2.0 | Apache-2.0 OR MIT | `ed25519` | 0 |
-| `digest` | 0.10.7 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 0 |
-| `block-buffer` | 0.10.4 | MIT OR Apache-2.0 | `digest` | 4 |
-| `crypto-common` | 0.1.7 | MIT OR Apache-2.0 | `digest` | 0 |
-| `generic-array` | 0.14.7 | MIT | `digest` | 78 |
-| `typenum` | 1.20.1 | MIT OR Apache-2.0 | `generic-array` | 0 |
-| `zeroize` | 1.9.0 | Apache-2.0 OR MIT | `ed25519-dalek` | 17 |
-| `cpufeatures` | 0.2.17 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 9 |
+| `ed25519` | 3.0.0 | Apache-2.0 OR MIT | `ed25519-dalek` | 0 |
+| `signature` | 3.0.0 | Apache-2.0 OR MIT | `ed25519` | 0 |
+| `digest` | 0.11.3 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 0 |
+| `block-buffer` | 0.12.1 | MIT OR Apache-2.0 | `digest` | 21 |
+| `crypto-common` | 0.2.2 | MIT OR Apache-2.0 | `digest` | 0 |
+| `hybrid-array` | 0.4.15 | MIT OR Apache-2.0 | `digest` | 37 |
+| `typenum` | 1.20.1 | MIT OR Apache-2.0 | `hybrid-array` | 0 |
+| `zeroize` | 1.9.0 | Apache-2.0 OR MIT | `ed25519-dalek` | 15 |
+| `cpufeatures` | 0.3.1 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 11 |
 | `cfg-if` | 1.0.5 | MIT OR Apache-2.0 | several | 0 |
-| `tinyvec` | 1.13.3 | Zlib OR Apache-2.0 OR MIT | `unicode-normalization` | 0, forbidden |
+| `tinyvec` | 1.13.3 | Zlib OR Apache-2.0 OR MIT | `unicode-normalization` | 0 |
 
-`curve25519-dalek` 4.1.3 is the release that fixed RUSTSEC-2024-0344
-(timing variability in scalar subtraction). Its unsafe code is in the
-vectorized back ends.
+`curve25519-dalek` is taken as `ed25519-dalek` requires it, with the
+features `digest`, `precomputed-tables` and `zeroize`. Its
+`legacy_compatibility`, `rand_core`, `group`, `lizard` and `alloc` features
+are off. RUSTSEC-2024-0344 (timing variability in scalar subtraction) was
+fixed in 4.1.3 and does not apply. Its unsafe code is in the vectorized
+back ends. The back end is chosen by the crate for the target; Monolith
+sets no back-end flag. `fiat-crypto` 0.3.0 appears in `Cargo.lock` for the
+back end of that name, which is selected only by a compiler flag that
+Monolith does not set, so it is not compiled.
+
+`hybrid-array` replaces `generic-array` of the previous generation.
 
 Build-time only: `proc-macro2`, `quote`, `syn`, `unicode-ident` (for
 `curve25519-dalek-derive`), `rustc_version`, `semver` (build script of
-`curve25519-dalek`), `version_check` (build script of `generic-array`).
+`curve25519-dalek`).
 
 ### Development only
 
@@ -168,11 +197,11 @@ Run on the dependency set above on 2026-10-01:
 | `cargo audit` | no advisory applies |
 | `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy |
 | Build and tests with Rust 1.85.1 | pass |
-| Highest declared MSRV in the tree | 1.85 (`proptest`, `zeroize`) |
+| Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `zeroize`, `proptest`) |
 
-The highest declared MSRV equals the project's. The next release of either
-crate may need a newer compiler; the resolver will then keep the older
-version, and the MSRV job in CI fails if it cannot.
+The highest declared MSRV equals the project's. A later release of any of
+these crates may need a newer compiler; the resolver will then keep the
+older version, and the MSRV job in CI fails if it cannot.
 
 ## 5. Not yet chosen
 
@@ -190,4 +219,5 @@ version, and the MSRV job in CI fails if it cannot.
 - https://rustsec.org/advisories/RUSTSEC-2022-0093.html
 - https://rustsec.org/advisories/RUSTSEC-2024-0344.html
 - https://blog.quarkslab.com/security-audit-of-dalek-libraries.html
-- https://docs.rs/ed25519-dalek/2.2.0/ed25519_dalek/struct.VerifyingKey.html
+- https://docs.rs/ed25519-dalek/3.0.0/ed25519_dalek/struct.VerifyingKey.html
+- https://crates.io/crates/sha2/versions

@@ -67,11 +67,11 @@ The two kinds of data have different needs.
 | `rusqlite` | 0.40.2 | Needs Rust 1.88, above the current minimum. An older release or a higher minimum would be required. |
 | SQLCipher | 4.6.1 in Debian 13; 4.19.0 upstream | BSD-style licence with an attribution requirement. |
 
-`snow` 0.10 depends on the previous generation of these crates
-(`chacha20poly1305` 0.10, `sha2` 0.10). Using the same generation for
-storage avoids two versions of the same cipher in one binary. Decide the
-generation once, for all crypto dependencies, at the start of Phase 1,
-which is the first phase to need one of them.
+The generation is decided: Monolith uses the current one
+(`DEPENDENCIES.md` section 2), so storage uses `chacha20poly1305` 0.11 and
+the matching `argon2` and `hkdf`. `snow` 0.10 depends on the previous
+generation (`chacha20poly1305` 0.10, `sha2` 0.10); that conflict is ADR
+0002's to resolve and does not change the choice for storage.
 
 ## Consequences
 
