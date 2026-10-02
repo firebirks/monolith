@@ -125,9 +125,13 @@ this session.
 
 - Admission is one step. `link::dial` and `link::answer` call the
   admission function when the peer is authenticated, after the Tor stream
-  and the handshake messages that authenticate it; a dial does so before
-  it writes message 3 and sends it only to a key that still stands for the
-  contact. The function looks up the record of the identity as
+  and the handshake messages that authenticate it. A dial does so before
+  it writes message 3 and sends it only if the peer may learn the local
+  identity (`Admission::may_learn_local_identity`), racing the write
+  against the withdrawal; so an outbound session is always a contact's.
+- A link ends at the deadlines of its session and on every failure, by
+  one path that also gives back its slot for strangers; a link that is
+  over refuses every later call (`RESOURCE_LIMITS.md` section 4). The function looks up the record of the identity as
   it is then, admits the authenticated peer with the record borrowed
   mutably, so that the standing and the change of the credentials are one
   call, and keeps the `Withdrawal` of the link with the session. Nothing

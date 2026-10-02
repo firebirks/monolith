@@ -410,6 +410,31 @@ core:
     writes the Close; a stale or pending session is not withdrawn early;
     a dropped link, and one `answer` refused after the admission, report
     that they ended.
+16. Message 3 is not written when the session is withdrawn right after
+    the admission, nor after a withdrawal while its write is stalled; the
+    bytes accepted before stay, nothing follows them.
+17. An older card of the active key gets message 3 and a contact session;
+    a conflicting card of the same epoch, a pending or retired key, and a
+    record deleted, declined or blocked during the dial get no message 3
+    and no session, and take no slot for strangers, also when none is
+    free.
+18. A promotion made at message 2 stands when message 3 cannot be
+    written.
+
+Session lifetime (T-LIFE), in `tests::deadlines` of the session crate and
+the unit tests of `link`:
+
+1. A frame sent a byte at a time, each byte within what a timeout per
+   read would allow, ends at `FRAME_READ_TIMEOUT` from its first byte.
+2. No complete frame for `IDLE_TIMEOUT` ends the session; a complete
+   frame moves the limit, bytes of an incomplete one do not.
+3. A peer that is not a contact and sends nothing is closed at
+   `UNKNOWN_FIRST_MESSAGE_TIMEOUT` and gives back its slot.
+4. A session that stays unconfirmed is closed at
+   `UNKNOWN_SESSION_TIMEOUT`.
+5. The age limit ends a session that only receives part of a frame.
+6. After a timeout, a read error or a write error, every later receive
+   and send fails at once, and no late frame is delivered.
 13. Property: over random sequences of admissions, announcements,
     confirmations and imports the invariants hold, the active epoch never
     decreases, and the active key changes only by promoting a proven
@@ -778,7 +803,7 @@ results are in `mutation/`; see `mutation/README.md`.
 | --- | --- |
 | 1 | T-FRAME, T-FIELD, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ORACLE-1 to 5 pass; property tests in place; fuzz targets for every decoder run clean for a fixed budget |
 | 2 | handshake test vectors committed and reproduced; T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH and T-LIMIT pass; no mutation of an authentication check survives; fuzz targets for the handshake and for encrypted frames run clean for a fixed budget |
-| 3 | T-SOCKS, T-CTRL, T-CRED pass; T-NET-1 passes; two-node chat over a private Tor network |
+| 3 | T-SOCKS, T-CTRL, T-CRED, T-LIFE pass; T-NET-1 passes; two-node chat over a private Tor network |
 | 4 | T-CONTACT, T-ID, T-DUP, T-CONFIRM, T-ORACLE-6 to 8, T-CRASH, T-INJ pass |
 | 5 | T-FILE passes; transfer fuzzing clean |
 | 6, 7 | platform matrix passes on the current release |

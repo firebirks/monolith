@@ -5,7 +5,7 @@ peer. A change that weakens one of them is a security change and needs the
 review described in `docs/ARCHITECTURE.md` section 9.
 
 The invariants are grouped by topic, so the numbers are not in order.
-S29 to S50 were added after the first list was written.
+S29 to S52 were added after the first list was written.
 
 Implemented so far. In the protocol core: the frame and field bounds of
 S10, S11 and S26, the state gate of S19, the single encoding of S30, the
@@ -176,20 +176,20 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Tests: T-CARD (validly signed cards with each coincidence; signing such
   cards), fuzz target `contact_card`.
 
-### S36. A card that is older than the active credential, contradicts it, or states the retired key never opens a contact session
+### S36. A card of another key that is older than the active credential, a card that contradicts it, and the retired key never open a contact session
 
 - Mechanism: the stale-card rule, half of rule F4. The standing of a peer
   comes from one function, `PeerRecord::admit`, which borrows the
   credentials of the contact and takes the card that stands for the peer
   on the session: the one presented in the handshake, or the one that was
   dialed. `Credentials::admit` compares it: a lower epoch than the active
-  card, the same epoch with another transport key or endpoint set, a card
-  of the authorized key older than the announced one, or the retired key
-  gives `StaleCard`, which the session logic treats on the same code path
-  as an identity that is not a contact. Only the key retired last is
-  remembered; a key retired earlier is refused in its old cards by their
-  epochs, and a newer card stating it is a new key without continuity
-  (S48). Neither `InboundPeer` nor
+  card with another key, the same epoch with another transport key or
+  endpoint set, a card of the authorized key older than the announced
+  one, or the retired key gives `StaleCard`, which the session logic
+  treats on the same code path as an identity that is not a contact.
+  Only the key retired last is remembered; a key retired earlier is
+  refused in its old cards by their epochs, and a newer card stating it
+  is a new key without continuity (S48). Neither `InboundPeer` nor
   `OutboundPeer` can be turned into a session without that function. An
   EndpointUpdate goes through `Credentials::announce`, which applies the
   same comparison.
@@ -279,17 +279,56 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Mechanism: `link::dial` and `link::answer` hold no contact state. They
   take an admission function and call it once, when the peer is
   authenticated: the dial budget, the Tor stream and the handshake
-  messages that authenticate the peer are behind it. A dial admits the
-  responder after message 2 and writes message 3, which carries the local
-  identity, only if the proven key still stands for the contact. The function receives the authenticated peer, which exists only
-  after the handshake, and admits it with a record borrowed mutably from
-  the contact state, so the standing and the change of the credentials
-  are one call. A contact store holds its lock from the lookup through
-  the admission to keeping the `Withdrawal`; a retirement after that
-  point withdraws the session (S49).
+  messages that authenticate the peer are behind it. The function
+  receives the authenticated peer, which exists only after the
+  handshake, and admits it with a record borrowed mutably from the
+  contact state, so the standing and the change of the credentials are
+  one call. A contact store holds its lock from the lookup through the
+  admission to keeping the `Withdrawal`; a retirement after that point
+  withdraws the session (S49).
 - Tests: `tests/credentials.rs` in the core (a key retired while a dial
-  is in progress gives no contact session, and message 3 is not sent),
-  `tests::contacts`, mutation faults H16 and CR18.
+  is in progress gives no contact session), `tests::contacts`, mutation
+  fault H16.
+
+### S51. The local identity goes in message 3 only to a key that may learn it
+
+- Mechanism: a dial admits the responder after message 2 and writes
+  message 3, which carries the local identity and card, only if
+  `Admission::may_learn_local_identity` holds: the proven key stands, as
+  of that moment, for an identity held as a requested or accepted
+  contact. That is decided on the transport key and the credentials, not
+  on a card object: an older card of the active key qualifies, a pending
+  or retired key, a contradicting card, and a deleted, declined or
+  blocked identity do not. The write races the withdrawal of the
+  session: a withdrawal before or during it ends the dial and the
+  session. Bytes the stream accepted before cannot be called back.
+- Consequence: an outbound session is always a contact's, and none takes
+  a slot of `MAX_UNKNOWN_SESSIONS`.
+- Tests: `tests/credentials.rs` in the core (withdrawal right after the
+  admission, an older card of the active key, a conflicting card, a
+  record deleted, declined or blocked during the dial, a full budget for
+  strangers, a promotion whose message 3 cannot be written), the unit
+  tests of `link` (a withdrawal before and during a stalled write of
+  message 3), mutation faults CR18 and CR22 to CR24.
+
+### S52. Every session ends at its deadlines and on every failure
+
+- Mechanism: `AuthenticatedSession::deadline` gives the earliest deadline
+  of a session: a begun frame within `FRAME_READ_TIMEOUT` of its first
+  byte, the next complete frame within `IDLE_TIMEOUT`, the age limit, and
+  in `AuthenticatedUnknown` `UNKNOWN_SESSION_TIMEOUT` and, for a peer
+  that is not a contact, `UNKNOWN_FIRST_MESSAGE_TIMEOUT`. Bytes of an
+  incomplete frame move none of them. `Link::receive` waits for that
+  moment alongside the stream and the withdrawal, so a deadline fires
+  while bytes are awaited. The end of the stream, a read or write error,
+  a deadline, a withdrawal and a violation all end the link through one
+  path: the session is over, its slot for strangers goes back, the stream
+  is shut down, and every later call fails at once.
+- Tests: `tests::deadlines` in the session crate, the unit tests of
+  `link` (a frame sent a byte at a time, a stranger that sends nothing,
+  an unconfirmed session, read and write errors, later calls on a link
+  that is over), fuzz target `session_frames` (partial frames and
+  expiry), mutation faults CR16 and CR25 to CR30.
 
 ### S38. An invitation capability admits a request and does nothing else
 
