@@ -133,6 +133,14 @@ extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | `FRAME_WRITE_TIMEOUT` | 60 s | One frame write. |
 | `FILE_OFFER_TIMEOUT` | 10 min | An unanswered file offer is dropped. |
 | `CONTROL_COMMAND_TIMEOUT` | 30 s | One Tor control command. |
+| `CONTROL_CONNECT_TIMEOUT` | 10 s | Opening a control connection and authenticating on it. |
+| `SOCKS_NEGOTIATION_TIMEOUT` | 10 s | Reaching the SOCKS endpoint and its greeting and authentication replies. The CONNECT reply, which waits for the Onion Service, has `CONNECT_TIMEOUT`. |
+| `SHUTDOWN_TIMEOUT` | 5 s | `DEL_ONION` when a published service is closed; closing the control connection removes the service anyway. |
+| `ACCEPT_BACKOFF` | 250 ms | Pause of an accept loop after it closed a stream for which no handshake slot was free. |
+
+The timeouts are separate on purpose. A Tor that is still bootstrapping is
+not an error of any of them: the status query reports it, and the
+reconnect schedule of section 7 decides when to try again.
 
 ## 5. Concurrency budgets (local)
 
@@ -268,6 +276,7 @@ window or one desktop notification per request.
 | `MAX_CONTROL_REPLY_LINES` | 16 |
 | `MAX_CONTROL_REPLY_LEN` | 4096 |
 | `MAX_SOCKS_REPLY_LEN` | 262 |
+| `ONION_MAX_STREAMS` | 8, per rendezvous circuit (section 5), provisional |
 | `MAX_VAULT_FILE_LEN` | 16 MiB |
 | `MIN_KDF_MEMORY_KIB` / `DEFAULT` / `MAX` | 64 MiB / 256 MiB / 1 GiB |
 | `MIN_KDF_ITERATIONS` / `DEFAULT` / `MAX` | 3 / 3 / 16 |
@@ -399,6 +408,44 @@ Consequences:
 - The responder does no signature and no work proportional to anything in
   a message.
 
+### 11.2 Cost of the Tor adapter
+
+Measured on the development machine of section 11.1 with a throwaway
+program that is not in the repository: release build, the SOCKS and
+control servers in a separate process so that only Monolith's own
+allocations are counted, after one warm-up of the runtime. The machine was
+busy with other work at the time, so the times give the order of
+magnitude only.
+
+| What | Allocations | Peak heap | Time |
+| --- | --- | --- | --- |
+| Parsing and interpreting a `PROTOCOLINFO` reply (133 bytes) | 13 | 2.3 KiB | 1.4 us |
+| Parsing and interpreting an `ADD_ONION` reply (196 bytes) | 10 | 2.4 KiB | 37 us, most of it the key checks of the ServiceID |
+| Decoding a SOCKS CONNECT reply | 0 | 0 | 15 ns |
+| A SOCKS negotiation to an onion service | 10 | 256 bytes | |
+| A status query: control connection, SAFECOOKIE, two GETINFO, SOCKS greeting | 40 | 2.7 KiB | |
+| A publication | 41 | 2.8 KiB; 1.2 KiB held while the service is published | |
+| `close` with `DEL_ONION` | 5 | 1.4 KiB | |
+| An accepted inbound socket before its handshake | 2 | registration only; the stream value is 32 bytes | |
+
+What a peer can make Monolith hold, by the bounds rather than by the
+measurements:
+
+- A control reply is at most `MAX_CONTROL_REPLY_LEN`, 4096 bytes, in
+  lines of at most `MAX_CONTROL_LINE_LEN`; the parser's line buffer is
+  allocated once per connection at 1028 bytes. A SOCKS reply is read into
+  a fixed 262-byte array on the stack. Only Tor, not a peer, sends either.
+- Inbound streams that have not authenticated: at most
+  `MAX_INBOUND_HANDSHAKES`, 16, each with its socket, its task and a
+  pending handshake of about 2.7 KiB (section 11.1). A stream beyond that
+  is closed at once, and the accept loop pauses for `ACCEPT_BACKOFF`.
+- Outbound SOCKS negotiations: at most `MAX_CONCURRENT_DIALS`, 4.
+- Control connections: one per published service, held while it is
+  published, and one per status query while it runs. They are made by the
+  local side, never by a peer.
+- An authenticated session's link reads into one 4096-byte buffer and reads
+  again only when the session has taken it.
+
 ## 12. What the limits do not prevent
 
 An attacker who knows the Onion Service address can keep the inbound rate
@@ -408,10 +455,14 @@ streams per circuit act before Monolith sees a stream; see
 `docs/TOR_INTEGRATION.md`. Monolith does not claim to defeat targeted denial
 of service against an Onion Service.
 
-The budgets and rates of sections 5 and 6 are enforced by the application
-core, which comes with a later phase. The session layer enforces what
-belongs to one stream: the message sizes, the handshake timeout, the frame
-ceiling of the state, and the session limits of section 3.
+Since Phase 3 the network layer of the core enforces the budgets for
+inbound handshakes, unknown sessions and dials with semaphores, and the
+handshake, write and idle deadlines. The policies that need contacts and
+rates (closing the oldest handshake, the rate buckets of section 6, the
+contact session budget) come with the application core of Phase 4. The
+session layer enforces what belongs to one stream: the message sizes, the
+handshake timeout, the frame ceiling of the state, and the session limits
+of section 3.
 
 An attacker who also holds a contact card can complete handshakes with
 throwaway identities and keep `UNKNOWN_SESSION_RATE` exhausted. Contact

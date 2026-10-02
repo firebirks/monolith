@@ -24,6 +24,18 @@ Covered now: T-XKEY, T-VEC, T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH,
 T-LIMIT, T-SEND, T-RNG-1 and T-RNG-2 for the handshake, T-ORACLE-8 for
 bytes, and the handshake cases of T-MAL.
 
+What Phase 3 added: the ServiceID codec in `monolith-identity`; in
+`monolith-tor`, unit tests of the SOCKS client, the control reply parser,
+the commands, SAFECOOKIE (against values computed independently) and the
+endpoint configuration, and tests of `SystemTorBackend` against scripted
+SOCKS and control servers on loopback, hostile ones included
+(`tests/system.rs`); in `monolith-core`, Tor streams carrying the Phase 2
+session on `MockTorBackend`, with the handshake deadline and the accept
+loop's budget (`tests/link.rs`); two more fuzz targets; a Phase 3
+mutation list; the fail-closed network test (`tests/network/`); and the
+private Tor network test (`tests/tor-network/`), which is written but not
+yet run. Covered now: T-SOCKS, T-CTRL, T-NET-1.
+
 The rest need the core, Tor or storage, and are not written yet.
 
 ## 1. Principles
@@ -187,14 +199,29 @@ Randomness (T-RNG)
 Tor control (T-CTRL)
 
 1. With a recording mock control port, a full run emits only the lines in
-   TOR_CONTROL_SURFACE.md.
-2. Oversized lines, too many lines, `510` replies, a closed connection in
-   the middle of a reply.
+   TOR_CONTROL_SURFACE.md. Covered: `system.rs` (status and publication
+   send exactly the allowed lines) and `command::tests` (the bytes of
+   every command).
+2. Oversized lines, too many lines, too many bytes, LF without CR, data
+   blocks, events, `510` replies, a closed connection in the middle of a
+   reply. Covered: `reply::tests`, `system.rs`, fuzz target
+   `tor_control_reply`.
+3. SAFECOOKIE: the hashes match an independent computation; a server
+   with a wrong hash never receives `AUTHENTICATE`; the configuration, not
+   the server, chooses the method; a cookie file that is not a regular
+   32-byte file is refused. Covered: `auth::tests`, `system.rs`.
+4. Publication: the two `ADD_ONION` forms, a malformed or wrong ServiceID,
+   a malformed, missing or unexpected key, non-anonymous mode, `DEL_ONION`
+   failure, and control loss, which unpublishes the service before and
+   during `accept`. Covered: `control::tests`, `system.rs`.
 
 SOCKS (T-SOCKS)
 
-1. The request carries address type 0x03 and the expected name.
-2. Refused method, error replies, oversized replies, stalls.
+1. The request carries address type 0x03, the literal `.onion` name and
+   port 29170. Covered: `socks::tests`, `system.rs`.
+2. Refused method, error replies, malformed, truncated and fragmented
+   replies, stalls in each phase, and that nothing after the reply is
+   consumed. Covered: `socks::tests`, fuzz target `socks_reply`.
 
 Logging (T-LOG)
 

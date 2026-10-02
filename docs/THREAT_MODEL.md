@@ -294,6 +294,18 @@ backpressure. Peer-influenced memory has a computed ceiling.
   Monolith cannot.
 - File permissions keep other users out of the data directory.
 - A process of the same user is inside the trust boundary (section 2).
+- The Tor control endpoint is the one the user configured, a loopback
+  address or a local socket. A local process that took that address before
+  Tor could answer `PROTOCOLINFO` and name a cookie file. With SAFECOOKIE
+  Monolith answers only if the server proves knowledge of that file's 32
+  bytes first, so such a process learns nothing about a file it cannot
+  read, and Monolith never sends the cookie itself. It could still refuse
+  service or report a false status. COOKIE authentication, which would
+  send the contents of any named file, is not implemented.
+- The SOCKS endpoint is also the configured local one. A process that took
+  it instead of Tor receives the onion name of each dial and the isolation
+  token, and could relay the stream; the handshake then still fails unless
+  the stream reaches the holder of the peer's transport key.
 
 ### P. Compromised Monolith process
 

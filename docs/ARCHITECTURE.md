@@ -24,8 +24,9 @@ layer.
             v         |
          identity <---+
 
-Dependencies point downwards only. `monolith-core` does not use
-`monolith-session` yet; that comes with Phase 3.
+Dependencies point downwards only. Since Phase 3 `monolith-core` puts the
+streams of the Tor backend under the sessions of `monolith-session`
+(`link`) and holds the connection budgets (`budget`).
 
 | Crate | Owns | Must not |
 | --- | --- | --- |
@@ -78,7 +79,9 @@ Persistent state is written only at "applied".
 - One Tokio runtime. The core's tasks:
   - a supervisor that owns all other tasks;
   - one task per session (handshake, then frame loop);
-  - one accept loop per published service;
+  - one accept loop per published service, which owns the handshake tasks
+    it starts in a `JoinSet`, at most `MAX_INBOUND_HANDSHAKES` of them, and
+    aborts them when it ends;
   - a dial scheduler with at most `MAX_CONCURRENT_DIALS` dials;
   - one Tor control task;
   - one storage task; vault writes and KDF work run on the blocking pool;
@@ -141,6 +144,12 @@ These are the enums in `monolith-core` today.
 
 No command prints a private key. There is no export of secrets in version
 1. Peer-supplied text is escaped before it is written to a terminal.
+
+Phase 3 implements `tor status` and `doctor`, with the options `--socks`,
+`--control` and `--control-auth`, and the development command
+`dev-chat serve` and `dev-chat dial` for the two-node test on a private Tor
+network (identities and services in memory only). The other commands
+report that they are not implemented yet.
 
 `monolith doctor` checks and reports, without revealing secrets or
 addresses: SOCKS reachability; control access and which authentication the

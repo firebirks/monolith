@@ -31,30 +31,42 @@ Test area names refer to `docs/TEST_PLAN.md`.
   no dependency that can open a socket. The only way to obtain a peer stream
   is `TorBackend::connect_onion` or `OnionService::accept`. `SystemTorBackend`
   opens exactly two kinds of connection: to the configured SOCKS endpoint and
-  to the configured control endpoint. Both are loopback or the configured
-  Whonix-Gateway address. A failed SOCKS connection is an error, never a
-  trigger for another transport.
-- Tests: T-NET-1 (network namespace with only the Tor proxy reachable),
-  T-NET-2 (SOCKS endpoint down: every operation fails, no other packet
-  leaves), dependency check that only `monolith-tor` links a networking
-  crate.
+  to the configured control endpoint, and binds one listener, on
+  127.0.0.1. An `Endpoint` is a loopback address or an absolute socket
+  path; anything else is refused when the configuration is read (the
+  Whonix-Gateway address belongs to the platform adapter of Phase 7). A
+  failed SOCKS connection is an error, never a trigger for another
+  transport.
+- Tests: T-NET-1 (`tests/network/fail-closed.sh`: every network system
+  call of the onion connection paths and of `monolith tor status`, with
+  SOCKS present, absent, and in a namespace with only loopback, goes to a
+  configured loopback endpoint), the backend tests against scripted
+  servers (`monolith-tor/tests/system.rs`: no SOCKS endpoint, no
+  connection; an onion failure is an error), the core tests on the mock
+  (a dial without SOCKS reaches nothing), `config::tests` (non-loopback
+  endpoints refused). Only `monolith-tor` enables tokio's `net` feature
+  and contains socket code.
 
 ### S2. All peer connections go through a Tor backend
 
 - Mechanism: same choke point as S1. `connect_onion` takes an
   `OnionServiceKey`, not a hostname or an IP address, so there is no value a
   caller could pass that names a clearnet host.
-- Tests: T-NET-1, API review of `TorBackend`.
+- Tests: T-NET-1, API review of `TorBackend`: no function of the trait
+  takes a host name, an address or a port; the port is
+  `ONION_VIRTUAL_PORT`.
 
 ### S3. Onion names are never resolved by the operating system
 
 - Mechanism: the backend builds the `.onion` name from the 32-byte key and
   sends it inside the SOCKS5 request as a domain name (address type 0x03).
-  No Monolith crate calls a resolver API. `std::net::ToSocketAddrs` on a
-  string, `getaddrinfo` wrappers and resolver crates are banned by
-  `clippy::disallowed_methods` and `deny.toml` once the backend exists.
-- Tests: T-NET-1 (no DNS packet observed), T-SOCKS-1 (request bytes carry
-  address type 0x03).
+  No Monolith crate calls a resolver API. `ToSocketAddrs::to_socket_addrs`
+  and `tokio::net::lookup_host` are banned by `clippy.toml`; endpoints are
+  `SocketAddr` values or paths, so the socket calls never see a name.
+- Tests: T-NET-1 (no UDP socket and nothing naming port 53 in the system
+  call trace, also in a namespace without DNS), T-SOCKS-1 (`socks::tests`
+  and `system.rs`: the request carries address type 0x03 and the literal
+  `.onion` name, which a local resolution could not have produced).
 
 ### S4. Tails and Whonix builds never launch a second Tor
 
@@ -73,8 +85,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
   `docs/TOR_CONTROL_SURFACE.md` section 1. Commands are values of a closed
   enum; there is no "send raw command" API. Section 4 of that document
   lists what is never sent, including `SETCONF` and `SIGNAL`.
-- Tests: T-CTRL-1 (recording mock control port: only allowlisted commands
-  are ever sent), fuzzing of the command serializer for line injection.
+- Tests: T-CTRL-1 (`system.rs`: a recording control server sees only the
+  allowlisted lines, byte for byte), `command::tests` (the exact bytes of
+  every command; no forbidden flag in either `ADD_ONION` form), fuzz
+  target `tor_control_reply` (64 arbitrary key bytes never add a line).
 
 ### S6. The Tor control interface is least-privilege
 
@@ -314,12 +328,13 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S12. All queues and channels are bounded
 
-- Mechanism: every queue capacity is a constant in `limits`. When a channel
-  crate becomes a dependency, `clippy::disallowed_methods` will ban its
-  unbounded constructors, starting with
-  `tokio::sync::mpsc::unbounded_channel`. The lint entry does not exist
-  yet because the path it names does not.
-- Tests: lint in CI, T-RES-3.
+- Mechanism: every queue capacity is a constant in `limits`.
+  `clippy.toml` bans `tokio::sync::mpsc::unbounded_channel`. The network
+  layer of Phase 3 holds no queue of its own: a link reads into one fixed
+  buffer and reads again only when the session has taken it, and the
+  accept loop's tasks are bounded by the handshake budget.
+- Tests: lint in CI, T-RES-3, the core tests of the accept loop (a flood
+  beyond `MAX_INBOUND_HANDSHAKES` is closed, not queued).
 
 ### S13. File transfer is always offered and explicitly accepted
 
@@ -372,12 +387,14 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S17. Cryptographic randomness comes only from a CSPRNG
 
-- Mechanism: the operating system source is read through `getrandom` in
-  one crate, `monolith-session`, in two places: `TransportSecretKey::generate`
-  and the random source that the resolver hands to the Noise library for
-  the ephemeral keys of a handshake. Nothing else in the workspace draws
-  randomness, and no other generator crate is a dependency of a product
-  build. Non-cryptographic generator crates are banned by `deny.toml`. A
+- Mechanism: the operating system source is read through `getrandom`,
+  and only there: in `monolith-session` by `TransportSecretKey::generate`
+  and by the random source that the resolver hands to the Noise library
+  for the ephemeral keys of a handshake; in `monolith-tor` for the
+  isolation tokens and the SAFECOOKIE client nonce (and, in the mock
+  backend for tests, for mock keys); in `monolith-cli` for the identity
+  seeds of the `dev-chat` test command. No other generator crate is a
+  dependency of a product build. Non-cryptographic generator crates are banned by `deny.toml`. A
   failure of the source fails the operation; there is no fallback. A
   handshake with fixed ephemeral keys can be built only in the tests of
   that crate and in a build made with `--cfg fuzzing`; no cargo feature
