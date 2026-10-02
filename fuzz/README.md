@@ -26,6 +26,8 @@ handshake with fixed ephemeral keys. The functions that allow this exist in
 | `handshake_responder` | record and piece size, mode, then a stream or the damage to apply to the genuine one | a session exists only after the two genuine messages of an initiator; the reply is made only to a first message that verifies; the handshake takes no record and ends the same way under each; afterwards every message has exactly the actions its record (none, blocked, requested or accepted) allows: a stranger or a blocked identity gets a Close and nothing else, a requested contact is marked accepted once, and nothing is delivered before the session is confirmed |
 | `handshake_initiator` | piece size, mode, then a stream or the damage to apply to the genuine one | the third message, which carries the initiator's identity, is made only after the genuine second message; the session is one with the identity that was dialed or there is none |
 | `session_frames` | piece size, then operations: send, deliver, change a byte, drop, repeat, inject, close, block, remove the contact, lose the stream, let time pass | a message is delivered only if the peer sent it, once and in order; nothing is delivered from a direction that was interfered with, or after the age limit and its grace; a violation occurs only there; from the age limit on nothing but Close is sent; every way of ending a session sends the same Close; a failed session stays failed |
+| `tor_control_reply` | piece size, then bytes from a control endpoint | the parser keeps every line, line count and reply size limit, an error is final, every reply has one status code and is never an event; each interpretation (PROTOCOLINFO, AUTHCHALLENGE, GETINFO, ADD_ONION) is consistent, and a private key appears only in the new-key form; 64 arbitrary key bytes never add a line to `ADD_ONION` |
+| `socks_reply` | bytes from a SOCKS proxy after a CONNECT | a reply is complete exactly when its address type's bytes have arrived, never longer than `MAX_SOCKS_REPLY_LEN`; shorter prefixes are incomplete, not wrong; an error stays an error whatever follows |
 
 The property all of them share: for arbitrary input the code either rejects
 it or produces a valid bounded value, without a panic, without an allocation
@@ -48,11 +50,13 @@ signature check, a padding check or an authentication tag.
 The seeds are generated, not written by hand. Two tests build them from
 fixed values and fail if a committed seed is not what the current code
 produces: `fuzz_seeds` in `monolith-protocol` for the first eight targets,
-and `seeds` in `monolith-session` for the three session targets. After a
-format change:
+`seeds` in `monolith-session` for the three session targets, and
+`fuzz_seeds` in `monolith-tor` for the two Tor targets. After a format
+change:
 
     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-protocol --test fuzz_seeds
     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-session seeds
+    MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-tor --test fuzz_seeds
 
 The working corpus that a run produces goes to `corpus/<target>/`, which is
 not committed.
@@ -90,8 +94,7 @@ failure. That shows the targets work. It is not a fuzzing campaign.
 Not done yet:
 
 - Long runs with a kept corpus, and a scheduled job.
-- Targets for code that does not exist yet: the SOCKS and control reply
-  parsers, the vault header.
+- Targets for code that does not exist yet: the vault header.
 
 ## Rules for targets
 

@@ -27,6 +27,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 mod config;
 mod control;
 mod error;
+#[cfg(any(test, fuzzing))]
+#[doc(hidden)]
+pub mod fuzzing;
 mod mock;
 mod secret;
 mod socks;

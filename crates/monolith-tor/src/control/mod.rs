@@ -5,8 +5,8 @@
 //! sends a command, a GETINFO key or an option given as a string, inside
 //! the crate or outside it.
 
-mod auth;
-mod command;
+pub(crate) mod auth;
+pub(crate) mod command;
 mod reply;
 
 use core::net::SocketAddrV4;
@@ -139,27 +139,14 @@ impl ControlConnection {
     /// `GETINFO status/circuit-established`.
     pub(crate) async fn circuit_established(&mut self) -> Result<bool, TorError> {
         let reply = self.command(&Command::CircuitEstablished).await?;
-        if reply.code() != 250 {
-            return Err(TorError::CommandRefused);
-        }
-        match getinfo_value(&reply, b"status/circuit-established")? {
-            b"1" => Ok(true),
-            b"0" => Ok(false),
-            _ => Err(TorError::InvalidTorResponse),
-        }
+        parse_circuit_established(&reply)
     }
 
     /// `GETINFO status/bootstrap-phase`, reduced to the progress number and
     /// whether Tor is done. A refusal makes it unknown.
     pub(crate) async fn bootstrap(&mut self) -> Result<Bootstrap, TorError> {
         let reply = self.command(&Command::BootstrapPhase).await?;
-        if reply.code() != 250 {
-            return Ok(Bootstrap::Unknown);
-        }
-        Ok(parse_bootstrap(getinfo_value(
-            &reply,
-            b"status/bootstrap-phase",
-        )?))
+        parse_bootstrap_reply(&reply)
     }
 
     /// `ADD_ONION`, with `target` as the address Tor connects to.
@@ -195,6 +182,30 @@ impl ControlConnection {
             }
         }
     }
+}
+
+/// Reads the reply to `GETINFO status/circuit-established`: `0` or `1`.
+pub(crate) fn parse_circuit_established(reply: &Reply) -> Result<bool, TorError> {
+    if reply.code() != 250 {
+        return Err(TorError::CommandRefused);
+    }
+    match getinfo_value(reply, b"status/circuit-established")? {
+        b"1" => Ok(true),
+        b"0" => Ok(false),
+        _ => Err(TorError::InvalidTorResponse),
+    }
+}
+
+/// Reads the reply to `GETINFO status/bootstrap-phase`. A refusal makes
+/// the progress unknown.
+pub(crate) fn parse_bootstrap_reply(reply: &Reply) -> Result<Bootstrap, TorError> {
+    if reply.code() != 250 {
+        return Ok(Bootstrap::Unknown);
+    }
+    Ok(parse_bootstrap(getinfo_value(
+        reply,
+        b"status/bootstrap-phase",
+    )?))
 }
 
 /// Checks a reply that must be exactly `250 OK`.

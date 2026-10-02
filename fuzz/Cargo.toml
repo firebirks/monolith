@@ -13,6 +13,7 @@ libfuzzer-sys = "0.4"
 monolith-identity = { path = "../crates/monolith-identity" }
 monolith-protocol = { path = "../crates/monolith-protocol" }
 monolith-session = { path = "../crates/monolith-session" }
+monolith-tor = { path = "../crates/monolith-tor" }
 
 # This project is not a member of the main workspace. It needs a nightly
 # toolchain and has its own lock file.
@@ -100,6 +101,20 @@ bench = false
 [[bin]]
 name = "session_frames"
 path = "fuzz_targets/session_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tor_control_reply"
+path = "fuzz_targets/tor_control_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "socks_reply"
+path = "fuzz_targets/socks_reply.rs"
 test = false
 doc = false
 bench = false
