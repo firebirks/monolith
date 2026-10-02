@@ -21,8 +21,9 @@ use monolith_protocol::frame::{
     FrameParams, OuterDecoder, decode_plaintext, encode_outer, encode_plaintext,
 };
 use monolith_protocol::limits::{
-    MAX_BYTES_PER_DIRECTION, MAX_FRAMES_PER_DIRECTION, MAX_SESSION_LIFETIME,
-    MAX_SESSION_LIFETIME_WITH_TRANSFER, SESSION_CLOSE_GRACE,
+    FRAME_READ_TIMEOUT, IDLE_TIMEOUT, MAX_BYTES_PER_DIRECTION, MAX_FRAMES_PER_DIRECTION,
+    MAX_SESSION_LIFETIME, MAX_SESSION_LIFETIME_WITH_TRANSFER, SESSION_CLOSE_GRACE,
+    UNKNOWN_FIRST_MESSAGE_TIMEOUT, UNKNOWN_SESSION_TIMEOUT,
 };
 use monolith_protocol::session::{Action, Session, Standing};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
@@ -110,6 +111,22 @@ pub struct Received {
     pub actions: Vec<Action>,
 }
 
+/// What a deadline of [`AuthenticatedSession::deadline`] did to the session
+/// when it passed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Expiry {
+    /// No deadline has passed. Nothing changed.
+    Running,
+    /// A frame that had begun did not complete within
+    /// `FRAME_READ_TIMEOUT`, or no frame completed within `IDLE_TIMEOUT`.
+    /// The session is over; nothing is sent and the stream is closed.
+    Silent,
+    /// The session reached its age limit, or stayed in
+    /// `AuthenticatedUnknown` longer than its peer is given there. The
+    /// session is over after this Close, if there is one to write.
+    Close(Option<Vec<u8>>),
+}
+
 /// What a completed handshake hands over to a session.
 pub(crate) struct Established {
     pub(crate) noise: snow::TransportState,
@@ -160,6 +177,13 @@ pub struct AuthenticatedSession {
     close_sent: bool,
     /// The session ended with a violation or a failure.
     failed: bool,
+    /// When the last complete frame arrived; at first, when the session
+    /// was established.
+    last_frame: Instant,
+    /// When the frame that has begun and is not complete began.
+    frame_started: Option<Instant>,
+    /// A message from the peer was taken.
+    heard: bool,
 }
 
 impl AuthenticatedSession {
@@ -198,6 +222,9 @@ impl AuthenticatedSession {
             request_sent: false,
             close_sent: false,
             failed: false,
+            last_frame: at,
+            frame_started: None,
+            heard: false,
         };
         Ok((session, actions))
     }
@@ -322,6 +349,95 @@ impl AuthenticatedSession {
         self.noise = None;
     }
 
+    /// Returns true once the session is over: it failed, a Close was sent
+    /// or received, or the stream was reported closed. Nothing can be
+    /// sent or received on it any more, and it holds no key.
+    pub const fn is_over(&self) -> bool {
+        self.noise.is_none()
+    }
+
+    /// The deadlines of the session that end it, each with whether it ends
+    /// it silently.
+    fn deadlines(&self) -> [(Option<Instant>, bool); 5] {
+        let unknown = self.logic.state() == SessionState::AuthenticatedUnknown;
+        let first_message = unknown && !self.logic.standing().is_contact_record() && !self.heard;
+        [
+            (
+                self.frame_started
+                    .and_then(|started| started.checked_add(FRAME_READ_TIMEOUT)),
+                true,
+            ),
+            (self.last_frame.checked_add(IDLE_TIMEOUT), true),
+            (self.expires_at(), false),
+            (
+                unknown
+                    .then(|| self.established.checked_add(UNKNOWN_SESSION_TIMEOUT))
+                    .flatten(),
+                false,
+            ),
+            (
+                first_message
+                    .then(|| self.established.checked_add(UNKNOWN_FIRST_MESSAGE_TIMEOUT))
+                    .flatten(),
+                false,
+            ),
+        ]
+    }
+
+    /// Returns the moment by which something has to happen on the session
+    /// for it to go on, or `None` once it is over. The caller waits for
+    /// bytes from the peer until then, and calls [`Self::expire`] if none
+    /// change it in time.
+    ///
+    /// The deadlines are those of `docs/RESOURCE_LIMITS.md` section 4:
+    ///
+    /// - a frame that has begun completes within `FRAME_READ_TIMEOUT` of
+    ///   its first byte; later bytes of it do not move this;
+    /// - a frame completes within `IDLE_TIMEOUT` of the last complete one;
+    /// - the session ends at its age limit;
+    /// - it leaves `AuthenticatedUnknown` within `UNKNOWN_SESSION_TIMEOUT`
+    ///   of the handshake, and a peer that is not a contact sends its first
+    ///   message within `UNKNOWN_FIRST_MESSAGE_TIMEOUT`.
+    pub fn deadline(&self) -> Option<Instant> {
+        if self.is_over() || self.close_sent {
+            return None;
+        }
+        self.deadlines()
+            .into_iter()
+            .filter_map(|(deadline, _)| deadline)
+            .min()
+    }
+
+    /// Ends the session if a deadline of [`Self::deadline`] has passed at
+    /// `now`. A frame that did not complete in time and a peer that sent
+    /// nothing end it silently. The age limit and the time in
+    /// `AuthenticatedUnknown` end it with a Close, as the local side ends a
+    /// session on purpose. Either way the session is over afterwards.
+    pub fn expire(&mut self, now: Instant) -> Expiry {
+        if self.is_over() || self.close_sent {
+            return Expiry::Running;
+        }
+        let passed = |deadline: Option<Instant>| deadline.is_some_and(|deadline| now >= deadline);
+        let deadlines = self.deadlines();
+        if deadlines
+            .iter()
+            .any(|(deadline, silent)| *silent && passed(*deadline))
+        {
+            self.failed = true;
+            self.logic.stream_closed();
+            self.end();
+            return Expiry::Silent;
+        }
+        if deadlines.iter().any(|(deadline, _)| passed(*deadline)) {
+            let frame = self.close();
+            // Nothing is read or written after this, Close or not.
+            self.logic.stream_closed();
+            self.end();
+            return Expiry::Close(frame);
+        }
+        Expiry::Running
+    }
+
     fn fail<T>(&mut self, error: ProtocolError) -> Result<T, SessionError> {
         self.failed = true;
         self.logic.stream_closed();
@@ -364,8 +480,13 @@ impl AuthenticatedSession {
             Err(error) => return self.fail(error),
         };
         let Some(payload) = frame else {
+            if self.frame_started.is_none() && self.decoder.in_frame() {
+                self.frame_started = Some(now);
+            }
             return Ok((used, None));
         };
+        self.frame_started = None;
+        self.last_frame = now;
 
         let frame_len = u64::try_from(payload.len()).unwrap_or(u64::MAX);
         if self.age(now) >= self.lifetime().saturating_add(SESSION_CLOSE_GRACE)
@@ -393,6 +514,7 @@ impl AuthenticatedSession {
         };
         match self.logic.receive(&message) {
             Ok(actions) => {
+                self.heard = true;
                 if self.logic.state() == SessionState::Closed {
                     // The peer closed. Nothing more is read or written.
                     self.end();

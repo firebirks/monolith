@@ -2,6 +2,7 @@
 
 mod contacts;
 mod credentials;
+mod deadlines;
 mod frames;
 mod handshake;
 mod properties;

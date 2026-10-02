@@ -324,6 +324,12 @@ impl OuterDecoder {
         self.payload.len()
     }
 
+    /// Returns true while a frame has begun and is not complete: at least
+    /// one byte of its length prefix arrived.
+    pub const fn in_frame(&self) -> bool {
+        self.prefix_len > 0
+    }
+
     /// Consumes bytes from `input` up to the end of one frame.
     ///
     /// Returns how many bytes were consumed and, if they completed a frame,
