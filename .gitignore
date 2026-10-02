@@ -8,3 +8,4 @@
 /fuzz/corpus/
 /mutation/work/
 /mutation/results-*.json
+__pycache__/
