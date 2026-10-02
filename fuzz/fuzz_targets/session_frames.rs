@@ -25,10 +25,10 @@
 //! | 24, 25 | time moves to the deadline of Alice or of Bob, and its session expires | |
 //! | 26, 27 | the first bytes of the next frame to Bob or to Alice arrive; the rest stays on its way | how many (modulo the frame length less one, plus one) |
 //!
-//! A session that expires because a begun frame did not complete in time,
-//! or because nothing complete arrived for the idle limit, ends without a
-//! Close; at the age limit it ends with one. Those limits are written out
-//! here as well.
+//! A session expires at the deadline the target works out itself: a begun
+//! frame that did not complete in time, or nothing complete for the idle
+//! limit, ends it without a Close; at the age limit it ends with one.
+//! Those limits are written out here as well.
 //!
 //! The target keeps its own account of what was sent, of which direction
 //! was interfered with and of the time that has passed, and compares every
@@ -372,6 +372,18 @@ impl World {
             assert!(session.is_over() || session.state() == SessionState::Closing);
             return;
         };
+        // The deadline is the one the account of the frames towards this
+        // side gives: not later, not earlier.
+        {
+            let (_, _, incoming) = self.parts(!bob);
+            if !incoming.interfered {
+                let mut expected = (incoming.last_complete + IDLE_LIMIT).min(AGE_LIMIT);
+                if let Some(since) = incoming.partial_since {
+                    expected = expected.min(since + FRAME_DEADLINE);
+                }
+                assert_eq!(deadline, start() + expected);
+            }
+        }
         let due = deadline.saturating_duration_since(start());
         if due > self.elapsed {
             self.advance(due - self.elapsed);
