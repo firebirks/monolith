@@ -141,6 +141,13 @@ fuzz_target!(|data: &[u8]| {
                     admission.change,
                     Some(CredentialChange::Authorized | CredentialChange::NoContinuity) | None
                 ));
+                // A key held pending is newer than what the identity
+                // announced through the active key.
+                if admission.change == Some(CredentialChange::Pending) {
+                    if let Some(successor) = before.authorized_successor() {
+                        assert!(successor.epoch() < presented.epoch());
+                    }
+                }
                 admission.change.ok_or(())
             }
             1 => {

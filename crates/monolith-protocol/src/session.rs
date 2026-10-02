@@ -61,11 +61,11 @@ pub enum Standing {
     Blocked,
     /// The identity is held as a requested or accepted contact, but the
     /// card that stands for it on this session does not stand for the
-    /// contact: a card of another transport key older than the active
-    /// card, a card of the authorized successor's key older than the
-    /// announced one, a card that states the retired transport key, or a
-    /// card with the epoch of the active card or of the authorized
-    /// successor that states something else. An older card of the active
+    /// contact: a card of another transport key than the active one that
+    /// is older than the active card or than the authorized successor, a
+    /// card that states the retired transport key, or a card with the
+    /// epoch of the active card or of the authorized successor that states
+    /// something else. An older card of the active
     /// key is not one of them. For this session the peer is not a contact
     /// (`docs/PROTOCOL.md` section 6.2). A session whose transport key was
     /// retired while it was open ends with this standing as well.

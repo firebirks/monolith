@@ -676,12 +676,27 @@ async fn dial_bob<F>(
 where
     F: FnOnce(&ContactCard, OutboundPeer, &Withdrawal) -> Result<Admitted, SessionError>,
 {
+    dial_bob_at(1, budgets, alice_admits).await
+}
+
+/// As [`dial_bob`], with Bob's card of `epoch`.
+async fn dial_bob_at<F>(
+    epoch: u64,
+    budgets: &Budgets,
+    alice_admits: F,
+) -> (
+    Result<monolith_core::link::Established<tokio::io::DuplexStream>, LinkError>,
+    bool,
+)
+where
+    F: FnOnce(&ContactCard, OutboundPeer, &Withdrawal) -> Result<Admitted, SessionError>,
+{
     let network = MockNetwork::new();
     let (alice_tor, bob_tor) = (network.backend(), network.backend());
     let mut bob_service = bob_tor.publish_onion(KeySource::Generate).await.unwrap();
     let alice_service = alice_tor.publish_onion(KeySource::Generate).await.unwrap();
     let alice = party(1, 1, *alice_service.service_key());
-    let bob = bob_at(1, *bob_service.service_key());
+    let bob = bob_at(epoch, *bob_service.service_key());
     let dialed = bob.card().clone();
     let isolation = alice_tor.isolation_group().unwrap();
     let reached = core::cell::Cell::new(false);
@@ -821,6 +836,68 @@ fn a_dial_that_loses_its_contact_takes_no_slot_when_none_is_left() {
             budgets.free_unknown_sessions(),
             monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
         );
+    });
+}
+
+#[test]
+fn a_pending_key_does_not_receive_message_3() {
+    // Alice holds Bob with another transport key of epoch 1 and nothing
+    // announced. The responder proves Bob's key of epoch 2, which did not
+    // come through the active key: it is pending. No message 3 and no
+    // session. The card is held as the pending successor, a candidate for
+    // the user only, as for an inbound handshake.
+    run(async {
+        let active = party_of_key(2, 0x53, 1, elsewhere()).card().clone();
+        let held = Mutex::new(Credentials::new(active.clone()));
+        let (result, reached) = dial_bob_at(2, &Budgets::new(), |_, peer, _| {
+            let admitted = peer.admit(PeerRecord::Accepted(&mut held.lock().unwrap()));
+            assert_eq!(
+                admitted.as_ref().unwrap().1.standing,
+                Standing::PendingSuccessor
+            );
+            admitted
+        })
+        .await;
+        assert_eq!(result.err(), identity_mismatch());
+        assert!(!reached);
+        let held = held.lock().unwrap();
+        assert_eq!(held.active(), &active);
+        assert_eq!(
+            held.pending_successor().map(|card| card.epoch()),
+            Some(EndpointEpoch::new(2).unwrap())
+        );
+    });
+}
+
+#[test]
+fn a_key_older_than_the_announced_successor_gets_nothing() {
+    // Alice holds Bob's key 0x53 active and had his key of epoch 2
+    // announced, then a newer key of epoch 3. She dials the card of epoch
+    // 2. Its key is one the identity has superseded: no message 3, no
+    // session, and nothing is recorded, not even a pending card.
+    run(async {
+        let active = party_of_key(2, 0x53, 1, elsewhere());
+        let mut credentials = Credentials::new(active.card().clone());
+        credentials
+            .announce(bob_at(2, elsewhere()).card(), active.card())
+            .unwrap();
+        credentials
+            .announce(party_of_key(2, 0x54, 3, elsewhere()).card(), active.card())
+            .unwrap();
+        let before = credentials.clone();
+        let held = Mutex::new(credentials);
+        let (result, reached) = dial_bob_at(2, &Budgets::new(), |_, peer, _| {
+            let admitted = peer.admit(PeerRecord::Accepted(&mut held.lock().unwrap()));
+            assert_eq!(
+                admitted.as_ref().unwrap().1.change,
+                Some(CredentialChange::Stale)
+            );
+            admitted
+        })
+        .await;
+        assert_eq!(result.err(), identity_mismatch());
+        assert!(!reached);
+        assert_eq!(*held.lock().unwrap(), before);
     });
 }
 

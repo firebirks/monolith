@@ -87,10 +87,10 @@ pub enum CredentialChange {
     /// signed two statements for one epoch. Nothing changes; the user is
     /// told.
     Conflict,
-    /// The card is older than the active card, older than the authorized
-    /// successor for its key, or states the retired key. Nothing changes.
-    /// In a handshake, an older card of the active key is `Superseded`
-    /// instead.
+    /// The card is older than the active card, has another key than the
+    /// active one and is older than the authorized successor, or states the
+    /// retired key. Nothing changes. In a handshake, an older card of the
+    /// active key is `Superseded` instead.
     Stale,
     /// An EndpointUpdate arrived on a session that was not authenticated
     /// with the active key. It proves no continuity. Nothing changes.
@@ -229,12 +229,14 @@ impl Credentials {
     /// - The active key with a newer card: `Advanced`.
     /// - The key of the authorized successor, with a card not older than
     ///   the announced one: `Promoted`. The previous key is retired.
-    /// - Another key with a newer card: `Pending`. The active key is not
-    ///   touched, so whoever holds the identity key alone cannot take the
-    ///   contact over or lock the holder of the active key out.
-    /// - An older card, a card that contradicts the active card or the
-    ///   authorized successor at its epoch, or the retired key: `Stale` or
-    ///   `Conflict`.
+    /// - Another key with a card newer than the active one and than the
+    ///   authorized successor: `Pending`. The active key is not touched, so
+    ///   whoever holds the identity key alone cannot take the contact over
+    ///   or lock the holder of the active key out.
+    /// - A card of another key older than the active card or than the
+    ///   authorized successor, a card that contradicts the active card or
+    ///   the authorized successor at its epoch, or the retired key: `Stale`
+    ///   or `Conflict`.
     ///
     /// A pending card the user imported is not replaced by a presented
     /// one; the result is still `Pending`, and the card shown to the user
@@ -266,6 +268,11 @@ impl Credentials {
         let proven = match &self.authorized {
             Some(successor) if card.transport() == successor.transport() => {
                 Some(evaluate_card(successor, card)?)
+            }
+            // Another key, older than the successor the identity announced
+            // through the active key: superseded, as for `announce`.
+            Some(successor) if !successor.epoch().is_superseded_by(card.epoch()) => {
+                return Ok(CredentialChange::Stale);
             }
             _ => None,
         };
@@ -716,6 +723,31 @@ mod tests {
             credentials.announce(&alice(T2, 2), &session),
             Ok(CredentialChange::Stale)
         );
+        check(&credentials);
+    }
+
+    #[test]
+    fn a_proven_key_older_than_the_announced_successor_is_stale() {
+        // T1 is active, T2 of epoch 2 was announced and then replaced by T3
+        // of epoch 3. A peer that proves T2 in a handshake holds a key the
+        // identity has superseded: it is not held as pending, and nothing
+        // changes. A key newer than T3 is pending.
+        let mut credentials = Credentials::new(alice(T1, 1));
+        let session = alice(T1, 1);
+        credentials.announce(&alice(T2, 2), &session).unwrap();
+        credentials.announce(&alice(T3, 3), &session).unwrap();
+        let before = credentials.clone();
+        assert_eq!(
+            credentials.admit(&alice(T2, 2)),
+            Ok(CredentialChange::Stale)
+        );
+        assert_eq!(credentials, before);
+        assert_eq!(credentials.pending_successor(), None);
+        assert_eq!(
+            credentials.admit(&alice(4, 4)),
+            Ok(CredentialChange::Pending)
+        );
+        assert_eq!(credentials.pending_successor(), Some(&alice(4, 4)));
         check(&credentials);
     }
 
