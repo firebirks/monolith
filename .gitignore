@@ -6,3 +6,5 @@
 *~
 .DS_Store
 /fuzz/corpus/
+/mutation/work/
+/mutation/results-*.json

@@ -613,11 +613,12 @@ Scheduled: fuzzing of every target for a fixed time, with the corpus
 cached. Dependency updates are reviewed by a person; nothing is merged
 automatically.
 
-Mutation testing is done by hand before a phase is called done: a list of
-single faults in the checks that matter (a comparison removed, a bound
-moved, a check skipped) is applied one at a time, and each has to make a
-test fail. A fault in authentication logic that no test notices blocks the
-phase.
+Mutation testing is run before a phase is called done: a list of single
+faults in the checks that matter (a comparison removed, a bound moved, a
+check skipped) is applied one at a time, and each has to make a test fail
+unless its entry says why it cannot. A fault in authentication logic that
+no test notices blocks the phase. The lists, the runner and the expected
+results are in `mutation/`; see `mutation/README.md`.
 
 ## 15. Exit criteria
 
