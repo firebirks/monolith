@@ -902,6 +902,23 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
 }
 
 #[test]
+fn a_failed_admission_ends_its_withdrawal() {
+    // The admission function keeps the withdrawal and then fails. The
+    // contact state learns that the link is gone.
+    run(async {
+        let kept = Mutex::new(None);
+        let (result, reached) = dial_bob(&Budgets::new(), |_, _, withdrawal| {
+            *kept.lock().unwrap() = Some(withdrawal.clone());
+            Err(SessionError::Protocol(ProtocolError::IdentityMismatch))
+        })
+        .await;
+        assert_eq!(result.err(), identity_mismatch());
+        assert!(!reached);
+        assert!(kept.lock().unwrap().as_ref().unwrap().is_ended());
+    });
+}
+
+#[test]
 fn a_promotion_stands_when_message_3_cannot_be_written() {
     // Alice holds Bob's key T1 active and his announced successor T2, and
     // dials T2. The responder proves T2 in message 2, which promotes it at

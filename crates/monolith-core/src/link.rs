@@ -265,8 +265,9 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// never taken before the dial.
 ///
 /// Message 3 is written only if the peer may learn the local identity
-/// ([`Admission::may_learn_local_identity`]): its key stands for a
-/// contact the local side holds as requested or accepted. Otherwise, for a
+/// ([`Admission::may_learn_local_identity`], read from the standing of the
+/// session `admit` returned): its key stands for a contact the local side
+/// holds as requested or accepted. Otherwise, for a
 /// key that was retired or is pending, a contradicting card, or an
 /// identity that was deleted, declined or blocked during the dial, the
 /// dial fails with [`ProtocolError::IdentityMismatch`], nothing more is
@@ -305,9 +306,10 @@ where
         // The responder is authenticated. The admission comes before the
         // local identity goes out in message 3.
         let withdrawal = Withdrawal::new();
-        let (session, admission, first) = admit(outbound, &withdrawal)?;
+        let (session, admission, first) =
+            admit(outbound, &withdrawal).inspect_err(|_| withdrawal.end())?;
         let mut link = Link::new(stream, session, withdrawal, None);
-        if !admission.may_learn_local_identity() {
+        if !link.session.standing().may_learn_local_identity() {
             return Err(LinkError::Session(SessionError::Protocol(
                 ProtocolError::IdentityMismatch,
             )));
@@ -356,8 +358,9 @@ where
         let inbound = waiting.read_message_3(&message_3, now())?;
         // The last wait is behind. From here to the session nothing waits.
         let withdrawal = Withdrawal::new();
-        let (session, admission, first) = admit(inbound, &withdrawal)?;
-        let unknown_slot = if admission.standing.is_contact_record() {
+        let (session, admission, first) =
+            admit(inbound, &withdrawal).inspect_err(|_| withdrawal.end())?;
+        let unknown_slot = if session.standing().is_contact_record() {
             None
         } else {
             let Some(slot) = budgets.unknown_session() else {

@@ -89,6 +89,14 @@ impl Standing {
     pub const fn is_contact_record(self) -> bool {
         matches!(self, Self::Requested | Self::Accepted)
     }
+
+    /// Returns true if a peer with this standing may learn the local
+    /// identity: it stands for an identity the local side holds as a
+    /// requested or accepted contact. See
+    /// [`Admission::may_learn_local_identity`].
+    pub const fn may_learn_local_identity(self) -> bool {
+        self.is_contact_record()
+    }
 }
 
 /// What the local side holds about an identity. For a contact that
@@ -212,7 +220,7 @@ impl Admission {
     /// An initiator writes message 3, which carries its identity and
     /// card, only when this is true (`docs/PROTOCOL.md` section 4.4).
     pub const fn may_learn_local_identity(&self) -> bool {
-        self.standing.is_contact_record()
+        self.standing.may_learn_local_identity()
     }
 
     const fn without_record(standing: Standing) -> Self {
