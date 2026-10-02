@@ -12,13 +12,14 @@ key kept.
 
 ## Files
 
-- `faults.py`: the two lists, `PHASE1` and `PHASE2`. An entry names the
+- `faults.py`: the lists `PHASE1`, `PHASE2` and `PHASE3`. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
 
 ## Running
 
+    python3 mutation/run.py phase3 3
     python3 mutation/run.py phase2 3
     python3 mutation/run.py phase1 3
     python3 mutation/run.py all 3 H7 S1 S2
@@ -57,6 +58,16 @@ At the end of Phase 2 (`1337009` and later):
 | --- | --- | --- | --- |
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 98 | 94 | S15, S24, CAP2, CAP3 |
+| Phase 3 | 34 | 31 | Q14, Q18, Q29 |
+
+The Phase 3 list covers the no-clearnet and Tor boundaries (onion address
+checks, SOCKS only, the onion name only, loopback endpoints and listener,
+isolation), control authentication and the parser bounds, the publication
+rules (no `Detach`, non-anonymous mode, key checks, ownership by the
+control connection, `DEL_ONION`), the budgets and deadlines of the core,
+and the checks the two Phase 3 reviews added (Q27 to Q32). For a fault in
+`monolith-identity` or `monolith-protocol` the tests of `monolith-tor` and
+`monolith-core` run as well.
 
 No fault in authentication logic survives. The Phase 2 list covers each
 check that the two reviews of Phase 2 added: the grace after the age
@@ -88,10 +99,20 @@ Why the six survive:
   the type promises `ZeroizeOnDrop` and that `zeroize` clears it.
 - CAP3, equivalent in result. A constant-time comparison is a timing
   property, which no test measures.
+- Q14, equivalent. Tor sends nothing unasked; bytes that follow a reply
+  stay in the socket and make the next reply fail, so the connection
+  fails either way, one command later.
+- Q18, equivalent. 88 characters ending in `==` always decode to 64
+  bytes, so the length check of a returned key cannot fire.
+- Q29, unreachable. `Endpoint` is opaque and only its validating
+  constructors make one; the second check in the connection code cannot be
+  reached from a test.
 
 A survivor that is not in this list is a gap in the tests, or a check that
 does nothing. Either is fixed before a phase is called done; F9 was such a
-gap at the end of Phase 2 and has a test since.
+gap at the end of Phase 2, and in Phase 3 a handle that ignored control
+loss before `accept`, a handshake without its deadline, and the dial and
+listener-error paths of the core were; all have tests since.
 
 ## Adding a fault
 

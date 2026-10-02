@@ -501,8 +501,8 @@ PHASE3 = [
     fault("Q2", TOR + "socks.rs", "another host name than the onion name is requested",
           ("    let hostname = target.hostname();", "    let hostname = String::from(\"example.org\");")),
     fault("Q3", TOR + "config.rs", "a TCP endpoint that is not loopback is accepted",
-          ("        if !address.ip().is_loopback() || address.port() == 0 {",
-           "        if address.port() == 0 {")),
+          ("    address.ip().is_loopback() && address.port() != 0",
+           "    address.port() != 0")),
     fault("Q4", TOR + "system.rs", "the listener binds every interface",
           ("SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)", "SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)")),
 
@@ -548,7 +548,10 @@ PHASE3 = [
            "            return Err(TorError::OnionPublicationFailed);")),
     fault("Q18", TOR + "secret.rs", "a returned key of the wrong length is used",
           ("        if bytes.len() != ONION_SECRET_LEN {\n            return Err(TorError::InvalidTorResponse);\n        }\n",
-           "")),
+           ""),
+          expect="survives: equivalent. 88 characters ending in '==' always decode to"
+                 " 21 groups of three bytes and one more, 64 bytes; the length check is a"
+                 " second line"),
     fault("Q19", TOR + "secret.rs", "a returned key without padding is accepted",
           ("        if text.len() != ONION_SECRET_BASE64_LEN || !text.ends_with(b\"==\") {",
            "        if text.len() != ONION_SECRET_BASE64_LEN {")),
@@ -572,4 +575,23 @@ PHASE3 = [
     fault("Q26", CORE + "link.rs", "an inbound handshake waits longer than HANDSHAKE_TIMEOUT",
           ("    F: FnOnce(&ContactCard) -> PeerRecord<'r>,\n{\n    tokio::time::timeout(HANDSHAKE_TIMEOUT, async {",
            "    F: FnOnce(&ContactCard) -> PeerRecord<'r>,\n{\n    tokio::time::timeout(IDLE_TIMEOUT, async {")),
+
+    # Checks added after the two Phase 3 reviews.
+    fault("Q27", TOR + "control/mod.rs", "an endpoint naming another cookie file is used",
+          ("                if named != *cookie_file {", "                if false {")),
+    fault("Q28", TOR + "control/auth.rs", "a cookie file others can write is read",
+          ("        if before.permissions().mode() & 0o022 != 0 {", "        if false {")),
+    fault("Q29", TOR + "stream.rs", "the connection code does not check the endpoint again",
+          ("            if !is_local(address) {", "            if false {"),
+          expect="survives: unreachable. Endpoint is opaque and only its validating"
+                 " constructors make one, so no test can hand the connection code an"
+                 " endpoint that is not local; the check is a second line"),
+    fault("Q30", CORE + "link.rs", "a stranger is answered without an unknown-session slot",
+          ("            Some(budgets.unknown_session().ok_or(LinkError::Budget)?)",
+           "            budgets.unknown_session()")),
+    fault("Q31", CORE + "link.rs", "a dial takes no dial slot",
+          ("    let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;\n", "")),
+    fault("Q32", CORE + "budget.rs", "a listener error ends the accept loop",
+          ("            Some(Err(Some(TorError::Listener))) => {\n                tokio::time::sleep(ACCEPT_BACKOFF).await;\n            }",
+           "            Some(Err(Some(TorError::Listener))) => break ServeEnd::Service(TorError::Listener),")),
 ]
