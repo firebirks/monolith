@@ -44,15 +44,13 @@ fn party(endpoint: OnionServiceKey) -> Option<LocalParty> {
     let identity = IdentitySecretKey::from_seed(&seed);
     drop(seed);
     let transport = TransportSecretKey::generate().ok()?;
-    let card = ContactCard::sign(
+    LocalParty::issue(
         &identity,
-        *transport.public_key(),
+        transport,
         EndpointEpoch::FIRST,
         EndpointSet::single(endpoint),
-        None,
     )
-    .ok()?;
-    LocalParty::new(card, transport).ok()
+    .ok()
 }
 
 /// Publishes an ephemeral service and makes the party it belongs to.

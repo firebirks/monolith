@@ -17,9 +17,8 @@ pub enum SessionError {
     /// is over and the stream must be closed without sending anything. The
     /// category inside says what was wrong, for local use.
     Protocol(ProtocolError),
-    /// The local card cannot be used for sessions: it carries an invitation
-    /// capability, or its transport key is not the public half of the
-    /// secret key that came with it.
+    /// The local card cannot be made from the local keys: key separation
+    /// forbids the combination, or the signed card does not verify.
     LocalCard,
     /// The card to dial is a card of the local identity.
     OwnIdentity,
@@ -52,7 +51,7 @@ impl fmt::Display for SessionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Protocol(error) => write!(f, "session ended: {error}"),
-            Self::LocalCard => f.write_str("local card does not fit the transport key"),
+            Self::LocalCard => f.write_str("local card cannot be made from the local keys"),
             Self::OwnIdentity => f.write_str("the card to dial is the local identity"),
             Self::InvalidSecretKey => f.write_str("transport private key is all zero"),
             Self::Randomness => f.write_str("random source failed"),

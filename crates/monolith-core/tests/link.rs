@@ -40,15 +40,13 @@ fn run<F: Future>(future: F) -> F::Output {
 fn party(seed: u8, endpoint: OnionServiceKey) -> LocalParty {
     let identity = IdentitySecretKey::from_seed(&[seed; 32]);
     let transport = TransportSecretKey::generate().unwrap();
-    let card = ContactCard::sign(
+    LocalParty::issue(
         &identity,
-        *transport.public_key(),
+        transport,
         EndpointEpoch::FIRST,
         EndpointSet::single(endpoint),
-        None,
     )
-    .unwrap();
-    LocalParty::new(card, transport).unwrap()
+    .unwrap()
 }
 
 /// Budgets of their own for one call, for tests that do not exercise them.

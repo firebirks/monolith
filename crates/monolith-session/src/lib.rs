@@ -16,7 +16,9 @@
 //! How it is used:
 //!
 //! - The local side is a [`LocalParty`]: its contact card and the secret
-//!   half of its transport key.
+//!   half of its transport key. [`LocalParty::issue`] signs the card from
+//!   the local identity key; a card from outside cannot become the local
+//!   one.
 //! - To dial a contact: [`HandshakeInitiator::start`] with the pinned card
 //!   of that contact, then [`HandshakeInitiator::read_message_2`], then
 //!   [`OutboundPeer::admit`].

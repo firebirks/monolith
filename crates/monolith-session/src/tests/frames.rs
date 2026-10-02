@@ -11,9 +11,9 @@ use monolith_protocol::{MessageType, ProtocolError, SessionState};
 use crate::session::SessionLimits;
 use crate::testing::{
     ALICE, BOB, MALLORY, Pair, admit_outbound, after, card, card_of, chat, confirmed, connect,
-    deliver, handshake, party, request_with, sample, start, transport_secret,
+    deliver, handshake, party, request_with, sample, start,
 };
-use crate::{AuthenticatedSession, LocalParty, SessionError};
+use crate::{AuthenticatedSession, SessionError};
 
 fn failed(error: ProtocolError) -> SessionError {
     SessionError::Protocol(error)
@@ -865,9 +865,7 @@ fn the_protocol_limits_are_the_default() {
 
     // A party keeps the limits it was given.
     let reduced = limits(60, 120, 10, 1 << 20);
-    let local = LocalParty::new(card(ALICE), transport_secret(ALICE))
-        .unwrap()
-        .with_limits(reduced);
+    let local = party(ALICE).with_limits(reduced);
     let (outbound, _, _) = handshake(&local, &party(BOB));
     let (session, _) = admit_outbound(outbound, Standing::Accepted);
     assert_eq!(session.expires_at(), Some(after(Duration::from_secs(60))));

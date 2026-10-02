@@ -59,7 +59,14 @@ pub fn card(seed: u8) -> ContactCard {
 
 /// The local side of a party: its card and its transport key.
 pub fn party(seed: u8) -> LocalParty {
-    LocalParty::new(card(seed), transport(seed)).unwrap()
+    let endpoint = IdentitySecretKey::from_seed(&[seed.wrapping_add(100); 32]).public_key();
+    LocalParty::issue(
+        &IdentitySecretKey::from_seed(&[seed; 32]),
+        transport(seed),
+        EndpointEpoch::FIRST,
+        EndpointSet::single(OnionServiceKey::from_bytes(endpoint.as_bytes()).unwrap()),
+    )
+    .unwrap()
 }
 
 /// Alice, about to dial Bob, and her first message.

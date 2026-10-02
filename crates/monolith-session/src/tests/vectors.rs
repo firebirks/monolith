@@ -12,7 +12,7 @@ use std::path::Path;
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::SessionState;
 use monolith_protocol::body::Message;
-use monolith_protocol::card::{ContactCard, EndpointSet};
+use monolith_protocol::card::EndpointSet;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use sha2::{Digest, Sha256};
 
@@ -75,15 +75,13 @@ fn key32(text: &str) -> [u8; 32] {
 fn party(identity_seed: &str, transport_secret: &str, endpoint_seed: u8) -> LocalParty {
     let transport = TransportSecretKey::from_bytes(&key32(transport_secret)).unwrap();
     let endpoint_key = IdentitySecretKey::from_seed(&[endpoint_seed; 32]).public_key();
-    let card = ContactCard::sign(
+    LocalParty::issue(
         &IdentitySecretKey::from_seed(&key32(identity_seed)),
-        *transport.public_key(),
+        transport,
         EndpointEpoch::FIRST,
         EndpointSet::single(OnionServiceKey::from_bytes(endpoint_key.as_bytes()).unwrap()),
-        None,
     )
-    .unwrap();
-    LocalParty::new(card, transport).unwrap()
+    .unwrap()
 }
 
 fn party_r() -> LocalParty {

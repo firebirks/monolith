@@ -21,7 +21,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use crate::resolver::Resolver;
 use crate::testing::{
     ALICE, BOB, EPHEMERAL_I, EPHEMERAL_R, MALLORY, admit_outbound, after, card, card_of, card_with,
-    handshake, handshake_with, identity_secret, party, start, transport_bytes,
+    handshake, handshake_with, identity_secret, party, party_with, start, transport_bytes,
 };
 use crate::{
     HandshakeInitiator, HandshakeResponder, HandshakeResponderFinal, LocalParty, SessionError,
@@ -440,20 +440,20 @@ fn an_older_pinned_card_with_the_current_transport_key_still_reaches_the_peer() 
     // Bob has issued a card of epoch 2 with a new endpoint and the same
     // transport key. Alice still holds epoch 1. The handshake depends on
     // the identity key and the transport key, which did not change.
-    let bob_now = LocalParty::new(
-        card_with(BOB, BOB, 2, MALLORY, false),
+    let bob_now = LocalParty::issue(
+        &identity_secret(BOB),
         crate::testing::transport_secret(BOB),
+        monolith_identity::EndpointEpoch::new(2).unwrap(),
+        monolith_protocol::card::EndpointSet::single(crate::testing::endpoint(MALLORY)),
     )
     .unwrap();
+    assert_eq!(bob_now.card(), &card_with(BOB, BOB, 2, MALLORY, false));
     assert!(handshake_with(&party(ALICE), &bob_now, &card(BOB)).is_ok());
 
     // After Bob replaced his transport key, the old card reaches nobody:
     // to Alice this is an identity mismatch.
-    let bob_rekeyed = LocalParty::new(
-        card_of(BOB, MALLORY, 2, false),
-        crate::testing::transport_secret(MALLORY),
-    )
-    .unwrap();
+    let bob_rekeyed = party_with(BOB, MALLORY, 2);
+    assert_eq!(bob_rekeyed.card(), &card_of(BOB, MALLORY, 2, false));
     let (alice, message_1) = alice_dialing_bob();
     let waiting =
         HandshakeResponder::new_with_ephemeral(&bob_rekeyed, start(), EPHEMERAL_R).unwrap();
@@ -519,6 +519,22 @@ fn the_card_in_the_third_message_must_belong_to_the_key_holder() {
     assert_eq!(
         waiting.read_message_3(&message_3, start()).err(),
         Some(failed(ProtocolError::BadSignature))
+    );
+
+    // Alice's own successor card, which states another transport key,
+    // presented with the key she holds now. A card counts only for the
+    // key that presents it, even when the identity is the right one.
+    let successor = card_of(ALICE, MALLORY, 2, false);
+    let (waiting, message_3) = third_message_with(ALICE, &successor.encode());
+    assert_eq!(
+        waiting.read_message_3(&message_3, start()).err(),
+        Some(failed(ProtocolError::AuthenticationFailed))
+    );
+    // And her current card, presented with the successor key.
+    let (waiting, message_3) = third_message_with(MALLORY, &card(ALICE).encode());
+    assert_eq!(
+        waiting.read_message_3(&message_3, start()).err(),
+        Some(failed(ProtocolError::AuthenticationFailed))
     );
 
     // A card of Mallory's identity that states Alice's transport key,
@@ -969,20 +985,30 @@ fn a_stalled_handshake_times_out() {
 }
 
 #[test]
-fn the_local_party_of_a_session_is_fixed_by_its_card() {
-    // The responder's identity in the prologue comes from its card. A
-    // party with Bob's transport key and another identity is not Bob.
-    let impostor = LocalParty::new(
-        card_of(MALLORY, BOB, 1, false),
-        crate::testing::transport_secret(BOB),
-    )
-    .unwrap();
+fn a_party_acts_only_as_the_identity_that_signed_its_card() {
+    // Rule F2, both halves. A party can only be made by the holder of an
+    // identity key, and its card is signed by that key. Here Mallory holds
+    // Bob's transport secret as well. As a responder her party puts
+    // Mallory into the prologue, so Alice, who dials Bob, is not answered.
+    let impostor = party_with(MALLORY, BOB, 1);
+    assert_eq!(impostor.identity(), &identity(MALLORY));
+    assert_eq!(impostor.card().transport(), card(BOB).transport());
     let (_, message_1) = alice_dialing_bob();
     let waiting = HandshakeResponder::new_with_ephemeral(&impostor, start(), EPHEMERAL_R).unwrap();
     assert_eq!(
         waiting.read_message_1(&message_1, start()).err(),
         Some(failed(ProtocolError::HandshakeFailed))
     );
+
+    // As an initiator the same party presents Mallory's card in message 3.
+    // Carol takes the peer for Mallory, not for Bob, although the key is
+    // Bob's.
+    let carol = party(0x33);
+    let (_, inbound, _) = handshake(&impostor, &carol);
+    assert_eq!(inbound.card().identity(), &identity(MALLORY));
+    assert_eq!(inbound.card(), impostor.card());
+    let (_, inbound, _) = handshake(&party(BOB), &carol);
+    assert_eq!(inbound.card().identity(), &identity(BOB));
 }
 
 #[test]

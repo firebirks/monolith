@@ -120,9 +120,22 @@ pub(crate) fn card(seed: u8) -> ContactCard {
     card_of(seed, seed, 1, false)
 }
 
+/// The local side of the identity of `seed` with the transport key of
+/// `transport_seed`, at the given epoch and with its usual endpoint. Its
+/// card is `card_of(seed, transport_seed, epoch, false)`.
+pub(crate) fn party_with(seed: u8, transport_seed: u8, epoch: u64) -> LocalParty {
+    LocalParty::issue(
+        &identity_secret(seed),
+        transport_secret(transport_seed),
+        EndpointEpoch::new(epoch).unwrap(),
+        EndpointSet::single(endpoint(seed)),
+    )
+    .unwrap()
+}
+
 /// The local side of an identity: its usual card and its transport key.
 pub(crate) fn party(seed: u8) -> LocalParty {
-    LocalParty::new(card(seed), transport_secret(seed)).unwrap()
+    party_with(seed, seed, 1)
 }
 
 /// The three messages of a handshake.

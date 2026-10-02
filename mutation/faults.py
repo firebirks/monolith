@@ -68,12 +68,17 @@ PHASE2 = [
     fault("K1", SE + "key.rs", "32 zero bytes accepted as a transport secret key",
           ("if bytes.iter().all(|byte| *byte == 0) {", "if false {"),
           group="review: all-zero secret key"),
-    fault("K2", SE + "key.rs", "local card may carry an invitation capability",
-          ("if card.invitation().is_some() || card.transport() != transport.public_key() {",
-           "if card.transport() != transport.public_key() {")),
-    fault("K3", SE + "key.rs", "local card may state another transport key",
-          ("if card.invitation().is_some() || card.transport() != transport.public_key() {",
-           "if card.invitation().is_some() {")),
+    fault("K2", SE + "key.rs", "local card signed by another identity than the local one",
+          ("let card = ContactCard::sign(identity, *transport.public_key(),",
+           "let card = ContactCard::sign(&IdentitySecretKey::from_seed(&[0x77; 32]), *transport.public_key(),")),
+    fault("K3", SE + "key.rs", "local card states a transport key the party does not hold",
+          ("let card = ContactCard::sign(identity, *transport.public_key(),",
+           "let card = ContactCard::sign(identity, *TransportSecretKey::from_bytes(&[0x42; 32])?.public_key(),")),
+    fault("K4", SE + "key.rs", "a card from outside can be adopted as the local card",
+          ("impl LocalParty {\n",
+           "impl LocalParty {\n    /// Fault.\n"
+           "    pub fn new(card: ContactCard, transport: TransportSecretKey) -> Result<Self, SessionError> {\n"
+           "        Ok(Self { card, transport, limits: SessionLimits::PROTOCOL })\n    }\n\n")),
 
     # Contact card: key separation, stale-card comparison, signed bytes.
     fault("C1", PR + "card.rs", "transport key may be the identity key in Montgomery form",

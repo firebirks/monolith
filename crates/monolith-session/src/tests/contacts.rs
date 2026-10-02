@@ -15,7 +15,7 @@ use monolith_protocol::{ProtocolError, SessionState};
 
 use crate::testing::{
     ALICE, BOB, MALLORY, admit_outbound, card, card_inviting, card_of, card_with, chat, handshake,
-    handshake_with, party, request_with, start, transport_secret,
+    handshake_with, party, party_with, request_with, start,
 };
 use crate::{AuthenticatedSession, LocalParty, SessionError};
 
@@ -317,7 +317,8 @@ fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one()
     assert!(run.bob_actions.is_empty());
 
     // The holder of the new key, with the new card, is the contact.
-    let new_alice = LocalParty::new(pinned.clone(), transport_secret(MALLORY)).unwrap();
+    let new_alice = party_with(ALICE, MALLORY, 2);
+    assert_eq!(new_alice.card(), &pinned);
     let run = Run::new(
         &new_alice,
         Standing::Accepted,
@@ -334,7 +335,8 @@ fn a_retired_key_is_refused_as_soon_as_the_successor_card_was_shown() {
     // change, and may never do so.
     let pinned = card(ALICE);
     let successor = card_of(ALICE, MALLORY, 2, false);
-    let alice = LocalParty::new(successor.clone(), transport_secret(MALLORY)).unwrap();
+    let alice = party_with(ALICE, MALLORY, 2);
+    assert_eq!(alice.card(), &successor);
     let run = Run::new(&alice, Standing::Accepted, PeerRecord::Accepted(&pinned));
     assert_eq!(run.admission.card, Some(CardChange::Newer));
     assert!(run.confirmed());
@@ -431,7 +433,8 @@ fn a_newer_card_keeps_the_contact_and_is_reported_as_a_pending_change() {
     // session, and the change of what is pinned is left to the user.
     let pinned = card(ALICE);
     let newer = card_of(ALICE, MALLORY, 3, false);
-    let alice = LocalParty::new(newer.clone(), transport_secret(MALLORY)).unwrap();
+    let alice = party_with(ALICE, MALLORY, 3);
+    assert_eq!(alice.card(), &newer);
     let run = Run::new(&alice, Standing::Accepted, PeerRecord::Accepted(&pinned));
     assert_eq!(
         run.admission,

@@ -3,8 +3,8 @@
 use core::fmt;
 
 use monolith_identity::redact::REDACTED;
-use monolith_identity::{IdentityPublicKey, TransportPublicKey};
-use monolith_protocol::card::ContactCard;
+use monolith_identity::{EndpointEpoch, IdentityPublicKey, IdentitySecretKey, TransportPublicKey};
+use monolith_protocol::card::{ContactCard, EndpointSet};
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
@@ -80,9 +80,29 @@ impl fmt::Debug for TransportSecretKey {
 /// What the local side brings to every handshake: its contact card and the
 /// secret half of the transport key that the card states.
 ///
-/// The card is the one without invitation capability. An initiator sends
-/// it in the third handshake message; a responder takes its identity key
-/// from it for the prologue.
+/// A party is made from the local secret keys and nothing else. The card
+/// is signed here, by the identity key that is passed in, for the
+/// transport key that is passed in. A card that came from outside cannot
+/// become the local one: there is no constructor that takes a card. So a
+/// party never pairs the transport key of one identity with a card signed
+/// by another, and the identity in the prologue of every handshake it
+/// takes part in is the identity that holds its transport key (rule F2 of
+/// `docs/CRYPTOGRAPHY.md` section 5.2).
+///
+/// ```compile_fail
+/// use monolith_protocol::card::ContactCard;
+/// use monolith_session::{LocalParty, TransportSecretKey};
+///
+/// // An imported card cannot be adopted as the local one.
+/// fn adopt(card: ContactCard, transport: TransportSecretKey) -> LocalParty {
+///     LocalParty::new(card, transport).unwrap()
+/// }
+/// ```
+///
+/// The identity key is used while the party is made and is not kept. The
+/// card has no invitation capability. An initiator sends it in the third
+/// handshake message; a responder takes its identity key from it for the
+/// prologue.
 pub struct LocalParty {
     card: ContactCard,
     transport: TransportSecretKey,
@@ -90,18 +110,31 @@ pub struct LocalParty {
 }
 
 impl LocalParty {
-    /// Puts a card and a transport key together.
+    /// Signs the local card with `identity` for `transport`, `epoch` and
+    /// `endpoints`, and keeps it with the transport key.
     ///
-    /// Fails with [`SessionError::LocalCard`] if the card carries an
-    /// invitation capability, or if the transport key in the card is not
-    /// the public half of `transport`. A handshake with such a pair could
-    /// never be accepted by a peer.
-    pub fn new(card: ContactCard, transport: TransportSecretKey) -> Result<Self, SessionError> {
-        if card.invitation().is_some() || card.transport() != transport.public_key() {
+    /// Fails with [`SessionError::LocalCard`] if the card cannot be made:
+    /// the transport key or an endpoint is the identity key in another
+    /// form, which key separation forbids (`docs/PROTOCOL.md` section
+    /// 11.2). The card is decoded again as a receiver would decode it, and
+    /// it has to come out the same; a card that would not verify is never
+    /// used.
+    pub fn issue(
+        identity: &IdentitySecretKey,
+        transport: TransportSecretKey,
+        epoch: EndpointEpoch,
+        endpoints: EndpointSet,
+    ) -> Result<Self, SessionError> {
+        let card = ContactCard::sign(identity, *transport.public_key(), epoch, endpoints, None)
+            .map_err(|_| SessionError::LocalCard)?;
+        // `sign` puts the public half of `identity` and of `transport` into
+        // the card. Decoding checks the signature under that identity key.
+        let verified = ContactCard::decode(&card.encode()).map_err(|_| SessionError::LocalCard)?;
+        if verified != card {
             return Err(SessionError::LocalCard);
         }
         Ok(Self {
-            card,
+            card: verified,
             transport,
             limits: SessionLimits::PROTOCOL,
         })
@@ -145,7 +178,9 @@ impl fmt::Debug for LocalParty {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{card_of, identity_secret, transport_secret};
+    use crate::testing::{card, card_of, endpoint, identity_secret, transport_secret};
+    use monolith_identity::OnionServiceKey;
+    use sha2::{Digest, Sha512};
 
     /// The key pairs of RFC 7748 section 6.1.
     const ALICE_SECRET: [u8; 32] = [
@@ -195,23 +230,101 @@ mod tests {
         assert_ne!(first.expose(), &[0_u8; 32]);
     }
 
-    #[test]
-    fn a_local_party_needs_a_card_that_states_its_transport_key() {
-        let good = LocalParty::new(card_of(1, 1, 1, false), transport_secret(1)).unwrap();
-        assert_eq!(good.identity(), &identity_secret(1).public_key());
-        assert_eq!(good.card(), &card_of(1, 1, 1, false));
-        assert_eq!(good.limits(), SessionLimits::PROTOCOL);
+    fn issue(identity: u8, transport: u8) -> Result<LocalParty, SessionError> {
+        LocalParty::issue(
+            &identity_secret(identity),
+            transport_secret(transport),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(endpoint(identity)),
+        )
+    }
 
-        // The card states the transport key of seed 1; the secret key is
-        // another one.
+    #[test]
+    fn a_local_party_signs_its_own_card() {
+        let party = issue(1, 1).unwrap();
+        assert_eq!(party.identity(), &identity_secret(1).public_key());
+        assert_eq!(party.card(), &card(1));
+        assert_eq!(party.card().transport(), transport_secret(1).public_key());
+        assert!(party.card().invitation().is_none());
+        assert_eq!(party.limits(), SessionLimits::PROTOCOL);
+        // The card verifies as a receiver would decode it.
         assert_eq!(
-            LocalParty::new(card_of(1, 1, 1, false), transport_secret(2)).err(),
+            &ContactCard::decode(&party.card().encode()).unwrap(),
+            party.card()
+        );
+        // Another epoch and endpoint go into the card as given.
+        let later = LocalParty::issue(
+            &identity_secret(1),
+            transport_secret(2),
+            EndpointEpoch::new(4).unwrap(),
+            EndpointSet::single(endpoint(3)),
+        )
+        .unwrap();
+        assert_eq!(later.card(), &crate::testing::card_with(1, 2, 4, 3, false));
+    }
+
+    #[test]
+    fn a_card_from_outside_cannot_become_the_local_card() {
+        // Rule F2, the local half. Mallory signs a card that states Bob's
+        // transport key. Bob's side holds that card and his transport
+        // secret. The only way to make a party is from an identity secret,
+        // and the card of the party is always signed by it: with Bob's
+        // identity key the party is Bob, and Mallory's card is not used.
+        let mallory = identity_secret(0x77).public_key();
+        let imported = card_of(0x77, 0x51, 1, false);
+        assert_eq!(imported.identity(), &mallory);
+        assert_eq!(imported.transport(), transport_secret(0x51).public_key());
+
+        let party = issue(0x51, 0x51).unwrap();
+        assert_ne!(party.card(), &imported);
+        assert_ne!(party.identity(), &mallory);
+        assert_eq!(party.identity(), &identity_secret(0x51).public_key());
+        // Whatever identity key is used, the card is that identity's and
+        // states the transport key that came with it.
+        for (identity, transport) in [(0x51, 0x51), (0x77, 0x51), (0x51, 0x77), (0x10, 0x10)] {
+            let party = issue(identity, transport).unwrap();
+            assert_eq!(party.identity(), &identity_secret(identity).public_key());
+            assert_eq!(party.card().identity(), party.identity());
+            assert_eq!(
+                party.card().transport(),
+                transport_secret(transport).public_key()
+            );
+        }
+    }
+
+    #[test]
+    fn key_separation_is_checked_when_the_party_is_made() {
+        // A transport key that is the identity key in Montgomery form. The
+        // X25519 secret is the clamped Ed25519 scalar of the identity seed.
+        let digest = Sha512::digest([5_u8; 32]);
+        let scalar: [u8; 32] = digest[..32].try_into().unwrap();
+        let reused = TransportSecretKey::from_bytes(&scalar).unwrap();
+        assert!(
+            reused
+                .public_key()
+                .is_montgomery_form_of(identity_secret(5).public_key().as_bytes())
+        );
+        assert_eq!(
+            LocalParty::issue(
+                &identity_secret(5),
+                reused,
+                EndpointEpoch::FIRST,
+                EndpointSet::single(endpoint(5)),
+            )
+            .err(),
             Some(SessionError::LocalCard)
         );
-        // A card with an invitation capability is not the card that goes
-        // into a handshake.
+
+        // An endpoint that is the identity key itself.
+        let own = OnionServiceKey::from_bytes(identity_secret(5).public_key().as_bytes()).unwrap();
         assert_eq!(
-            LocalParty::new(card_of(1, 1, 1, true), transport_secret(1)).err(),
+            LocalParty::issue(
+                &identity_secret(5),
+                transport_secret(5),
+                EndpointEpoch::FIRST,
+                EndpointSet::single(own),
+            )
+            .err(),
             Some(SessionError::LocalCard)
         );
     }
@@ -220,7 +333,7 @@ mod tests {
     fn debug_output_shows_no_key_material() {
         let key = TransportSecretKey::from_bytes(&ALICE_SECRET).unwrap();
         assert_eq!(format!("{key:?}"), "TransportSecretKey([redacted])");
-        let party = LocalParty::new(card_of(1, 1, 1, false), transport_secret(1)).unwrap();
+        let party = issue(1, 1).unwrap();
         assert_eq!(format!("{party:?}"), "LocalParty([redacted])");
     }
 }
