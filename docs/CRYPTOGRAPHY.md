@@ -239,7 +239,7 @@ F5. A transport key or ephemeral key that is not canonically encoded or is
 | Party | Learns |
 | --- | --- |
 | Passive observer of the stream | Three messages of fixed size. Nothing readable. Inside Tor, only the two endpoints see the stream at all. |
-| Active party without the responder's card | Nothing readable. Its first message fails and the responder closes without a reply. What it observes is a service that takes 48 bytes and closes the stream. |
+| Active party without the responder's card | No Monolith protocol response. Its first message fails and the responder closes without a reply. What it observes is a service that takes 48 bytes and closes the stream, and, at the Tor level, that the Onion Service is reachable. |
 | Active party with the responder's card | That the holder of the transport key is live at the address. No signature and nothing it could show to others. |
 | Party that answers at the address without the transport key | 48 bytes it cannot use. The initiator stops at message 2 and has sent no identity. Obtaining the transport key later reveals nothing from what was recorded. |
 | Authenticated initiator the responder does not hold as a contact | That its first message is answered with Close. Nothing about the contact list. |

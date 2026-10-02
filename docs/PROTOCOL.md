@@ -1544,8 +1544,8 @@ P2. Whether a session should also be bound to the onion service key the
     complicates endpoint migration, when a responder serves two endpoints
     for a while and has to know which one a stream arrived at. Currently
     not bound. A party that only forwards bytes between an initiator and
-    the real responder is therefore not detected; it learns nothing and
-    can change nothing.
+    the real responder is therefore not detected; it sees ciphertext
+    only, and any change it makes ends the session.
 
 P3. Epoch after restoring an old backup. A restored identity may hold an
     epoch lower than one it issued later. Proposed handling: a restore

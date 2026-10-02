@@ -376,7 +376,7 @@ Memory and bytes:
 Consequences:
 
 - A caller without the contact card can cost a responder one X25519
-  operation per stream, 0.06 ms, and gets nothing back. At
+  operation per stream, 0.06 ms, and gets no protocol response. At
   `INBOUND_CONNECTION_RATE`, 120 per minute, that is under 10 ms of
   processor time per minute.
 - A caller with the contact card can make the responder do the full

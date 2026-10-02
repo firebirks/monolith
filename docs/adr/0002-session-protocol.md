@@ -172,7 +172,7 @@ specifies itself and that no standard or published analysis covers.
 | Responder authentication | after the handshake | same | first server flight | second message |
 | Initiator identity privacy | hidden from all but a responder that proved the dialed identity | same | same | same, with forward secrecy; Noise rating 8 |
 | Responder identity privacy | shown to a prober that knows the identity key | shown to any prober | shown to any prober, with a signature | never transmitted; Noise rating 3 |
-| Resistance to active probing | friction: a prober needs the public identity key | none | none: a prober gets the identity key and a fresh signature over a transcript it chose part of | a prober without the card gets nothing, not even a reply; with the card it learns that the key holder is live |
+| Resistance to active probing | friction: a prober needs the public identity key | none | none: a prober gets the identity key and a fresh signature over a transcript it chose part of | a prober without the card gets no Monolith protocol response, not even a reply, though Tor still shows that the service is reachable; with the card it learns that the key holder is live |
 | Transcript binding | signature over h, by Monolith | same | CertificateVerify and Finished, by TLS | Noise handshake hash; every message is authenticated under it |
 | Replay resistance | fresh ephemerals in h | same | fresh randoms and key shares | fresh ephemerals; a replayed first message gets a reply nobody can use |
 | Downgrade resistance | one suite | same | one version, suite and group configured; negotiation covered by the transcript | one suite; the version is in the prologue |
@@ -200,7 +200,7 @@ ways, and were the two finalists.
 | --- | --- | --- |
 | Bytes an unauthenticated peer can make the responder parse | a ClientHello with extensions, then encrypted handshake messages; bounded by a cap of ours and by the library | 48, of fixed layout |
 | Code reachable before authentication | a general TLS state machine and its parsers | one Diffie-Hellman operation and one tag check |
-| What a prober without the card gets | the identity key and a signature | nothing |
+| What a prober without the card gets | the identity key and a signature | no protocol response |
 | What a prober with the card gets | the same, as transferable evidence that the key answered | knowledge that the key holder is live; nothing it can show to others |
 | Use of the identity private key | online, one signature per handshake | only when a card is issued |
 | Authentication rests on | TLS 1.3, analyzed in many models | Noise XK, analyzed symbolically and computationally, and five rules of ours |
@@ -217,7 +217,11 @@ Reasons for F:
    one tag. The listener is reachable by anyone who has a contact card.
    Monolith has no update mechanism by design, so a parser error in a
    large dependency stays reachable until the user upgrades by hand.
-2. It gives nothing to a prober. D hands every caller the identity key and
+2. It gives a prober no protocol response. A party that knows only the
+   Onion Service address cannot produce a valid first message and gets no
+   reply from Monolith. That the service is reachable at the address is
+   visible at the Tor level, as for any onion service, and nothing here
+   claims otherwise. D hands every caller the identity key and
    a signature over a transcript the caller contributed to, which the
    caller can show to others as evidence that the key was online. F sends
    no signature in a session at all.
@@ -509,8 +513,10 @@ Knowing a responder's public keys is not possession of a secret and is
 never access control, authorization or authentication of the initiator. A
 caller needs the responder's identity key and transport key to get any
 reply. Both are in every contact card. What the design provides is that a
-party with the onion address alone learns nothing, and that nobody is
-handed a signature. It keeps nobody out who holds a card.
+party with the onion address alone cannot produce a valid first message
+and gets no Monolith protocol response, and that nobody is handed a
+signature. It does not hide that the Onion Service is reachable; Tor
+shows that to anyone with the address. It keeps nobody out who holds a card.
 
 If Monolith ever requires a real secret before it answers, that secret has
 to be a secret, such as the invitation capability.
