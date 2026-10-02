@@ -103,6 +103,8 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 | `getrandom` | 0.3.4 | MIT OR Apache-2.0 | 1.63 | the random source of the operating system | none; no default features |
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type, and invitation capabilities | none; no default features |
 | `sha3` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | the checksum of an onion address | none; no default features |
+| `tokio` | 1.53.1 | MIT | 1.71 | the runtime of the Tor adapter: sockets, timeouts, channels | `io-util`, `net`, `sync`, `time`; no default features. Tests add `rt` and `test-util`. |
+| `hmac` | 0.13.0 | MIT OR Apache-2.0 | 1.85 | HMAC-SHA256 of SAFECOOKIE control authentication | none; no default features |
 
 `ed25519-dalek`
 
@@ -253,6 +255,27 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
   the value is dropped. It does not reach copies the compiler made, and it
   is not a guarantee against every way a secret can stay in memory.
 
+`tokio`
+
+- Maintained by the Tokio project; the most used async runtime for Rust.
+  Added in Phase 3 for `monolith-tor`, the one crate that opens sockets.
+- Features: `net` (TCP and Unix sockets), `io-util`, `time` (every
+  timeout of `RESOURCE_LIMITS.md` section 4), `sync` (bounded channels of
+  the mock backend). Not enabled: `macros`, whose `tokio-macros` would
+  bring a second `syn`, `fs`, `process` (nothing may start a process),
+  `signal`, `rt-multi-thread`. The runtime itself is built by the binary.
+- Advisories: none for 1.53.1. Unsafe: much, in the I/O driver and the
+  scheduler; it is the runtime every networked Rust program of this kind
+  relies on, and the alternative is writing one.
+- Pulls in `mio`, `socket2` and `libc` for the system calls, and `bytes`
+  and `pin-project-lite`.
+
+`hmac`
+
+- Maintained by RustCrypto, the same generation as `sha2` 0.11, so no
+  second `digest`. HMAC is not written by hand.
+- Used for the two HMAC-SHA256 values of SAFECOOKIE. No unsafe code.
+
 `sha3`
 
 - Maintained by RustCrypto, in the same generation as `sha2` 0.11 (`digest`
@@ -280,6 +303,10 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 | `typenum` | 1.20.1 | MIT OR Apache-2.0 | `hybrid-array` | 0 |
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | `ed25519-dalek` | 15 |
 | `keccak` | 0.2.2 | Apache-2.0 OR MIT | `sha3` | 11 |
+| `mio` | 1.2.3 | MIT | `tokio` | 176 |
+| `socket2` | 0.6.5 | MIT OR Apache-2.0 | `tokio` | 247 |
+| `bytes` | 1.12.1 | MIT | `tokio` | 151 |
+| `pin-project-lite` | 0.2.17 | Apache-2.0 OR MIT | `tokio` | 20 |
 | `cpufeatures` | 0.3.1 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 11 |
 | `cfg-if` | 1.0.5 | MIT OR Apache-2.0 | several | 0 |
 | `chacha20` | 0.10.2 | MIT OR Apache-2.0 | `chacha20poly1305` | 66 |
@@ -291,7 +318,7 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 | `ctutils` | 0.4.2 | Apache-2.0 OR MIT | `universal-hash` | 0 |
 | `cmov` | 0.5.4 | Apache-2.0 OR MIT | `ctutils` | 25 |
 | `rand_core` | 0.10.1 | MIT OR Apache-2.0 | `x25519-dalek` | 0 |
-| `libc` | 0.2.189 | MIT OR Apache-2.0 | `getrandom`, on Linux | bindings |
+| `libc` | 0.2.189 | MIT OR Apache-2.0 | `getrandom`, `mio`, `socket2`, on Linux | bindings |
 
 `curve25519-dalek` is taken as `ed25519-dalek` requires it, with the
 features `digest`, `precomputed-tables` and `zeroize`. Its

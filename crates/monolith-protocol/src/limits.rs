@@ -469,11 +469,36 @@ pub const MAX_CONTROL_LINE_LEN: usize = 1024;
 /// Most lines accepted in one Tor control reply.
 pub const MAX_CONTROL_REPLY_LINES: usize = 16;
 
+/// Most bytes accepted in one Tor control reply, all lines and line ends
+/// together.
+pub const MAX_CONTROL_REPLY_LEN: usize = 4096;
+
 /// Longest SOCKS5 reply accepted from Tor.
 pub const MAX_SOCKS_REPLY_LEN: usize = 262;
 
 /// Time allowed for one Tor control command to be answered.
 pub const CONTROL_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Time allowed to open a control connection and authenticate on it.
+pub const CONTROL_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Time allowed for the local SOCKS proxy to answer the greeting and the
+/// authentication. The CONNECT reply, which waits for the Onion Service, has
+/// `CONNECT_TIMEOUT`.
+pub const SOCKS_NEGOTIATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Time allowed for `DEL_ONION` when a published service is closed. Closing
+/// the control connection removes the service anyway.
+pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Pause of an accept loop after it refused a stream because the handshake
+/// budget was full.
+pub const ACCEPT_BACKOFF: Duration = Duration::from_millis(250);
+
+/// `MaxStreams` of every `ADD_ONION`: the most streams one rendezvous
+/// circuit may open to Monolith's Onion Service before Tor closes the
+/// circuit. Defense in depth; provisional (`DESIGN_QUESTIONS.md` T3-6).
+pub const ONION_MAX_STREAMS: u16 = 8;
 
 // ---------------------------------------------------------------------------
 // Storage. The vault file can be modified by whoever has write access to the
@@ -571,6 +596,10 @@ const _: () = {
     assert!(FRAME_PADDING_BLOCK_LEN > MESSAGE_HEADER_LEN);
     assert!(FRAME_PADDING_BLOCK_LEN + FRAME_SESSION_OVERHEAD_LEN <= MAX_FRAME_LENGTH_VALUE);
 
+    assert!(MAX_CONTROL_REPLY_LEN >= MAX_CONTROL_LINE_LEN + 2);
+    assert!(MAX_CONTROL_REPLY_LEN <= MAX_CONTROL_REPLY_LINES * (MAX_CONTROL_LINE_LEN + 2));
+    assert!(SOCKS_NEGOTIATION_TIMEOUT.as_secs() < CONNECT_TIMEOUT.as_secs());
+    assert!(CONTROL_CONNECT_TIMEOUT.as_secs() <= CONTROL_COMMAND_TIMEOUT.as_secs());
     assert!(MAX_UNKNOWN_SESSIONS < MAX_INBOUND_HANDSHAKES);
     assert!(MAX_INBOUND_HANDSHAKES < MAX_CONTACT_SESSIONS);
     assert!(MAX_PENDING_FILE_OFFERS_PER_CONTACT <= MAX_PENDING_FILE_OFFERS);

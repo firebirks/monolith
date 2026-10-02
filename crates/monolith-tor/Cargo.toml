@@ -9,6 +9,16 @@ license.workspace = true
 
 [dependencies]
 monolith-identity.workspace = true
+monolith-protocol.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "sync", "time"] }
+zeroize = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "test-util", "time"] }
 
 [lints]
 workspace = true
