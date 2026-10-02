@@ -251,6 +251,20 @@ pub(crate) fn read_cookie(path: &Path) -> Result<Zeroizing<[u8; COOKIE_LEN]>, To
     if !path.is_absolute() {
         return Err(TorError::ControlAuthentication);
     }
+    // Checked before opening: opening a FIFO or a device could block.
+    let before = std::fs::metadata(path).map_err(|_| TorError::ControlAuthentication)?;
+    if !before.is_file() || before.len() != 32 {
+        return Err(TorError::ControlAuthentication);
+    }
+    // Tor writes its cookie readable by its group at most. A file others
+    // can write is not one only Tor could have made.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if before.permissions().mode() & 0o022 != 0 {
+            return Err(TorError::ControlAuthentication);
+        }
+    }
     let file = std::fs::File::open(path).map_err(|_| TorError::ControlAuthentication)?;
     let metadata = file
         .metadata()
@@ -442,6 +456,17 @@ mod tests {
         let good = dir.join("good");
         std::fs::write(&good, [7_u8; 32]).unwrap();
         assert_eq!(*read_cookie(&good).unwrap(), [7_u8; 32]);
+        // Writable by others: not a file only Tor could have made.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let writable = dir.join("writable");
+            std::fs::write(&writable, [7_u8; 32]).unwrap();
+            for mode in [0o666, 0o620, 0o602] {
+                std::fs::set_permissions(&writable, std::fs::Permissions::from_mode(mode)).unwrap();
+                assert!(read_cookie(&writable).is_err(), "{mode:o}");
+            }
+        }
         for (name, len) in [("short", 31), ("long", 33), ("empty", 0)] {
             let path = dir.join(name);
             std::fs::write(&path, vec![7_u8; len]).unwrap();

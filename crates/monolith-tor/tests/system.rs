@@ -1,8 +1,10 @@
 //! `SystemTorBackend` against scripted SOCKS and control servers on
 //! loopback, including hostile ones. No Tor and no network are used.
 
-// Test code builds its own inputs.
+// Test code builds its own inputs, and its scripted servers listen on
+// loopback.
 #![allow(
+    clippy::disallowed_methods,
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
@@ -276,6 +278,21 @@ async fn fake_socks(connect_reply: Vec<u8>) -> (SocketAddr, Arc<Mutex<Vec<Vec<u8
     (address, requests)
 }
 
+/// SAFECOOKIE with the cookie file of a scripted control server.
+fn safecookie(control: &FakeControl) -> ControlAuth {
+    ControlAuth::SafeCookie {
+        cookie_file: control.cookie_dir.join("control.authcookie"),
+    }
+}
+
+/// SAFECOOKIE with the cookie file of a Debian system Tor, for backends
+/// whose control endpoint is not used.
+fn any_cookie() -> ControlAuth {
+    ControlAuth::SafeCookie {
+        cookie_file: PathBuf::from("/run/tor/control.authcookie"),
+    }
+}
+
 fn system(socks: SocketAddr, control: SocketAddr, auth: ControlAuth) -> SystemTorBackend {
     SystemTorBackend::new(SystemTorConfig {
         socks: Endpoint::tcp(socks).unwrap(),
@@ -296,7 +313,7 @@ async fn closed_port() -> SocketAddr {
 fn an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes() {
     run(async {
         let (socks, requests) = fake_socks(vec![5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await;
-        let backend = system(socks, closed_port().await, ControlAuth::SafeCookie);
+        let backend = system(socks, closed_port().await, any_cookie());
         let target = key(9);
         let group = backend.isolation_group().unwrap();
         let mut stream = backend.connect_onion(&target, &group).await.unwrap();
@@ -320,11 +337,7 @@ fn an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes() {
 #[test]
 fn without_a_socks_endpoint_there_is_no_connection_at_all() {
     run(async {
-        let backend = system(
-            closed_port().await,
-            closed_port().await,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, closed_port().await, any_cookie());
         let group = backend.isolation_group().unwrap();
         assert_eq!(
             backend.connect_onion(&key(9), &group).await.err(),
@@ -344,7 +357,7 @@ fn backend_with(socks: SocketAddr) -> SystemTorBackend {
     SystemTorBackend::new(SystemTorConfig {
         socks: Endpoint::tcp(socks).unwrap(),
         control: Endpoint::tcp(socks).unwrap(),
-        auth: ControlAuth::SafeCookie,
+        auth: any_cookie(),
     })
 }
 
@@ -353,7 +366,7 @@ fn status_reports_a_ready_tor_and_sends_only_the_allowed_commands() {
     run(async {
         let control = FakeControl::start(Script::good()).await;
         let (socks, _) = fake_socks(vec![]).await;
-        let backend = system(socks, control.address, ControlAuth::SafeCookie);
+        let backend = system(socks, control.address, safecookie(&control));
         let status = backend.status().await;
         assert_eq!(status.readiness(), Readiness::Ready);
         assert!(matches!(
@@ -383,11 +396,7 @@ fn a_server_that_does_not_know_the_cookie_never_gets_the_client_hash() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         let status = backend.status().await;
         assert_eq!(status.control, ControlStatus::AuthenticationFailed);
         assert!(
@@ -408,11 +417,7 @@ fn authentication_follows_the_configuration_not_the_server() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         assert_eq!(
             backend.status().await.control,
             ControlStatus::AuthenticationUnavailable
@@ -430,11 +435,7 @@ fn authentication_follows_the_configuration_not_the_server() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         assert_eq!(
             backend.status().await.control,
             ControlStatus::AuthenticationUnavailable
@@ -467,11 +468,7 @@ fn an_old_tor_is_refused() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         assert!(matches!(
             backend.status().await.control,
             ControlStatus::UnsupportedVersion(_)
@@ -516,7 +513,7 @@ fn hostile_control_replies_fail_cleanly() {
             b"250-PROTOCOLINFO 1\r\n250-AUTH METHODS=SAFECOOKIE COOKIEFILE=\"/nonexistent/cookie\"\r\n250-VERSION Tor=\"0.4.9.13\"\r\n250 OK\r\n".to_vec(),
         ] {
             let control = FakeControl::start(Script { protocolinfo_override: Some(raw), ..Script::good() }).await;
-            let backend = system(closed_port().await, control.address, ControlAuth::SafeCookie);
+            let backend = system(closed_port().await, control.address, safecookie(&control));
             let status = tokio::time::timeout(Duration::from_secs(20), backend.status()).await.unwrap();
             assert!(
                 matches!(
@@ -535,11 +532,7 @@ fn hostile_control_replies_fail_cleanly() {
 fn a_published_service_is_owned_by_its_control_connection() {
     run(async {
         let control = FakeControl::start(Script::good()).await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
         assert_eq!(service.service_key(), &key(77));
         assert!(service.is_published());
@@ -598,11 +591,7 @@ fn losing_the_control_connection_unpublishes_the_service() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
         // The server closed right after the reply. Without any accept, the
         // handle already reports the service as gone.
@@ -658,11 +647,7 @@ fn malformed_add_onion_replies_publish_nothing() {
                 ..Script::good()
             })
             .await;
-            let backend = system(
-                closed_port().await,
-                control.address,
-                ControlAuth::SafeCookie,
-            );
+            let backend = system(closed_port().await, control.address, safecookie(&control));
             assert_eq!(
                 backend.publish_onion(KeySource::Generate).await.err(),
                 Some(expected),
@@ -678,11 +663,7 @@ fn malformed_add_onion_replies_publish_nothing() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         let service = backend
             .publish_onion(KeySource::Existing {
                 secret: OnionServiceSecret::from_bytes(&[1; 64]),
@@ -702,11 +683,7 @@ fn malformed_add_onion_replies_publish_nothing() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         assert_eq!(
             backend
                 .publish_onion(KeySource::Existing {
@@ -728,11 +705,7 @@ fn a_failed_del_onion_is_reported_and_the_service_still_ends() {
             ..Script::good()
         })
         .await;
-        let backend = system(
-            closed_port().await,
-            control.address,
-            ControlAuth::SafeCookie,
-        );
+        let backend = system(closed_port().await, control.address, safecookie(&control));
         let service = backend.publish_onion(KeySource::Generate).await.unwrap();
         assert_eq!(
             service.close().await.err(),
@@ -751,7 +724,7 @@ fn a_bootstrapping_tor_is_not_ready_and_a_filter_hides_progress() {
         })
         .await;
         let (socks, _) = fake_socks(vec![]).await;
-        let backend = system(socks, control.address, ControlAuth::SafeCookie);
+        let backend = system(socks, control.address, safecookie(&control));
         assert_eq!(
             backend.status().await.readiness(),
             Readiness::NotReady(Bootstrap::InProgress(25))
@@ -763,10 +736,29 @@ fn a_bootstrapping_tor_is_not_ready_and_a_filter_hides_progress() {
             ..Script::good()
         })
         .await;
-        let backend = system(socks, control.address, ControlAuth::SafeCookie);
+        let backend = system(socks, control.address, safecookie(&control));
         assert_eq!(
             backend.status().await.readiness(),
             Readiness::NotReady(Bootstrap::Unknown)
+        );
+    });
+}
+
+#[test]
+fn a_control_endpoint_that_names_another_cookie_file_is_refused() {
+    run(async {
+        // A server that wrote a cookie of its own and names it: it would
+        // pass SAFECOOKIE for that file. The configured file is another.
+        let control = FakeControl::start(Script::good()).await;
+        let backend = system(closed_port().await, control.address, any_cookie());
+        assert_eq!(
+            backend.status().await.control,
+            ControlStatus::AuthenticationFailed
+        );
+        assert_eq!(control.lines(), vec!["PROTOCOLINFO 1\r\n".to_owned()]);
+        assert_eq!(
+            backend.publish_onion(KeySource::Generate).await.err(),
+            Some(TorError::ControlAuthentication)
         );
     });
 }

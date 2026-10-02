@@ -13,23 +13,33 @@ use std::path::PathBuf;
 use crate::TorError;
 
 /// A local Tor endpoint: a loopback TCP address or a Unix socket.
+///
+/// The only ways to make one are the constructors below, which check the
+/// rule; the inside is private, so that no other code can build an
+/// endpoint that is not local. The connection code checks the rule again.
 #[derive(Clone, PartialEq, Eq)]
-pub enum Endpoint {
-    /// A TCP address on a loopback interface.
+pub struct Endpoint(pub(crate) EndpointKind);
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum EndpointKind {
     Tcp(SocketAddr),
-    /// A Unix domain socket, by absolute path.
     #[cfg(unix)]
     Unix(PathBuf),
+}
+
+/// The rule for a TCP endpoint: a loopback address and a real port.
+pub(crate) fn is_local(address: &SocketAddr) -> bool {
+    address.ip().is_loopback() && address.port() != 0
 }
 
 impl Endpoint {
     /// A TCP endpoint. Fails with [`TorError::Configuration`] unless the
     /// address is a loopback address.
     pub fn tcp(address: SocketAddr) -> Result<Self, TorError> {
-        if !address.ip().is_loopback() || address.port() == 0 {
+        if !is_local(&address) {
             return Err(TorError::Configuration);
         }
-        Ok(Self::Tcp(address))
+        Ok(Self(EndpointKind::Tcp(address)))
     }
 
     /// A Unix socket endpoint. Fails with [`TorError::Configuration`]
@@ -39,7 +49,7 @@ impl Endpoint {
         if !path.is_absolute() {
             return Err(TorError::Configuration);
         }
-        Ok(Self::Unix(path))
+        Ok(Self(EndpointKind::Unix(path)))
     }
 
     /// Parses `127.0.0.1:9050`, `[::1]:9050` or `unix:/run/tor/control`,
@@ -58,27 +68,37 @@ impl Endpoint {
 impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // A local endpoint is not secret; it is configuration.
-        match self {
-            Self::Tcp(address) => write!(f, "Tcp({address})"),
+        match &self.0 {
+            EndpointKind::Tcp(address) => write!(f, "Tcp({address})"),
             #[cfg(unix)]
-            Self::Unix(path) => write!(f, "Unix({})", path.display()),
+            EndpointKind::Unix(path) => write!(f, "Unix({})", path.display()),
         }
     }
 }
 
 /// How the control connection is authenticated.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlAuth {
-    /// SAFECOOKIE, with the cookie file that `PROTOCOLINFO` names. Used
-    /// with a Tor whose control endpoint the user configured; the cookie
-    /// file is read only after the endpoint has been reached at the
-    /// configured, local address.
-    SafeCookie,
+    /// SAFECOOKIE, with the cookie file of the Tor the user runs, such as
+    /// `/run/tor/control.authcookie` of a Debian system Tor.
+    ///
+    /// The path is configuration, not something the control endpoint says.
+    /// `PROTOCOLINFO` must name this same file, or the endpoint is refused
+    /// before any challenge: SAFECOOKIE proves only that the server knows
+    /// the file it names, and a process that took the endpoint while Tor
+    /// was down could name a file it wrote itself. The file must be one
+    /// that only Tor can write.
+    SafeCookie {
+        /// The absolute path of the cookie file.
+        cookie_file: PathBuf,
+    },
     /// No authentication: the endpoint is a filter that answers
     /// `AUTHENTICATE` itself and restricts the commands, such as
     /// onion-grater. Safe only when the platform provides the access
-    /// control around it. Chosen only by configuration, never because a
-    /// server offers `NULL`.
+    /// control around it, as the platform adapters of later phases do;
+    /// anything that can listen on the endpoint is otherwise taken for
+    /// Tor. Chosen only by configuration, never because a server offers
+    /// `NULL`.
     TrustedFilter,
 }
 

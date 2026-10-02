@@ -45,13 +45,18 @@ Options (Tor endpoints, never anything but loopback or a local socket):
   --socks <endpoint>          default 127.0.0.1:9050
   --control <endpoint>        default unix:/run/tor/control
   --control-auth <mode>       safecookie (default) or trusted-filter
+  --cookie-file <path>        default /run/tor/control.authcookie
 An endpoint is 127.0.0.1:<port>, [::1]:<port> or unix:<absolute path>.
+The cookie file must be the one Tor writes; the control endpoint has to
+name that same file. trusted-filter is only for a filtering control proxy
+whose access control the platform provides.
 
 No command ever prints a private key.";
 
 /// Default endpoints of a Debian system Tor (`TOR_INTEGRATION.md` section 7).
 const DEFAULT_SOCKS: &str = "127.0.0.1:9050";
 const DEFAULT_CONTROL: &str = "unix:/run/tor/control";
+const DEFAULT_COOKIE: &str = "/run/tor/control.authcookie";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -99,7 +104,8 @@ fn main() -> ExitCode {
 fn parse_options(args: &[String]) -> Result<(SystemTorConfig, Vec<String>), String> {
     let mut socks = DEFAULT_SOCKS.to_owned();
     let mut control = DEFAULT_CONTROL.to_owned();
-    let mut auth = ControlAuth::SafeCookie;
+    let mut trusted_filter = false;
+    let mut cookie = DEFAULT_COOKIE.to_owned();
     let mut words = Vec::new();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
@@ -111,10 +117,11 @@ fn parse_options(args: &[String]) -> Result<(SystemTorConfig, Vec<String>), Stri
         match arg.as_str() {
             "--socks" => socks = value()?,
             "--control" => control = value()?,
+            "--cookie-file" => cookie = value()?,
             "--control-auth" => {
-                auth = match value()?.as_str() {
-                    "safecookie" => ControlAuth::SafeCookie,
-                    "trusted-filter" => ControlAuth::TrustedFilter,
+                trusted_filter = match value()?.as_str() {
+                    "safecookie" => false,
+                    "trusted-filter" => true,
                     _ => return Err("--control-auth is safecookie or trusted-filter".to_owned()),
                 };
             }
@@ -124,6 +131,19 @@ fn parse_options(args: &[String]) -> Result<(SystemTorConfig, Vec<String>), Stri
     let socks = Endpoint::parse(&socks).map_err(|_| format!("invalid SOCKS endpoint {socks}"))?;
     let control =
         Endpoint::parse(&control).map_err(|_| format!("invalid control endpoint {control}"))?;
+    let cookie_file = std::path::PathBuf::from(cookie);
+    if !cookie_file.is_absolute() {
+        return Err("--cookie-file must be an absolute path".to_owned());
+    }
+    let auth = if trusted_filter {
+        eprintln!(
+            "monolith: warning: no control authentication; whatever listens on the control \
+             endpoint is taken for Tor"
+        );
+        ControlAuth::TrustedFilter
+    } else {
+        ControlAuth::SafeCookie { cookie_file }
+    };
     Ok((
         SystemTorConfig {
             socks,
@@ -219,7 +239,7 @@ async fn tor_status(config: SystemTorConfig) -> ExitCode {
 }
 
 async fn doctor(config: SystemTorConfig) -> ExitCode {
-    let auth = config.auth;
+    let auth = config.auth.clone();
     let status = SystemTorBackend::new(config).status().await;
     for line in describe(&status) {
         println!("{line}");
@@ -227,7 +247,7 @@ async fn doctor(config: SystemTorConfig) -> ExitCode {
     println!(
         "Tor authentication: {}",
         match auth {
-            ControlAuth::SafeCookie => "SAFECOOKIE",
+            ControlAuth::SafeCookie { .. } => "SAFECOOKIE",
             ControlAuth::TrustedFilter => "none, trusted filter (explicitly configured)",
         }
     );

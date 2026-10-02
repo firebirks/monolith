@@ -5,6 +5,8 @@ use core::task::{Context, Poll};
 use std::io;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+use crate::config::{EndpointKind, is_local};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -86,10 +88,25 @@ impl TorStream {
 
 /// Connects to a configured local endpoint. A TCP endpoint is a
 /// `SocketAddr` and a socket endpoint a path: there is no name to resolve.
+/// The rule an endpoint was made with is checked again here, so that no
+/// way of building one can lead to a connection that is not local.
 pub(crate) async fn connect(endpoint: &crate::Endpoint) -> io::Result<TorStream> {
-    match endpoint {
-        crate::Endpoint::Tcp(address) => TcpStream::connect(*address).await.map(TorStream::Tcp),
+    match &endpoint.0 {
+        EndpointKind::Tcp(address) => {
+            if !is_local(address) {
+                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+            }
+            // The one outbound TCP connection: to a loopback SocketAddr.
+            #[allow(clippy::disallowed_methods)]
+            let connected = TcpStream::connect(*address).await;
+            connected.map(TorStream::Tcp)
+        }
         #[cfg(unix)]
-        crate::Endpoint::Unix(path) => UnixStream::connect(path).await.map(TorStream::Unix),
+        EndpointKind::Unix(path) => {
+            if !path.is_absolute() {
+                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+            }
+            UnixStream::connect(path).await.map(TorStream::Unix)
+        }
     }
 }

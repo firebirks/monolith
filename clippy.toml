@@ -12,4 +12,17 @@ disallowed-methods = [
     { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "no local name resolution (S3)" },
     { path = "tokio::net::lookup_host", reason = "no local name resolution (S3)" },
     { path = "tokio::sync::mpsc::unbounded_channel", reason = "every channel is bounded (S12)" },
+    # Socket constructors take anything that converts to an address, a host
+    # name included. The two uses in monolith-tor pass a SocketAddr and are
+    # allowed where they are.
+    { path = "std::net::TcpStream::connect", reason = "sockets only in monolith-tor, from a SocketAddr (S1, S3)" },
+    { path = "std::net::TcpListener::bind", reason = "sockets only in monolith-tor, from a SocketAddr (S1, S3)" },
+    { path = "tokio::net::TcpStream::connect", reason = "sockets only in monolith-tor, from a SocketAddr (S1, S3)" },
+    { path = "tokio::net::TcpListener::bind", reason = "sockets only in monolith-tor, from a SocketAddr (S1, S3)" },
+]
+
+# Monolith sends no datagram: DNS and anything else over UDP stay out.
+disallowed-types = [
+    { path = "std::net::UdpSocket", reason = "no UDP (S1, S3)" },
+    { path = "tokio::net::UdpSocket", reason = "no UDP (S1, S3)" },
 ]

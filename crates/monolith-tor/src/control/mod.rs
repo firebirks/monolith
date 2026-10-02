@@ -37,13 +37,13 @@ pub(crate) struct ControlConnection {
 impl ControlConnection {
     /// Connects to the configured endpoint and authenticates, within
     /// `CONTROL_CONNECT_TIMEOUT`.
-    pub(crate) async fn open(endpoint: &Endpoint, auth: ControlAuth) -> Result<Self, TorError> {
+    pub(crate) async fn open(endpoint: &Endpoint, auth: &ControlAuth) -> Result<Self, TorError> {
         tokio::time::timeout(CONTROL_CONNECT_TIMEOUT, Self::open_inner(endpoint, auth))
             .await
             .map_err(|_| TorError::TimedOut)?
     }
 
-    async fn open_inner(endpoint: &Endpoint, auth: ControlAuth) -> Result<Self, TorError> {
+    async fn open_inner(endpoint: &Endpoint, auth: &ControlAuth) -> Result<Self, TorError> {
         let stream = connect(endpoint)
             .await
             .map_err(|_| TorError::ControlUnavailable)?;
@@ -55,16 +55,20 @@ impl ControlConnection {
         let info = parse_protocolinfo(&connection.command(&Command::ProtocolInfo).await?)?;
         connection.version = info.version;
         match auth {
-            ControlAuth::SafeCookie => {
+            ControlAuth::SafeCookie { cookie_file } => {
                 if !info.safecookie {
                     return Err(TorError::ControlAuthenticationUnavailable);
                 }
-                let path = info
+                // The endpoint must name the configured cookie file. Any
+                // other file could be one the endpoint wrote itself, which
+                // would let it pass SAFECOOKIE; nothing is read then.
+                let named = info
                     .cookie_file
                     .ok_or(TorError::ControlAuthenticationUnavailable)?;
-                // The endpoint is the configured local one; only now is a
-                // file it names read.
-                let cookie = read_cookie(&path)?;
+                if named != *cookie_file {
+                    return Err(TorError::ControlAuthentication);
+                }
+                let cookie = read_cookie(cookie_file)?;
                 let mut client_nonce = Zeroizing::new([0_u8; NONCE_LEN]);
                 getrandom::fill(client_nonce.as_mut_slice()).map_err(|_| TorError::Randomness)?;
                 let challenge = connection

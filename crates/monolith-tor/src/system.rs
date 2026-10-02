@@ -37,7 +37,7 @@ impl SystemTorBackend {
 
     async fn control_status(&self) -> ControlStatus {
         let mut control =
-            match ControlConnection::open(&self.config.control, self.config.auth).await {
+            match ControlConnection::open(&self.config.control, &self.config.auth).await {
                 Ok(control) => control,
                 Err(TorError::ControlUnavailable | TorError::TimedOut | TorError::ControlLost) => {
                     return ControlStatus::Unavailable;
@@ -117,7 +117,7 @@ impl TorBackend for SystemTorBackend {
     }
 
     async fn publish_onion(&self, key: KeySource) -> Result<PublishedOnionService, TorError> {
-        let mut control = ControlConnection::open(&self.config.control, self.config.auth).await?;
+        let mut control = ControlConnection::open(&self.config.control, &self.config.auth).await?;
         if control.version() < FEATURE_BASELINE {
             return Err(TorError::UnsupportedTorVersion);
         }
@@ -125,9 +125,10 @@ impl TorBackend for SystemTorBackend {
         // Onion Service is the only intended way in; the listener is
         // reachable by local processes, which is why every stream has to
         // pass the handshake.
-        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
-            .await
-            .map_err(|_| TorError::Listener)?;
+        // The one listener: on 127.0.0.1, from a SocketAddr.
+        #[allow(clippy::disallowed_methods)]
+        let bound = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).await;
+        let listener = bound.map_err(|_| TorError::Listener)?;
         let SocketAddr::V4(target) = listener.local_addr().map_err(|_| TorError::Listener)? else {
             return Err(TorError::Listener);
         };
