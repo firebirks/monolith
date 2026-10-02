@@ -627,3 +627,92 @@ Not a goal: unlinkability of identities that run in one process. They
 share Tor, presence and the process (`THREAT_MODEL.md` adversary S).
 Several identities are also not multi-device: one identity on several
 devices needs device keys and is separate later work.
+
+## 8. Credential binding review
+
+On 2026-10-02 the authentication binding of Phases 2 and 3 was reopened
+for six reported issues around rules F2 and F4. The session construction,
+`Noise_XK_25519_ChaChaPoly_SHA256`, was not reconsidered. Each claim was
+first checked against the code and tests of `phase-3-system-tor` at
+`fe5327c`; section 8.1 records the result before anything was changed.
+
+### 8.1 Verification of the reported issues
+
+A. Outbound admission uses a stale record. Confirmed.
+   `link::dial` (`crates/monolith-core/src/link.rs`) takes
+   `record: PeerRecord<'_>` as an argument, then awaits a dial slot
+   (`budgets.dial().await`), the Tor stream (`connect_onion`) and the
+   three handshake messages, and only then calls
+   `outbound.admit(record)`. The record is whatever the caller held when
+   it called `dial`: either a snapshot, or a borrow that keeps the
+   caller's contact state from changing for the whole dial. The session
+   layer itself is correct for a fresh record:
+   `a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session`
+   (`crates/monolith-session/src/tests/contacts.rs`) passes a newer
+   record to `OutboundPeer::admit` and gets `StaleCard`. No test drives
+   the same case through `link::dial`, and `dev.rs` passes the card it
+   dials as the record. `link::answer` is not affected: its lookup runs
+   after message 3, with no await before `admit`.
+
+B. A session keeps its standing after its transport key is superseded.
+   Confirmed. The standing of an `AuthenticatedSession` is fixed in
+   `AuthenticatedSession::new` and changes only through `block_peer`,
+   `remove_contact`, `close` or the end of the stream. Nothing tells an
+   open session that a newer card of its peer was recorded. F4 is applied
+   only at admission (`PeerRecord::admit`); `PROTOCOL.md` sections 6.2,
+   8.8 and 11.4 say nothing about sessions that are already open. A
+   session authenticated with the old key stays in
+   `AuthenticatedContact` and keeps delivering. The duplicate rule
+   (`crates/monolith-protocol/src/duplicate.rs`) looks at identities and
+   initiators only, so it could keep such a session over one made with
+   the new key. No code calls the duplicate rule yet.
+
+C. A local party can pair another identity's card with the local
+   transport key. Confirmed, narrowed. `LocalParty::new(card, transport)`
+   (`crates/monolith-session/src/key.rs`) checks that the card has no
+   capability and states the public half of `transport`. It never sees
+   the identity secret key, so it cannot check that the card is the local
+   identity's. A card signed by Mallory that names Bob's transport key is
+   accepted with Bob's transport secret: the test
+   `the_local_party_of_a_session_is_fixed_by_its_card`
+   (`crates/monolith-session/src/tests/handshake.rs`) builds exactly that
+   party. Such a party answers handshakes with Mallory's identity in the
+   prologue and Bob's key, and as an initiator presents Mallory's card
+   with Bob's key, which passes F3 at the peer. It is not reachable by a
+   peer: it needs local code to pair the wrong card with the key, and no
+   production path does so today (`dev.rs` signs its own card). The type
+   does not prevent it.
+
+D. A higher-epoch card replaces the accepted credential at once.
+   Confirmed. In `PeerRecord::admit`
+   (`crates/monolith-protocol/src/session.rs`) `CardChange::Newer` keeps
+   the standing of the record, and the caller records the card as the
+   newest held. From then on F4 compares every card with it, so the
+   previous transport key gets `StaleCard`. Nothing requires the newer
+   card to have come through a session made with the current key.
+   `a_newer_card_keeps_the_contact_and_is_reported_as_a_pending_change`
+   and `a_retired_key_is_refused_as_soon_as_the_successor_card_was_shown`
+   (`contacts.rs`) show both halves: whoever holds the identity key alone
+   can sign a card with a new transport key, be accepted as the contact,
+   and lock out the holder of the current key. `PROTOCOL.md` section 6.2
+   (table, first row with a record) and section 11.4 specify this.
+
+E. Simultaneous rotation deadlocks. Confirmed for the specified
+   procedure. `PROTOCOL.md` section 11.4: an identity that replaces its
+   transport key "answers only handshakes made with the new key", and
+   "until then the two can talk only when the identity dials". When both
+   sides switch before either successor card has reached the other, each
+   dials the other's old key and gets no reply. Nothing in the code
+   implements rotation; `LocalParty` holds one transport key.
+
+F. Per-contact cards with independent epochs. Confirmed.
+   `PROTOCOL.md` section 11.4 lists "endpoints given to one contact only.
+   This needs no extra field: epochs only have to increase as seen by each
+   receiver", and ADR 0001 says the same. Cards are bearer statements. A
+   card made for Carol with epoch 6 is, for Bob who holds epoch 5, a newer
+   card of the same identity under section 11.4. `THREAT_MODEL.md` and
+   item 15a of section 2 only say that the set model leaves room for such
+   endpoints, without the epoch claim.
+
+None of the claims was wrong. The changes that follow keep the wire
+format, the Noise pattern and suite, and the card layout.
