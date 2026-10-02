@@ -195,7 +195,11 @@ two contacts can still reach each other as long as one of the two Onion
 Services is reachable.
 
 When the budget for strangers is full and another one authenticates, the
-oldest that has not yet sent its message is closed.
+oldest that has not yet sent its message is closed. Until the application
+core of Phase 4, which sees every link, `link::answer` closes the newcomer
+instead, without sending anything. The deadlines of section 4 bound how
+long a slot is held: `UNKNOWN_FIRST_MESSAGE_TIMEOUT` for a stranger that
+sends nothing, and no longer than its first message for one that does.
 
 When the contact session budget is full, no further contact session is
 accepted or dialed until one ends. With more than 256 contacts online at the
@@ -529,8 +533,9 @@ session, only to a peer that stands for a contact (`PROTOCOL.md` section
 4.4).
 An accept loop survives listener errors such as too many open files: it
 pauses for `ACCEPT_BACKOFF` and goes on while the service is published. The policies that need contacts and
-rates (closing the oldest handshake, the rate buckets of section 6, the
-contact session budget) come with the application core of Phase 4. The
+rates (closing the oldest handshake, closing the oldest silent stranger
+for a new one, the rate buckets of section 6, the contact session budget)
+come with the application core of Phase 4. The
 session layer enforces what belongs to one stream: the message sizes, the
 handshake timeout, the frame ceiling of the state, and the session limits
 of section 3.
