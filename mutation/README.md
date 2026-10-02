@@ -52,13 +52,13 @@ stays the same fault.
 
 ## Expected results
 
-At the end of Phase 2 (`1337009` and later):
+With the credential binding review of Phase 3:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
 | Phase 1 | 45 | 43 | B3, B4 |
-| Phase 2 | 98 | 94 | S15, S24, CAP2, CAP3 |
-| Phase 3 | 34 | 31 | Q14, Q18, Q29 |
+| Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
+| Phase 3 | 55 | 52 | Q14, Q18, Q29 |
 
 The Phase 3 list covers the no-clearnet and Tor boundaries (onion address
 checks, SOCKS only, the onion name only, loopback endpoints and listener,
@@ -68,6 +68,18 @@ control connection, `DEL_ONION`), the budgets and deadlines of the core,
 and the checks the two Phase 3 reviews added (Q27 to Q32). For a fault in
 `monolith-identity` or `monolith-protocol` the tests of `monolith-tor` and
 `monolith-core` run as well.
+
+The credential binding review added CR1 to CR21, and K2 to K4 and H16 in
+the Phase 2 list. They cover the local party that only its own identity
+key can make (K2 to K4), outbound admission against the state of the
+moment and not of the dial (H16), a newer key without continuity, an
+announcement through another key, the promotion and the retired key, the
+pending card the user confirms or imported, a second statement at the
+successor's epoch (CR1 to CR9, CR20, CR21), the withdrawal of a session
+and a link and its end (CR10, CR12 to CR17, CR19), message 3 to a key
+the contact has left (CR18), and the duplicate rule with credentials
+(CR11). None is expected to survive. A doctest catches K4, so the runner
+names no failing test for it.
 
 No fault in authentication logic survives. The Phase 2 list covers each
 check that the two reviews of Phase 2 added: the grace after the age

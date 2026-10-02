@@ -5,7 +5,8 @@ This file describes work in progress on the branch `phase-3-system-tor`.
 It is removed when Phase 3 is closed; it does not belong on `main`.
 
 Branch: `phase-3-system-tor`, on top of `main` at `5ac8bdf`.
-Last commit of work before this file: `ea8e64e`.
+Last commit of work before this file: `ea8e64e`. Updated with the
+credential binding review of the same day (sections 2, 3, 6 and 6.0).
 
 ## 1. What Phase 3 is
 
@@ -48,6 +49,14 @@ Rules that hold until the phase is closed:
 - Contact cards and invitation capabilities, including P10 and P11:
   `docs/DESIGN_QUESTIONS.md` section 6, `docs/PROTOCOL.md` sections 12.2
   and 12.3. No wire change.
+- The credential binding review, reopened by the owner: F2 gets a
+  local-party half, F4 becomes successor credentials (active, authorized
+  successor, pending successor, retired), admission reads the contact
+  state after the handshake, sessions of a retired key are withdrawn, the
+  duplicate rule looks at credentials first, rotation keeps the old key
+  until the successor is promoted, and the per-contact endpoint claim is
+  withdrawn. `docs/DESIGN_QUESTIONS.md` section 8. No wire change; Noise
+  XK unchanged.
 - Several local identities as an architectural requirement:
   `docs/DESIGN_QUESTIONS.md` section 7, `docs/ARCHITECTURE.md` section
   1.1, invariants S39 to S46. No wire change, nothing implemented as a
@@ -75,6 +84,7 @@ Commits on the branch, oldest first:
 | `c7bf65e`, `a59895d`, `ea8e64e` | Mutation suite extended to Phase 3; a lock against two runs; a timed-out or stopped fault ends its test binaries. |
 | `98a1c7a` to `fa87ba2` | Contact card and capability semantics, with one card test. |
 | `950d8ea` to `90ac497` | Several local identities: documents, comments, structural tests. |
+| `3bc40c5` onwards | The credential binding review: verification of the reported issues, the local party, credential states, fresh admission, withdrawal, the duplicate rule, mutation faults, documents, the fixes of the two review passes (`docs/DESIGN_QUESTIONS.md` 8.4 lists the commits). |
 
 Note for the final report: `a11539a` also contains the Phase 3 list of
 `mutation/faults.py`, which was staged by mistake. It was not rewritten.
@@ -95,8 +105,15 @@ Where things are:
 
 ## 4. What was verified, and on which commit
 
-None of this is the final verification: code changed after most of it.
-Section 6.1 has to be run on the final commit.
+None of this is the final verification: code changed after all of it.
+Section 6.1 has to be run on the final commit. The credential review was
+checked on Windows with fmt, clippy, the tests of every crate but
+`monolith-tor`, a check on Rust 1.85.1, the fuzz build, the seeds of the
+three changed fuzz targets, 60 seconds of the new `credential_sequence`
+target, and two targeted runs of the changed and new mutation faults
+without the `monolith-tor` tests, all caught. The 8 `monolith-tor` system
+tests that fail on Windows fail the same way on `fe5327c`, before the
+review. None of this replaces section 6.1.
 
 | Check | Result | Run on |
 | --- | --- | --- |
@@ -107,7 +124,7 @@ Section 6.1 has to be run on the final commit.
 | `cargo deny check`, `cargo audit` | clean, 71 crates | before `98a1c7a` |
 | `cargo tree -d` | one pair: `rand_core` 0.9.5 (tests only) and 0.10.1 | before `98a1c7a` |
 | Mutation suite, all phases, 177 faults | stopped at 82; only expected survivors up to there | `a59895d`, intermediate |
-| Fuzz smoke run of the 13 targets | not run in Phase 3 | |
+| Fuzz smoke run of the 14 targets | not run in Phase 3 | |
 | Private Tor network test (T3-7) | not run: no `tor` or Chutney on the first machine | |
 | Measurements of `RESOURCE_LIMITS.md` 11.2 | measured | before `98a1c7a` |
 
@@ -142,6 +159,11 @@ Two independent security reviews were made of the Phase 3 code. Fixed:
 
 ## 6. What is left, in order
 
+### 6.0 Owner review of the credential binding review
+
+The reopened review stops for the owner's review with its report before
+anything below is run. Nothing of 6.1 to 6.3 counts until then.
+
 ### 6.1 Final verification on the final commit
 
     cargo fmt --all --check
@@ -155,10 +177,10 @@ Two independent security reviews were made of the Phase 3 code. Fixed:
     cargo tree -d
     cd fuzz && RUSTFLAGS="--cfg fuzzing" cargo +nightly check --bins --locked
 
-- Mutation suite: `python3 mutation/run.py all 3`. Expected: 177 faults,
+- Mutation suite: `python3 mutation/run.py all 3`. Expected: 199 faults,
   exit code 0, survivors only B3, B4, S15, S24, CAP2, CAP3, Q14, Q18 and
   Q29 (`mutation/README.md`). It takes well over an hour.
-- Fuzz smoke run of all 13 targets, 25 seconds each, as `fuzz/README.md`
+- Fuzz smoke run of all 14 targets, 25 seconds each, as `fuzz/README.md`
   describes. Then update its status paragraph, which still says "All
   eleven targets".
 - Seeds and vectors: `cargo test -p monolith-protocol --test fuzz_seeds`,

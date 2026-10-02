@@ -857,3 +857,32 @@ Not changed, and why:
   user imports another. Recommended: refuse a card whose epoch exceeds
   the held one by more than 2^48, which leaves room for the jump of 2^32
   that P3 proposes for a restored backup.
+
+### 8.4 Commits
+
+On `phase-3-system-tor`, after `fe5327c`, oldest first:
+
+| Commit | Content |
+| --- | --- |
+| `3bc40c5` | Section 8.1, the verification of the reported issues. |
+| `5e21a4f` | `LocalParty::issue`; no constructor takes a card (F2, half B). |
+| `994fa23` | `Credentials`: active, authorized, pending, retired. |
+| `2792aa7` | `PeerRecord` borrows the credentials; `Standing::PendingSuccessor`; admission functions in `link`. |
+| `5bb7fec` | Withdrawal of sessions and links of a retired key. |
+| `df3c79c` | The duplicate rule takes credential standing first. |
+| `df435b5` | Withdrawal checks reduced; the check before a wait came back in `3f8a28e`. |
+| `123c0c5` | Mutation faults K2 to K4, CR1 to CR15; P1 to P3, P12, L2, H14 to H16, Q26 follow the code. |
+| `7ea3f60` | The documents of the redesign. |
+| `ffa6513` | The per-contact endpoint claim corrected. |
+| `836cccc` | How the specification and the code relate. |
+| `799a6a8` | An imported card takes the place of a presented pending one. |
+| `e015156` | Fuzz target `credential_sequence`; withdrawal in `session_frames`; seeds. |
+| `13ef7bf` | A presented card does not displace an imported one; a second statement at the successor's epoch is a conflict. |
+| `b077017` | The outbound request capability from the record. |
+| `3f8a28e` | Admission before message 3; sticky withdrawal; the end of a link. |
+| `d7691ab` | Crossing dials of two rotations. |
+| `6ea04ac` | The documents of the fixes of section 8.3. |
+| `b1ce3a6` | Mutation faults CR16 to CR21; H13 to H16 and Q30 follow the code. |
+
+The commit that adds this table also brings `STATUS.md` and
+`mutation/README.md` up to date.
