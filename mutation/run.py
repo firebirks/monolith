@@ -127,7 +127,37 @@ def run_one(item, tree):
     }
 
 
+def lock_work():
+    """Refuses to start while another run uses the same copies: two runners
+    would restore each other's files and leave trees that do not build."""
+    os.makedirs(WORK, exist_ok=True)
+    lock = os.path.join(WORK, "lock")
+    try:
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        try:
+            other = int(open(lock).read().strip() or "0")
+            os.kill(other, 0)
+            log(f"another run (process {other}) uses {WORK}")
+            sys.exit(2)
+        except (ValueError, ProcessLookupError, PermissionError):
+            # The process that held the lock is gone.
+            os.remove(lock)
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(descriptor, str(os.getpid()).encode())
+    os.close(descriptor)
+    return lock
+
+
 def main():
+    lock = lock_work()
+    try:
+        run_main()
+    finally:
+        os.remove(lock)
+
+
+def run_main():
     phase = sys.argv[1]
     workers = int(sys.argv[2])
     only = set(sys.argv[3:])
