@@ -447,7 +447,7 @@ impl OutboundPeer {
         let admission = record.admit(&self.card)?;
         // A request to this peer carries the invitation of the card that
         // was dialed.
-        let invitation = self.card.invitation().copied();
+        let invitation = self.card.invitation().cloned();
         let (session, actions) =
             AuthenticatedSession::new(self.established, self.card, admission.standing, invitation)?;
         Ok((session, admission, actions))
@@ -493,7 +493,7 @@ impl InboundPeer {
         // to this peer carries the one in the card the user was given,
         // which is in the record.
         let invitation = match record {
-            PeerRecord::Requested(held) | PeerRecord::Accepted(held) => held.invitation().copied(),
+            PeerRecord::Requested(held) | PeerRecord::Accepted(held) => held.invitation().cloned(),
             PeerRecord::None | PeerRecord::Declined | PeerRecord::Blocked => None,
         };
         let (session, actions) =

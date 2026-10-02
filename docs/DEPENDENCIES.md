@@ -101,7 +101,7 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 | `x25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | X25519 for the session handshake | `static_secrets`, `zeroize`; no default features |
 | `chacha20poly1305` | 0.11.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the session cipher | `zeroize`; no default features |
 | `getrandom` | 0.3.4 | MIT OR Apache-2.0 | 1.63 | the random source of the operating system | none; no default features |
-| `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type | none; no default features |
+| `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type, and invitation capabilities | none; no default features |
 
 `ed25519-dalek`
 
@@ -242,8 +242,12 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 `zeroize`
 
 - Maintained by RustCrypto. Already in the tree through `ed25519-dalek`.
-- Used directly for one thing: the buffer that carries 32 random bytes
-  into a key type is wiped when it goes out of scope.
+- Used directly for two things. In `monolith-session`, the buffer that
+  carries 32 random bytes into a key type is wiped when it goes out of
+  scope. In `monolith-protocol`, an `InvitationCapability` overwrites its
+  bytes when it is dropped, through the `Zeroize` trait and a `Drop` impl
+  written by hand; the derive macros are not used, so the crate brings in
+  nothing else.
 - What it gives is best effort. It clears the memory a value occupies when
   the value is dropped. It does not reach copies the compiler made, and it
   is not a guarantee against every way a secret can stay in memory.

@@ -384,29 +384,32 @@ reduced values exists only in test builds of the session crate.
 | Chaining key | by Noise | one handshake | never | no | not by `snow` |
 | Handshake hash | by Noise | the session object; it is not a secret (PROTOCOL.md section 4) | never | one copy, into the session object | not erased |
 | Frame cipher keys | by Noise | one session: at most 24 hours, 48 with a file transfer, plus the grace of section 7 for receiving | never | no | when the session ends: on a violation, when a Close was received, when the local Close has been made, or when the stream is reported closed |
-| Invitation capability | by Monolith | until revoked | vault, and inside every card that carries it | yes: a plain value, copied with the cards that carry it | no |
+| Invitation capability | by Monolith | until revoked | vault, and inside every card that carries it | only by an explicit `clone`: with a card that carries it, and once into a session that sends a request with it | by its type on drop, every copy |
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
 
 Session keys and ephemeral keys are never written to storage. Types that
 hold a secret do not derive `Debug`.
 
-The invitation capability is not erased. It is a 16-byte value of a
-`Copy` type inside `ContactCard`, and cards are cloned freely. It is
-handed to the people the user invites, so it is not a secret of this
-device alone, but a copy left in freed memory would let a reader of that
-memory produce requests that pass the invitation check until the user
-revokes it. Giving it a type that is not `Copy` and erases itself would
-cover the copies Monolith makes; it would not reach the text form of
-cards the user has handed out. This is open for review; the
-recommendation is to make that change when the vault that stores
-capabilities is written, together with the card storage.
+The invitation capability is handed to the people the user invites, so it
+is not a secret of this device alone, but a copy left in freed memory
+would let a reader of that memory produce requests that pass the
+invitation check until the user revokes it. Its type is therefore not
+`Copy`. It is cloned only where an owner needs its own copy: a contact
+card that carries it is cloned where a session keeps the card that stands
+for its peer, and a session keeps the capability that a request to its
+peer carries. `Clone` is written out, not derived. Each value overwrites
+its 16 bytes when it is dropped. Monolith makes a best-effort attempt to
+erase invitation capabilities when their owners are dropped: the bytes a
+decoder read before they became a capability, copies the compiler made
+and the text form of cards the user handed out are not reached. The wire
+form is unchanged.
 
 Compromise of the identity key, the transport key or the Onion Service key
 does not reveal past sessions: after message 3 the keys depend on an
 exchange between two ephemeral keys.
 
-Erasure: Monolith's own types for private keys zeroize on drop; the
-invitation capability does not (above). So do the objects
+Erasure: Monolith's own types for private keys and for invitation
+capabilities zeroize on drop. So do the objects
 of the resolver that hold a key for `snow`: the copy of the transport
 private key, the ephemeral private key and the cipher keys are held in
 types that clear their memory when they are dropped (ADR 0002, F-R1). The

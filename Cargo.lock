@@ -253,6 +253,7 @@ dependencies = [
  "monolith-identity",
  "proptest",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]

@@ -67,7 +67,7 @@ impl Run {
         alice_holds_bob: Standing,
         bob_record: PeerRecord<'_>,
     ) -> Self {
-        let invitation = dialed.invitation().copied();
+        let invitation = dialed.invitation().cloned();
         let (outbound, inbound, _) = handshake_with(alice_party, &party(BOB), dialed).unwrap();
         let (alice, alice_first) = admit_outbound(outbound, alice_holds_bob);
         let (bob, admission, bob_first) = inbound.admit(bob_record).unwrap();
@@ -103,7 +103,7 @@ impl Run {
                     self.bob.send(&Message::ContactAccept, start()).unwrap()
                 }
                 (Action::SendContactRequest, Side::Alice) => {
-                    let request = request_with(self.alice_card.clone(), self.invitation);
+                    let request = request_with(self.alice_card.clone(), self.invitation.clone());
                     self.alice.send(&request, start()).unwrap()
                 }
                 (Action::SendContactRequest, Side::Bob) => self
@@ -583,7 +583,7 @@ fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
         handshake_with(&party(ALICE), &party(BOB), &card_inviting(BOB, given)).unwrap();
     let (mut alice, first) = admit_outbound(outbound, Standing::Requested);
     assert_eq!(first, vec![Action::SendContactRequest]);
-    for wrong in [other, None] {
+    for wrong in [other.clone(), None] {
         assert_eq!(
             alice.send(&request_with(card(ALICE), wrong), start()).err(),
             Some(SessionError::InvalidMessage)
@@ -592,7 +592,7 @@ fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
     let right = Some(InvitationCapability::from_bytes(given));
     assert!(
         alice
-            .send(&request_with(card(ALICE), right), start())
+            .send(&request_with(card(ALICE), right.clone()), start())
             .is_ok()
     );
 

@@ -22,6 +22,7 @@ use monolith_identity::{
     TransportPublicKey, base32,
 };
 use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::ProtocolError;
 use crate::codec::{Reader, Writer};
@@ -56,8 +57,40 @@ const TEXT_PREFIX: &str = "MONOLITH1:";
 /// timing difference exists on any compiler or hardware. The type has no
 /// `Hash` and no ordering: a capability is looked up by comparing it with
 /// each valid one.
-#[derive(Clone, Copy)]
+///
+/// A capability is a secret of the user who issued it and of the people it
+/// was handed to. The type is not `Copy`, so that no copy is made without a
+/// visible call, and its bytes are overwritten with zeros when a value is
+/// dropped. That is best effort: it does not reach copies the compiler
+/// made, the bytes a decoder read before they became a capability, or the
+/// text form of a card that was handed out.
 pub struct InvitationCapability([u8; INVITATION_CAPABILITY_LEN]);
+
+/// Written out instead of derived, so that every copy of a capability is
+/// made here. Two owners need one: a contact card that carries a capability
+/// is cloned where a session keeps the card that stands for its peer, and
+/// a session keeps its own copy of the capability that a request to its
+/// peer carries, because on an inbound session that comes from a card the
+/// caller only lends. Each copy is erased when it is dropped.
+impl Clone for InvitationCapability {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
+impl Zeroize for InvitationCapability {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
+
+impl Drop for InvitationCapability {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for InvitationCapability {}
 
 impl PartialEq for InvitationCapability {
     fn eq(&self, other: &Self) -> bool {
@@ -816,6 +849,34 @@ mod tests {
             other[index] ^= 0x80;
             assert_ne!(a, InvitationCapability::from_bytes(other), "byte {index}");
         }
+    }
+
+    #[test]
+    fn an_invitation_capability_is_erased_and_copied_only_on_purpose() {
+        let mut capability = InvitationCapability::from_bytes([0xC4; 16]);
+        let copy = capability.clone();
+        assert_eq!(copy, capability);
+        assert_eq!(copy.expose(), &[0xC4; 16]);
+
+        // Erasing one owner leaves the other as it was.
+        capability.zeroize();
+        assert_eq!(capability.expose(), &[0; 16]);
+        assert_eq!(copy.expose(), &[0xC4; 16]);
+
+        // Dropping erases. The memory of a dropped value cannot be read
+        // without unsafe code, so this checks that the type promises it.
+        fn erased_on_drop<T: ZeroizeOnDrop>() {}
+        erased_on_drop::<InvitationCapability>();
+
+        // The type is not Copy. If it were, both impls below would apply
+        // and the call would be ambiguous, which does not compile.
+        trait AmbiguousIfCopy<A> {
+            fn check() {}
+        }
+        impl<T> AmbiguousIfCopy<()> for T {}
+        impl<T: Copy> AmbiguousIfCopy<u8> for T {}
+        <InvitationCapability as AmbiguousIfCopy<_>>::check();
+        <ContactCard as AmbiguousIfCopy<_>>::check();
     }
 
     #[test]
