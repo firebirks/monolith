@@ -448,9 +448,9 @@ impl OutboundPeer {
     /// of another identity.
     pub fn admit(self, mut record: PeerRecord<'_>) -> Result<Admitted, SessionError> {
         let admission = record.admit(&self.card)?;
-        // A request to this peer carries the invitation of the card that
-        // was dialed.
-        let invitation = self.card.invitation().cloned();
+        // A request to this peer carries the invitation the user was given
+        // for it, which the record keeps (`docs/PROTOCOL.md` section 8.3).
+        let invitation = record.invitation().cloned();
         let (session, actions) =
             AuthenticatedSession::new(self.established, self.card, admission.standing, invitation)?;
         Ok((session, admission, actions))
