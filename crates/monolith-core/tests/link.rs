@@ -443,6 +443,8 @@ fn a_silent_peer_is_dropped_after_the_handshake_timeout() {
             let started = tokio::time::Instant::now();
             let result = answer(stream, &bob, |_| PeerRecord::None).await;
             assert_eq!(result.err(), Some(LinkError::TimedOut));
-            assert!(started.elapsed() >= monolith_protocol::limits::HANDSHAKE_TIMEOUT);
+            let timeout = monolith_protocol::limits::HANDSHAKE_TIMEOUT;
+            assert!(started.elapsed() >= timeout);
+            assert!(started.elapsed() <= timeout + Duration::from_secs(1));
         });
 }
