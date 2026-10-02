@@ -1156,8 +1156,11 @@ the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
    active card and the previous key is retired.
 5. No continuity. A newer card with another key that is presented in a
    handshake without an announcement, or imported by hand for an accepted
-   contact, becomes the pending successor. The session it came with is not
-   a contact session. It becomes the active card only when the user
+   contact, becomes the pending successor. A presented card replaces a
+   pending one only with a greater epoch; an imported card replaces it
+   whatever its epoch, so that a card planted by whoever copied the
+   identity key cannot keep the user's own out. The session it came with
+   is not a contact session. It becomes the active card only when the user
    confirms exactly that card; the previous key is then retired as in 4.
 6. Requests. For an identity held as requested and not yet accepted, a
    card the user imports by hand is the user's choice of the card to use
@@ -1172,7 +1175,8 @@ the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
 
 The state is bounded: one active card, one authorized and one pending
 successor, one retired key per contact. A newer announcement replaces the
-authorized successor; a pending card is replaced only by a newer one.
+authorized successor; a pending card is replaced by a newer presented one
+or by any imported one.
 Promotion clears the authorized successor and drops a pending card that is
 not newer than the new active card.
 

@@ -748,7 +748,10 @@ C-D (F4). `Credentials` holds per contact the active card, an authorized
     active card; where to dial stays the user's decision and never changes
     which key is trusted. Manual import: for a requested contact the card
     replaces the held one (P10); for an accepted contact a new key is only
-    pending, and confirming it is a separate action. A card stating the
+    pending, in place of any pending card a peer presented, and confirming
+    it is a separate action. The continuity rules apply to requested
+    contacts as well: the card the user imported is their active card, and
+    a new key presented in a handshake is pending there too. A card stating the
     retired key never opens a contact session again.
 
 C-A (fresh admission). `link::dial` and `link::answer` take an admission

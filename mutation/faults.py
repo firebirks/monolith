@@ -625,7 +625,7 @@ PHASE3 = [
     fault("CR8", PR + "credential.rs", "a pending successor other than the one shown is confirmed",
           ("            Some(pending) if same_statement(pending, card) => {}", "            Some(_) => {}")),
     fault("CR9", PR + "credential.rs", "an import for an accepted contact replaces the key",
-          ("        self.hold_pending(card);\n        Ok(CredentialChange::Pending)",
+          ("        self.pending = Some(card);\n        self.prune();\n        Ok(CredentialChange::Pending)",
            "        self.promote(card);\n        Ok(CredentialChange::Promoted)")),
     fault("CR10", PR + "session.rs", "a withdrawn session keeps its standing and stays open",
           ("    pub fn withdraw(&mut self) -> Vec<Action> {\n        self.standing = Standing::StaleCard;\n        self.close()",

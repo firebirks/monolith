@@ -345,10 +345,13 @@ impl Credentials {
     /// An import is not a key change. A newer card with the active key is
     /// `Advanced`: the endpoints it states are the user's choice of where
     /// to connect. A newer card with another key is held as the pending
-    /// successor (`Pending`); the key takes over only through
-    /// [`Self::confirm`], a separate decision about the key itself. A card
-    /// with the key of the authorized successor changes nothing: that key
-    /// takes over when it is proven. The capability of an accepted contact
+    /// successor (`Pending`), in place of any pending card, whatever its
+    /// epoch: what the user brought in counts more than what a peer
+    /// presented, so a pending card from someone who copied the identity
+    /// key cannot keep the user's own card out. The key takes over only
+    /// through [`Self::confirm`], a separate decision about the key itself.
+    /// A card with the key of the authorized successor changes nothing:
+    /// that key takes over when it is proven. The capability of an accepted contact
     /// is not used and does not change. An older or contradicting card, or
     /// one with the retired key, changes nothing.
     ///
@@ -376,7 +379,8 @@ impl Credentials {
         {
             return Ok(CredentialChange::Unchanged);
         }
-        self.hold_pending(card);
+        self.pending = Some(card);
+        self.prune();
         Ok(CredentialChange::Pending)
     }
 
@@ -876,6 +880,31 @@ mod tests {
             credentials.import(alice(T1, 1)),
             Ok(CredentialChange::Stale)
         );
+        check(&credentials);
+    }
+
+    #[test]
+    fn a_pending_card_of_a_peer_does_not_keep_out_the_users_own() {
+        // Whoever copied the identity key presents a card with a huge
+        // epoch. The user later imports the card Alice handed over out of
+        // band, with a lower epoch, and confirms it.
+        let mut credentials = Credentials::new(alice(T1, 1));
+        let planted = alice(T3, u64::MAX);
+        assert_eq!(credentials.admit(&planted), Ok(CredentialChange::Pending));
+        assert_eq!(
+            credentials.import(alice(T2, 2)),
+            Ok(CredentialChange::Pending)
+        );
+        assert_eq!(credentials.pending_successor(), Some(&alice(T2, 2)));
+        assert_eq!(
+            credentials.confirm(&planted),
+            Err(ProtocolError::InvalidValue)
+        );
+        assert_eq!(
+            credentials.confirm(&alice(T2, 2)),
+            Ok(CredentialChange::Promoted)
+        );
+        assert_eq!(credentials.active(), &alice(T2, 2));
         check(&credentials);
     }
 
