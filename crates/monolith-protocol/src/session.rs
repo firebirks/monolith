@@ -598,6 +598,16 @@ impl Session {
         self.close()
     }
 
+    /// The transport key this session was authenticated with is no longer
+    /// the active one of the peer: a successor took over while the session
+    /// was open ([`CredentialChange::Promoted`]). The session loses its
+    /// standing and ends. Nothing it receives afterwards is delivered. The
+    /// peer sees the same Close as for any other end of a session.
+    pub fn withdraw(&mut self) -> Vec<Action> {
+        self.standing = Standing::StaleCard;
+        self.close()
+    }
+
     /// The stream is gone, for whatever reason.
     pub fn stream_closed(&mut self) {
         self.state = SessionState::Closed;
@@ -1595,6 +1605,30 @@ mod tests {
                 Err(ProtocolError::InvalidValue)
             );
         }
+    }
+
+    #[test]
+    fn a_withdrawn_session_ends_and_delivers_nothing() {
+        let (mut session, _) = authenticated(Standing::Accepted);
+        session.receive(&Message::ContactAccept).unwrap();
+        assert_eq!(session.state(), SessionState::AuthenticatedContact);
+        assert_eq!(session.withdraw(), vec![Action::SendClose]);
+        assert_eq!(session.standing(), Standing::StaleCard);
+        assert_eq!(session.state(), SessionState::Closing);
+        for message_type in MessageType::ALL {
+            assert_eq!(session.receive(&from_peer(message_type)), Ok(Vec::new()));
+            assert_eq!(
+                session.may_send(message_type),
+                message_type == MessageType::Close
+            );
+        }
+        // Before confirmation as well.
+        let (mut session, _) = authenticated(Standing::Requested);
+        assert_eq!(session.withdraw(), vec![Action::SendClose]);
+        assert_eq!(
+            session.receive(&from_peer(MessageType::ChatMessage)),
+            Ok(Vec::new())
+        );
     }
 
     #[test]

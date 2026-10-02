@@ -511,6 +511,19 @@ impl AuthenticatedSession {
         self.close_frame()
     }
 
+    /// The transport key this session was authenticated with is no longer
+    /// the active credential of the peer: a successor took over
+    /// (`Credentials::authorizes` in the protocol crate is false for
+    /// [`Self::peer_card`]). The session loses its standing and ends:
+    /// nothing it receives afterwards is delivered, nothing but this Close
+    /// is sent. The peer sees the same Close as for any other end of a
+    /// session.
+    #[must_use]
+    pub fn withdraw(&mut self) -> Option<Vec<u8>> {
+        let _ = self.logic.withdraw();
+        self.close_frame()
+    }
+
     fn close_frame(&mut self) -> Option<Vec<u8>> {
         if self.failed || self.close_sent || self.logic.state() != SessionState::Closing {
             return None;

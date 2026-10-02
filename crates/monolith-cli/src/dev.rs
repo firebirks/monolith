@@ -134,13 +134,15 @@ pub(crate) async fn serve(config: SystemTorConfig, own_card: &str, peer_card: &s
         Ok(card) => card,
         Err(code) => return code,
     };
+    // The only contact of this run. Its key never changes here, so the
+    // withdrawal of the session is not used.
     let mut held = Credentials::new(peer.clone());
     let result = async {
         let stream = tokio::time::timeout(ACCEPT_WAIT, service.accept())
             .await
             .map_err(|_| LinkError::TimedOut)?
             .map_err(LinkError::Tor)?;
-        let mut established = answer(stream, &Budgets::new(), &local, |inbound| {
+        let mut established = answer(stream, &Budgets::new(), &local, |inbound, _| {
             if inbound.card().identity() == peer.identity() {
                 inbound.admit(PeerRecord::Accepted(&mut held))
             } else {
@@ -194,7 +196,7 @@ pub(crate) async fn dial(
             &local,
             &peer,
             &isolation,
-            |outbound| outbound.admit(PeerRecord::Accepted(&mut held)),
+            |outbound, _| outbound.admit(PeerRecord::Accepted(&mut held)),
         )
         .await?;
         confirm(&mut established).await?;
