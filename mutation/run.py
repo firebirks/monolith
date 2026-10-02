@@ -16,6 +16,7 @@ import concurrent.futures
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -29,6 +30,11 @@ WORK = os.path.join(HERE, "work")
 TIMEOUT = 1200
 
 print_lock = threading.Lock()
+
+# The cargo processes that run now. Each runs in a process group of its
+# own, so that the test binaries it starts can be ended with it.
+running = set()
+running_lock = threading.Lock()
 
 
 def log(text):
@@ -71,16 +77,36 @@ def cargo_test(tree, crates):
     for crate in crates:
         command += ["-p", crate]
     env = dict(os.environ, CARGO_TERM_COLOR="never")
+    process = subprocess.Popen(
+        command,
+        cwd=tree,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    with running_lock:
+        running.add(process)
     try:
-        done = subprocess.run(
-            command, cwd=tree, env=env, capture_output=True, text=True, timeout=TIMEOUT
-        )
-        return done.returncode, done.stdout + done.stderr, False
-    except subprocess.TimeoutExpired as expired:
-        out = (expired.stdout or b"") + (expired.stderr or b"")
-        if isinstance(out, bytes):
-            out = out.decode(errors="replace")
-        return None, out, True
+        out, err = process.communicate(timeout=TIMEOUT)
+        return process.returncode, out + err, False
+    except subprocess.TimeoutExpired:
+        # Killing cargo alone would leave the test binary it started
+        # running beside the next fault.
+        kill_group(process)
+        out, err = process.communicate()
+        return None, (out or "") + (err or ""), True
+    finally:
+        with running_lock:
+            running.discard(process)
+
+
+def kill_group(process):
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def classify(code, output, timed_out):
@@ -151,6 +177,18 @@ def lock_work():
 
 def main():
     lock = lock_work()
+
+    def stop(number, _frame):
+        # A runner that is stopped ends the tests it started and frees
+        # the copies; the worker threads end with the process.
+        with running_lock:
+            for process in running:
+                kill_group(process)
+        os.remove(lock)
+        os._exit(128 + number)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     try:
         run_main()
     finally:
