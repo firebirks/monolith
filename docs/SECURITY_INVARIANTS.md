@@ -223,7 +223,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Tests: T-CONFIRM-1, T-ORACLE-1 to T-ORACLE-8 (the cases cannot be told
   apart by what is sent; equal timing is not claimed), T-BLOCK-1,
   `tests::contacts` (what one side writes is byte for byte the same in
-  every such case).
+  every such case), fuzz target `handshake_responder` (the handshake ends
+  the same way under every record, and a stranger or a blocked identity
+  gets only a Close).
 
 ### S24. No protocol operation answers questions about other peers
 
@@ -275,7 +277,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   `monolith-core`.
 - Tests: `message::tests`, T-PROTO-STATE (arbitrary event sequences in the
   property tests and in the `session_sequence` fuzz target), `tests::frames`
-  (a chat message before confirmation, sent and received).
+  (a chat message before confirmation, sent and received), fuzz target
+  `handshake_responder` (nothing is delivered before confirmation, under
+  every record the responder can hold).
 
 ### S26. The parser never buffers an attacker-controlled amount of data
 
@@ -440,7 +444,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   no function that sets them. There is no rekey and no way to reset a
   counter; a new session is a new handshake.
 - Tests: T-LIMIT (`tests::frames` with reduced limits, the property test
-  that a session never sends more than its limits).
+  that a session never sends more than its limits), fuzz target
+  `session_frames` with the age limit of the protocol (from the limit on
+  nothing but Close is sent, and a frame after the grace is a violation).
 
 ## Platform
 

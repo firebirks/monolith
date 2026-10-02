@@ -33,8 +33,9 @@ pub const EPHEMERAL_R: [u8; 32] = [0x22; 32];
 
 static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
-/// The moment every session of a target begins. Targets never let time
-/// pass, so no timeout and no age limit is reached.
+/// The moment every session of a target begins. The handshake targets
+/// never let time pass, so no timeout and no age limit is reached there.
+/// The frame target keeps a clock of its own that starts here.
 pub fn start() -> Instant {
     *START
 }

@@ -355,9 +355,9 @@ Targets in `fuzz/`:
 | `frame_stream` | byte stream split at arbitrary points | exists |
 | `text_fields` | bytes, against every text type and the save-name suggestion | exists |
 | `session_sequence` | sequence of messages and local events against a session | exists |
-| `handshake_responder` | a stream from an initiator, raw or the genuine one with damage | exists |
+| `handshake_responder` | a stream from an initiator, raw or the genuine one with damage, under each record the responder can hold of the initiator | exists |
 | `handshake_initiator` | a stream from a responder, raw or the genuine one with damage | exists |
-| `session_frames` | operations on two connected sessions: send, deliver, change, drop, repeat, inject, close | exists |
+| `session_frames` | operations on two connected sessions: send, deliver, change, drop, repeat, inject, close, block, remove, stream closed, time passing | exists |
 | `socks_reply`, `control_reply` | bytes | with the Tor backend |
 | `vault_header` | bytes | with storage |
 

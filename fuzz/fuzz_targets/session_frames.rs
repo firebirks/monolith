@@ -1,6 +1,7 @@
 //! Encrypted frames on a confirmed session: a message is delivered only if
 //! the peer sent it, once, in the order it was sent, and nothing is
-//! delivered from a stream that was dropped from, added to or changed.
+//! delivered from a stream that was dropped from, added to or changed, on
+//! a session that has ended, or after the age limit and its grace.
 //!
 //! Two sessions between the fixed parties are connected and confirmed.
 //! The input is a list of operations on them. Its first byte selects the
@@ -16,23 +17,40 @@
 //! | 8, 9 | the next frame to Bob or to Alice is delivered twice | |
 //! | 10, 11 | bytes that nobody sent arrive at Bob or at Alice | length, then that many bytes |
 //! | 12, 13 | Alice or Bob closes the session | |
+//! | 14, 15 | time passes: hours, or seconds | how many |
+//! | 16, 17 | Alice or Bob blocks the peer | |
+//! | 18, 19 | Alice or Bob removes the contact | |
+//! | 20, 21 | the stream of Alice or of Bob is reported closed | |
 //!
-//! The target keeps its own account of what was sent and of which
-//! direction was interfered with, and compares every delivery with it.
+//! The target keeps its own account of what was sent, of which direction
+//! was interfered with and of the time that has passed, and compares every
+//! result with it. The age limit and the grace are written out here and
+//! not taken from the code.
 
 #![no_main]
 
 mod session_fixtures;
 
 use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use libfuzzer_sys::fuzz_target;
-use monolith_protocol::SessionState;
 use monolith_protocol::body::{Message, MessageId};
-use monolith_protocol::session::{Action, PeerRecord};
+use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
+use monolith_protocol::{ProtocolError, SessionState};
 use monolith_session::{AuthenticatedSession, SessionError};
 use session_fixtures::{ALICE, BOB, card, handshake, start};
+
+/// The age at which a session sends nothing but Close
+/// (`docs/PROTOCOL.md` section 7.1).
+const AGE_LIMIT: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// How long after the age limit a frame of the peer is still taken.
+const CLOSE_GRACE: Duration = Duration::from_secs(120);
+
+/// The clock of the target stops here, far past every limit.
+const CLOCK_END: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// One direction of the stream, as the target sees it.
 #[derive(Default)]
@@ -47,6 +65,17 @@ struct Direction {
     /// changed, or foreign bytes arrived. Nothing may be delivered from
     /// this direction afterwards.
     interfered: bool,
+    /// The receiver of this direction reported a violation. Its session
+    /// is over.
+    failed: bool,
+}
+
+/// The ways the local side ends a session on purpose.
+#[derive(Clone, Copy)]
+enum End {
+    Close,
+    Block,
+    Remove,
 }
 
 struct World {
@@ -55,6 +84,8 @@ struct World {
     to_bob: Direction,
     to_alice: Direction,
     piece: usize,
+    /// The time that has passed since both sessions were established.
+    elapsed: Duration,
 }
 
 fn rank(state: SessionState) -> u8 {
@@ -86,7 +117,12 @@ impl World {
             to_bob: Direction::default(),
             to_alice: Direction::default(),
             piece,
+            elapsed: Duration::ZERO,
         }
+    }
+
+    fn now(&self) -> Instant {
+        start() + self.elapsed
     }
 
     /// The sender, the receiver and the direction between them.
@@ -106,6 +142,8 @@ impl World {
     }
 
     fn send(&mut self, from_bob: bool, selector: u8) {
+        let now = self.now();
+        let aged = self.elapsed >= AGE_LIMIT;
         let (sender, _, direction) = self.parts(from_bob);
         // Bodies of one to three padding blocks.
         let len = 1 + usize::from(selector) * 11;
@@ -113,11 +151,15 @@ impl World {
             id: MessageId::from_bytes([selector; 16]),
             text: ChatText::new(&"m".repeat(len)).unwrap(),
         };
-        match sender.send(&message, start()) {
+        match sender.send(&message, now) {
             Ok(frame) => {
+                // Nothing but Close is sent at the age limit.
+                assert!(!aged);
                 direction.in_flight.push_back(frame);
                 direction.sent.push(message);
             }
+            // The session is as it was and refuses for its age alone.
+            Err(SessionError::Expired) => assert!(aged),
             // After a Close, or after the session failed.
             Err(error) => assert!(matches!(
                 error,
@@ -126,27 +168,73 @@ impl World {
         }
     }
 
-    fn close(&mut self, bob: bool) {
+    /// One side ends its session on purpose. The peer sees the same Close
+    /// whatever the reason was.
+    fn end(&mut self, bob: bool, how: End) {
         let (sender, _, direction) = self.parts(bob);
-        if let Some(frame) = sender.close() {
+        let state = sender.state();
+        let standing = sender.standing();
+        let frame = match how {
+            End::Close => sender.close(),
+            End::Block => sender.block_peer(),
+            End::Remove => sender.remove_contact(),
+        };
+        // A Close is produced exactly when the session was still open,
+        // also past the age limit.
+        assert_eq!(frame.is_some(), state == SessionState::AuthenticatedContact);
+        if let Some(frame) = frame {
             assert_eq!(frame.len(), 1042);
             direction.in_flight.push_back(frame);
             direction.sent.push(Message::Close);
         }
         assert!(sender.close().is_none());
         assert!(rank(sender.state()) >= rank(SessionState::Closing));
+        assert!(rank(sender.state()) >= rank(state));
+        let expected = match how {
+            End::Close => standing,
+            End::Block => Standing::Blocked,
+            End::Remove => Standing::None,
+        };
+        assert_eq!(sender.standing(), expected);
+    }
+
+    /// The stream of one side is gone. Its session is over without a
+    /// Close, and nothing is sent on it afterwards.
+    fn stream_closed(&mut self, bob: bool) {
+        let now = self.now();
+        let (session, _, _) = self.parts(bob);
+        session.stream_closed();
+        assert_eq!(session.state(), SessionState::Closed);
+        assert!(session.close().is_none());
+        assert_eq!(
+            session.send(&Message::Ping([0; 8]), now).err(),
+            Some(SessionError::Closed)
+        );
+    }
+
+    /// Time passes. That alone changes no state; a session that is open
+    /// reports that its limit is reached from the age limit on.
+    fn advance(&mut self, step: Duration) {
+        self.elapsed = self.elapsed.saturating_add(step).min(CLOCK_END);
+        let now = self.now();
+        let aged = self.elapsed >= AGE_LIMIT;
+        for session in [&self.alice, &self.bob] {
+            assert_eq!(session.limit_reached(now), aged);
+        }
     }
 
     /// Gives bytes to the receiver of a direction and checks what comes
     /// out against the account of that direction.
     fn arrive(&mut self, to_alice: bool, bytes: &[u8]) {
         let piece = self.piece;
+        let now = self.now();
+        let overdue = self.elapsed >= AGE_LIMIT + CLOSE_GRACE;
         let (_, receiver, direction) = self.parts(to_alice);
         for chunk in bytes.chunks(piece) {
             let mut rest = chunk;
             while !rest.is_empty() {
                 let before = receiver.state();
-                let result = receiver.receive(rest, start());
+                let result = receiver.receive(rest, now);
                 assert!(rank(receiver.state()) >= rank(before));
                 match result {
                     Ok((used, received)) => {
@@ -156,9 +244,11 @@ impl World {
                             continue;
                         };
                         // Delivered: then the stream was not interfered
-                        // with, and this is the next message that was
-                        // sent, once.
+                        // with, the frame arrived in time, and this is the
+                        // next message that was sent, once.
                         assert!(!direction.interfered);
+                        assert!(!direction.failed);
+                        assert!(!overdue);
                         assert_eq!(before, SessionState::AuthenticatedContact);
                         assert_eq!(
                             Some(&received.message),
@@ -173,18 +263,27 @@ impl World {
                         assert_eq!(received.actions, [expected]);
                     }
                     Err(error) => {
-                        // A violation is possible only on a stream that
-                        // was interfered with: both ends follow the rules.
-                        // A session that failed earlier reports that it
-                        // is closed.
-                        assert!(direction.interfered);
-                        assert!(matches!(
-                            error,
-                            SessionError::Protocol(_) | SessionError::Closed
-                        ));
+                        // Both ends follow the rules, so a violation has
+                        // one of two causes: a frame that arrived after
+                        // the age limit and its grace, or a stream that
+                        // was interfered with. A session that failed
+                        // earlier reports that it is closed.
+                        match error {
+                            SessionError::Closed => assert!(direction.failed),
+                            SessionError::Protocol(ProtocolError::SessionExpired) => {
+                                assert!(overdue);
+                                assert!(!direction.failed);
+                            }
+                            SessionError::Protocol(_) => {
+                                assert!(direction.interfered);
+                                assert!(!direction.failed);
+                            }
+                            other => panic!("{other:?}"),
+                        }
+                        direction.failed = true;
                         assert_eq!(receiver.state(), SessionState::Closed);
                         assert_eq!(
-                            receiver.receive(&[0], start()).err(),
+                            receiver.receive(&[0], now).err(),
                             Some(SessionError::Closed)
                         );
                         return;
@@ -248,7 +347,7 @@ fuzz_target!(|data: &[u8]| {
     while let Some((operation, tail)) = rest.split_first() {
         rest = tail;
         let second = operation % 2 == 1;
-        match (operation % 14) / 2 {
+        match (operation % 22) / 2 {
             0 => {
                 let Some((selector, tail)) = rest.split_first() else {
                     return;
@@ -279,13 +378,22 @@ fuzz_target!(|data: &[u8]| {
                 rest = tail;
                 world.inject(second, bytes);
             }
-            _ => world.close(second),
+            6 => world.end(second, End::Close),
+            7 => {
+                let Some((amount, tail)) = rest.split_first() else {
+                    return;
+                };
+                rest = tail;
+                let seconds = if second {
+                    u64::from(*amount)
+                } else {
+                    u64::from(*amount) * 60 * 60
+                };
+                world.advance(Duration::from_secs(seconds));
+            }
+            8 => world.end(second, End::Block),
+            9 => world.end(second, End::Remove),
+            _ => world.stream_closed(second),
         }
-    }
-
-    // In a direction nobody interfered with, what was delivered is exactly
-    // the front of what was sent.
-    for direction in [&world.to_bob, &world.to_alice] {
-        assert!(direction.delivered <= direction.sent.len());
     }
 });
