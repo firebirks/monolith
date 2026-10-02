@@ -5,6 +5,10 @@ allow-indexing-slicing-in-tests = true
 
 # Ed25519 verification is always strict (docs/CRYPTOGRAPHY.md section 10).
 # The lenient method of the signature trait is not called.
+# Nothing is resolved locally: Tor receives onion names itself, and every
+# local endpoint is an address or a socket path (invariant S3).
 disallowed-methods = [
     { path = "signature::Verifier::verify", reason = "use IdentityPublicKey::verify, which verifies strictly" },
+    { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "no local name resolution (S3)" },
+    { path = "tokio::net::lookup_host", reason = "no local name resolution (S3)" },
 ]
