@@ -693,6 +693,49 @@ fn strangers_beyond_the_unknown_session_budget_are_closed() {
 }
 
 #[test]
+fn a_stranger_takes_a_slot_whatever_the_admission_returned_says() {
+    // Bob admits a stranger and returns an admission that says the peer
+    // is accepted. The slot follows the standing of the session.
+    run(async {
+        let network = MockNetwork::new();
+        let backend = network.backend();
+        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
+        let bob = party(2, *service.service_key());
+        let bob_card = bob.card().clone();
+        let budgets = Budgets::new();
+        let stranger = party(30, *service.service_key());
+        let isolation = backend.isolation_group().unwrap();
+        let bob_side = async {
+            let stream = service.accept().await.unwrap();
+            answer(stream, &budgets, &bob, |peer, _| {
+                let (session, mut admission, first) = peer.admit(PeerRecord::None)?;
+                admission.standing = Standing::Accepted;
+                Ok((session, admission, first))
+            })
+            .await
+        };
+        let stranger_side = dial(
+            &backend,
+            fresh(),
+            &stranger,
+            &bob_card,
+            &isolation,
+            |peer, _| {
+                let mut held = Credentials::new(peer.card().clone());
+                peer.admit(PeerRecord::Requested(&mut held))
+            },
+        );
+        let (_, answered) = futures_join(stranger_side, bob_side).await;
+        let established = answered.unwrap();
+        assert!(established.link.holds_unknown_slot());
+        assert_eq!(
+            budgets.free_unknown_sessions(),
+            monolith_protocol::limits::MAX_UNKNOWN_SESSIONS - 1
+        );
+    });
+}
+
+#[test]
 fn listener_errors_do_not_end_the_accept_loop() {
     run(async {
         let network = MockNetwork::new();

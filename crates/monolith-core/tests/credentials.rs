@@ -902,6 +902,23 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
 }
 
 #[test]
+fn message_3_follows_the_standing_of_the_session_not_the_admission_returned() {
+    // The admission function admits Bob as a stranger and returns an
+    // admission that says otherwise. The dial reads the standing from the
+    // session: no message 3.
+    run(async {
+        let (result, reached) = dial_bob(&Budgets::new(), |_, peer, _| {
+            let (session, mut admission, first) = peer.admit(PeerRecord::None)?;
+            admission.standing = Standing::Accepted;
+            Ok((session, admission, first))
+        })
+        .await;
+        assert_eq!(result.err(), identity_mismatch());
+        assert!(!reached);
+    });
+}
+
+#[test]
 fn a_failed_admission_ends_its_withdrawal() {
     // The admission function keeps the withdrawal and then fails. The
     // contact state learns that the link is gone.
