@@ -13,7 +13,13 @@ path = "src/main.rs"
 
 [dependencies]
 monolith-core.workspace = true
+monolith-identity.workspace = true
 monolith-protocol.workspace = true
+monolith-session.workspace = true
+monolith-tor.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "rt", "time"] }
 
 [lints]
 workspace = true

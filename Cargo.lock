@@ -252,8 +252,14 @@ dependencies = [
 name = "monolith-cli"
 version = "0.0.0"
 dependencies = [
+ "getrandom",
  "monolith-core",
+ "monolith-identity",
  "monolith-protocol",
+ "monolith-session",
+ "monolith-tor",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
