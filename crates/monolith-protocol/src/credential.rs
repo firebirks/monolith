@@ -50,8 +50,8 @@ use crate::card::{CardChange, ContactCard, InvitationCapability, evaluate_card};
 
 /// What an event did to the credentials of a contact.
 ///
-/// [`Credentials::admit`] returns `Unchanged`, `Advanced`, `Promoted`,
-/// `Pending`, `Conflict` or `Stale`. [`Credentials::announce`] returns
+/// [`Credentials::admit`] returns `Unchanged`, `Superseded`, `Advanced`,
+/// `Promoted`, `Pending`, `Conflict` or `Stale`. [`Credentials::announce`] returns
 /// `Unchanged`, `Advanced`, `Authorized`, `Conflict`, `Stale` or
 /// `NoContinuity`. The import and confirmation functions say what they
 /// return.
@@ -59,6 +59,12 @@ use crate::card::{CardChange, ContactCard, InvitationCapability, evaluate_card};
 pub enum CredentialChange {
     /// The card states what is already held. Nothing changes.
     Unchanged,
+    /// An older card that states the active transport key. The card is
+    /// superseded and changes nothing, but the key is the one that stands
+    /// for the contact, so its holder is the contact: a peer restored from
+    /// an old backup, or a dial of a card whose newer endpoints the user
+    /// has not confirmed yet. Only a handshake gives this result.
+    Superseded,
     /// A newer card with the active transport key. It is now the active
     /// card. The transport credential is the same; the endpoints may have
     /// changed, and where Monolith dials is still the user's decision.
@@ -215,6 +221,9 @@ impl Credentials {
     /// was dialed. Decides what that means for the contact and records it.
     ///
     /// - The active key with the active card: `Unchanged`.
+    /// - The active key with an older card: `Superseded`. The holder of the
+    ///   active key is the contact whatever card it shows; the card is not
+    ///   taken.
     /// - The active key with a newer card: `Advanced`.
     /// - The key of the authorized successor, with a card not older than
     ///   the announced one: `Promoted`. The previous key is retired.
@@ -239,6 +248,9 @@ impl Credentials {
         match evaluate_card(&self.active, card)? {
             CardChange::Unchanged => return Ok(CredentialChange::Unchanged),
             CardChange::Conflict => return Ok(CredentialChange::Conflict),
+            CardChange::Stale if card.transport() == self.active.transport() => {
+                return Ok(CredentialChange::Superseded);
+            }
             CardChange::Stale => return Ok(CredentialChange::Stale),
             CardChange::Newer => {}
         }
@@ -581,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn the_active_key_is_admitted_and_older_cards_are_not() {
+    fn the_active_key_is_admitted_and_older_cards_of_other_keys_are_not() {
         let mut credentials = Credentials::new(alice(T1, 3));
         assert_eq!(
             credentials.admit(&alice(T1, 3)),
@@ -594,7 +606,7 @@ mod tests {
         );
         assert_eq!(
             credentials.admit(&alice(T1, 2)),
-            Ok(CredentialChange::Stale)
+            Ok(CredentialChange::Superseded)
         );
         assert_eq!(
             credentials.admit(&alice(T2, 2)),
@@ -616,6 +628,35 @@ mod tests {
     }
 
     #[test]
+    fn an_older_card_with_the_active_key_is_the_contact() {
+        // The holder of the active key shows an older card: the contact,
+        // with a card that is not taken.
+        let mut credentials = Credentials::new(signed(ALICE, T1, 3, 2, None));
+        let before = credentials.clone();
+        assert_eq!(
+            credentials.admit(&alice(T1, 1)),
+            Ok(CredentialChange::Superseded)
+        );
+        assert_eq!(credentials, before);
+        assert!(credentials.authorizes(&alice(T1, 1)));
+        // An older card of another key is still stale, and an older card
+        // is not taken as an announcement or an import either.
+        assert_eq!(
+            credentials.admit(&alice(T2, 2)),
+            Ok(CredentialChange::Stale)
+        );
+        assert_eq!(
+            credentials.announce(&alice(T1, 2), &alice(T1, 3)),
+            Ok(CredentialChange::Stale)
+        );
+        assert_eq!(
+            credentials.import(alice(T1, 2)),
+            Ok(CredentialChange::Stale)
+        );
+        assert_eq!(credentials, before);
+    }
+
+    #[test]
     fn a_newer_card_with_the_active_key_advances_it() {
         // An endpoint change: the transport credential stays.
         let mut credentials = Credentials::new(alice(T1, 1));
@@ -624,10 +665,10 @@ mod tests {
         assert_eq!(credentials.active(), &moved);
         assert!(credentials.retired().is_none());
         assert!(credentials.authorizes(&alice(T1, 1)));
-        // The previous statement is older now.
+        // The previous statement is older now; its key is still active.
         assert_eq!(
             credentials.admit(&alice(T1, 1)),
-            Ok(CredentialChange::Stale)
+            Ok(CredentialChange::Superseded)
         );
         check(&credentials);
     }
@@ -1213,6 +1254,7 @@ mod tests {
                 if matches!(
                     change,
                     Ok(CredentialChange::Unchanged
+                        | CredentialChange::Superseded
                         | CredentialChange::Conflict
                         | CredentialChange::Stale
                         | CredentialChange::NoContinuity)

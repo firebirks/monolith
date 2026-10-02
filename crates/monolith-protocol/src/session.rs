@@ -154,6 +154,7 @@ impl PeerRecord<'_> {
         let change = credentials.admit(card)?;
         let standing = match change {
             CredentialChange::Unchanged
+            | CredentialChange::Superseded
             | CredentialChange::Advanced
             | CredentialChange::Promoted => as_recorded,
             CredentialChange::Pending => Standing::PendingSuccessor,
@@ -196,6 +197,20 @@ impl PeerRecord<'_> {
 }
 
 impl Admission {
+    /// Returns true if the peer may learn the local identity: its proven
+    /// transport key stands, as of this admission, for an identity the
+    /// local side holds as a requested or accepted contact. That is the
+    /// active key, with the active card, an older or a newer one, and an
+    /// authorized successor this admission promoted. It is false for a
+    /// pending or retired key, a contradicting card, and for an identity
+    /// that is not held as a contact or is declined or blocked.
+    ///
+    /// An initiator writes message 3, which carries its identity and
+    /// card, only when this is true (`docs/PROTOCOL.md` section 4.4).
+    pub const fn may_learn_local_identity(&self) -> bool {
+        self.standing.is_contact_record()
+    }
+
     const fn without_record(standing: Standing) -> Self {
         Self {
             standing,
@@ -1550,12 +1565,16 @@ mod tests {
                     expect(Standing::StaleCard, CredentialChange::Conflict)
                 );
             }
-            for presented in [&older, &older_other_key] {
-                assert_eq!(
-                    admit(presented).0,
-                    expect(Standing::StaleCard, CredentialChange::Stale)
-                );
-            }
+            // An older card of the active key is the contact; an older card
+            // of another key is not.
+            assert_eq!(
+                admit(&older).0,
+                expect(as_recorded, CredentialChange::Superseded)
+            );
+            assert_eq!(
+                admit(&older_other_key).0,
+                expect(Standing::StaleCard, CredentialChange::Stale)
+            );
             // A record of another identity is the caller's mistake.
             assert_eq!(
                 admit(&card(STRANGER)).0,

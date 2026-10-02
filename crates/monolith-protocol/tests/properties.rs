@@ -805,6 +805,7 @@ proptest! {
                 CardChange::Newer if !other_transport => (as_recorded, CredentialChange::Advanced),
                 CardChange::Newer => (Standing::PendingSuccessor, CredentialChange::Pending),
                 CardChange::Conflict => (Standing::StaleCard, CredentialChange::Conflict),
+                CardChange::Stale if !other_transport => (as_recorded, CredentialChange::Superseded),
                 CardChange::Stale => (Standing::StaleCard, CredentialChange::Stale),
             };
             Admission { standing, change: Some(credential) }
@@ -813,8 +814,9 @@ proptest! {
         prop_assert_eq!(admitted, Ok(expected));
 
         // Nothing that is not the active key of a contact leaves the peer
-        // with a standing that can become a contact session.
-        if other_transport || matches!(change, CardChange::Stale | CardChange::Conflict) {
+        // with a standing that can become a contact session; an older card
+        // of the active key does.
+        if other_transport || matches!(change, CardChange::Conflict) {
             prop_assert!(!admitted.unwrap().standing.is_contact_record());
         }
         // The record of another identity is refused.

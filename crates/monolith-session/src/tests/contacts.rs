@@ -267,12 +267,28 @@ fn every_pair_of_records_ends_consistently() {
 }
 
 #[test]
-fn a_card_older_than_the_pinned_one_does_not_open_a_contact_session() {
-    // The stale-card rule. Alice has issued a card with epoch 2, and Bob
-    // has pinned it. Whoever presents her card of epoch 1 holds the
-    // transport key it states and a valid signature, and is still not a
-    // contact for this session.
-    let pinned = card_of(ALICE, ALICE, 2, false);
+fn a_card_older_than_the_active_one_opens_a_contact_session_only_with_the_active_key() {
+    // Bob holds Alice's card of epoch 2. Alice presents her card of epoch
+    // 1 with the same transport key: she holds the key that stands for
+    // her, and is the contact, with a card that is not taken.
+    let active = card_of(ALICE, ALICE, 2, false);
+    let mut held = Credentials::new(active.clone());
+    let run = usual(Standing::Accepted, PeerRecord::Accepted(&mut held));
+    assert_eq!(
+        run.admission,
+        Admission {
+            standing: Standing::Accepted,
+            change: Some(CredentialChange::Superseded)
+        }
+    );
+    assert!(run.confirmed());
+    assert_eq!(held.active(), &active);
+
+    // The stale-card rule. Bob holds a card of epoch 2 with another key.
+    // Whoever presents Alice's card of epoch 1 holds the transport key it
+    // states and a valid signature, and is still not a contact for this
+    // session.
+    let pinned = card_of(ALICE, MALLORY, 2, false);
     let run = usual(
         Standing::Accepted,
         PeerRecord::Accepted(&mut Credentials::new(pinned.clone())),
@@ -530,7 +546,7 @@ fn peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason() {
     // conflicting card. For each thing Alice can do, everything Bob
     // writes is identical in all cases, down to the bytes, and so is what
     // Alice's side is told to do.
-    let newer = card_of(ALICE, ALICE, 2, false);
+    let newer = card_of(ALICE, MALLORY, 2, false);
     let conflicting = card_of(ALICE, MALLORY, 1, false);
     let mut held_newer = Credentials::new(newer);
     let mut held_conflicting = Credentials::new(conflicting);

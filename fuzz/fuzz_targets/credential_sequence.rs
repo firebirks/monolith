@@ -131,6 +131,7 @@ fuzz_target!(|data: &[u8]| {
                     admission.change,
                     Some(
                         CredentialChange::Unchanged
+                            | CredentialChange::Superseded
                             | CredentialChange::Advanced
                             | CredentialChange::Promoted
                     )
@@ -188,6 +189,7 @@ fuzz_target!(|data: &[u8]| {
         if matches!(
             change,
             Ok(CredentialChange::Unchanged
+                | CredentialChange::Superseded
                 | CredentialChange::Conflict
                 | CredentialChange::Stale
                 | CredentialChange::NoContinuity)
