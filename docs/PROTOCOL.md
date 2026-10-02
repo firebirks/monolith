@@ -618,7 +618,9 @@ stranger, a blocked identity and a contact.
 `capability` is the invitation capability copied from the card of the peer
 being asked (section 12): on a session the local side opened, the card
 that was dialed; on one the peer opened, the card of the peer that the
-local side holds. A request with any other capability is not sent.
+local side holds. A request with any other capability is not sent. Which
+card that is when the user holds several cards of one identity is open
+question P10.
 
 Receiver behavior is in sections 6.4 and 12. The receiver's response to a
 well-formed request from an identity it neither requested nor accepted is
@@ -900,6 +902,12 @@ A contact card is a signed statement by an identity: "as of this epoch, my
 sessions are authenticated by this transport key, and I can be reached at
 this set of endpoints".
 
+There is one card format. A card is the same bytes however the user
+distributes it: handed to one person, shown as a QR code, put on a website
+or listed in a directory. The channel is the user's decision and is not
+part of the protocol. An identity may issue several cards at the same
+time that differ only in their invitation capability (section 12.2).
+
 ### 11.1 Binary form
 
 With n = `endpoint_count`:
@@ -1029,8 +1037,11 @@ fails signature verification; no separate checksum is needed.
 A contact card is sensitive: whoever holds it can try to connect to the
 user's Onion Service, and can tell from the attempt whether that endpoint
 is reachable at the moment. Monolith does not hide endpoint availability
-from anyone who holds the card. Cards and QR codes are produced locally and
-are never uploaded anywhere.
+from anyone who holds the card. Cards and QR codes are produced locally,
+and Monolith never uploads, publishes or registers a card anywhere
+itself. The user may hand a card to one person or publish it; a published
+card is known, with its endpoints, its keys and its capability, to
+everyone who can obtain it (section 12.2).
 
 ### 11.4 Epochs, endpoint sets and transport keys
 
@@ -1087,7 +1098,10 @@ display name comes with it.
 Two cards of one identity with the same epoch must be identical in
 transport key and endpoint set. If they are not, the identity has signed
 two statements for one epoch; the receiver keeps what it has and reports
-the conflict.
+the conflict. They may differ in their invitation capability, and then in
+their signature: an identity may issue several cards for one epoch, one
+per capability (section 12.2). Such cards are not a conflict. The
+capability is not part of what a receiver pins.
 
 Stale cards. A card whose epoch is lower than that of the newest card held
 is never accepted as the current statement of a contact. Presented in a
@@ -1123,7 +1137,10 @@ network. The user has to hand over a new card out of band.
 ## 12. Contact requests and invitations
 
 An invitation capability is 16 random bytes that the user's card may carry.
-It is an anti-spam token. It is not an identity and it authenticates nobody.
+It is a bearer capability: it allows whoever holds it to attempt a contact
+request to the owner of the card, and nothing else. It is an anti-spam
+token. It is not an identity, it authenticates nobody, and it does not
+replace the handshake: who a peer is comes from section 4 alone.
 Its size is fixed. Capabilities are compared without an early exit on the
 first difference. That is a best-effort property of the implementation,
 not a claim that no timing side channel exists on any hardware; and
@@ -1137,9 +1154,10 @@ Local policy has three modes:
 - open: a request is surfaced with or without a capability;
 - closed: no request is surfaced.
 
-A user can hold up to `MAX_ACTIVE_INVITATIONS` valid capabilities and revoke
-any of them. Revoking a capability does not change the identity or the
-endpoint; it only stops cards that carry it from producing requests.
+The capabilities a user currently accepts form the active set, of at most
+`MAX_ACTIVE_INVITATIONS` members. A capability is valid while it is in
+that set. Section 12.2 says what a capability means and how the cards that
+carry one are used, section 12.3 what revoking one does.
 
 Processing of the first message received in `AuthenticatedUnknown` from a
 peer that is not a contact for this session: one the local side neither
@@ -1153,9 +1171,11 @@ Peers whose standing is requested or accepted are handled by section 6.4.
    blocked sender sees exactly what a stranger with a bad invitation sees.
 3. If the message is a ContactRequest, decide whether to queue it. The
    request is dropped if the sender is on the block list or the declined
-   list, if the sender is a contact whose card is stale, if the policy mode does not admit it, if the capability does not
-   match a valid one (compared in constant time), if a request from this
-   identity is already pending, if `MAX_PENDING_REQUESTS_PER_INVITATION`
+   list, if the sender is a contact whose card is stale, if the policy
+   mode does not admit it, if it carries a capability that is not in the
+   active set (compared in constant time with every member), if a request
+   from this identity is already pending, if
+   `MAX_PENDING_REQUESTS_PER_INVITATION`
    requests with the same capability (or, in open mode, with none) are
    already pending, or if the queue holds `MAX_PENDING_CONTACT_REQUESTS`
    entries. A ContactAccept is dropped.
@@ -1169,9 +1189,10 @@ is closed. When `MAX_UNKNOWN_SESSIONS` such sessions exist and another peer
 authenticates, the oldest one that has not yet sent its message is closed
 to make room.
 
-The quota per capability keeps one leaked invitation from filling the whole
-queue: its holder can occupy at most
-`MAX_PENDING_REQUESTS_PER_INVITATION` entries until the user revokes it.
+The quota per capability keeps one capability, leaked or published, from
+filling the whole queue: requests that carry it occupy at most
+`MAX_PENDING_REQUESTS_PER_INVITATION` entries at a time, however many
+identities hold it.
 
 A queued request holds the sender's identity, card, display name and
 introduction. Nothing is written to the contact store. The user then
@@ -1257,6 +1278,163 @@ Timing is not part of this guarantee. The same steps are taken for the rows
 that must look alike, but Monolith does not promise equal response times,
 least of all over Tor. The goal is that the cases cannot be told apart by
 what is sent, not by how long it took.
+
+### 12.2 Invitation capabilities and cards
+
+Meaning. Holding a capability means that the holder may attempt a contact
+request to the owner of the card, and that in invitation mode the request
+is considered. It does not mean that the holder is a particular identity.
+A request comes from whatever identity completed the handshake (section
+4), and the user still accepts, declines or blocks it. A capability is an
+authorization to knock, not a proof of identity.
+
+Monolith makes a capability from `INVITATION_CAPABILITY_LEN` (16) bytes of
+operating system CSPRNG output. Its size and its place in the card
+(section 11.1) are fixed; nothing in this section changes the wire format.
+
+Distribution. Where a card goes is the user's decision: to one person, as
+a QR code, on a website, in a public directory, or over any other channel.
+The protocol does not assume that a capability stays confidential. A
+capability in a card that was published is known to everyone who can
+obtain that card, and no document or interface calls it secret after that.
+What it still provides is that only holders of that card can send a
+request that passes the invitation check. Knowing the onion address is not
+enough; without the card a caller does not even get a handshake reply
+(section 4).
+
+Reuse. A card is not a one-time invitation. A capability is valid for any
+number of requests from any number of identities until it is revoked; it
+is not consumed by use. Version 1 has no use counter, no single-use
+capability and no expiry time. Any of them would need a later protocol
+version. What bounds the use of one capability is the quota per
+capability, the budgets and the rates (`RESOURCE_LIMITS.md` sections 5 and
+6).
+
+Several cards for one identity. An identity may issue several cards at the
+same time that differ only in their capability, and therefore in their
+signature. They state the same identity key, transport key, endpoint set
+and epoch, and each is a valid card on its own:
+
+    identity
+      +-- card A   capability A   published in directory A
+      +-- card B   capability B   published somewhere else
+      +-- card C   capability C   handed to one person
+
+All of them identify the same identity, and the owner's active set holds
+A, B and C. A receiver treats them as one statement of that identity
+(section 11.4): they are not a conflict, and the capability is not part of
+what it pins.
+
+Directory cards. A user may make a card for one directory or one website
+only, so that it can be withdrawn on its own later. Withdrawing it, by
+revoking its capability, changes nothing about the identity, the transport
+key, the Onion Service or the accepted contacts. Monolith neither requires
+nor trusts a directory. A directory is an optional means of discovery
+outside the protocol, and Monolith has no directory client.
+
+Removing a listing is not revocation. A card taken down from a directory
+or a website is still held by everyone who copied it, with its capability.
+Only revoking the capability locally (section 12.3) stops new requests
+that carry it. No document or interface may suggest that removing a
+listing withdraws a card. Neither of the two stops a holder from
+connecting to the endpoint and seeing whether it is reachable (section
+11.3); only a change of the endpoint does that.
+
+Open cards. A card without a capability is an open card: holding it is
+enough to attempt a request. In open mode such a request is considered,
+subject to the budgets, the rates, the quota of requests without a
+capability, and acceptance by the user. In invitation mode it is dropped.
+Whether a card carries a capability is the user's choice. Monolith never
+adds one to a card the user issued without one, and never removes one.
+
+The mode applies to the identity, not to a card, because a request does
+not say which card it was taken from. In open mode the capabilities of
+other cards therefore keep nobody out. A client that follows section 8.3
+sends the capability of the card it holds, and a request with a revoked
+one is dropped; but nothing forces a client to send one, and a request
+without a capability is considered in open mode. A revocation is a
+barrier only in invitation mode.
+
+Epochs. A capability is not tied to an epoch. A ContactRequest carries the
+capability but not the card it was taken from, so the receiver cannot tell
+which card or which epoch it came from. When the identity changes its
+transport key or its endpoint set, every card it has handed out or
+published states the old ones, and a holder with nothing newer cannot
+reach it with that card (section 11.4). New cards for the new epoch may
+carry the capabilities of the old ones.
+
+Labels. The user may give each capability a local label, such as
+"Website", "Directory A" or "Private QR for Bob", to manage the set. A
+label is local data. It is not part of the card, is not signed and is
+never sent. Putting it into the card or onto the wire would need a
+reviewed requirement and a new card version.
+
+Handling. A capability remains a sensitive value inside Monolith even when
+the user has published it (`CRYPTOGRAPHY.md` section 8, S18). Publishing
+is a decision about where one card goes. It changes nothing in how
+Monolith holds, compares, logs or erases capabilities.
+
+### 12.3 The active set and revocation
+
+The active set holds the capabilities the user currently accepts, at most
+`MAX_ACTIVE_INVITATIONS`. A capability enters it when the user creates a
+card with a new capability, and leaves it only when the user revokes it.
+When the set is full, creating another capability fails until the user
+revokes one; Monolith never revokes a capability by itself to make room.
+The maximum is provisional (`RESOURCE_LIMITS.md` section 5).
+
+Revoking a capability removes it from the active set. From then on a
+request that carries it is dropped like one whose capability was never
+issued. A request is checked against the set as it is when the request is
+decided, which is after the Close (section 12, step 3).
+
+A signature is not an authorization. A card whose capability was revoked
+is still a validly signed card. It proves that the identity issued it,
+and it still states the identity's keys and endpoints, so its holders can
+still connect and complete a handshake. It does not show that its
+capability is accepted today. Only the owner's active set says that, and
+the owner tells nobody.
+
+Revocation decides about new requests and about nothing else. It does not
+
+- delete or change an accepted contact, or a peer the user requested;
+- end a session, or change how a session proceeds;
+- revoke or change the identity key, the transport key or the Onion
+  Service;
+- remove message history.
+
+A contact's authorization comes from the contact relationship and the
+identity proven in the handshake (section 6.4), not from the capability
+it used to ask. Sessions with contacts and with peers the user requested
+never look at a capability.
+
+Requests that are already in the queue were decided before the
+revocation, and they stay until the user accepts, declines or blocks
+them. Whether revoking should also offer to discard them is open question
+P11.
+
+No revocation oracle. A peer gets the same answer, Close, whether its
+request carried no capability, one that was never issued, one that was
+revoked, one taken from the card of another identity, or one of another
+card of this identity, and whether its request was queued or dropped
+(section 12.1). No message, field or code says "revoked", "expired" or
+"unknown invitation", and none may be added for a peer that is not a
+confirmed contact. A capability field that is not well formed (a presence
+byte other than 0 or 1, or a body of the wrong length) makes the message
+malformed, and the stream is closed with nothing sent, as for every
+violation. That depends only on bytes the sender chose and tells it
+nothing about the active set.
+
+Inside Monolith the reason a request was dropped may be kept as a typed
+value, for counters and for the user's own view. It carries no capability
+bytes and no data of the peer, is never sent, and is never logged with
+either (S18). Telling "revoked" from "never issued" would need a record of
+revoked capabilities. Nothing in the protocol needs one, and version 1
+keeps none.
+
+Local state. Revocation needs the active set and nothing else: each member
+with its local label, stored with the identity (in the vault, or in memory
+for an ephemeral identity). A revoked capability is removed, not marked.
 
 ## 13. File transfer
 
@@ -1576,3 +1754,22 @@ P9. Whether the card in a ContactRequest is still needed, now that the
     initiator presents its card in the handshake. It is kept so that a
     request is complete in itself when it is queued, and required to be
     consistent with the handshake (section 8.3).
+
+P10. Which capability a request carries when the user holds several cards
+    of one identity. A request carries the capability of the card held of
+    the peer (section 8.3). A second card of the same epoch that differs
+    only in its capability is not a newer statement (section 11.4), so the
+    rules for what is held do not replace the first. A user who was given
+    a new card because the old capability was revoked needs the new one
+    to be used. Proposed: a card the user imports by hand for a peer that
+    is not an accepted contact replaces the held card when it states the
+    same keys, endpoints and epoch; the session layer already takes the
+    capability from whatever card it is given. Decided with the contact
+    store in Phase 4.
+
+P11. Requests in the queue when the capability they carried is revoked.
+    Section 12.3 keeps them, because revocation decides about new
+    requests only. Revoking a capability that leaked is also the moment a
+    user may want to discard what it brought in. Proposed: keep them, and
+    let the interface offer to decline them together, as a separate user
+    action. Decided with the contact store in Phase 4.
