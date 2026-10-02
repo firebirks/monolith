@@ -330,6 +330,10 @@ For such a change:
 
 - tests come with it;
 - the specification is updated in the same change if behavior changes;
+  the normative documents define intended behavior, `STATUS.md` records
+  what is implemented, and a disagreement between code and a normative
+  document is a bug to resolve, never a silent override in either
+  direction;
 - affected invariants are named in the description;
 - no unrelated refactoring rides along;
 - a second person reviews it.

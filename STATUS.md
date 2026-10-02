@@ -29,9 +29,12 @@ Rules that hold until the phase is closed:
 - Monolith never starts, configures or restarts Tor, never falls back to
   a direct connection, never resolves an onion name locally, and has no
   generic control port API.
-- The specification comes first. If code and `docs/` disagree, the
-  documents win. A security or protocol question is decided by the owner,
-  not in code.
+- The specification comes first. The normative documents in `docs/`
+  define the intended behavior and this file records what is implemented.
+  A disagreement between code and a normative document is a bug to
+  resolve; neither stale text nor an accident of the code silently
+  overrides the other. A security or protocol question is decided by the
+  owner, not in code.
 
 ## 2. Decisions taken
 

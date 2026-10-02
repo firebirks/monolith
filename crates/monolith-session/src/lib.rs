@@ -4,8 +4,9 @@
 //! authenticates two peers to each other, and the encrypted frames that
 //! follow it. It is specified in `docs/PROTOCOL.md` sections 3 to 7 and
 //! `docs/CRYPTOGRAPHY.md`; the decision behind it is
-//! `docs/adr/0002-session-protocol.md`. If code and documents disagree,
-//! the documents win and the code is wrong.
+//! `docs/adr/0002-session-protocol.md`. The documents define the intended
+//! behavior; a disagreement between them and the code is a bug to resolve,
+//! not a choice either side wins silently.
 //!
 //! The handshake is `Noise_XK_25519_ChaChaPoly_SHA256`, run by the `snow`
 //! library. Every call to that library is in this crate, and nothing in

@@ -1,8 +1,8 @@
 //! Wire protocol types, limits and session state.
 //!
-//! The protocol is specified in `docs/PROTOCOL.md`. Code in this crate must
-//! follow that document; if the two disagree, the document wins and the code
-//! is wrong.
+//! The protocol is specified in `docs/PROTOCOL.md`, which defines the
+//! intended behavior; code in this crate follows it. A disagreement between
+//! the two is a bug to resolve, not a choice either side wins silently.
 //!
 //! This crate is the protocol core. It does no I/O and no session
 //! cryptography: it encodes and decodes, validates, and decides. Every

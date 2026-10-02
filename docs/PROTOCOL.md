@@ -10,8 +10,11 @@ The credential rules of section 11.4 are implemented in the `credential`
 module of `monolith-protocol`; the contact store that keeps them comes
 with Phase 4.
 
-This document was written first and the implementation follows it; where
-the two disagree, the implementation is wrong.
+This document defines the intended behavior and was written before the
+code. A disagreement between it and the implementation is a bug to be
+resolved, not a choice: neither a stale passage here nor an accident of
+the code silently overrides the other. `STATUS.md`, while it exists,
+says what is implemented.
 
 The padding block size in section 5 is a parameter whose production value
 is not decided. Open questions are listed in section 17.

@@ -797,3 +797,8 @@ Not changed: the Noise pattern and suite, the prologue, the card layout
 and signature, the message set and the protocol version. Wire bytes and
 the handshake vectors are the same; one fuzz seed was added for the new
 standing.
+
+Spec authority. The rule that the documents always win over the code is
+replaced: the normative documents define intended behavior, `STATUS.md`
+records what is implemented, and a disagreement is a bug to resolve in
+either direction (`ARCHITECTURE.md` section 9).
