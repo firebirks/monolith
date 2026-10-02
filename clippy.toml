@@ -2,3 +2,9 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
+
+# Ed25519 verification is always strict (docs/CRYPTOGRAPHY.md section 10).
+# The lenient method of the signature trait is not called.
+disallowed-methods = [
+    { path = "signature::Verifier::verify", reason = "use IdentityPublicKey::verify, which verifies strictly" },
+]

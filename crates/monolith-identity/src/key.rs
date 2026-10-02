@@ -437,6 +437,9 @@ mod tests {
         assert!(IdentityPublicKey::from_bytes(&negative_zero).is_err());
     }
 
+    // The lenient verification is called on purpose, to show that it
+    // accepts what strict verification refuses.
+    #[allow(clippy::disallowed_methods)]
     #[test]
     fn verification_is_strict() {
         // A signature whose R component is the neutral element. Plain
