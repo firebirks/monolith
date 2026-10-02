@@ -27,7 +27,10 @@ use tokio::io::{AsyncRead, AsyncWrite};
 mod config;
 mod error;
 mod secret;
+mod socks;
 mod status;
+#[cfg(test)]
+mod testing;
 
 pub use config::{ControlAuth, Endpoint, SystemTorConfig};
 pub use error::TorError;
