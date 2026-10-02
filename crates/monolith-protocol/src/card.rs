@@ -47,7 +47,9 @@ const TEXT_PREFIX: &str = "MONOLITH1:";
 ///
 /// It is an anti-spam capability: in the default mode a contact request is
 /// shown to the user only if it carries one that is currently valid. It is
-/// not an identity and authenticates nobody.
+/// a bearer value, reusable until the user revokes it: whoever holds it may
+/// attempt a request. It is not an identity and authenticates nobody. See
+/// `docs/PROTOCOL.md` sections 12.2 and 12.3.
 ///
 /// A capability has a fixed size. Two capabilities are compared with
 /// `subtle`, which looks at every byte whatever the result, so that
@@ -58,12 +60,13 @@ const TEXT_PREFIX: &str = "MONOLITH1:";
 /// `Hash` and no ordering: a capability is looked up by comparing it with
 /// each valid one.
 ///
-/// A capability is a secret of the user who issued it and of the people it
-/// was handed to. The type is not `Copy`, so that no copy is made without a
-/// visible call, and its bytes are overwritten with zeros when a value is
-/// dropped. That is best effort: it does not reach copies the compiler
-/// made, the bytes a decoder read before they became a capability, or the
-/// text form of a card that was handed out.
+/// Whether a capability stays confidential depends on where the user sends
+/// the card: one in a published card is public. Inside Monolith it is
+/// handled as a sensitive value either way. The type is not `Copy`, so that
+/// no copy is made without a visible call, and its bytes are overwritten
+/// with zeros when a value is dropped. That is best effort: it does not
+/// reach copies the compiler made, the bytes a decoder read before they
+/// became a capability, or the text form of a card that was handed out.
 pub struct InvitationCapability([u8; INVITATION_CAPABILITY_LEN]);
 
 /// Written out instead of derived, so that every copy of a capability is
@@ -1332,6 +1335,42 @@ mod tests {
             evaluate(&other_identity),
             Err(ProtocolError::IdentityMismatch)
         );
+    }
+
+    #[test]
+    fn cards_that_differ_only_in_their_capability_do_not_conflict() {
+        // PROTOCOL.md 12.2: an identity may hand out several cards at once,
+        // one per capability. Each is a valid card with its own signature,
+        // and all of them state the same thing about the identity.
+        let with = |capability: [u8; 16]| {
+            ContactCard::sign(
+                &secret(1),
+                transport(1),
+                epoch(5),
+                EndpointSet::single(endpoint(101)),
+                Some(InvitationCapability::from_bytes(capability)),
+            )
+            .unwrap()
+        };
+        let a = with([0xA1; 16]);
+        let b = with([0xB2; 16]);
+
+        for (card, capability) in [(&a, [0xA1; 16]), (&b, [0xB2; 16])] {
+            let decoded = ContactCard::decode(&card.encode()).unwrap();
+            assert_eq!(decoded.encode(), card.encode());
+            assert_eq!(
+                decoded.invitation(),
+                Some(&InvitationCapability::from_bytes(capability))
+            );
+            assert_eq!(
+                ContactCard::from_text(&card.to_text()).unwrap().encode(),
+                card.encode()
+            );
+        }
+        assert_ne!(a.signature(), b.signature());
+        assert_ne!(a.encode(), b.encode());
+        assert_eq!(evaluate_card(&a, &b), Ok(CardChange::Unchanged));
+        assert_eq!(evaluate_card(&b, &a), Ok(CardChange::Unchanged));
     }
 
     #[test]
