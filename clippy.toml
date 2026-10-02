@@ -11,4 +11,5 @@ disallowed-methods = [
     { path = "signature::Verifier::verify", reason = "use IdentityPublicKey::verify, which verifies strictly" },
     { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "no local name resolution (S3)" },
     { path = "tokio::net::lookup_host", reason = "no local name resolution (S3)" },
+    { path = "tokio::sync::mpsc::unbounded_channel", reason = "every channel is bounded (S12)" },
 ]

@@ -8,15 +8,22 @@ known to survive; then it says why.
 """
 
 ID = "crates/monolith-identity/src/"
+TOR = "crates/monolith-tor/src/"
+CORE = "crates/monolith-core/src/"
 PR = "crates/monolith-protocol/src/"
 SE = "crates/monolith-session/src/"
 
 # Crates whose tests run for a fault in a given crate: the crate itself and
 # every crate that depends on it.
 TESTS = {
-    "monolith-identity": ["monolith-identity", "monolith-protocol", "monolith-session"],
-    "monolith-protocol": ["monolith-protocol", "monolith-session"],
-    "monolith-session": ["monolith-session"],
+    "monolith-identity": [
+        "monolith-identity", "monolith-protocol", "monolith-session", "monolith-tor",
+        "monolith-core",
+    ],
+    "monolith-protocol": ["monolith-protocol", "monolith-session", "monolith-tor", "monolith-core"],
+    "monolith-session": ["monolith-session", "monolith-core"],
+    "monolith-tor": ["monolith-tor", "monolith-core"],
+    "monolith-core": ["monolith-core"],
 }
 
 
@@ -478,4 +485,91 @@ PHASE1 = [
            "            Standing::Requested | Standing::Declined => {\n                self.standing = Standing::Accepted;"),
           ("            Standing::None | Standing::Declined | Standing::Blocked | Standing::StaleCard => {\n                // One path",
            "            Standing::None | Standing::Blocked | Standing::StaleCard => {\n                // One path")),
+]
+
+PHASE3 = [
+    # The onion address: every ServiceID Tor returns is checked.
+    fault("N1", ID + "onion.rs", "a ServiceID with a wrong checksum or version is accepted",
+          ("        if rest != [first, second, VERSION] {", "        if false {")),
+    fault("N2", ID + "onion.rs", "an upper-case or out-of-alphabet ServiceID is accepted",
+          (".all(|byte| byte.is_ascii_lowercase() || (b'2'..=b'7').contains(byte))",
+           ".all(u8::is_ascii_alphanumeric)")),
+
+    # No clearnet: SOCKS only, the onion name only, loopback only.
+    fault("Q1", TOR + "system.rs", "the stream to the SOCKS endpoint is used without SOCKS",
+          ("        socks::negotiate(&mut stream, &service, isolation).await?;\n", "")),
+    fault("Q2", TOR + "socks.rs", "another host name than the onion name is requested",
+          ("    let hostname = target.hostname();", "    let hostname = String::from(\"example.org\");")),
+    fault("Q3", TOR + "config.rs", "a TCP endpoint that is not loopback is accepted",
+          ("        if !address.ip().is_loopback() || address.port() == 0 {",
+           "        if address.port() == 0 {")),
+    fault("Q4", TOR + "system.rs", "the listener binds every interface",
+          ("SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)", "SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)")),
+
+    # Stream isolation.
+    fault("Q5", TOR + "socks.rs", "the greeting offers no authentication",
+          ("pub(crate) const GREETING: [u8; 3] = [VERSION, 0x01, METHOD_USERNAME_PASSWORD];",
+           "pub(crate) const GREETING: [u8; 3] = [VERSION, 0x01, 0x00];")),
+    fault("Q6", TOR + "socks.rs", "a proxy that skips authentication is accepted",
+          ("        [VERSION, METHOD_USERNAME_PASSWORD] => Ok(()),", "        [VERSION, _] => Ok(()),")),
+    fault("Q7", TOR + "socks.rs", "every group sends the same isolation token",
+          ("    let password = isolation.password();",
+           "    let password = Zeroizing::new(b\"0123456789abcdef0123456789abcdef\".to_vec());")),
+
+    # Control authentication and parsing.
+    fault("Q8", TOR + "control/mod.rs", "the SAFECOOKIE server hash is not checked",
+          ("                if !server_hash_matches(&expected, &server_hash) {", "                if false {")),
+    fault("Q9", TOR + "control/mod.rs", "SAFECOOKIE is tried when the server does not offer it",
+          ("                if !info.safecookie {", "                if false {")),
+    fault("Q10", TOR + "control/reply.rs", "a control line is not bounded while it is read",
+          ("                if self.line.len() >= MAX_CONTROL_LINE_LEN.saturating_add(4) {",
+           "                if false {")),
+    fault("Q11", TOR + "control/reply.rs", "a control reply is not bounded in size",
+          ("        if self.total > MAX_CONTROL_REPLY_LEN {", "        if false {")),
+    fault("Q12", TOR + "control/reply.rs", "a control reply is not bounded in lines",
+          ("        if self.lines.len() >= MAX_CONTROL_REPLY_LINES {", "        if false {")),
+    fault("Q13", TOR + "control/reply.rs", "asynchronous events are taken as replies",
+          ("        if (600..700).contains(&code) {", "        if false {")),
+    fault("Q14", TOR + "control/mod.rs", "bytes after a reply are accepted",
+          ("                if used != read {", "                if false {"),
+          expect="survives: equivalent. Tor sends nothing unasked; bytes that follow a"
+                 " reply stay in the socket and make the next reply fail to parse, so the"
+                 " connection fails either way, one command later"),
+    fault("Q15", TOR + "control/command.rs", "another GETINFO key is sent",
+          ("line.extend_from_slice(b\"GETINFO status/circuit-established\");",
+           "line.extend_from_slice(b\"GETINFO address\");")),
+
+    # Publication.
+    fault("Q16", TOR + "control/command.rs", "ADD_ONION asks for a detached service",
+          ("\" Flags=MaxStreamsCloseCircuit MaxStreams={ONION_MAX_STREAMS} \\",
+           "\" Flags=MaxStreamsCloseCircuit,Detach MaxStreams={ONION_MAX_STREAMS} \\")),
+    fault("Q17", TOR + "control/mod.rs", "non-anonymous mode is reported as an ordinary failure",
+          ("            return Err(TorError::NonAnonymousTorMode);",
+           "            return Err(TorError::OnionPublicationFailed);")),
+    fault("Q18", TOR + "secret.rs", "a returned key of the wrong length is used",
+          ("        if bytes.len() != ONION_SECRET_LEN {\n            return Err(TorError::InvalidTorResponse);\n        }\n",
+           "")),
+    fault("Q19", TOR + "secret.rs", "a returned key without padding is accepted",
+          ("        if text.len() != ONION_SECRET_BASE64_LEN || !text.ends_with(b\"==\") {",
+           "        if text.len() != ONION_SECRET_BASE64_LEN {")),
+    fault("Q20", TOR + "system.rs", "a service published from a key need not be that key's",
+          ("                if published.0 != *expected {", "                if false {")),
+    fault("Q21", TOR + "system.rs", "a Tor below the baseline may publish",
+          ("        if control.version() < FEATURE_BASELINE {", "        if false {")),
+    fault("Q22", TOR + "system.rs", "a lost control connection still counts as published",
+          ("            .is_some_and(ControlConnection::is_alive)", "            .is_some_and(|_| true)")),
+    fault("Q23", TOR + "control/mod.rs", "a control connection with data or at its end counts as alive",
+          ("        matches!(self.stream.try_read(&mut probe), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)",
+           "        let _ = self.stream.try_read(&mut probe);\n        true")),
+    fault("Q24", TOR + "system.rs", "close does not send DEL_ONION",
+          ("        let removed = tokio::time::timeout(SHUTDOWN_TIMEOUT, control.del_onion(&self.id))",
+           "        let removed = tokio::time::timeout(SHUTDOWN_TIMEOUT, async { Ok(()) })")),
+
+    # Budgets and deadlines of the core.
+    fault("Q25", CORE + "budget.rs", "the inbound handshake budget is larger",
+          ("handshakes: Arc::new(Semaphore::new(MAX_INBOUND_HANDSHAKES)),",
+           "handshakes: Arc::new(Semaphore::new(MAX_INBOUND_HANDSHAKES + 4)),")),
+    fault("Q26", CORE + "link.rs", "an inbound handshake waits longer than HANDSHAKE_TIMEOUT",
+          ("    F: FnOnce(&ContactCard) -> PeerRecord<'r>,\n{\n    tokio::time::timeout(HANDSHAKE_TIMEOUT, async {",
+           "    F: FnOnce(&ContactCard) -> PeerRecord<'r>,\n{\n    tokio::time::timeout(IDLE_TIMEOUT, async {")),
 ]
