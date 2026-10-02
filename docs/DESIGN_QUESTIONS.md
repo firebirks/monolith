@@ -92,7 +92,7 @@ Decided at the start of Phase 2, in ADR 0002:
 | 2 | Canonical wire encoding | Fixed-layout binary, hand-written encoders and decoders, no serialization framework. One valid encoding per structure. | ADR 0003, PROTOCOL.md 2, 5 |
 | 3 | Fingerprint encoding | SHA-256 over a prefix, a key-type byte and the key; base32; 52 characters full, 24 compact. | PROTOCOL.md 10 |
 | 4 | Contact card format | A signed statement of an identity's transport key and endpoint set at an epoch. With the one endpoint that version 1 allows: 171 bytes, or 187 with an invitation. Text form `MONOLITH1:` plus base32. | PROTOCOL.md 11 |
-| 5 | Invitation capability | 16 random bytes in the card. Three modes; invitation-only by default; up to 16 valid at once; revocable; mismatches are dropped with no distinguishable reply. | PROTOCOL.md 12 |
+| 5 | Invitation capability | 16 random bytes in the card: a reusable bearer capability that allows a contact request and authenticates nobody. Three modes; invitation-only by default; several cards per identity, one per capability; up to 16 valid at once; revocable for new requests only; mismatches are dropped with no distinguishable reply. Section 6. | PROTOCOL.md 12 |
 | 6 | Duplicate-session resolution | After confirmation only. Same initiator: newer wins. Different initiators: the session initiated by the smaller identity key is preferred; if it is the older one it is probed first and loses if it is dead. | PROTOCOL.md 14 |
 | 7 | Maximum sizes and budgets | One table per category; worst-case memory about 119 MiB. | RESOURCE_LIMITS.md |
 | 8 | Rekey and reconnect thresholds | 24 hours, 2^32 frames or 2^40 bytes per direction; then a new handshake. No in-band rekey. | CRYPTOGRAPHY.md 7 |
@@ -225,6 +225,9 @@ Nothing below is settled. Each is described in the document named.
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
 | P8 | A period in which two transport keys are answered | PROTOCOL.md 17 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
+| P10 | Which capability a request carries when several cards of one identity are held | PROTOCOL.md 17 |
+| P11 | Pending requests whose capability is revoked | PROTOCOL.md 17 |
+| - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
@@ -475,3 +478,63 @@ Accessed 2026-10-02. Tor source and specification at torspec commit
 - https://forum.torproject.org/t/security-release-0-4-9-13/22178
 - https://blog.torproject.org/sunsetting-tor-048/
 - https://www.rfc-editor.org/rfc/rfc1928.txt
+
+## 6. Contact cards and invitation capabilities
+
+On 2026-10-02 the semantics of the contact card and of the invitation
+capability were made explicit. This is a clarification of the design of
+Phase 0, not a change of the wire format: the card layout, the 16-byte
+capability, its signing, the handshake, the Onion Service and the protocol
+version are unchanged. `PROTOCOL.md` sections 12.2 and 12.3 hold the
+rules; this section records what was decided.
+
+- There is one contact card format. How a card is distributed (privately,
+  in a directory, on a website, as a QR code) is the user's decision and
+  not a protocol type.
+- The capability is a bearer capability: an authorization to attempt a
+  contact request, not a proof of identity. Authentication stays with the
+  identity and the handshake.
+- Whether a capability stays confidential depends on how the user
+  distributes the card. A capability in a published card is public.
+- Cards are reusable. A capability is valid until revoked; version 1 has
+  no use counter, single-use capability or expiry.
+- An identity may issue several cards at once that differ only in their
+  capability and signature. They are one statement of the identity, not a
+  conflict. A card may be made for one directory and withdrawn on its own.
+- Removing a card from a directory is not revocation. Only local
+  revocation stops new requests that carry its capability.
+- The capabilities the user accepts form a bounded active set.
+  `MAX_ACTIVE_INVITATIONS` stays at the Phase 0 value of 16 as a
+  provisional bound, to be confirmed in Phase 4.
+- Revocation removes a capability from the active set for new requests.
+  A validly signed card does not show that its capability is accepted
+  today. Revocation does not touch accepted contacts, sessions, keys, the
+  Onion Service or history.
+- A peer cannot tell an unknown, revoked or foreign capability from no
+  capability: every such request gets the same Close.
+- A card without a capability is an open card, and Monolith does not add
+  one. Local labels of capabilities are never part of the card.
+- The capability keeps its handling inside Monolith whether or not it was
+  published: 16 bytes from the CSPRNG, not `Copy`, redacted `Debug`,
+  constant-time comparison, erased on drop, not logged.
+
+Consequences recorded with this clarification:
+
+- The request mode applies to the identity, not to a card, because a
+  request does not say which card it came from. In open mode the
+  capabilities of other cards keep nobody out, and revocation is a
+  barrier only in invitation mode.
+- A capability is not tied to an epoch. After a change of transport key
+  or endpoints the user issues new cards, which may carry the same
+  capabilities.
+- When the active set is full, a new capability needs a revocation first;
+  Monolith never revokes one by itself.
+- Revocation needs no local state beyond the active set and its labels.
+  A revoked capability is removed, not remembered.
+
+Implementation. The card and session code of Phases 1 and 2 already
+follow these rules: `evaluate_card` ignores the capability, and a request
+carries the capability of the card held of the peer. The active set,
+revocation and the decision of `PROTOCOL.md` section 12, step 3, belong to
+the contact store of Phase 4, together with the tests T-INV-1 to T-INV-9
+of `TEST_PLAN.md` and the open questions P10 and P11.

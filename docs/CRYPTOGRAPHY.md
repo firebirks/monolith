@@ -255,6 +255,15 @@ A responder's handshake does not depend on what it holds about the
 initiator. Its messages, its timing up to message 3 and its failures are
 the same for a contact, a stranger and a blocked identity.
 
+The invitation capability has no part in the handshake or in the rules of
+section 5.2. It is looked at after the session is authenticated, only
+inside a ContactRequest, and it decides only whether the request is
+considered (PROTOCOL.md section 12). Holding it proves nothing about who
+the holder is, and it is no substitute for the handshake. It is covered by
+the card signature like every other field, so a card proves that the
+identity issued it with that capability; it does not show that the
+capability is still accepted (PROTOCOL.md section 12.3).
+
 ### 5.4 Informal security argument
 
 - Impersonating the responder needs the responder's transport private key:
@@ -293,7 +302,9 @@ the same for a contact, a stranger and a blocked identity.
   impersonates the identity until contacts are told out of band. A stolen
   transport key does the same towards any party that has not received a
   newer card. There is no automatic healing and no revocation mechanism in
-  version 1.
+  version 1. Revoking an invitation capability (PROTOCOL.md section 12.3)
+  is not key revocation: it is a local decision about which contact
+  requests to consider, and it changes no key.
 - Binding to the onion address. A session is not tied to the endpoint that
   was dialed (PROTOCOL.md open question P2). A party that forwards bytes
   between an initiator and the real responder is not detected. It learns
@@ -390,10 +401,14 @@ reduced values exists only in test builds of the session crate.
 Session keys and ephemeral keys are never written to storage. Types that
 hold a secret do not derive `Debug`.
 
-The invitation capability is handed to the people the user invites, so it
-is not a secret of this device alone, but a copy left in freed memory
-would let a reader of that memory produce requests that pass the
-invitation check until the user revokes it. Its type is therefore not
+An invitation capability leaves the device inside every card that carries
+it, and the user decides where that card goes: to one person, or published
+for anyone (PROTOCOL.md section 12.2). A capability in a published card is
+public, and Monolith does not call it secret. Inside Monolith it is still
+handled as a sensitive value, whatever the user did with the card: the
+device may hold capabilities that were never published, and a copy left in
+freed memory would let a reader of that memory produce requests that pass
+the invitation check until the user revokes it. Its type is therefore not
 `Copy`. It is cloned only where an owner needs its own copy: a contact
 card that carries it is cloned where a session keeps the card that stands
 for its peer, and a session keeps the capability that a request to its

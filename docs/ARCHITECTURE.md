@@ -111,7 +111,8 @@ Events come through one bounded queue (`MAX_UI_EVENTS`) with coalescing for
 state-like events (`RESOURCE_LIMITS.md` section 8).
 
 Commands (version 1): create or unlock identity; lock; show own contact
-card; create and revoke invitation; set request mode; add contact card;
+card; create a card with a new invitation capability and a local label;
+revoke an invitation capability; set request mode; add contact card;
 accept, decline, block a request; block, unblock, delete a contact; mark
 verified; send message; offer file; accept, reject, abort a transfer;
 confirm endpoint update; set profile; shut down.
@@ -131,6 +132,18 @@ may be shown as "secure" merely because Tor is connected:
 - Identity: ephemeral or persistent.
 
 These are the enums in `monolith-core` today.
+
+Contact cards and invitations (PROTOCOL.md 12.2, 12.3). Terms for the
+front ends of later phases: "Generate contact card", "Generate another
+card", "Revoke card access", and the user's own note of how a card was
+shared, "Publicly shared" or "Privately shared". That note and the label
+of a capability ("Website", "Directory A", "Private QR for Bob") are local
+data and never enter the signed card or the wire. The interface must not
+suggest that Monolith knows whether an exported card is still private,
+that taking a card off a directory or a website withdraws it, or that
+revoking a card's access affects contacts already accepted. A card can be
+issued without a capability; the user chooses that, and Monolith does not
+add one.
 
 ## 5. Command-line interface
 

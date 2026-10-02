@@ -175,6 +175,35 @@ Blocking (T-BLOCK)
 2. Blocking an accepted contact ends its session; its later sessions are
    never confirmed.
 
+Invitations (T-INV)
+
+PROTOCOL.md sections 12.2 and 12.3. The active set and revocation are part
+of the contact store, so these tests are mandatory in Phase 4 and run
+against it; only the card part of T-INV-1 exists today (`card::tests`:
+cards that differ only in their capability are each valid, have their own
+signature and do not conflict).
+
+1. One identity with cards that carry capabilities A and B: both cards are
+   valid, both capabilities are in the active set, and a request with
+   either one is queued.
+2. After A is revoked, a request with A is dropped.
+3. After A is revoked, a request with B is still queued.
+4. B is not used up: requests with B from several identities are queued,
+   up to `MAX_PENDING_REQUESTS_PER_INVITATION`, and B is still valid after
+   they were handled.
+5. A request with a revoked capability gets what a request with a valid
+   one gets: the same messages, bytes and close condition (with T-ORACLE-1
+   and T-CONFIRM-1).
+6. A request with a capability that was never issued, or that belongs to
+   the card of another identity, gets the same.
+7. A contact that was accepted from a request with A stays accepted after
+   A is revoked: its record, its pinned card and an open session are
+   unchanged, and its next session is confirmed.
+8. With `MAX_ACTIVE_INVITATIONS` capabilities in the set, creating another
+   one fails and no capability is revoked.
+9. The local label of a capability appears in no card bytes and in no
+   frame.
+
 Duplicate sessions (T-DUP)
 
 1. Simultaneous dial in both directions: both sides keep the same session.

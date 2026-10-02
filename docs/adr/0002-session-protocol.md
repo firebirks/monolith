@@ -519,7 +519,8 @@ signature. It does not hide that the Onion Service is reachable; Tor
 shows that to anyone with the address. It keeps nobody out who holds a card.
 
 If Monolith ever requires a real secret before it answers, that secret has
-to be a secret, such as the invitation capability.
+to be a secret. The invitation capability is not one in general: the user
+may publish the card that carries it (PROTOCOL.md section 12.2).
 
 ## Questions closed by this record
 

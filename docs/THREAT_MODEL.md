@@ -30,8 +30,8 @@ Invariant numbers (S1 and so on) refer to `SECURITY_INVARIANTS.md`.
   the `snow` library. The rules that bind its keys to Monolith identities
   (`CRYPTOGRAPHY.md` section 5.2) are Monolith's own composition and have
   had no external review.
-- The user keeps the storage passphrase secret and exchanges contact cards
-  over a channel that suits their own situation.
+- The user keeps the storage passphrase secret, and hands out or publishes
+  contact cards over channels that suit their own situation.
 - A peer is hostile until it has been bounded, parsed, validated,
   authenticated and authorized, in that order. An accepted contact is
   authenticated, not trusted.
@@ -81,7 +81,14 @@ invitation):
   its choice, and send one contact request (S7). It gets no profile, no
   contact information, and no signal of acceptance or rejection (S23).
 - A request without a currently valid invitation is dropped in the default
-  mode. The peer cannot tell.
+  mode. The peer cannot tell, and it cannot tell either whether the
+  capability it sent was never issued, was revoked or belongs to another
+  card (PROTOCOL.md 12.3).
+- A card the user published, in a directory or on a website, puts everyone
+  who can obtain it in this position, with its capability. Taking the
+  listing down does not take back the copies. Revoking the capability
+  stops new requests that carry it, in invitation mode; it does not stop
+  holders from connecting and seeing whether the endpoint is reachable.
 - It cannot find out its standing. An identity that is unknown, blocked,
   declined or a deleted former contact gets the same messages in the same
   order, and there is no response that names a reason (PROTOCOL.md 12.1).
@@ -164,8 +171,12 @@ against an Onion Service.
 - An old contact card cannot replace a newer one (strictly increasing
   epoch), and presented in a handshake to a party that has received a
   newer one it does not open a contact session (S36).
-- An invitation capability can be used by anyone who holds it. That is its
-  definition; it is revocable and it authenticates nobody.
+- An invitation capability can be used by anyone who holds it, any number
+  of times, until it is revoked. That is its definition: it is a reusable
+  bearer capability that allows a contact request and authenticates
+  nobody. Once a card is published, its capability is public. Revoking it
+  affects new requests only, never an accepted contact (PROTOCOL.md 12.2,
+  12.3).
 
 ### F. Identity or profile impersonation
 
@@ -412,8 +423,15 @@ interface must not suggest otherwise.
 - Endpoint rotation cannot notify contacts if every endpoint they know has
   disappeared before a signed update reached them. The recovery is a new
   contact card handed over out of band.
-- A contact card is a capability to reach the user. Sharing it is the
-  user's decision and cannot be undone except by rotating the endpoint.
+- A contact card is a capability to reach the user. Sharing or publishing
+  it is the user's decision and cannot be undone except by rotating the
+  endpoint. Removing a card from a directory or a website does not reach
+  the copies already made. Revoking the invitation capability in it
+  stops new contact requests that carry it; it does not stop its holders
+  from connecting or from observing presence.
+- Monolith cannot know whether a card it exported is still private. It
+  treats every capability as possibly known to others once the card has
+  left the device.
 - Deniability is not a goal. No signature is made during a session, but
   contact cards are signed, and nothing was designed or analyzed to let a
   party deny a conversation.
@@ -421,8 +439,8 @@ interface must not suggest otherwise.
   breaks X25519 later.
 - No recovery from a stolen identity key other than telling contacts out of
   band. A stolen transport key is replaced by issuing a new card, which
-  helps only towards contacts that receive it. There is no revocation in
-  version 1 (Q).
+  helps only towards contacts that receive it. There is no key revocation
+  in version 1 (Q); revoking an invitation capability revokes no key.
 - After an identity replaces its transport key, a contact that still holds
   the previous card cannot open a session until it has the new one. It
   gets the new card when the identity dials it, or out of band. Version 1

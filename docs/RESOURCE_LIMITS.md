@@ -155,7 +155,7 @@ reconnect schedule of section 7 decides when to try again.
 | `MAX_DECLINED_IDENTITIES` | 1024 | Oldest dropped when full. |
 | `MAX_PENDING_CONTACT_REQUESTS` | 32 | One per identity. |
 | `MAX_PENDING_REQUESTS_PER_INVITATION` | 8 | Per capability, or for requests without one. |
-| `MAX_ACTIVE_INVITATIONS` | 16 | |
+| `MAX_ACTIVE_INVITATIONS` | 16 | Size of the active set (PROTOCOL.md 12.3). Provisional, see below. |
 | `MAX_UI_EVENTS` | 256 | Coalesced, see section 8. |
 | `MAX_PENDING_FILE_OFFERS_PER_CONTACT` | 4 | |
 | `MAX_PENDING_FILE_OFFERS` | 16 | |
@@ -194,8 +194,20 @@ measured, not a claim that 256 is enough for 1000 contacts.
 When the pending-request queue is full, new requests are dropped and the user
 is told once that the queue is full. Existing entries are not evicted; an
 attacker must not be able to push a legitimate request out. At most 8
-pending requests may share one invitation, so a leaked invitation cannot
-fill the queue.
+pending requests may share one invitation, so a leaked or published
+invitation cannot fill the queue. A capability is reusable (PROTOCOL.md
+12.2), so a card in a public directory can bring in requests faster than
+the user handles them; from the ninth pending one on, its requests are
+dropped like any other, and their senders retry on their next session.
+
+The active set of invitation capabilities is bounded by
+`MAX_ACTIVE_INVITATIONS`. Each request that carries a capability is
+compared with every member, so the bound is also the work per request:
+16 comparisons of 16 bytes. The set itself takes 256 bytes plus the local
+labels. When it is full, a new capability can be created only after one
+is revoked; nothing is revoked automatically. 16 is the value of Phase 0.
+It has not been checked against how many cards users keep in circulation,
+and is confirmed or changed with the contact store in Phase 4.
 
 ## 6. Rates (local)
 

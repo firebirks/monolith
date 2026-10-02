@@ -5,12 +5,13 @@ peer. A change that weakens one of them is a security change and needs the
 review described in `docs/ARCHITECTURE.md` section 9.
 
 The invariants are grouped by topic, so the numbers are not in order.
-S29 to S37 were added after the first list was written.
+S29 to S38 were added after the first list was written.
 
 Implemented so far. In the protocol core: the frame and field bounds of
 S10, S11 and S26, the state gate of S19, the single encoding of S30, the
 text and filename rules behind S14, S15 and S20, the message logic of S7,
-S23 and S24, the card check of S33 and the stale-card rule of S36. In the
+S23 and S24, the card check of S33, the stale-card rule of S36 and the
+part of S38 that cards and sessions hold. In the
 session layer: the pinning of S9, the handshake bounds of S10, the
 randomness of S17, the redaction of S18 for its own types, the typed
 session of S19 and S21, and S34, S35 and S37. Everything that involves
@@ -237,10 +238,11 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Mechanism: in `AuthenticatedUnknown` Monolith sends only ContactAccept to
   a peer it holds as an accepted contact, ContactRequest to a peer the user
   has requested, and Close. To any other peer it sends only Close. A first
-  message from a blocked, declined, already pending or capability-less
-  identity, from a contact that presented a stale card, or to a full
-  queue, is answered the same way in every case: Close, with no other
-  reply. The handshake before it does not look at any record of the peer.
+  message from a blocked, declined or already pending identity, with no
+  capability, an unknown one or a revoked one, from a contact that
+  presented a stale card, or to a full queue, is answered the same way in
+  every case: Close, with no other reply. The handshake before it does not
+  look at any record of the peer.
 - Tests: T-CONFIRM-1, T-ORACLE-1 to T-ORACLE-8 (the cases cannot be told
   apart by what is sent; equal timing is not claimed), T-BLOCK-1,
   `tests::contacts` (what one side writes is byte for byte the same in
@@ -255,6 +257,28 @@ Test area names refer to `docs/TEST_PLAN.md`.
   signed by the sender.
 - Tests: review of PROTOCOL.md section 8 on every protocol change;
   T-CONFIRM-2.
+
+### S38. An invitation capability admits a request and does nothing else
+
+- Mechanism: a capability is the input of one decision, whether a
+  ContactRequest from a peer that is not a contact goes into the queue
+  (PROTOCOL.md section 12, step 3), and that decision is taken after the
+  Close. The handshake, `PeerRecord::admit` and `evaluate_card` do not
+  read it, and nothing the receiver sends depends on it, so it cannot
+  authenticate a peer and cannot change what a peer sees. The handshake
+  only carries it from the card held of the peer into the session, for
+  the request. Cards of one identity that differ only in their capability are
+  one statement to `evaluate_card`. A session sends only the capability
+  of the card it holds of the peer. Revoking a capability removes it from
+  the active set and touches nothing else: no contact record, session,
+  key or history refers to the capability a contact once used. Planned
+  for Phase 4, in the contact store: the active set and its bound, the
+  comparison with every member, and revocation.
+- Tests: `card::tests` (cards that differ only in their capability are
+  each valid and do not conflict; a capability is not part of what is
+  pinned), `tests::contacts` (a capability changes nothing a requester can
+  see; a request carries the capability of the card held of the peer and
+  no other), T-ORACLE-1, T-INV-1 to T-INV-9 (Phase 4).
 
 ## Protocol and parsing
 
