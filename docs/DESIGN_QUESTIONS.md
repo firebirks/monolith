@@ -231,6 +231,7 @@ Nothing below is settled. Each is described in the document named.
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 3 and Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
 | ST1 to ST6 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending) | STORAGE.md 9 |
+| T3-1 to T3-6 | Phase 3: the Tails precondition, `ADD_ONION` forms and key modes, status keys, stream isolation policy, proof of work, `MaxStreams`. Implementation waits for these. | section 5 of this document |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Security contact address and key | SECURITY.md |
@@ -269,3 +270,184 @@ not use it; ADR 0002, F-R1, says why.
 
 Not used: `anyhow` in libraries, `serde` for anything signed or on the wire,
 any HTTP client, any DNS resolver.
+
+## 5. Phase 3 design review
+
+Before any Tor code was written, the Phase 0 documents were compared with
+the Phase 3 brief and with the current Tor specifications and source
+(sources at the end of this section, accessed 2026-10-02). Where they
+disagree, the disagreement is recorded here and nothing is implemented
+until it is decided. Section 5.1 needs a decision; section 5.2 lists
+changes that the brief decides and that reduce the surface.
+
+### 5.1 Open decisions
+
+T3-1. The Tails precondition.
+    `ARCHITECTURE.md` section 12, ADR 0004 and `TOR_INTEGRATION.md` make
+    the checks of `PLATFORM_TAILS.md` section 3.4 a precondition of Phase 3:
+    whether `ADD_ONION` works through onion-grater while Tails runs Tor
+    with `Sandbox 1`. None of them has been made. The Phase 3 brief
+    excludes Tails work and asks for a generic System Tor backend.
+    - (a) Make the Tails checks first, on a current Tails release. Phase 3
+      waits for a Tails machine.
+    - (b) Lift the precondition for the generic `SystemTorBackend` and
+      keep it for Phase 6. If `ADD_ONION` turns out not to work on Tails,
+      what changes is how a Tails build publishes its service (or that it
+      cannot, which `PLATFORM_TAILS.md` already allows as an honest
+      limitation). Outbound SOCKS, the control parser, authentication and
+      the `TorBackend` contract are not affected, because the trait
+      already hides how publication is done.
+    - Recommendation: (b). The ARCHITECTURE and ADR text is changed to say
+      that the Tails checks gate Phase 6 and any claim of Tails support,
+      not the generic backend.
+
+T3-2. The `ADD_ONION` forms and the key modes.
+    `TOR_CONTROL_SURFACE.md` allows exactly two forms, `NEW:ED25519-V3`
+    with the key returned and `ED25519-V3:<key>`, and never sends
+    `DiscardPK`, so that an ephemeral endpoint can be created again from
+    the key held in memory after a control connection is lost. The two
+    onion-grater profiles in `integrations/` match these two forms
+    character for character. The brief asks for three modes: A, a new key
+    with `DiscardPK`; B, a stored key; C, a new key returned to the caller.
+    - (a) Keep the two forms. Mode C is the first form, mode B the
+      second. An ephemeral endpoint is mode C with the key kept in memory
+      only and never written. Mode A is not offered.
+    - (b) Add mode A as a third form. Monolith then holds no onion key at
+      all for such an endpoint, but a lost control connection or a Tor
+      restart ends the endpoint for good: every contact holds a signed card
+      that names it, and they cannot reach the user until a card with a
+      greater epoch reaches them. Both platform profiles need a third
+      pattern.
+    - (c) Replace the Phase 0 ephemeral endpoint by mode A.
+    - Recommendation: (a). The key of mode A is not in Monolith's memory
+      but it is in Tor's, so the gain is small, and the cost is an
+      endpoint that dies with any Tor restart while contacts still hold it.
+      Mode A can be added later as a third form without changing the
+      `TorBackend` contract.
+
+T3-3. Which status Monolith reads.
+    Phase 0 reads only `GETINFO status/circuit-established` and
+    deliberately not `status/bootstrap-phase`, because the warning form of
+    that reply carries the identity and address of a guard or bridge
+    (`HOSTID=`, `HOSTADDR=`). The brief asks Monolith to tell a Tor that is
+    bootstrapping from one that is reachable but not ready, and from one
+    that is ready. The specification guarantees only the tags `starting`
+    and `done`; percentages and the order of phases are not stable.
+    - (a) Keep `status/circuit-established` alone. "Bootstrapping" and
+      "not ready" are then one state.
+    - (b) Add `status/bootstrap-phase`. The parser keeps the `PROGRESS`
+      number and whether `TAG` is `done`, and drops the rest of the line
+      while parsing, so that no guard or bridge address is stored, logged
+      or shown. Readiness still comes from `status/circuit-established`.
+      On platforms with a filter the key is refused and the progress is
+      shown as unknown.
+    - Recommendation: (b). The version comes from `PROTOCOLINFO`, so
+      `GETINFO version` is not needed. `network-liveness` adds nothing that
+      the two keys do not.
+
+T3-4. Stream isolation policy.
+    Phase 0: one random 16-byte token per contact, made at process start
+    and kept in memory, sent as `<torS0X>0` with the token in hex as the
+    password. The brief proposes a fresh token per session.
+    - Per session: every session to a contact needs a new rendezvous
+      circuit, so each reconnect costs a full introduction (and proof of
+      work when the contact's service is under attack), and the
+      introduction points of the contact see more traffic. Two sessions to
+      the same contact cannot be linked by circuit reuse; the contact
+      itself links them anyway through the handshake.
+    - Per contact: reconnects may reuse a rendezvous circuit. Streams to
+      different contacts never share a circuit, because a rendezvous
+      circuit belongs to one Onion Service, and the token keeps Monolith's
+      streams apart from other applications on a shared SocksPort.
+    - In both cases the token is random and names nothing: not the
+      identity, the onion address, a name or a fingerprint. The backend
+      takes the token from its caller and has no policy of its own.
+    - Recommendation: per contact, as in Phase 0.
+
+T3-5. Proof of work.
+    Phase 0 sends `PoWDefensesEnabled=1` on every `ADD_ONION`, with Tor's
+    default queue parameters. The brief asks that it not be enabled
+    casually. Facts: the keywords exist from tor 0.4.9.2-alpha, so every
+    Tor that Monolith accepts knows them; with no attack the required
+    effort is zero; the defense needs a tor built with GPL code, and
+    `ADD_ONION` succeeds without it, so Monolith cannot tell whether it is
+    active and does not claim it is.
+    - Recommendation: keep the Phase 0 decision. It costs nothing when
+      there is no attack and was reviewed in Phase 0. Queue parameters stay
+      at Tor's defaults (open item C2).
+
+T3-6. `MaxStreams`.
+    Phase 0 sends `MaxStreams=8` with `MaxStreamsCloseCircuit` and leaves
+    the value open (C1): the specification does not say whether Tor counts
+    streams open at the same time or all streams a circuit ever carried.
+    One Monolith session uses one stream, so either reading leaves room for
+    reconnects on one circuit, and closing a circuit only forces a new one.
+    - Recommendation: keep 8 as a provisional value, documented as defense
+      in depth behind the application budgets, and settle it with the
+      resource tuning of Phase 4.
+
+### 5.2 Changes the brief decides
+
+These narrow what Phase 0 allowed. They are applied with the
+implementation and recorded in the documents they change.
+
+- No `SETEVENTS` at all. Phase 0 used `HS_DESC` events on Linux without a
+  filter to confirm the descriptor upload; those events name every Onion
+  Service of the Tor instance, including other applications'. A service
+  is shown as published once `ADD_ONION` succeeded; confirming that it is
+  reachable stays open (C3).
+- Control authentication: SAFECOOKIE only, for a control endpoint the user
+  configured. COOKIE is not implemented (the specification marks it
+  deprecated). HASHEDPASSWORD is deferred until there is a need. NULL is
+  used only when the configuration says that the endpoint is a trusted
+  filter, never because a server offers it.
+- `connect_onion` takes no port. The virtual port is the protocol constant
+  `ONION_VIRTUAL_PORT` (29170), so the backend cannot be used as a
+  general SOCKS client.
+- Tor versions. The feature baseline is 0.4.9.5: the first stable release
+  with the proof-of-work keywords of `ADD_ONION` (0.4.9.2-alpha) and the
+  `<torS0X>0` isolation format (0.4.9.1-alpha). 0.4.9.13 or later is
+  recommended, for TROVE-2026-053, and only the 0.4.9 series is supported
+  upstream. The version comes from `PROTOCOLINFO` of the local Tor;
+  nothing is fetched from the network.
+- `ClientAuth=` is never sent. Current tor accepts the keyword but no
+  longer handles it.
+- The brief assumes an existing onion address validator. There is none
+  yet: `monolith-identity` validates the 32-byte key, and the `.onion`
+  name with its SHA3-256 checksum was left to the phase that needs it.
+  Phase 3 adds the conversion between a ServiceID and an
+  `OnionServiceKey`, with the `sha3` crate, and every ServiceID Tor
+  returns goes through it.
+
+### 5.3 Errata noticed in the Tor specification
+
+For the record, not acted on:
+
+- The `ADD_ONION` grammar has a stray CRLF before `ClientAuthV3`, and
+  `PoWQueueBurst=` is followed by the misspelled `PowQBurt`.
+- The SOCKS extensions say extended error codes "can be disabled"; in
+  tor they are off unless a SocksPort has the `ExtendedErrors` flag.
+- `status/bootstrap-phase` names `HOST`; tor emits `HOSTID`.
+- The `ADD_ONION` reply grammar omits the `ClientAuthV3` lines that tor
+  sends and that the examples show.
+
+### 5.4 Sources
+
+Accessed 2026-10-02. Tor source and specification at torspec commit
+928c0c0 (2026-09-30) and tor commit c6c6170 (2026-09-29).
+
+- https://spec.torproject.org/control-spec/commands.html
+- https://spec.torproject.org/control-spec/message-format.html
+- https://spec.torproject.org/control-spec/replies.html
+- https://spec.torproject.org/control-spec/implementation-notes.html
+- https://spec.torproject.org/socks-extensions.html
+- https://spec.torproject.org/address-spec.html
+- https://spec.torproject.org/rend-spec/encoding-onion-addresses.html
+- https://spec.torproject.org/proposals/193-safe-cookie-authentication.html
+- https://spec.torproject.org/intro/conventions.html
+- https://gitlab.torproject.org/tpo/core/tor/-/blob/main/doc/man/tor.1.txt
+- https://gitlab.torproject.org/tpo/core/tor/-/blob/main/ChangeLog
+- https://gitlab.torproject.org/tpo/core/team/-/wikis/NetworkTeam/CoreTorReleases
+- https://forum.torproject.org/t/security-release-0-4-9-13/22178
+- https://blog.torproject.org/sunsetting-tor-048/
+- https://www.rfc-editor.org/rfc/rfc1928.txt
