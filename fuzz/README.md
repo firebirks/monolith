@@ -78,11 +78,14 @@ To check that the targets compile without running them:
 ## Status
 
 All eleven targets build and have been run from their seeds for short
-smoke tests only (about 25 seconds each, no failure). The eight targets of
-the protocol core make between 30 thousand and 3 million executions in
-that time. The three session targets make between 4 thousand and 15
-thousand, because every execution runs a handshake under the address
-sanitizer. That shows the targets work. It is not a fuzzing campaign.
+smoke tests only (about 25 seconds each, no failure), last at the end of
+Phase 2. The eight targets of the protocol core make between 77 thousand
+and 12 million executions in that time. The three session targets make
+between 4 thousand and 16 thousand, because every execution runs a
+handshake under the address sanitizer. After they gained time and
+records, `session_frames` and `handshake_responder` also ran for 150
+seconds each (25 thousand and 94 thousand executions), without a
+failure. That shows the targets work. It is not a fuzzing campaign.
 
 Not done yet:
 
