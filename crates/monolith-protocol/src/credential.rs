@@ -89,6 +89,8 @@ pub enum CredentialChange {
     Conflict,
     /// The card is older than the active card, older than the authorized
     /// successor for its key, or states the retired key. Nothing changes.
+    /// In a handshake, an older card of the active key is `Superseded`
+    /// instead.
     Stale,
     /// An EndpointUpdate arrived on a session that was not authenticated
     /// with the active key. It proves no continuity. Nothing changes.
