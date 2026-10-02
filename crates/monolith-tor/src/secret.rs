@@ -95,8 +95,8 @@ impl OnionServiceSecret {
             for (slot, byte) in group.iter_mut().zip(chunk) {
                 *slot = *byte;
             }
-            let [a, b, c] = group;
-            let indices = [
+            let [mut a, mut b, mut c] = group;
+            let mut indices = [
                 a.wrapping_shr(2),
                 (a & 0x03).wrapping_shl(4) | b.wrapping_shr(4),
                 (b & 0x0f).wrapping_shl(2) | c.wrapping_shr(6),
@@ -111,6 +111,10 @@ impl OnionServiceSecret {
                 }
             }
             group.zeroize();
+            indices.zeroize();
+            a.zeroize();
+            b.zeroize();
+            c.zeroize();
         }
         out
     }
