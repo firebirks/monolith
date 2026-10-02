@@ -31,6 +31,7 @@ mod secret;
 mod socks;
 mod status;
 mod stream;
+mod system;
 #[cfg(test)]
 mod testing;
 
@@ -38,6 +39,7 @@ pub use config::{ControlAuth, Endpoint, SystemTorConfig};
 pub use error::TorError;
 pub use secret::{IsolationGroup, ONION_SECRET_LEN, OnionServiceSecret};
 pub use stream::TorStream;
+pub use system::{PublishedOnionService, SystemTorBackend};
 pub use status::{
     Bootstrap, ControlStatus, FEATURE_BASELINE, RECOMMENDED, Readiness, SocksStatus, TorStatus,
     TorVersion,
