@@ -331,16 +331,21 @@ Other resources:
   16 MiB. The history store quota is defined with the history store
   (ADR 0005, open item).
 - CPU: an inbound handshake costs three X25519 operations, two fixed-base
-  multiplications and the validation of one contact card, about a third of
-  a millisecond (section 11.1). At the inbound rate limit that is a
+  multiplications and the validation of one contact card, about 0.3 ms
+  (section 11.1). At the inbound rate limit that is a
   fraction of a percent of one core.
 
 ### 11.1 Cost of a handshake
 
-Measured with a throwaway program that is not in the repository, on one
-development machine, release build, one core, with the key types and the
-resolver of `monolith-session`. The numbers say what the order of
-magnitude is. They are not a benchmark, and other hardware will differ.
+Measured with a throwaway program that is not in the repository, release
+build, one pinned core, with the key types and the resolver of
+`monolith-session` and keys from the operating system. Times are medians
+of 2000 handshakes; memory comes from a counting global allocator. First
+measured before the review fixes of Phase 2, and again after them on
+another development machine (Intel Core i5-11400), where the memory
+figures were the same and the times a little lower; the table gives the
+second measurement. The numbers say what the order of magnitude is. They
+are not a benchmark, and other hardware will differ.
 
 What a responder does for one inbound stream, by how far the peer gets:
 
@@ -348,13 +353,13 @@ What a responder does for one inbound stream, by how far the peer gets:
 | --- | --- | --- | --- |
 | nothing, or fewer than 48 bytes | one fixed-base multiplication, when the handshake object is created | 0.02 ms | none; closed at `HANDSHAKE_TIMEOUT` |
 | 48 bytes whose key is not valid | the same | 0.02 ms | none |
-| 48 bytes that fail authentication | plus one X25519 | 0.07 ms | none |
-| a first message that verifies, which needs the contact card | plus one key generation and one more X25519 | 0.13 ms | 48 bytes |
-| then a valid third message | plus one X25519, one Ed25519 verification and the subgroup checks of two keys | 0.18 ms more | none; the session exists |
+| 48 bytes that fail authentication | plus one X25519 | 0.06 ms | none |
+| a first message that verifies, which needs the contact card | plus one key generation and one more X25519 | 0.12 ms | 48 bytes |
+| then a valid third message | plus one X25519, one Ed25519 verification and the subgroup checks of two keys | 0.16 ms more | none; the session exists |
 
-An initiator spends about 0.08 ms on the first message and 0.10 ms between
+An initiator spends about 0.07 ms on the first message and 0.09 ms between
 the second and the third. A complete handshake costs both sides together
-about 0.5 ms. Sealing and opening one frame of one block takes about
+about 0.45 ms. Sealing and opening one frame of one block takes about
 0.004 ms.
 
 Memory and bytes:
@@ -365,13 +370,13 @@ Memory and bytes:
 | State of one pending inbound handshake | about 2.7 KiB: an object of 2072 bytes and 665 bytes on the heap |
 | The same after a valid first message | unchanged |
 | Peak heap while the third message is processed | 275 bytes more |
-| Allocations for a whole inbound handshake | 15, none sized by anything the peer sent |
-| State of one session, without frame buffers | about 2 KiB |
+| Allocations for a whole inbound handshake | 15, the creation of the session included, none sized by anything the peer sent |
+| State of one session, without frame buffers | about 2 KiB: an object of 1888 bytes and 66 bytes on the heap |
 
 Consequences:
 
 - A caller without the contact card can cost a responder one X25519
-  operation per stream, 0.07 ms, and gets nothing back. At
+  operation per stream, 0.06 ms, and gets nothing back. At
   `INBOUND_CONNECTION_RATE`, 120 per minute, that is under 10 ms of
   processor time per minute.
 - A caller with the contact card can make the responder do the full
