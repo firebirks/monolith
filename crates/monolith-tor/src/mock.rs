@@ -31,6 +31,8 @@ struct State {
     bootstrap: Bootstrap,
     publication_error: Option<TorError>,
     services: HashMap<OnionServiceKey, Entry>,
+    /// Services whose next accept fails as a listener would.
+    listener_errors: HashMap<OnionServiceKey, usize>,
     next_id: u64,
     dials: usize,
 }
@@ -65,6 +67,7 @@ impl MockNetwork {
                 bootstrap: Bootstrap::Done,
                 publication_error: None,
                 services: HashMap::new(),
+                listener_errors: HashMap::new(),
                 next_id: 0,
                 dials: 0,
             })),
@@ -113,6 +116,12 @@ impl MockNetwork {
     /// a restart: the service is gone.
     pub fn lose_service(&self, key: &OnionServiceKey) {
         self.lock().services.remove(key);
+    }
+
+    /// Makes the next `count` accepts of the service `key` fail as a
+    /// listener with too many open files would.
+    pub fn fail_accepts(&self, key: &OnionServiceKey, count: usize) {
+        self.lock().listener_errors.insert(*key, count);
     }
 
     /// Returns true if a service with this key is published.
@@ -259,6 +268,15 @@ impl OnionService for MockOnionService {
     }
 
     async fn accept(&mut self) -> Result<DuplexStream, TorError> {
+        {
+            let mut state = self.network.lock();
+            if let Some(left) = state.listener_errors.get_mut(&self.key) {
+                if *left > 0 {
+                    *left = left.saturating_sub(1);
+                    return Err(TorError::Listener);
+                }
+            }
+        }
         self.receiver.recv().await.ok_or(TorError::ControlLost)
     }
 

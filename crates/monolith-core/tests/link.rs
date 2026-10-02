@@ -546,3 +546,87 @@ fn strangers_beyond_the_unknown_session_budget_are_closed() {
         assert!(answered.is_ok());
     });
 }
+
+#[test]
+fn listener_errors_do_not_end_the_accept_loop() {
+    run(async {
+        let network = MockNetwork::new();
+        let backend = network.backend();
+        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
+        let key = *service.service_key();
+        network.fail_accepts(&key, 3);
+        let budgets = Budgets::new();
+        let (stop, shutdown) = watch::channel(false);
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let count = accepted.clone();
+        let serving = serve(&mut service, &budgets, shutdown, move |_stream, _permit| {
+            count.fetch_add(1, Ordering::SeqCst);
+            async {}
+        });
+        let dialing = async {
+            let isolation = backend.isolation_group().unwrap();
+            // Three errors, each followed by ACCEPT_BACKOFF, then a stream.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let _stream = backend.connect_onion(&key, &isolation).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            stop.send(true).unwrap();
+        };
+        let (end, ()) = futures_join(serving, dialing).await;
+        assert_eq!(end, ServeEnd::Shutdown);
+        assert_eq!(accepted.load(Ordering::SeqCst), 1);
+    });
+}
+
+#[test]
+fn dials_beyond_the_dial_budget_wait_for_a_slot() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build()
+        .unwrap()
+        .block_on(async {
+            let network = MockNetwork::new();
+            let backend = network.backend();
+            // A service that never answers: each dial holds its slot until
+            // the handshake deadline.
+            let service = backend.publish_onion(KeySource::Generate).await.unwrap();
+            let card = party(2, *service.service_key()).card().clone();
+            let budgets = Budgets::new();
+            let mut tasks = tokio::task::JoinSet::new();
+            for seed in 30..30 + 5_u8 {
+                let backend = network.backend();
+                let budgets = budgets.clone();
+                let card = card.clone();
+                let local = party(seed, *service.service_key());
+                tasks.spawn(async move {
+                    let isolation = backend.isolation_group().unwrap();
+                    dial(
+                        &backend,
+                        &budgets,
+                        &local,
+                        &card,
+                        PeerRecord::None,
+                        &isolation,
+                    )
+                    .await
+                    .err()
+                });
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            assert_eq!(
+                network.dials(),
+                monolith_protocol::limits::MAX_CONCURRENT_DIALS
+            );
+            // When the first four give up at the handshake deadline, the
+            // fifth gets its slot.
+            tokio::time::sleep(monolith_protocol::limits::HANDSHAKE_TIMEOUT).await;
+            assert_eq!(
+                network.dials(),
+                monolith_protocol::limits::MAX_CONCURRENT_DIALS + 1
+            );
+            while let Some(result) = tasks.join_next().await {
+                assert_eq!(result.unwrap(), Some(LinkError::TimedOut));
+            }
+            drop(service);
+        });
+}
