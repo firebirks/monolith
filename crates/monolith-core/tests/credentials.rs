@@ -27,7 +27,7 @@ use monolith_protocol::card::{ContactCard, EndpointSet};
 use monolith_protocol::credential::{CredentialChange, Credentials};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
-use monolith_session::{Admitted, LocalParty, SessionError, TransportSecretKey};
+use monolith_session::{Admitted, LocalParty, OutboundPeer, SessionError, TransportSecretKey};
 use monolith_tor::{KeySource, MockNetwork, OnionService, TorBackend};
 
 fn run<F: Future>(future: F) -> F::Output {
@@ -627,7 +627,11 @@ fn the_withdrawal_of_a_link_that_is_gone_says_so() {
             &alice,
             bob.card(),
             &isolation,
-            |peer, _| peer.admit(PeerRecord::None),
+            |peer, _| {
+                // A stranger that dials asks to become a contact.
+                let mut held = Credentials::new(peer.card().clone());
+                peer.admit(PeerRecord::Requested(&mut held))
+            },
         );
         let (_, refused) = both(alice_side, bob_side).await;
         assert_eq!(refused.err(), Some(LinkError::Budget));
@@ -636,4 +640,267 @@ fn the_withdrawal_of_a_link_that_is_gone_says_so() {
         assert!(!second.same_link(&first));
         assert!(first.same_link(&first.clone()));
     });
+}
+
+/// Bob's transport key in the tests below, the same for each of his cards.
+const BOB_KEY: u8 = 0x52;
+
+/// The party of Bob with his transport key, at `epoch`, reachable at
+/// `endpoint`.
+fn bob_at(epoch: u64, endpoint: OnionServiceKey) -> LocalParty {
+    LocalParty::issue(
+        &identity(2),
+        TransportSecretKey::from_bytes(&[BOB_KEY; 32]).unwrap(),
+        EndpointEpoch::new(epoch).unwrap(),
+        EndpointSet::single(endpoint),
+    )
+    .unwrap()
+}
+
+/// An endpoint nobody publishes.
+fn elsewhere() -> OnionServiceKey {
+    OnionServiceKey::from_bytes(identity(0x66).public_key().as_bytes()).unwrap()
+}
+
+/// Alice dials Bob's card of epoch 1 and admits him with `alice_admits`,
+/// which is given that card; Bob answers. Returns what the dial returned,
+/// and whether message 3, with Alice's identity, reached Bob. Both sides
+/// use `budgets`.
+async fn dial_bob<F>(
+    budgets: &Budgets,
+    alice_admits: F,
+) -> (
+    Result<monolith_core::link::Established<tokio::io::DuplexStream>, LinkError>,
+    bool,
+)
+where
+    F: FnOnce(&ContactCard, OutboundPeer, &Withdrawal) -> Result<Admitted, SessionError>,
+{
+    let network = MockNetwork::new();
+    let (alice_tor, bob_tor) = (network.backend(), network.backend());
+    let mut bob_service = bob_tor.publish_onion(KeySource::Generate).await.unwrap();
+    let alice_service = alice_tor.publish_onion(KeySource::Generate).await.unwrap();
+    let alice = party(1, 1, *alice_service.service_key());
+    let bob = bob_at(1, *bob_service.service_key());
+    let dialed = bob.card().clone();
+    let isolation = alice_tor.isolation_group().unwrap();
+    let reached = core::cell::Cell::new(false);
+    let bob_side = async {
+        let stream = bob_service.accept().await.unwrap();
+        answer(stream, budgets, &bob, |peer, _| {
+            reached.set(true);
+            peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                alice.card().clone(),
+            )))
+        })
+        .await
+    };
+    let (dialed_result, _) = both(
+        dial(
+            &alice_tor,
+            budgets,
+            &alice,
+            &dialed,
+            &isolation,
+            |peer, withdrawal| alice_admits(&dialed, peer, withdrawal),
+        ),
+        bob_side,
+    )
+    .await;
+    (dialed_result, reached.get())
+}
+
+fn identity_mismatch() -> Option<LinkError> {
+    Some(LinkError::Session(SessionError::Protocol(
+        ProtocolError::IdentityMismatch,
+    )))
+}
+
+#[test]
+fn a_key_retired_right_after_the_admission_does_not_receive_message_3() {
+    // Alice admits Bob, then, before message 3 is written, Bob's key is
+    // retired and the session withdrawn. Message 3 is not sent.
+    run(async {
+        let (result, reached) = dial_bob(&Budgets::new(), |dialed, peer, withdrawal| {
+            let admitted = peer.admit(PeerRecord::Accepted(&mut Credentials::new(dialed.clone())));
+            assert!(admitted.as_ref().unwrap().1.may_learn_local_identity());
+            withdrawal.withdraw();
+            admitted
+        })
+        .await;
+        assert_eq!(result.err(), Some(LinkError::Withdrawn));
+        assert!(!reached);
+    });
+}
+
+#[test]
+fn an_older_card_of_the_active_key_still_receives_message_3() {
+    // Alice holds Bob's card of epoch 2, with the same transport key and
+    // another endpoint she has not confirmed for dialing, and dials his
+    // card of epoch 1. Bob proves the active key: he is the contact, and
+    // the older card does not keep him from learning who dials.
+    run(async {
+        let (result, reached) = dial_bob(&Budgets::new(), |dialed, peer, _| {
+            let mut held = Credentials::new(bob_at(2, elsewhere()).card().clone());
+            assert_eq!(held.active().transport(), dialed.transport());
+            peer.admit(PeerRecord::Accepted(&mut held))
+        })
+        .await;
+        let established = result.unwrap();
+        assert_eq!(established.admission.standing, Standing::Accepted);
+        assert_eq!(
+            established.admission.change,
+            Some(CredentialChange::Superseded)
+        );
+        assert!(reached);
+    });
+}
+
+#[test]
+fn a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3() {
+    // Alice holds a card of Bob of epoch 1 with another transport key. The
+    // responder proves the key of a second statement for that epoch.
+    run(async {
+        let (result, reached) = dial_bob(&Budgets::new(), |_, peer, _| {
+            let other = LocalParty::issue(
+                &identity(2),
+                TransportSecretKey::from_bytes(&[0x53; 32]).unwrap(),
+                EndpointEpoch::FIRST,
+                EndpointSet::single(elsewhere()),
+            )
+            .unwrap();
+            peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                other.card().clone(),
+            )))
+        })
+        .await;
+        assert_eq!(result.err(), identity_mismatch());
+        assert!(!reached);
+    });
+}
+
+#[test]
+fn a_contact_deleted_declined_or_blocked_during_the_dial_gets_no_message_3() {
+    // The record of Bob changed while Alice was dialing. No message 3, no
+    // session, and no slot for strangers is taken.
+    for record in [0_u8, 1, 2] {
+        run(async {
+            let budgets = Budgets::new();
+            let (result, reached) = dial_bob(&budgets, |_, peer, _| {
+                peer.admit(match record {
+                    0 => PeerRecord::None,
+                    1 => PeerRecord::Declined,
+                    _ => PeerRecord::Blocked,
+                })
+            })
+            .await;
+            assert_eq!(result.err(), identity_mismatch(), "{record}");
+            assert!(!reached, "{record}");
+            assert_eq!(
+                budgets.free_unknown_sessions(),
+                monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
+            );
+        });
+    }
+}
+
+#[test]
+fn a_dial_that_loses_its_contact_takes_no_slot_when_none_is_left() {
+    // All slots for strangers are taken. A dial whose contact is deleted
+    // meanwhile makes no session and takes no slot beyond the limit.
+    run(async {
+        let budgets = Budgets::new();
+        let held: Vec<_> = core::iter::from_fn(|| budgets.unknown_session()).collect();
+        assert_eq!(held.len(), monolith_protocol::limits::MAX_UNKNOWN_SESSIONS);
+        let (result, reached) = dial_bob(&budgets, |_, peer, _| peer.admit(PeerRecord::None)).await;
+        assert_eq!(result.err(), identity_mismatch());
+        assert!(!reached);
+        assert_eq!(budgets.free_unknown_sessions(), 0);
+        drop(held);
+        assert_eq!(
+            budgets.free_unknown_sessions(),
+            monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
+        );
+    });
+}
+
+#[test]
+fn a_promotion_stands_when_message_3_cannot_be_written() {
+    // Alice holds Bob's key T1 active and his announced successor T2, and
+    // dials T2. The responder proves T2 in message 2, which promotes it at
+    // Alice; then the stream breaks before message 3 is written. The
+    // promotion stands: it rests on the proof in message 2 alone, the
+    // peer that gave it holds T2 and answers with it, and nobody gained a
+    // standing it should not have. The dial fails.
+    run(async {
+        let network = MockNetwork::new();
+        let budgets = Budgets::new();
+        let (alice_tor, bob_tor) = (network.backend(), network.backend());
+        let mut bob_service = bob_tor.publish_onion(KeySource::Generate).await.unwrap();
+        let alice_service = alice_tor.publish_onion(KeySource::Generate).await.unwrap();
+        let alice = party(1, 1, *alice_service.service_key());
+        let bob_t1 = bob_at(1, *bob_service.service_key());
+        let bob_t2 = party_of_key(2, 0x54, 2, *bob_service.service_key());
+        let mut held = Credentials::new(bob_t1.card().clone());
+        assert_eq!(
+            held.announce(bob_t2.card(), bob_t1.card()),
+            Ok(CredentialChange::Authorized)
+        );
+        let held = Mutex::new(held);
+        let isolation = alice_tor.isolation_group().unwrap();
+
+        // Bob answers message 1 with T2 and drops the stream at once.
+        let bob_side = async {
+            let mut stream = bob_service.accept().await.unwrap();
+            let mut message_1 = [0_u8; 48];
+            tokio::io::AsyncReadExt::read_exact(&mut stream, &mut message_1)
+                .await
+                .unwrap();
+            let responder =
+                monolith_session::HandshakeResponder::new(&bob_t2, std::time::Instant::now())
+                    .unwrap();
+            let (_, message_2) = responder
+                .read_message_1(&message_1, std::time::Instant::now())
+                .unwrap();
+            tokio::io::AsyncWriteExt::write_all(&mut stream, &message_2)
+                .await
+                .unwrap();
+            drop(stream);
+        };
+        let (result, ()) = both(
+            dial(
+                &alice_tor,
+                &budgets,
+                &alice,
+                bob_t2.card(),
+                &isolation,
+                |peer, _| {
+                    let mut held = held.lock().unwrap();
+                    let admitted = peer.admit(PeerRecord::Accepted(&mut held));
+                    assert_eq!(
+                        admitted.as_ref().unwrap().1.change,
+                        Some(CredentialChange::Promoted)
+                    );
+                    admitted
+                },
+            ),
+            bob_side,
+        )
+        .await;
+        assert!(result.is_err());
+        let held = held.lock().unwrap();
+        assert_eq!(held.active(), bob_t2.card());
+        assert_eq!(held.retired(), Some(bob_t1.card().transport()));
+    });
+}
+
+/// The party of identity `seed` with the transport key made from `key`.
+fn party_of_key(seed: u8, key: u8, epoch: u64, endpoint: OnionServiceKey) -> LocalParty {
+    LocalParty::issue(
+        &identity(seed),
+        TransportSecretKey::from_bytes(&[key; 32]).unwrap(),
+        EndpointEpoch::new(epoch).unwrap(),
+        EndpointSet::single(endpoint),
+    )
+    .unwrap()
 }

@@ -71,6 +71,11 @@ impl Budgets {
     pub fn free_inbound_handshakes(&self) -> usize {
         self.handshakes.available_permits()
     }
+
+    /// Free slots for peers that are not contacts.
+    pub fn free_unknown_sessions(&self) -> usize {
+        self.unknown.available_permits()
+    }
 }
 
 /// How an accept loop ended.

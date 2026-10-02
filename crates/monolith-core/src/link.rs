@@ -43,7 +43,7 @@ use monolith_protocol::limits::{
     FRAME_WRITE_TIMEOUT, HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN,
     HANDSHAKE_TIMEOUT, IDLE_TIMEOUT,
 };
-use monolith_protocol::session::{Action, Admission, Standing};
+use monolith_protocol::session::{Action, Admission};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 use crate::budget::Budgets;
@@ -251,13 +251,18 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// `card` as it is then, admits the peer with [`OutboundPeer::admit`],
 /// keeps the [`Withdrawal`] with the session, and returns what
 /// `admit` returned, all in one step on the contact state. The record is
-/// never taken before the dial. If the key the responder proved is no
-/// longer the one that stands for the contact, because it was retired or
-/// is only pending, message 3 is not sent and the dial fails with
-/// [`ProtocolError::IdentityMismatch`]: the local identity is not shown to
-/// the holder of a key the contact has left (`docs/PROTOCOL.md` section
-/// 4.4). A retirement after the admission, while message 3 is written,
-/// reaches the session through its withdrawal.
+/// never taken before the dial.
+///
+/// Message 3 is written only if the peer may learn the local identity
+/// ([`Admission::may_learn_local_identity`]): its key stands for a
+/// contact the local side holds as requested or accepted. Otherwise, for a
+/// key that was retired or is pending, a contradicting card, or an
+/// identity that was deleted, declined or blocked during the dial, the
+/// dial fails with [`ProtocolError::IdentityMismatch`], nothing more is
+/// sent and no session is made (`docs/PROTOCOL.md` section 4.4). The
+/// withdrawal is looked at before the write starts and while it is
+/// pending; a withdrawal ends the dial with [`LinkError::Withdrawn`].
+/// Bytes the stream accepted before that cannot be called back.
 ///
 /// `admit` runs inside the handshake deadline and must not block: it takes
 /// the lock of the contact state, does its work and lets go. The caller
@@ -291,15 +296,12 @@ where
         let withdrawal = Withdrawal::new();
         let (session, admission, first) = admit(outbound, &withdrawal)?;
         let mut link = Link::new(stream, session, withdrawal);
-        if matches!(
-            admission.standing,
-            Standing::StaleCard | Standing::PendingSuccessor
-        ) {
+        if !admission.may_learn_local_identity() {
             return Err(LinkError::Session(SessionError::Protocol(
                 ProtocolError::IdentityMismatch,
             )));
         }
-        write_all(&mut link.stream, &message_3).await?;
+        link.write_unless_withdrawn(&message_3).await?;
         Ok(Established {
             link,
             admission,
@@ -389,6 +391,38 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// (`Credentials::authorizes` for its card in the protocol crate).
     pub fn is_withdrawn(&self) -> bool {
         self.withdrawal.is_withdrawn()
+    }
+
+    /// Writes `bytes`, which carry the local identity, unless the session
+    /// is withdrawn before the write starts or while it is pending. A
+    /// withdrawal or a failed write ends the session.
+    async fn write_unless_withdrawn(&mut self, bytes: &[u8]) -> Result<(), LinkError> {
+        if self.withdrawal.is_withdrawn() {
+            self.session.stream_closed();
+            return Err(LinkError::Withdrawn);
+        }
+        let outcome = {
+            let mut withdrawn = pin!(self.withdrawal.0.wake.notified());
+            let mut write = pin!(write_all(&mut self.stream, bytes));
+            poll_fn(|cx| {
+                if withdrawn.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(None);
+                }
+                write.as_mut().poll(cx).map(Some)
+            })
+            .await
+        };
+        match outcome {
+            Some(Ok(())) => Ok(()),
+            Some(Err(error)) => {
+                self.session.stream_closed();
+                Err(error)
+            }
+            None => {
+                self.session.stream_closed();
+                Err(LinkError::Withdrawn)
+            }
+        }
     }
 
     /// Ends a withdrawn session: the session gives up its standing, the
@@ -505,5 +539,187 @@ impl<S> fmt::Debug for Link<S> {
         f.debug_struct("Link")
             .field("session", &self.session)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::pin::Pin;
+    use core::task::Context;
+    use std::sync::Mutex;
+
+    use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
+    use monolith_protocol::card::EndpointSet;
+    use monolith_protocol::credential::Credentials;
+    use monolith_protocol::session::PeerRecord;
+    use monolith_session::TransportSecretKey;
+    use tokio::io::ReadBuf;
+
+    use super::*;
+
+    fn party(seed: u8) -> LocalParty {
+        let endpoint = IdentitySecretKey::from_seed(&[seed.wrapping_add(100); 32]).public_key();
+        LocalParty::issue(
+            &IdentitySecretKey::from_seed(&[seed; 32]),
+            TransportSecretKey::from_bytes(&[seed ^ 0xA5; 32]).unwrap(),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(OnionServiceKey::from_bytes(endpoint.as_bytes()).unwrap()),
+        )
+        .unwrap()
+    }
+
+    /// A handshake between Alice and Bob, who hold each other as accepted
+    /// contacts. Returns Alice's session, Bob's session and message 3.
+    fn sessions() -> (
+        AuthenticatedSession,
+        AuthenticatedSession,
+        [u8; HANDSHAKE_MSG3_LEN],
+    ) {
+        let (alice, bob) = (party(1), party(2));
+        let (initiator, message_1) = HandshakeInitiator::start(&alice, bob.card(), now()).unwrap();
+        let responder = HandshakeResponder::new(&bob, now()).unwrap();
+        let (waiting, message_2) = responder.read_message_1(&message_1, now()).unwrap();
+        let (outbound, message_3) = initiator.read_message_2(&message_2, now()).unwrap();
+        let inbound = waiting.read_message_3(&message_3, now()).unwrap();
+        let (at_alice, _, _) = outbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(
+                bob.card().clone(),
+            )))
+            .unwrap();
+        let (at_bob, _, _) = inbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(
+                alice.card().clone(),
+            )))
+            .unwrap();
+        (at_alice, at_bob, message_3)
+    }
+
+    /// A stream that takes `room` bytes and then accepts nothing more, and
+    /// never has anything to read. What it took is kept.
+    struct Stalling {
+        room: usize,
+        taken: std::sync::Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl AsyncWrite for Stalling {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            if self.room == 0 {
+                return Poll::Pending;
+            }
+            let taken = self.room.min(bytes.len());
+            self.room = self.room.saturating_sub(taken);
+            self.taken
+                .lock()
+                .unwrap()
+                .extend_from_slice(&bytes[..taken]);
+            Poll::Ready(Ok(taken))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncRead for Stalling {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Pending
+        }
+    }
+
+    fn stalling(room: usize) -> (Stalling, std::sync::Arc<Mutex<Vec<u8>>>) {
+        let taken = std::sync::Arc::new(Mutex::new(Vec::new()));
+        (
+            Stalling {
+                room,
+                taken: taken.clone(),
+            },
+            taken,
+        )
+    }
+
+    fn run<F: Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    #[test]
+    fn message_3_is_not_written_once_the_session_is_withdrawn() {
+        run(async {
+            let (session, _, message_3) = sessions();
+            let (stream, taken) = stalling(usize::MAX);
+            let mut link = Link::new(stream, session, Withdrawal::new());
+            link.withdrawal.withdraw();
+            assert_eq!(
+                link.write_unless_withdrawn(&message_3).await,
+                Err(LinkError::Withdrawn)
+            );
+            assert!(taken.lock().unwrap().is_empty());
+            assert_eq!(
+                link.session.state(),
+                monolith_protocol::SessionState::Closed
+            );
+        });
+    }
+
+    #[test]
+    fn a_withdrawal_ends_a_write_of_message_3_that_is_pending() {
+        // The stream takes 100 bytes of message 3 and then stalls. The
+        // withdrawal ends the write; the 100 bytes it took before cannot
+        // be called back, and nothing is written after them.
+        run(async {
+            let (session, _, message_3) = sessions();
+            let (stream, taken) = stalling(100);
+            let mut link = Link::new(stream, session, Withdrawal::new());
+            let withdrawal = link.withdrawal.clone();
+            let mut written = None;
+            let mut retired = false;
+            {
+                let write = link.write_unless_withdrawn(&message_3);
+                let retire = async {
+                    tokio::task::yield_now().await;
+                    withdrawal.withdraw();
+                };
+                let mut write = pin!(write);
+                let mut retire = pin!(retire);
+                poll_fn(|cx| {
+                    if written.is_none() {
+                        if let Poll::Ready(result) = write.as_mut().poll(cx) {
+                            written = Some(result);
+                        }
+                    }
+                    if !retired && retire.as_mut().poll(cx).is_ready() {
+                        retired = true;
+                    }
+                    if written.is_some() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+            }
+            assert_eq!(written, Some(Err(LinkError::Withdrawn)));
+            assert_eq!(taken.lock().unwrap().as_slice(), &message_3[..100]);
+            assert_eq!(
+                link.session.state(),
+                monolith_protocol::SessionState::Closed
+            );
+        });
     }
 }

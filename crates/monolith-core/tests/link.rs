@@ -444,7 +444,8 @@ fn several_peers_handshake_at_the_same_time() {
                     );
                     let isolation = backend.isolation_group().unwrap();
                     dial(backend, fresh(), &alice, bob_card, &isolation, |peer, _| {
-                        peer.admit(PeerRecord::None)
+                        let mut held = Credentials::new(peer.card().clone());
+                        peer.admit(PeerRecord::Requested(&mut held))
                     })
                     .await
                     .map(|_| ())
@@ -648,7 +649,11 @@ fn strangers_beyond_the_unknown_session_budget_are_closed() {
                 &stranger,
                 &bob_card,
                 &isolation,
-                |peer, _| peer.admit(PeerRecord::None),
+                |peer, _| {
+                    // A stranger that dials asks to become a contact.
+                    let mut held = Credentials::new(peer.card().clone());
+                    peer.admit(PeerRecord::Requested(&mut held))
+                },
             );
             let (_, answered) = futures_join(stranger_side, bob_side).await;
             if usize::from(seed - 20) < monolith_protocol::limits::MAX_UNKNOWN_SESSIONS {
@@ -676,7 +681,11 @@ fn strangers_beyond_the_unknown_session_budget_are_closed() {
             &late,
             &bob_card,
             &isolation,
-            |peer, _| peer.admit(PeerRecord::None),
+            |peer, _| {
+                // A stranger that dials asks to become a contact.
+                let mut held = Credentials::new(peer.card().clone());
+                peer.admit(PeerRecord::Requested(&mut held))
+            },
         );
         let (_, answered) = futures_join(late_side, bob_side).await;
         assert!(answered.is_ok());
