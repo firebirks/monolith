@@ -24,7 +24,9 @@ use monolith_tor::{OnionService, TorError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinSet;
 
-/// The semaphores of one Monolith instance.
+/// A set of connection budgets. Nothing ties a set to the process: Phase
+/// 3 uses one, and several local identities will each need a set of their
+/// own below process-wide limits (`RESOURCE_LIMITS.md` section 5.1).
 #[derive(Clone, Debug)]
 pub struct Budgets {
     handshakes: Arc<Semaphore>,

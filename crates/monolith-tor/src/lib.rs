@@ -63,7 +63,8 @@ pub trait TorBackend: Send + Sync {
     fn status(&self) -> impl Future<Output = TorStatus> + Send;
 
     /// Makes a new isolation context. Streams dialed with different groups
-    /// do not share a circuit.
+    /// do not share a circuit. The caller keeps one group per local
+    /// identity and contact; the backend keeps none.
     fn isolation_group(&self) -> Result<IsolationGroup, TorError> {
         IsolationGroup::generate()
     }
@@ -78,7 +79,9 @@ pub trait TorBackend: Send + Sync {
 
     /// Publishes an Onion Service whose port `ONION_VIRTUAL_PORT` leads to a
     /// listener the backend owns. The service exists until the returned
-    /// handle is closed or dropped, or until Tor loses it.
+    /// handle is closed or dropped, or until Tor loses it. Publications are
+    /// independent of each other: a backend can hold several at once, and
+    /// the streams of one arrive only at its own handle.
     fn publish_onion(
         &self,
         key: KeySource,
