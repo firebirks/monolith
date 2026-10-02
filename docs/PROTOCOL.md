@@ -618,9 +618,9 @@ stranger, a blocked identity and a contact.
 `capability` is the invitation capability copied from the card of the peer
 being asked (section 12): on a session the local side opened, the card
 that was dialed; on one the peer opened, the card of the peer that the
-local side holds. A request with any other capability is not sent. Which
-card that is when the user holds several cards of one identity is open
-question P10.
+local side holds. A request with any other capability is not sent. When
+the user imports another card of the same identity that differs only in
+its capability, that card becomes the held card (section 12.2).
 
 Receiver behavior is in sections 6.4 and 12. The receiver's response to a
 well-formed request from an identity it neither requested nor accepted is
@@ -1325,6 +1325,17 @@ A, B and C. A receiver treats them as one statement of that identity
 (section 11.4): they are not a conflict, and the capability is not part of
 what it pins.
 
+Importing another card of the same identity. If the user imports by hand
+a valid card of an identity that is not an accepted contact, and the card
+states the same transport key, endpoint set and epoch as the card held
+but carries a different capability (including none instead of one, or one
+instead of none), the imported card replaces the held card, and later
+requests carry its capability. A difference only in the capability is not
+an identity, endpoint, transport key or epoch change, and not a conflict.
+For an accepted contact such a card changes nothing: the contact
+relationship does not depend on a capability, and changing or revoking
+the capability it was introduced with leaves it as it is.
+
 Directory cards. A user may make a card for one directory or one website
 only, so that it can be withdrawn on its own later. Withdrawing it, by
 revoking its capability, changes nothing about the identity, the transport
@@ -1346,14 +1357,27 @@ subject to the budgets, the rates, the quota of requests without a
 capability, and acceptance by the user. In invitation mode it is dropped.
 Whether a card carries a capability is the user's choice. Monolith never
 adds one to a card the user issued without one, and never removes one.
+One identity may have cards with and cards without a capability in
+circulation at the same time.
 
 The mode applies to the identity, not to a card, because a request does
-not say which card it was taken from. In open mode the capabilities of
-other cards therefore keep nobody out. A client that follows section 8.3
-sends the capability of the card it holds, and a request with a revoked
-one is dropped; but nothing forces a client to send one, and a request
-without a capability is considered in open mode. A revocation is a
-barrier only in invitation mode.
+not say which card it was taken from. That decides what a capability is
+worth:
+
+- Open mode, public contact requests enabled: a capability is not needed
+  for admission. A client that follows section 8.3 sends the capability
+  of the card it holds, and a request with a revoked one is dropped; but
+  nothing forces a client to send one, and a request without a capability
+  is considered. Revoking a capability therefore cannot keep a peer from
+  submitting a request through the open path.
+- Invitation mode, public contact requests disabled: an unknown peer
+  needs a capability that is in the active set. Revoking a capability
+  then controls admission: the holders of that card, and only they, can
+  no longer submit a request that is considered.
+
+Cards made for one directory and revoked on their own are therefore most
+useful in invitation mode. There is no wire field and no card type for
+this distinction; it is local policy.
 
 Epochs. A capability is not tied to an epoch. A ContactRequest carries the
 capability but not the card it was taken from, so the receiver cannot tell
@@ -1379,9 +1403,10 @@ Monolith holds, compares, logs or erases capabilities.
 The active set holds the capabilities the user currently accepts, at most
 `MAX_ACTIVE_INVITATIONS`. A capability enters it when the user creates a
 card with a new capability, and leaves it only when the user revokes it.
-When the set is full, creating another capability fails until the user
-revokes one; Monolith never revokes a capability by itself to make room.
-The maximum is provisional (`RESOURCE_LIMITS.md` section 5).
+When the set is full, creating another capability fails, with an error
+the user sees, until the user revokes one; Monolith never revokes or
+evicts a capability by itself to make room. The maximum is a provisional
+resource limit of Phase 4 (`RESOURCE_LIMITS.md` section 5).
 
 Revoking a capability removes it from the active set. From then on a
 request that carries it is dropped like one whose capability was never
@@ -1408,10 +1433,14 @@ identity proven in the handshake (section 6.4), not from the capability
 it used to ask. Sessions with contacts and with peers the user requested
 never look at a capability.
 
-Requests that are already in the queue were decided before the
-revocation, and they stay until the user accepts, declines or blocks
-them. Whether revoking should also offer to discard them is open question
-P11.
+Requests that are already in the queue passed admission before the
+revocation. Revoking does not remove them; they stay until the user
+accepts, declines or blocks them. Phase 4 may offer, as a separate local
+action, to revoke a capability and discard the pending requests that it
+admitted. For that a pending request may record locally which capability
+admitted it, preferably as a reference to the entry in the active set
+rather than as a second copy of the capability. That record is local
+data and is never sent to a peer.
 
 No revocation oracle. A peer gets the same answer, Close, whether its
 request carried no capability, one that was never issued, one that was
@@ -1432,9 +1461,13 @@ either (S18). Telling "revoked" from "never issued" would need a record of
 revoked capabilities. Nothing in the protocol needs one, and version 1
 keeps none.
 
-Local state. Revocation needs the active set and nothing else: each member
-with its local label, stored with the identity (in the vault, or in memory
-for an ephemeral identity). A revoked capability is removed, not marked.
+Local state. Revocation needs the active set: each member with its local
+label, stored with the local identity that issued it (in the vault, or in
+memory for an ephemeral identity). If the action that also discards
+pending requests is offered, each pending request keeps a reference to
+the entry that admitted it. A revoked capability is removed, not marked.
+Every identity has its own set, and a request is compared only with the
+set of the identity whose service it reached.
 
 ## 13. File transfer
 
@@ -1755,21 +1788,13 @@ P9. Whether the card in a ContactRequest is still needed, now that the
     request is complete in itself when it is queued, and required to be
     consistent with the handshake (section 8.3).
 
-P10. Which capability a request carries when the user holds several cards
-    of one identity. A request carries the capability of the card held of
-    the peer (section 8.3). A second card of the same epoch that differs
-    only in its capability is not a newer statement (section 11.4), so the
-    rules for what is held do not replace the first. A user who was given
-    a new card because the old capability was revoked needs the new one
-    to be used. Proposed: a card the user imports by hand for a peer that
-    is not an accepted contact replaces the held card when it states the
-    same keys, endpoints and epoch; the session layer already takes the
-    capability from whatever card it is given. Decided with the contact
-    store in Phase 4.
+P10. Closed. Which capability a request carries when the user holds
+    several cards of one identity. A card imported by hand that differs
+    from the held card only in its capability replaces it, for a peer that
+    is not an accepted contact (section 12.2). Decided 2026-10-02; the
+    contact store implements it in Phase 4.
 
-P11. Requests in the queue when the capability they carried is revoked.
-    Section 12.3 keeps them, because revocation decides about new
-    requests only. Revoking a capability that leaked is also the moment a
-    user may want to discard what it brought in. Proposed: keep them, and
-    let the interface offer to decline them together, as a separate user
-    action. Decided with the contact store in Phase 4.
+P11. Closed. Requests in the queue when the capability that admitted them
+    is revoked. They stay; revocation decides about new requests only. A
+    separate local action may revoke a capability and discard the requests
+    it admitted (section 12.3). Decided 2026-10-02.

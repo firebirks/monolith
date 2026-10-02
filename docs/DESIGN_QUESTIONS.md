@@ -225,8 +225,6 @@ Nothing below is settled. Each is described in the document named.
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
 | P8 | A period in which two transport keys are answered | PROTOCOL.md 17 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
-| P10 | Which capability a request carries when several cards of one identity are held | PROTOCOL.md 17 |
-| P11 | Pending requests whose capability is revoked | PROTOCOL.md 17 |
 | - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
@@ -521,20 +519,41 @@ rules; this section records what was decided.
 Consequences recorded with this clarification:
 
 - The request mode applies to the identity, not to a card, because a
-  request does not say which card it came from. In open mode the
-  capabilities of other cards keep nobody out, and revocation is a
-  barrier only in invitation mode.
+  request does not say which card it came from.
 - A capability is not tied to an epoch. After a change of transport key
   or endpoints the user issues new cards, which may carry the same
   capabilities.
-- When the active set is full, a new capability needs a revocation first;
-  Monolith never revokes one by itself.
 - Revocation needs no local state beyond the active set and its labels.
   A revoked capability is removed, not remembered.
+
+Decided in the owner's review the same day:
+
+- P10. A card imported by hand that differs from the held card only in
+  its capability replaces it, for a peer that is not an accepted contact.
+  A capability-only difference is not an identity, endpoint, transport
+  key or epoch change. For an accepted contact, changing or revoking the
+  capability it was introduced with does not change the relationship.
+- P11. Pending requests that passed admission stay when the capability
+  that admitted them is revoked. Phase 4 may offer a separate local action
+  that revokes a capability and discards the requests it admitted; a
+  pending request may then record locally which capability admitted it.
+  That record is never sent.
+- The active set stays bounded at 16 (`MAX_ACTIVE_INVITATIONS`), a
+  provisional Phase 4 resource limit. When it is full, creating another
+  capability fails explicitly; no capability is ever revoked or evicted
+  automatically.
+- One identity may have cards with and without a capability at the same
+  time. With public contact requests enabled (open mode) a capability is
+  not needed for admission, so revoking one cannot keep a peer from
+  submitting a request through the open path. With them disabled
+  (invitation mode) an active capability is required from unknown peers,
+  and revoking one controls admission. Directory cards that are revoked
+  on their own are therefore most useful in invitation mode. No wire
+  field or card type expresses this.
 
 Implementation. The card and session code of Phases 1 and 2 already
 follow these rules: `evaluate_card` ignores the capability, and a request
 carries the capability of the card held of the peer. The active set,
-revocation and the decision of `PROTOCOL.md` section 12, step 3, belong to
-the contact store of Phase 4, together with the tests T-INV-1 to T-INV-9
-of `TEST_PLAN.md` and the open questions P10 and P11.
+revocation, the replacement of P10, the decision of `PROTOCOL.md`
+section 12, step 3, and the tests T-INV-1 to T-INV-11 of `TEST_PLAN.md`
+belong to the contact store of Phase 4.

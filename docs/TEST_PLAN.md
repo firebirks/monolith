@@ -203,6 +203,15 @@ signature and do not conflict).
    one fails and no capability is revoked.
 9. The local label of a capability appears in no card bytes and in no
    frame.
+10. For a peer that is not an accepted contact, importing a card of the
+    same identity, transport key, endpoints and epoch with a different
+    capability, or with none, replaces the held card, and the next request
+    carries the new capability. For an accepted contact the same import
+    changes neither the contact nor its sessions.
+11. Revoking a capability leaves the pending requests it admitted in the
+    queue. If the action that revokes and discards is offered, it removes
+    exactly the requests that capability admitted; the record of which
+    capability admitted a request appears in no frame.
 
 Duplicate sessions (T-DUP)
 

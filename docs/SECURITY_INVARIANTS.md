@@ -278,7 +278,7 @@ Test area names refer to `docs/TEST_PLAN.md`.
   each valid and do not conflict; a capability is not part of what is
   pinned), `tests::contacts` (a capability changes nothing a requester can
   see; a request carries the capability of the card held of the peer and
-  no other), T-ORACLE-1, T-INV-1 to T-INV-9 (Phase 4).
+  no other), T-ORACLE-1, T-INV-1 to T-INV-11 (Phase 4).
 
 ## Protocol and parsing
 
