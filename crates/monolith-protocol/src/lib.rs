@@ -16,6 +16,8 @@
 //! - [`codec`]: bounded readers and writers for the fixed-layout encoding.
 //! - [`text`]: validated text fields.
 //! - [`card`]: contact cards, their signed bytes and their text form.
+//! - [`credential`]: which transport key stands for a contact, and how a
+//!   successor takes over.
 //! - [`body`]: message bodies.
 //! - [`frame`]: the padded frame format and the bounded outer framing.
 //! - [`session`]: session states, the standing of a peer, contact
@@ -32,6 +34,7 @@
 pub mod body;
 pub mod card;
 pub mod codec;
+pub mod credential;
 pub mod duplicate;
 pub mod frame;
 pub mod limits;
