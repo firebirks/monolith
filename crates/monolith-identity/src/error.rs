@@ -17,6 +17,9 @@ pub enum IdentityError {
     InvalidEpoch,
     /// The text is not canonical base32, or decodes to more than allowed.
     InvalidBase32,
+    /// The text is not the ServiceID of an Onion Service v3: wrong length,
+    /// characters, version or checksum.
+    InvalidOnionAddress,
 }
 
 impl fmt::Display for IdentityError {
@@ -26,6 +29,7 @@ impl fmt::Display for IdentityError {
             Self::InvalidSignature => "invalid signature",
             Self::InvalidEpoch => "invalid endpoint epoch",
             Self::InvalidBase32 => "invalid base32",
+            Self::InvalidOnionAddress => "invalid onion address",
         })
     }
 }

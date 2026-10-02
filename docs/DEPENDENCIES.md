@@ -102,6 +102,7 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 | `chacha20poly1305` | 0.11.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the session cipher | `zeroize`; no default features |
 | `getrandom` | 0.3.4 | MIT OR Apache-2.0 | 1.63 | the random source of the operating system | none; no default features |
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type, and invitation capabilities | none; no default features |
+| `sha3` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | the checksum of an onion address | none; no default features |
 
 `ed25519-dalek`
 
@@ -252,6 +253,18 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
   the value is dropped. It does not reach copies the compiler made, and it
   is not a guarantee against every way a secret can stay in memory.
 
+`sha3`
+
+- Maintained by RustCrypto, in the same generation as `sha2` 0.11 (`digest`
+  0.11), so it adds no second `digest`. Added in Phase 3.
+- Used for one thing: the two checksum bytes of an Onion Service v3
+  address, SHA3-256 over `.onion checksum`, the key and the version, as
+  the onion service specification defines it. `monolith-identity` builds
+  and parses ServiceIDs with it; every ServiceID Tor returns is checked.
+- Advisories: none. Unsafe: one line, in the reader of the hash state.
+  The Keccak permutation is in `keccak`, whose unsafe code is the ARMv8
+  SHA3 instruction back end only; the portable permutation has none.
+
 ### Transitive
 
 | Crate | Version | Licence | Through | Unsafe lines |
@@ -266,6 +279,7 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 | `hybrid-array` | 0.4.15 | MIT OR Apache-2.0 | `digest` | 37 |
 | `typenum` | 1.20.1 | MIT OR Apache-2.0 | `hybrid-array` | 0 |
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | `ed25519-dalek` | 15 |
+| `keccak` | 0.2.2 | Apache-2.0 OR MIT | `sha3` | 11 |
 | `cpufeatures` | 0.3.1 | MIT OR Apache-2.0 | `sha2`, `curve25519-dalek` | 11 |
 | `cfg-if` | 1.0.5 | MIT OR Apache-2.0 | several | 0 |
 | `chacha20` | 0.10.2 | MIT OR Apache-2.0 | `chacha20poly1305` | 66 |
