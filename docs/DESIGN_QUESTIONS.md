@@ -886,3 +886,88 @@ On `phase-3-system-tor`, after `fe5327c`, oldest first:
 
 The commit that adds this table also brings `STATUS.md` and
 `mutation/README.md` up to date.
+
+## 9. Integration hardening
+
+On 2026-10-02 two further static reviews of `phase-3-system-tor` found no
+bypass of Noise XK or of F1, F2, F3 and F5, and reported seven issues in
+how authentication, credential standing, identity disclosure, session
+lifetime, budgets and socket I/O fit together. Section 9.1 records the
+check of each against `c7faad2` before anything was changed.
+
+### 9.1 Verification of the reported issues
+
+A. Message 3 after a withdrawal. Confirmed. `link::dial`
+   (`crates/monolith-core/src/link.rs`) admits the responder after
+   message 2, keeps the `Withdrawal`, and then writes message 3 with
+   `write_all` without looking at the withdrawal again, neither before
+   the write starts nor while it is pending. A key retired by another
+   task after the admission still receives the local identity and card.
+   On a single-threaded runtime nothing runs between the admission and
+   the start of the write, but the write may suspend; on a multi-threaded
+   one the window is open throughout. No test covers it: the race test
+   retires the key before the admission.
+
+B. A frame never has to complete. Confirmed. `Link::receive` wraps each
+   socket read in its own `timeout(IDLE_TIMEOUT, ..)`, so every byte
+   restarts the 240 seconds; a peer that sends one byte of a frame every
+   239 seconds holds the link forever. `FRAME_READ_TIMEOUT` (60 seconds,
+   "from length prefix to last byte of a frame") is declared in
+   `limits.rs` and `RESOURCE_LIMITS.md` section 4 and used nowhere. The
+   session age is checked in `AuthenticatedSession::receive` only when a
+   frame is complete, so a partial frame also outlives the age limit.
+   `UNKNOWN_FIRST_MESSAGE_TIMEOUT` and `UNKNOWN_SESSION_TIMEOUT`, which
+   `PROTOCOL.md` sections 6.4, 7 and 12.1 make normative, are declared
+   and never applied: an authenticated stranger holds one of the
+   `MAX_UNKNOWN_SESSIONS` slots for as long as it keeps the stream open.
+   No test covers any of this.
+
+C. A failed read leaves the session usable. Confirmed. In
+   `Link::receive` a read timeout returns `LinkError::TimedOut` and a read
+   error `LinkError::Stream` without `stream_closed`; only end of stream
+   closes the session. A later `receive` reads on, and a frame that
+   arrives late is decoded and delivered. Errors of
+   `AuthenticatedSession::receive` and of `Link::send` do end the
+   session. A link whose session ended also keeps reading: the session
+   drops input in `Closed` without an error, so `receive` waits on the
+   stream again instead of failing.
+
+D. Outbound sessions skip the stranger budget. Confirmed. `dial` returns
+   every session with `unknown_slot: None`. If the record became none,
+   declined or blocked during the dial, the session exists with a
+   standing that is not a contact's and no slot of
+   `MAX_UNKNOWN_SESSIONS`; message 3 has gone to that peer as well.
+
+E. Fuzz targets compare accepted messages with the transcript. Confirmed
+   as an incorrect assertion, not reachable in practice.
+   `handshake_responder` asserts that an accepted message 1 equals the
+   fixed one, with the comment that nobody else can make one; in fact
+   anyone who knows the responder's public card can, with an ephemeral
+   key of its own. It also asserts that an accepted message 3 equals the
+   fixed one, and `handshake_initiator` the same for message 2 and 3. A
+   different valid peer would make the target report a false failure. A
+   random fuzzer does not find such inputs, since they need X25519 and
+   the AEAD, so the targets have not failed; the invariants are still
+   wrong. The known-answer vectors in `tests::vectors` are a separate
+   test and are right.
+
+F. The message 3 gate uses `Standing::StaleCard`. Confirmed in both
+   directions. `StaleCard` stands for three causes: a card older than the
+   active one that states the active key, a card with the retired key or
+   older than the authorized successor, and a card that contradicts the
+   active one or the successor at the same epoch. The first is the
+   contact itself with an old card (a dial of a card whose endpoint
+   change is not yet confirmed, or a peer restored from a backup), yet the
+   dial withholds message 3 and the inbound session is not a contact's.
+   In the other direction the gate lets message 3 go to a peer whose
+   record became none, declined or blocked during the dial.
+
+G. `PROTOCOL.md` contradicts itself. Confirmed. Section 4.4, check 3,
+   says that message 3 is not sent to a key that is retired or pending
+   and that no session is made; section 6.2 still says that for an
+   initiator "the session is not a contact session", which presumes one.
+   Section 12.1 lists the outcome for a contact with a stale card from
+   the responder's side only.
+
+None of the claims was wrong. The fixes keep the wire format, Noise XK
+and the card layout.
