@@ -658,7 +658,7 @@ fn strangers_beyond_the_unknown_session_budget_are_closed() {
             let (_, answered) = futures_join(stranger_side, bob_side).await;
             if usize::from(seed - 20) < monolith_protocol::limits::MAX_UNKNOWN_SESSIONS {
                 let established = answered.unwrap();
-                assert!(established.unknown_slot.is_some());
+                assert!(established.link.holds_unknown_slot());
                 held.push(established);
             } else {
                 assert_eq!(answered.err(), Some(LinkError::Budget));

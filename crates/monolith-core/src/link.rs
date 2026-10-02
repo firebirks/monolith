@@ -23,10 +23,18 @@
 //! Close.
 //!
 //! Every step is bounded: the handshake by `HANDSHAKE_TIMEOUT`, each frame
-//! write by `FRAME_WRITE_TIMEOUT`, silence by `IDLE_TIMEOUT`. Reads go into
-//! one fixed buffer, and nothing more is read until the session has taken
-//! what is there, so a fast peer is slowed down by the reader and cannot
-//! fill memory.
+//! write by `FRAME_WRITE_TIMEOUT`, and everything after the handshake by
+//! the deadlines of the session (`AuthenticatedSession::deadline`): a frame
+//! has to complete within `FRAME_READ_TIMEOUT` of its first byte, the next
+//! one within `IDLE_TIMEOUT` of the last, an unconfirmed session ends in
+//! time, and every session at its age limit. A peer that sends a frame a
+//! byte at a time moves none of these. Reads go into one fixed buffer, and
+//! nothing more is read until the session has taken what is there, so a
+//! fast peer is slowed down by the reader and cannot fill memory.
+//!
+//! A link that failed is over for good: after the end of the stream, a read
+//! or write error, a deadline, a withdrawal, a violation or a Close, every
+//! later call fails at once and nothing more is read or delivered.
 
 use core::fmt;
 use core::future::{Future, poll_fn};
@@ -41,14 +49,14 @@ use monolith_protocol::body::Message;
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
     FRAME_WRITE_TIMEOUT, HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN,
-    HANDSHAKE_TIMEOUT, IDLE_TIMEOUT,
+    HANDSHAKE_TIMEOUT,
 };
 use monolith_protocol::session::{Action, Admission};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 use crate::budget::Budgets;
 use monolith_session::{
-    Admitted, AuthenticatedSession, HandshakeInitiator, HandshakeResponder, InboundPeer,
+    Admitted, AuthenticatedSession, Expiry, HandshakeInitiator, HandshakeResponder, InboundPeer,
     LocalParty, MessageBuffer, OutboundPeer, Received, SessionError,
 };
 use monolith_tor::{IsolationGroup, TorBackend, TorError};
@@ -67,7 +75,8 @@ pub enum LinkError {
     Session(SessionError),
     /// The stream ended or failed.
     Stream,
-    /// A deadline passed: the handshake, a write, or the idle limit.
+    /// A deadline passed: the handshake, a write, or one of the session
+    /// (a frame, silence, an unconfirmed session, the age limit).
     TimedOut,
     /// The contact card names no endpoint that can be dialed.
     NoEndpoint,
@@ -183,6 +192,9 @@ pub struct Link<S> {
     stream: S,
     session: AuthenticatedSession,
     withdrawal: Withdrawal,
+    /// For a peer that is not a contact: its slot in the budget of
+    /// `MAX_UNKNOWN_SESSIONS`, held until the session is over.
+    unknown_slot: Option<OwnedSemaphorePermit>,
     buffer: Box<[u8; READ_CHUNK]>,
     /// The unread part of `buffer` is `start..end`.
     start: usize,
@@ -197,9 +209,6 @@ pub struct Established<S> {
     pub admission: Admission,
     /// The first message to send, if any.
     pub first: Vec<Action>,
-    /// For a peer that is not a contact: its slot in the budget of
-    /// `MAX_UNKNOWN_SESSIONS`, held for as long as this value is.
-    pub unknown_slot: Option<OwnedSemaphorePermit>,
 }
 
 impl<S> fmt::Debug for Established<S> {
@@ -295,7 +304,7 @@ where
         // local identity goes out in message 3.
         let withdrawal = Withdrawal::new();
         let (session, admission, first) = admit(outbound, &withdrawal)?;
-        let mut link = Link::new(stream, session, withdrawal);
+        let mut link = Link::new(stream, session, withdrawal, None);
         if !admission.may_learn_local_identity() {
             return Err(LinkError::Session(SessionError::Protocol(
                 ProtocolError::IdentityMismatch,
@@ -306,7 +315,6 @@ where
             link,
             admission,
             first,
-            unknown_slot: None,
         })
     })
     .await
@@ -357,22 +365,34 @@ where
             Some(slot)
         };
         Ok(Established {
-            link: Link::new(stream, session, withdrawal),
+            link: Link::new(stream, session, withdrawal, unknown_slot),
             admission,
             first,
-            unknown_slot,
         })
     })
     .await
     .map_err(|_| LinkError::TimedOut)?
 }
 
+/// What ended a wait for the peer.
+enum Wake {
+    Withdrawn,
+    Deadline,
+    Read(std::io::Result<usize>),
+}
+
 impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
-    fn new(stream: S, session: AuthenticatedSession, withdrawal: Withdrawal) -> Self {
+    fn new(
+        stream: S,
+        session: AuthenticatedSession,
+        withdrawal: Withdrawal,
+        unknown_slot: Option<OwnedSemaphorePermit>,
+    ) -> Self {
         Self {
             stream,
             session,
             withdrawal,
+            unknown_slot,
             buffer: Box::new([0_u8; READ_CHUNK]),
             start: 0,
             end: 0,
@@ -393,12 +413,48 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         self.withdrawal.is_withdrawn()
     }
 
+    /// Returns true once the link is over. Every later call fails.
+    pub const fn is_over(&self) -> bool {
+        self.session.is_over()
+    }
+
+    /// Returns true while the link holds a slot of `MAX_UNKNOWN_SESSIONS`.
+    /// It gives the slot back when the session is over.
+    pub const fn holds_unknown_slot(&self) -> bool {
+        self.unknown_slot.is_some()
+    }
+
+    /// The one way a link ends: the session is over, the slot goes back,
+    /// and the stream is shut down within `FRAME_WRITE_TIMEOUT`.
+    async fn finish(&mut self) {
+        self.session.stream_closed();
+        self.unknown_slot = None;
+        let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, self.stream.shutdown()).await;
+    }
+
+    /// The error of a call on a link that is over.
+    fn over(&mut self) -> LinkError {
+        self.unknown_slot = None;
+        if self.withdrawal.is_withdrawn() {
+            LinkError::Withdrawn
+        } else {
+            LinkError::Session(SessionError::Closed)
+        }
+    }
+
+    /// Returns true if a deadline of the session has passed at `now`.
+    fn deadline_passed(&self, now: Instant) -> bool {
+        self.session
+            .deadline()
+            .is_some_and(|deadline| now >= deadline)
+    }
+
     /// Writes `bytes`, which carry the local identity, unless the session
     /// is withdrawn before the write starts or while it is pending. A
     /// withdrawal or a failed write ends the session.
     async fn write_unless_withdrawn(&mut self, bytes: &[u8]) -> Result<(), LinkError> {
         if self.withdrawal.is_withdrawn() {
-            self.session.stream_closed();
+            self.finish().await;
             return Err(LinkError::Withdrawn);
         }
         let outcome = {
@@ -415,116 +471,159 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         match outcome {
             Some(Ok(())) => Ok(()),
             Some(Err(error)) => {
-                self.session.stream_closed();
+                self.finish().await;
                 Err(error)
             }
             None => {
-                self.session.stream_closed();
+                self.finish().await;
                 Err(LinkError::Withdrawn)
             }
         }
     }
 
     /// Ends a withdrawn session: the session gives up its standing, the
-    /// Close is written if it was not yet, and the stream is shut down, each
-    /// within `FRAME_WRITE_TIMEOUT`.
+    /// Close is written if it was not yet, within `FRAME_WRITE_TIMEOUT`,
+    /// and the link ends.
     async fn end_withdrawn(&mut self) -> LinkError {
         if let Some(frame) = self.session.withdraw() {
             let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
                 .await;
         }
-        let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, self.stream.shutdown()).await;
+        self.finish().await;
         LinkError::Withdrawn
     }
 
+    /// Ends a session whose deadline passed: with its Close, if the
+    /// deadline calls for one, written within `FRAME_WRITE_TIMEOUT`.
+    async fn end_expired(&mut self, now: Instant) -> LinkError {
+        if let Expiry::Close(Some(frame)) = self.session.expire(now) {
+            let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
+                .await;
+        }
+        self.finish().await;
+        LinkError::TimedOut
+    }
+
     /// Encrypts a message and writes it, within `FRAME_WRITE_TIMEOUT`.
-    /// Nothing is sent on a withdrawn link.
+    /// Nothing is sent on a link that is over or withdrawn, or once a
+    /// deadline of the session has passed. A failed write ends the link:
+    /// part of a frame may be on the stream. A message that may not be
+    /// sent now fails with the error of the session and changes nothing.
     pub async fn send(&mut self, message: &Message) -> Result<(), LinkError> {
         if self.withdrawal.is_withdrawn() {
             return Err(self.end_withdrawn().await);
         }
-        let frame = self.session.send(message, now())?;
+        if self.session.is_over() {
+            return Err(self.over());
+        }
+        let now = now();
+        if self.deadline_passed(now) {
+            return Err(self.end_expired(now).await);
+        }
+        let frame = self.session.send(message, now)?;
         let written =
             tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
                 .await
                 .map_err(|_| LinkError::TimedOut)
                 .and_then(|result| result);
         if written.is_err() {
-            // Part of a frame may be on the stream: nothing more can follow.
-            self.session.stream_closed();
+            self.finish().await;
         }
         written
     }
 
     /// Waits for the next message. Fails when the peer breaks the
-    /// protocol, the stream ends, nothing arrives for `IDLE_TIMEOUT`, or
-    /// the session is withdrawn. After a failure the session is over.
+    /// protocol, the stream ends or fails, a deadline of the session
+    /// passes, or the session is withdrawn. After a failure the link is
+    /// over, and every later call fails at once.
     ///
-    /// A withdrawal is looked at before each frame is taken from the
-    /// buffer and before every wait for the peer, and it ends a wait that
-    /// is in progress. A frame that was not taken when the session was
-    /// withdrawn is not delivered, and every call after the withdrawal
-    /// fails with [`LinkError::Withdrawn`] at once.
+    /// A withdrawal and the deadlines are looked at before each frame is
+    /// taken from the buffer and before every wait for the peer, and they
+    /// end a wait that is in progress. A frame that was not taken when the
+    /// session was withdrawn is not delivered.
     pub async fn receive(&mut self) -> Result<Received, LinkError> {
         loop {
-            while self.start < self.end {
-                if self.withdrawal.is_withdrawn() {
-                    return Err(self.end_withdrawn().await);
-                }
+            if self.withdrawal.is_withdrawn() {
+                return Err(self.end_withdrawn().await);
+            }
+            if self.session.is_over() {
+                return Err(self.over());
+            }
+            let now = now();
+            if self.deadline_passed(now) {
+                return Err(self.end_expired(now).await);
+            }
+            if self.start < self.end {
                 let pending = self
                     .buffer
                     .get(self.start..self.end)
                     .ok_or(LinkError::Stream)?;
-                let (used, received) = self.session.receive(pending, now())?;
-                self.start = self.start.saturating_add(used).min(self.end);
-                if let Some(received) = received {
-                    return Ok(received);
+                match self.session.receive(pending, now) {
+                    Ok((used, received)) => {
+                        self.start = self.start.saturating_add(used).min(self.end);
+                        if let Some(received) = received {
+                            return Ok(received);
+                        }
+                    }
+                    Err(error) => {
+                        self.finish().await;
+                        return Err(error.into());
+                    }
                 }
-            }
-            if self.withdrawal.is_withdrawn() {
-                return Err(self.end_withdrawn().await);
+                continue;
             }
             // Everything read so far was taken; only now is more read, or
-            // the wait ends because the session was withdrawn.
-            let outcome = {
+            // the wait ends: the session was withdrawn or a deadline came.
+            let deadline = self.session.deadline().map(tokio::time::Instant::from_std);
+            let wake = {
                 let mut withdrawn = pin!(self.withdrawal.0.wake.notified());
-                let mut read = pin!(tokio::time::timeout(
-                    IDLE_TIMEOUT,
-                    self.stream.read(self.buffer.as_mut_slice())
-                ));
+                let mut timer = pin!(async {
+                    match deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => core::future::pending::<()>().await,
+                    }
+                });
+                let mut read = pin!(self.stream.read(self.buffer.as_mut_slice()));
                 poll_fn(|cx| {
                     if withdrawn.as_mut().poll(cx).is_ready() {
-                        return Poll::Ready(None);
+                        return Poll::Ready(Wake::Withdrawn);
                     }
-                    read.as_mut().poll(cx).map(Some)
+                    if timer.as_mut().poll(cx).is_ready() {
+                        return Poll::Ready(Wake::Deadline);
+                    }
+                    read.as_mut().poll(cx).map(Wake::Read)
                 })
                 .await
             };
-            let Some(read) = outcome else {
-                return Err(self.end_withdrawn().await);
-            };
-            let read = read
-                .map_err(|_| LinkError::TimedOut)?
-                .map_err(|_| LinkError::Stream)?;
-            if read == 0 {
-                self.session.stream_closed();
-                return Err(LinkError::Stream);
+            match wake {
+                Wake::Withdrawn => return Err(self.end_withdrawn().await),
+                Wake::Deadline => return Err(self.end_expired(self::now()).await),
+                Wake::Read(Ok(0) | Err(_)) => {
+                    self.finish().await;
+                    return Err(LinkError::Stream);
+                }
+                Wake::Read(Ok(read)) => {
+                    self.start = 0;
+                    self.end = read;
+                }
             }
-            self.start = 0;
-            self.end = read;
         }
     }
 
     /// Ends the session: writes the Close, if one is due, and shuts the
-    /// stream down.
+    /// stream down, each within `FRAME_WRITE_TIMEOUT`.
     pub async fn close(mut self) -> Result<(), LinkError> {
-        if let Some(frame) = self.session.close() {
-            tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
-                .await
-                .map_err(|_| LinkError::TimedOut)??;
-        }
-        let _ = self.stream.shutdown().await;
-        Ok(())
+        let written = match self.session.close() {
+            Some(frame) => {
+                tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
+                    .await
+                    .map_err(|_| LinkError::TimedOut)
+                    .and_then(|result| result)
+            }
+            None => Ok(()),
+        };
+        self.finish().await;
+        written
     }
 }
 
@@ -663,7 +762,7 @@ mod tests {
         run(async {
             let (session, _, message_3) = sessions();
             let (stream, taken) = stalling(usize::MAX);
-            let mut link = Link::new(stream, session, Withdrawal::new());
+            let mut link = Link::new(stream, session, Withdrawal::new(), None);
             link.withdrawal.withdraw();
             assert_eq!(
                 link.write_unless_withdrawn(&message_3).await,
@@ -685,7 +784,7 @@ mod tests {
         run(async {
             let (session, _, message_3) = sessions();
             let (stream, taken) = stalling(100);
-            let mut link = Link::new(stream, session, Withdrawal::new());
+            let mut link = Link::new(stream, session, Withdrawal::new(), None);
             let withdrawal = link.withdrawal.clone();
             let mut written = None;
             let mut retired = false;
@@ -719,6 +818,243 @@ mod tests {
             assert_eq!(
                 link.session.state(),
                 monolith_protocol::SessionState::Closed
+            );
+        });
+    }
+
+    /// How Bob holds Alice in the sessions below.
+    #[derive(Clone, Copy)]
+    enum BobHolds {
+        Nothing,
+        Accepted,
+    }
+
+    /// A handshake in which Alice holds Bob as requested and Bob holds
+    /// Alice as `bob_holds`. Returns Alice's and Bob's sessions.
+    fn unconfirmed(bob_holds: BobHolds) -> (AuthenticatedSession, AuthenticatedSession) {
+        let (alice, bob) = (party(1), party(2));
+        let (initiator, message_1) = HandshakeInitiator::start(&alice, bob.card(), now()).unwrap();
+        let responder = HandshakeResponder::new(&bob, now()).unwrap();
+        let (waiting, message_2) = responder.read_message_1(&message_1, now()).unwrap();
+        let (outbound, message_3) = initiator.read_message_2(&message_2, now()).unwrap();
+        let inbound = waiting.read_message_3(&message_3, now()).unwrap();
+        let (at_alice, _, _) = outbound
+            .admit(PeerRecord::Requested(&mut Credentials::new(
+                bob.card().clone(),
+            )))
+            .unwrap();
+        let mut held = Credentials::new(alice.card().clone());
+        let record = match bob_holds {
+            BobHolds::Nothing => PeerRecord::None,
+            BobHolds::Accepted => PeerRecord::Accepted(&mut held),
+        };
+        let (at_bob, _, _) = inbound.admit(record).unwrap();
+        (at_alice, at_bob)
+    }
+
+    /// Alice and Bob as accepted contacts, confirmed on both sides.
+    fn confirmed() -> (AuthenticatedSession, AuthenticatedSession) {
+        let (mut alice, mut bob, _) = sessions();
+        let to_bob = alice.send(&Message::ContactAccept, now()).unwrap();
+        let to_alice = bob.send(&Message::ContactAccept, now()).unwrap();
+        bob.receive(&to_bob, now()).unwrap();
+        alice.receive(&to_alice, now()).unwrap();
+        (alice, bob)
+    }
+
+    fn chat() -> Message {
+        Message::ChatMessage {
+            id: monolith_protocol::body::MessageId::from_bytes([1; 16]),
+            text: monolith_protocol::text::ChatText::new("hello").unwrap(),
+        }
+    }
+
+    /// Runs `bob` until it is done and `peer` alongside it.
+    async fn alongside<A: Future, B: Future<Output = ()>>(bob: A, peer: B) -> A::Output {
+        let mut bob = pin!(bob);
+        let mut peer = pin!(peer);
+        let mut peer_done = false;
+        poll_fn(|cx| {
+            if !peer_done && peer.as_mut().poll(cx).is_ready() {
+                peer_done = true;
+            }
+            bob.as_mut().poll(cx)
+        })
+        .await
+    }
+
+    fn assert_over<S: AsyncRead + AsyncWrite + Unpin>(link: &Link<S>) {
+        assert!(link.is_over());
+        assert!(!link.holds_unknown_slot());
+    }
+
+    #[test]
+    fn a_frame_sent_a_byte_at_a_time_ends_at_the_frame_deadline() {
+        // The peer sends one byte of a frame and another every 59 seconds,
+        // each within what a timeout per read would allow. The frame has
+        // to complete within FRAME_READ_TIMEOUT of its first byte.
+        run(async {
+            let (mut alice, bob) = confirmed();
+            let frame = alice.send(&chat(), now()).unwrap();
+            let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), None);
+            let started = tokio::time::Instant::now();
+            let peer = async {
+                for byte in &frame {
+                    if peer_end
+                        .write_all(core::slice::from_ref(byte))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    tokio::time::sleep(core::time::Duration::from_secs(59)).await;
+                }
+            };
+            let result = alongside(link.receive(), peer).await;
+            assert_eq!(result.err(), Some(LinkError::TimedOut));
+            assert_eq!(
+                started.elapsed(),
+                monolith_protocol::limits::FRAME_READ_TIMEOUT
+            );
+            assert_over(&link);
+            // Nothing revives it: later calls fail at once.
+            assert_eq!(
+                link.receive().await.err(),
+                Some(LinkError::Session(SessionError::Closed))
+            );
+            assert_eq!(
+                link.send(&chat()).await.err(),
+                Some(LinkError::Session(SessionError::Closed))
+            );
+        });
+    }
+
+    #[test]
+    fn a_stranger_that_sends_nothing_is_closed_and_frees_its_slot() {
+        run(async {
+            let budgets = Budgets::new();
+            let (mut alice, bob) = unconfirmed(BobHolds::Nothing);
+            let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
+            let slot = budgets.unknown_session();
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), slot);
+            assert!(link.holds_unknown_slot());
+            let started = tokio::time::Instant::now();
+            assert_eq!(link.receive().await.err(), Some(LinkError::TimedOut));
+            assert_eq!(
+                started.elapsed(),
+                monolith_protocol::limits::UNKNOWN_FIRST_MESSAGE_TIMEOUT
+            );
+            assert_over(&link);
+            assert_eq!(
+                budgets.free_unknown_sessions(),
+                monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
+            );
+            // The stranger sees an ordinary Close.
+            let mut bytes = Vec::new();
+            peer_end.read_to_end(&mut bytes).await.unwrap();
+            let (_, received) = alice.receive(&bytes, now()).unwrap();
+            assert_eq!(received.unwrap().message, Message::Close);
+        });
+    }
+
+    #[test]
+    fn an_unconfirmed_session_ends_in_time() {
+        // Bob holds Alice as accepted. She sends a request and never her
+        // ContactAccept: the session stays unconfirmed.
+        run(async {
+            let (mut alice, bob) = unconfirmed(BobHolds::Accepted);
+            let request =
+                Message::ContactRequest(Box::new(monolith_protocol::body::ContactRequest {
+                    card: party(1).card().clone(),
+                    invitation: None,
+                    display_name: monolith_protocol::text::DisplayName::new("Alice").unwrap(),
+                    introduction: monolith_protocol::text::IntroductionText::new("hi").unwrap(),
+                }));
+            let frame = alice.send(&request, now()).unwrap();
+            let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
+            peer_end.write_all(&frame).await.unwrap();
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), None);
+            let started = tokio::time::Instant::now();
+            let received = link.receive().await.unwrap();
+            assert!(matches!(received.message, Message::ContactRequest(_)));
+            assert_eq!(link.receive().await.err(), Some(LinkError::TimedOut));
+            assert_eq!(
+                started.elapsed(),
+                monolith_protocol::limits::UNKNOWN_SESSION_TIMEOUT
+            );
+            assert_over(&link);
+        });
+    }
+
+    /// A stream whose reads and writes fail.
+    struct Broken;
+
+    impl AsyncRead for Broken {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Err(std::io::ErrorKind::ConnectionReset.into()))
+        }
+    }
+
+    impl AsyncWrite for Broken {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Err(std::io::ErrorKind::ConnectionReset.into()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[test]
+    fn a_read_error_ends_the_link() {
+        run(async {
+            let (_, bob) = confirmed();
+            let budgets = Budgets::new();
+            let mut link = Link::new(Broken, bob, Withdrawal::new(), budgets.unknown_session());
+            assert_eq!(link.receive().await.err(), Some(LinkError::Stream));
+            assert_over(&link);
+            assert_eq!(
+                budgets.free_unknown_sessions(),
+                monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
+            );
+            assert_eq!(
+                link.receive().await.err(),
+                Some(LinkError::Session(SessionError::Closed))
+            );
+            assert_eq!(
+                link.send(&chat()).await.err(),
+                Some(LinkError::Session(SessionError::Closed))
+            );
+        });
+    }
+
+    #[test]
+    fn a_write_error_ends_the_link() {
+        run(async {
+            let (bob, _) = confirmed();
+            let mut link = Link::new(Broken, bob, Withdrawal::new(), None);
+            assert_eq!(link.send(&chat()).await.err(), Some(LinkError::Stream));
+            assert_over(&link);
+            assert_eq!(
+                link.send(&chat()).await.err(),
+                Some(LinkError::Session(SessionError::Closed))
+            );
+            assert_eq!(
+                link.receive().await.err(),
+                Some(LinkError::Session(SessionError::Closed))
             );
         });
     }
