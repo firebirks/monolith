@@ -6,9 +6,12 @@ contact confirmation, duplicate resolution) is implemented in
 with a transport key that the identity certifies in the contact card.
 Sections 3, 4, 5, 6.1 to 6.3 and 7.1 specify it, section 11 gives the
 contact card with the transport key, and `monolith-session` implements it.
-This
-document was written first and the implementation follows it; where the
-two disagree, the implementation is wrong.
+The credential rules of section 11.4 are implemented in the `credential`
+module of `monolith-protocol`; the contact store that keeps them comes
+with Phase 4.
+
+This document was written first and the implementation follows it; where
+the two disagree, the implementation is wrong.
 
 The padding block size in section 5 is a parameter whose production value
 is not decided. Open questions are listed in section 17.
@@ -192,13 +195,13 @@ the handshake hash `h`.
 
 The initiator:
 
-1. Before it sends anything: the contact it dials has a pinned card; the
-   identity of that card is not the initiator's own. It does not dial a
-   card that it knows to be superseded (section 11.4).
+1. Before it sends anything: the card it dials is one it holds of a
+   contact and states the active key of that contact (section 11.4); the
+   identity of that card is not the initiator's own.
 2. Message 2 is 48 bytes, its ephemeral key is valid (section 10.2), and
    Noise accepts it. A message 2 that Noise accepts shows that the sender
-   holds the transport key of the pinned card and used the pinned
-   identity key in its prologue.
+   holds the transport key of the dialed card and used its identity key
+   in its prologue.
 
 If check 2 fails the initiator closes. It has sent 48 bytes that carry no
 identity. The failure is reported to the user as an identity mismatch: the
@@ -378,38 +381,56 @@ contact, and is then handled by sections 6.4 and 12.
 Each side decides the standing of the peer from its own record of the
 identity and from the card that stands for the peer on this session. For
 a responder that is the card presented in message 3. For an initiator it
-is the card it dialed.
+is the card it dialed. In both cases the handshake proved that the peer
+holds the transport key of that card.
 
-For an identity held as a contact, the record includes the newest card the
-local side holds of it: the pinned card, or a card with a greater epoch
-that arrived later and that the user has not confirmed yet (section 11.4).
-The comparison is with the newest one, confirmed or not.
+For an identity held as a contact, the record includes its credentials
+(section 11.4): the active card, whose transport key stands for the
+contact, an authorized successor, a pending successor, and the retired
+key. The card of the session is compared with them.
 
 | Record of the identity | Card of this session | Standing for this session |
 | --- | --- | --- |
 | none, declined or blocked | any valid card | not a contact (section 12) |
-| requested or accepted | greater epoch than the newest card held | as the record says; the card becomes the newest card held at once, and is a pending change (section 11.4) |
-| requested or accepted | same epoch, same transport key and endpoints | as the record says |
-| requested or accepted | same epoch, another transport key or endpoint set | not a contact; reported to the user as a conflict |
-| requested or accepted | lower epoch than the newest card held | not a contact |
+| requested or accepted | the active key, the active card | as the record says |
+| requested or accepted | the active key, a greater epoch | as the record says; the card becomes the active card at once (section 11.4) |
+| requested or accepted | the key of the authorized successor, not older than the announced card | as the record says; the successor is promoted and the previous key retired (section 11.4) |
+| requested or accepted | another key, a greater epoch | not a contact; the card is held as the pending successor and shown to the user (section 11.4) |
+| requested or accepted | the epoch of the active card, another transport key or endpoint set | not a contact; reported to the user as a conflict |
+| requested or accepted | a lower epoch than the active card, the retired key, or a card of the authorized key older than the announced one | not a contact |
 
-The last two rows are the stale-card rule. A card that is older than the
-newest one the local side holds, or that contradicts it, does not open a
-contact session, even though its signature is valid and the peer holds its
+The last two rows are the stale-card rule. A card that is older than what
+the local side holds, or that contradicts it, does not open a contact
+session, even though its signature is valid and the peer holds its
 transport key. The peer is treated like any identity that is not a contact
 and sees the same generic behavior (section 12.1); it is not told why.
 This keeps a transport key that an identity has retired from being used
-against the contacts that hold its successor, whether or not their users
-have confirmed the successor yet.
+against the contacts that promoted its successor.
 
-For an initiator the rule matters when a newer card arrived while a dial
-was in progress: the responder then proved a transport key that is known
-to be retired, and the session is not a contact session.
+The row before them is the continuity rule. A valid signature of the
+identity shows that the identity issued the card. It does not by itself
+make a new transport key the one that stands for the contact: that takes
+an announcement through the active key or the user's confirmation. A
+peer with a new key and no such announcement sees what a stranger sees,
+and the active key keeps working.
+
+The record is read when the handshake is complete, not when a dial
+begins, and the standing is decided and what the card changes is recorded
+in one step on the local contact state, with nothing in between that
+waits. For an initiator this matters when the credentials of the contact
+changed while the dial was in progress: the responder may then have
+proved a key that is no longer active, and the session is not a contact
+session.
+
+A session already open loses its standing when the transport key it was
+authenticated with is retired: it is withdrawn, ends with Close, and
+delivers nothing more (section 11.4).
 
 Budgets are applied at this point according to the standing for this
 session, not according to the record alone. A session whose standing is
 requested or accepted counts against `MAX_CONTACT_SESSIONS`. Every other
-session, that of a contact with a stale card included, counts against
+session, that of a contact with a stale card or a pending key included,
+counts against
 `MAX_UNKNOWN_SESSIONS` and `UNKNOWN_SESSION_RATE`; if the rate is
 exhausted, the local side closes. Holders of a contact card who are not
 contacts therefore cannot use up the room that contacts need, and the
@@ -439,7 +460,7 @@ holds locally about the peer's identity, through the standing of section
 | --- | --- |
 | accepted contact | ContactAccept |
 | requested (the user imported the peer's card; no acceptance seen yet) | ContactRequest |
-| none, declined, blocked, or a contact whose card is stale for this session | nothing |
+| none, declined, blocked, or a contact whose card is stale or whose key is pending for this session | nothing |
 
 A session becomes `AuthenticatedContact` on a side when both of these are
 true: the side holds the peer as an accepted contact, and it has received
@@ -472,7 +493,8 @@ Receiving, in `AuthenticatedUnknown`:
   or has lost its record. ContactAccept was already sent; nothing more to
   do.
 - Anything from a peer with no record, declined or blocked, or from a
-  contact whose card is stale for this session: section 12.
+  contact whose card is stale or whose key is pending for this session:
+  section 12.
 
 Before any of this, a ContactRequest is checked against the proven identity
 (section 8.3). That check does not depend on the record of the peer.
@@ -698,27 +720,33 @@ assigned. A Profile equal to the stored one causes no event.
 `card` must be a valid contact card whose identity key equals the sender's
 proven identity; a card of another identity is a protocol violation. The
 card may state another transport key than the one this session was
-authenticated with: that is how a new transport key is announced. The
-receiver compares the card with the newest card it holds of this contact:
+authenticated with: that is how a successor key is announced.
 
-- greater epoch: recorded as a pending change of the endpoint set, of the
-  transport key, or of both. In version 1 the change takes effect for
-  dialing after the user confirms it. For the stale-card rule it counts
-  from the moment it is recorded (section 11.4);
-- same epoch, same endpoint set and same transport key: nothing to do.
-  This is the normal case;
-- same epoch and a different endpoint set or transport key: the owner
+Only a session that was authenticated with the active key of the contact
+carries continuity (section 11.4). On any other the update proves nothing
+and is ignored; such a session is normally withdrawn already. On a session
+of the active key the receiver compares the card with its credentials:
+
+- greater epoch, the active key: the card becomes the active card. The
+  transport credential is unchanged; a new endpoint set takes effect for
+  dialing after the user confirms it;
+- greater epoch, another key: the card becomes the authorized successor,
+  in place of an older one. The active key stays active until the holder
+  of the successor key proves it in a handshake;
+- the epoch of the active card, or of the authorized successor for its
+  key, with the same endpoint set and transport key: nothing to do. This
+  is the normal case;
+- the same epoch with a different endpoint set or transport key: the owner
   signed two statements with one epoch. Ignored, and reported to the user
   as an anomaly;
-- lower epoch: ignored and counted.
-
-Nothing but a greater epoch ever changes what is pinned or what is held as
-the newest card.
+- a lower epoch, an epoch below the authorized successor, or the retired
+  key: ignored and counted.
 
 A responder sends its current card once after a session is confirmed. The
 initiator's card was presented in the handshake. Either side sends its
-card again if it changes during the session. This is how a contact learns
-a new endpoint or a new transport key: the owner dials out and says so.
+card again if it changes during the session, and sends its successor card
+while it rotates its transport key. This is how a contact learns a new
+endpoint, and how a successor key is authorized before it is used.
 
 ### 8.9 File transfer (0x0040 to 0x0045)
 
@@ -1081,25 +1109,72 @@ its transport key changes it increments the counter and signs a new card.
 A card always states the whole set and the transport key; there is no
 "add" or "remove".
 
-A receiver pins, per contact, the identity key, the transport key, the
-endpoint set and the epoch: the card that is in effect, which is the one
-it dials. Next to it, it holds the newest card of that identity it has
-received. The two are the same card except while a change is pending.
+A receiver holds two things per contact, and they change separately.
 
-A card signed by the pinned identity with an epoch strictly greater than
-that of the newest card held becomes the newest card held at once, when it
-arrives
+- Credential standing: which transport key stands for the contact. This
+  decides who is the contact in a session (section 6.2).
+- Dial endpoint standing: the card it dials, which is where Monolith
+  connects to. This is the user's decision.
 
-- as the card an initiator presents in the handshake of a session with
-  that contact,
-- in an EndpointUpdate on an authenticated session with that contact, or
-- as a card the user imports by hand.
+Credentials. A receiver holds, per contact:
 
-In version 1 it becomes the pinned card when the user confirms the change;
-a card the user imports by hand is confirmed by that. Until then the
-contact is not dialed: the pinned card is known to be superseded, and the
-new one is not in effect. What the user confirms is where Monolith
-connects to. What counts as stale does not wait for the user.
+- the active card: the newest card it accepted for the transport key that
+  stands for the contact. The key is the active key; there is exactly one;
+- at most one authorized successor: a newer card with another key that the
+  identity announced through the active key;
+- at most one pending successor: a newer card with another key that
+  arrived any other way;
+- the retired key: the key that was active before the last change.
+
+A valid signature by the identity shows that the identity issued a card.
+It is necessary for a card to count, and it is not sufficient to replace
+the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
+
+1. Rollback. A card older than the active card, a card with the epoch of
+   the active card that states something else, a card of the authorized
+   key older than the announced one, and a card that states the retired
+   key change nothing and open no contact session.
+2. Endpoints. A newer card with the active key becomes the active card at
+   once, from any source: presented by the key holder in a handshake,
+   received in an EndpointUpdate on a session of the active key, or
+   imported by the user. The transport credential has not changed.
+3. Continuity. A newer card with another key, received in an
+   EndpointUpdate on a session that was authenticated with the active key,
+   becomes the authorized successor. The active key stays active and its
+   sessions keep working.
+4. Promotion. When a handshake proves the key of the authorized successor,
+   with a card not older than the announced one, the successor becomes the
+   active card and the previous key is retired.
+5. No continuity. A newer card with another key that is presented in a
+   handshake without an announcement, or imported by hand for an accepted
+   contact, becomes the pending successor. The session it came with is not
+   a contact session. It becomes the active card only when the user
+   confirms exactly that card; the previous key is then retired as in 4.
+6. Requests. For an identity held as requested and not yet accepted, a
+   card the user imports by hand is the user's choice of the card to use
+   and takes the place of the active one, with its capability; with
+   another key the previous key is retired as in 4.
+7. Retirement. When a key is retired, every session that was
+   authenticated with it loses its standing and is withdrawn before
+   anything else is done with the contact, the duplicate rule of section
+   14 included. It ends with Close and delivers nothing more. A card that
+   states the retired key never opens a contact session again, whatever
+   its epoch.
+
+The state is bounded: one active card, one authorized and one pending
+successor, one retired key per contact. A newer announcement replaces the
+authorized successor; a pending card is replaced only by a newer one.
+Promotion clears the authorized successor and drops a pending card that is
+not newer than the new active card.
+
+Dialing. A receiver dials a card that states the active key. A newer
+active card with another endpoint set takes effect for dialing when the
+user confirms it; a card the user imports by hand is confirmed by that.
+Until then the contact is not dialed. When a promotion leaves the endpoint
+set that the user confirmed unchanged, the promoted card is dialed from
+then on. Confirming where to connect never changes which key stands for
+the contact: a card whose key is pending or retired cannot be confirmed
+for dialing.
 
 A card with a different identity key is a different contact, whatever
 display name comes with it.
@@ -1109,35 +1184,62 @@ transport key and endpoint set. If they are not, the identity has signed
 two statements for one epoch; the receiver keeps what it has and reports
 the conflict. They may differ in their invitation capability, and then in
 their signature: an identity may issue several cards for one epoch, one
-per capability (section 12.2). Such cards are not a conflict. The
-capability is not part of what a receiver pins.
+per capability (section 12.2). Such cards are not a conflict, and the
+capability plays no part in the credentials of a contact.
 
-Stale cards. A card whose epoch is lower than that of the newest card held
-is never accepted as the current statement of a contact. Presented in a
-handshake, it does not open a contact session (section 6.2). Received in
-an EndpointUpdate, it is ignored (section 8.8). A receiver that has no
-record of the identity cannot know that a card is stale: it has nothing to
-compare it with.
+A receiver that has no record of the identity cannot know that a card is
+stale: it has nothing to compare it with.
 
 Changing the transport key. An identity replaces its transport key by
-signing a card with a greater epoch that states the new key. From that
-moment it answers only handshakes made with the new key. Version 1 has no
-period in which both keys are answered.
+signing a card with a greater epoch that states the new key. It does not
+give up the old key first:
 
-- A contact that still holds the previous card cannot open a session: its
-  first message is made for a key the identity no longer uses, and it
-  gets no reply. To the contact this looks like any other identity
-  mismatch (section 4.4).
-- The contact learns the new card when the identity opens a session to it
-  and presents the card in the handshake, or out of band. Until then the
-  two can talk only when the identity dials.
-- There is no revocation. Replacing a transport key does not make the
-  old one worthless to someone who obtained its private half: against a
-  party that has received the newer card it is useless, by the stale-card
-  rule, and against a party that has never seen the identity, or holds
-  only the older card, it still authenticates as the identity.
-  The same is true of the identity key itself, which cannot be replaced
-  at all without becoming a new identity.
+1. The identity generates the new key and signs the successor card.
+2. It keeps the old key: it goes on answering handshakes with it and may
+   still open sessions with it.
+3. On every confirmed session made with the old key it sends the
+   successor card in an EndpointUpdate. Each contact that receives it
+   holds the new key as authorized successor.
+4. It opens a session to each such contact with the new key, dialing the
+   contact's active card. The contact promotes the new key in that
+   handshake; the old key is retired there, and the contact's sessions of
+   the old key end.
+5. When its contacts have promoted the new key, it answers with the new
+   key and drops the old one. A contact has promoted the key once a
+   session made with the new key was confirmed.
+
+Between steps 1 and 5 the identity holds two keys, and each contact holds
+the old key active and the new one authorized until it promotes it. After
+a promotion only the new key stands for the identity at that contact. A
+responder of version 1 answers with one key at a time (section 17, P8):
+before step 5 a contact that has promoted the new key cannot dial the
+identity, and after it a contact that never received the successor card
+cannot. When to switch is local policy; its timing is set with the contact
+store in Phase 4.
+
+Two identities may rotate at the same time. As long as each keeps
+answering with its old key until both successor cards were exchanged on a
+session of the old keys, both rotations complete: each promotes the
+other's new key when the other dials with it. If both give up their old
+keys before that exchange, neither can reach the other: each dials a key
+the other no longer answers, and a new key presented without announcement
+is only pending. Nothing is taken over and no session is a contact
+session. In version 1 the recovery is a card handed over out of band,
+which the user imports and confirms.
+
+There is no revocation. Against a contact that has promoted the successor,
+the old key is retired and useless. Against a party that has never seen
+the identity, or still holds the old key active, it still authenticates
+as the identity.
+
+Whoever copies the identity key alone can sign cards with keys of its own
+and any epoch. Such a card reaches a contact only as a pending successor:
+it gives no standing, does not lock the holder of the active key out, and
+takes over only if the user confirms it. Whoever holds both the identity
+key and the active transport key can announce a successor through the
+active key and is indistinguishable from the identity; no rule here can
+tell the two apart (`THREAT_MODEL.md`). The identity key itself cannot be
+replaced without becoming a new identity.
 
 If every endpoint a contact knows has disappeared before an update reached
 it, there is no way for the contact to learn the new endpoint from the
@@ -1170,7 +1272,8 @@ carry one are used, section 12.3 what revoking one does.
 
 Processing of the first message received in `AuthenticatedUnknown` from a
 peer that is not a contact for this session: one the local side neither
-requested nor accepted, or a contact whose card is stale (section 6.2).
+requested nor accepted, or a contact whose card is stale or whose key is
+pending (section 6.2).
 Peers whose standing is requested or accepted are handled by section 6.4.
 
 1. Validate the body, including that the card in a ContactRequest is the
@@ -1180,7 +1283,8 @@ Peers whose standing is requested or accepted are handled by section 6.4.
    blocked sender sees exactly what a stranger with a bad invitation sees.
 3. If the message is a ContactRequest, decide whether to queue it. The
    request is dropped if the sender is on the block list or the declined
-   list, if the sender is a contact whose card is stale, if the policy
+   list, if the sender is a contact whose card is stale or whose key is
+   pending, if the policy
    mode does not admit it, if it carries a capability that is not in the
    active set (compared in constant time with every member), if a request
    from this identity is already pending, if
@@ -1245,7 +1349,7 @@ identity, by the local record of that identity.
 | blocked | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
 | deleted former contact | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
 | declined | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
-| a contact that presented a stale or conflicting card (section 6.2) | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
+| a contact that presented a stale or conflicting card, or a new key without continuity (section 6.2) | nothing | Close | Close | Close at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | never |
 | requested by the local user | ContactRequest | ContactAccept | ContactAccept | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
 | accepted, verified out of band | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
 | accepted, not verified | ContactAccept | nothing more | confirmed | Close at `UNKNOWN_SESSION_TIMEOUT` | after confirmation |
@@ -1557,6 +1661,14 @@ Both peers may dial each other at the same time. The rule below is applied
 only to sessions in `AuthenticatedContact`; an unauthenticated stream cannot
 affect any other session.
 
+Credential standing comes first. A session whose transport key is no
+longer the active key of the contact has been withdrawn when the key was
+retired (section 11.4) and takes no part. The rule is given, for each
+session, whether its key is still the active one: a session whose key is
+not loses, whatever the preference below, and if neither key is active
+both sessions are closed. Only sessions of the active key are compared by
+preference.
+
 Identity keys are compared as 32-byte strings, lexicographically.
 
 When a session with contact C becomes `AuthenticatedContact` and another
@@ -1595,10 +1707,11 @@ per identity are rate limited (`CONTACT_SESSION_RATE`).
 
 These slots and this rate are those of sessions whose standing is
 requested or accepted. A session of a contact that presented a stale or
-conflicting card (section 6.2) is counted with the sessions of identities
-that have no record. It takes no slot and no rate from the identity's
-contact sessions, so the holder of a retired key cannot keep the identity
-itself out.
+conflicting card, or a new key without continuity (section 6.2), is
+counted with the sessions of identities that have no record. It takes no
+slot and no rate from the identity's contact sessions, so neither the
+holder of a retired key nor whoever copied the identity key alone can keep
+the identity itself out.
 
 ## 15. Reconnecting
 
@@ -1788,9 +1901,13 @@ P7. Closed. Display names had to be in Normalization Form C, which is
     out in this document. A front end may normalize for presentation.
 
 P8. A period in which an identity answers handshakes for both its previous
-    and its new transport key, so that contacts with the older card are
-    not cut off (section 11.4). A responder would have to try message 1
-    against two keys. Not in version 1.
+    and its new transport key. Revisited with the credential review of
+    2026-10-02: a safe rotation does need a bounded overlap, and section
+    11.4 has one. The identity holds both keys, keeps answering with the
+    old one until its contacts promoted the new one, and opens sessions
+    with the new one. What is still not in version 1 is a responder that
+    tries message 1 against two keys, which would remove the window in
+    which a contact on the other side of the switch cannot dial.
 
 P9. Whether the card in a ContactRequest is still needed, now that the
     initiator presents its card in the handshake. It is kept so that a

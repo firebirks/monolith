@@ -73,9 +73,13 @@ service from per-contact endpoint services.
 - Taking over an Onion Service key does not let an attacker pass as the
   contact, and, because the responder proves its identity first, does not
   reveal who connects.
-- The identity key is online in every session. There is no offline root
-  key. A stolen identity key means impersonation until contacts are told
-  out of band; version 1 has no revocation.
+- The identity key is kept online by the client that signs its cards.
+  There is no offline root key. A stolen identity key lets the thief sign
+  newer cards; with the active transport key still safe they reach
+  contacts only as pending successors (`PROTOCOL.md` section 11.4), and
+  with the active transport key as well the thief is indistinguishable
+  from the identity until contacts are told out of band. Version 1 has no
+  revocation.
 - One endpoint for all contacts means that anyone who holds the contact
   card can try to connect and so observe whether the endpoint is reachable.
   Monolith does not hide endpoint availability from card holders, and the

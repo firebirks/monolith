@@ -147,7 +147,7 @@ reconnect schedule of section 7 decides when to try again.
 | Constant | Value | Notes |
 | --- | --- | --- |
 | `MAX_INBOUND_HANDSHAKES` | 16 | Streams accepted from the Onion Service that are not yet authenticated. |
-| `MAX_UNKNOWN_SESSIONS` | 4 | Authenticated peers with no contact record, or declined or blocked. |
+| `MAX_UNKNOWN_SESSIONS` | 4 | Authenticated peers with no contact record, or declined or blocked, and contacts with a stale card or a pending key for the session. |
 | `MAX_CONTACT_SESSIONS` | 256 | Identities held as accepted or requested, inbound and outbound, confirmed or not. |
 | `MAX_CONCURRENT_DIALS` | 4 | Outbound connection attempts. |
 | `MAX_CONTACTS` | 1000 | |
@@ -199,6 +199,15 @@ invitation cannot fill the queue. A capability is reusable (PROTOCOL.md
 12.2), so a card in a public directory can bring in requests faster than
 the user handles them; from the ninth pending one on, its requests are
 dropped like any other, and their senders retry on their next session.
+
+The credentials of a contact are bounded by their definition
+(PROTOCOL.md 11.4): one active card, at most one authorized and one
+pending successor, one retired key, two cards of at most 187 bytes each
+beyond the active one. A peer cannot grow them: a newer announcement
+replaces the authorized successor and a newer pending card replaces the
+pending one. A session of a retired key is withdrawn and frees its slot.
+Each link carries one withdrawal handle, a flag and a wakeup, freed with
+the link.
 
 The active set of invitation capabilities is bounded by
 `MAX_ACTIVE_INVITATIONS`. Each request that carries a capability is
@@ -516,3 +525,9 @@ requests from real strangers are then refused for as long as it lasts.
 Sessions with identities the user holds as accepted or requested are
 counted separately and are not affected. The remedy is to rotate the
 endpoint, which invalidates the leaked card.
+
+Whoever copied a contact's identity key, without its active transport key,
+can make sessions that present new keys. Each is a pending-key session,
+counted with the strangers, so it competes for `MAX_UNKNOWN_SESSIONS`
+and not for the room of the contact, and each replaces at most the one
+pending card held for that contact.

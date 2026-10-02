@@ -5,18 +5,20 @@ peer. A change that weakens one of them is a security change and needs the
 review described in `docs/ARCHITECTURE.md` section 9.
 
 The invariants are grouped by topic, so the numbers are not in order.
-S29 to S46 were added after the first list was written.
+S29 to S50 were added after the first list was written.
 
 Implemented so far. In the protocol core: the frame and field bounds of
 S10, S11 and S26, the state gate of S19, the single encoding of S30, the
 text and filename rules behind S14, S15 and S20, the message logic of S7,
-S23 and S24, the card check of S33, the stale-card rule of S36 and the
-part of S38 that cards and sessions hold. In the session layer: the
-pinning of S9, the handshake bounds of S10, the randomness of S17, the
-redaction of S18 for its own types, the typed session of S19 and S21, and
-S34, S35 and S37. In the Tor adapter and the core, since Phase 3: S1 to S3
-and S5, the command set of S6, the connection budgets of S12, and the
-parts of S42, S43, S45 and S46 named in their entries. Everything that
+S23 and S24, the card check of S33, the credential rules of S36 and S48
+and the part of S38 that cards and sessions hold. In the session layer:
+the pinning of S9, the handshake bounds of S10, the randomness of S17, the
+redaction of S18 for its own types, the typed session of S19 and S21, S34,
+S35 and S37, and the local party of S47. In the Tor adapter and the core,
+since Phase 3: S1 to S3 and S5, the command set of S6, the connection
+budgets of S12, the withdrawal of S49 and the admission of S50 up to the
+contact store, and the parts of S42, S43, S45 and S46 named in their
+entries. Everything that
 involves storage or a user interface is still a planned mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
@@ -174,93 +176,104 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Tests: T-CARD (validly signed cards with each coincidence; signing such
   cards), fuzz target `contact_card`.
 
-### S36. A card that is older than the newest one held, or contradicts it, never opens a contact session
+### S36. A card that is older than the active credential, contradicts it, or states the retired key never opens a contact session
 
-- Mechanism: the stale-card rule. The standing of a peer comes from one
-  function, `PeerRecord::admit`, which takes the local record with the
-  newest card held of the identity and the card that stands for the peer
+- Mechanism: the stale-card rule, half of rule F4. The standing of a peer
+  comes from one function, `PeerRecord::admit`, which borrows the
+  credentials of the contact and takes the card that stands for the peer
   on the session: the one presented in the handshake, or the one that was
-  dialed. A lower epoch, or the same epoch with another transport key or
-  endpoint set, gives the standing `StaleCard`, which the session logic
-  treats on the same code path as an identity that is not a contact.
-  Neither `InboundPeer` nor `OutboundPeer` can be turned into a session
-  without that function. The newest card held is the pinned one or a
-  later one that the user has not confirmed: a successor card counts from
-  the moment it was received. The same comparison, `evaluate_card`,
-  decides what an EndpointUpdate means; nothing but a greater epoch
-  changes what is held.
-- Residual: a party with no record of the identity, or one that has
-  received only the older card, has nothing to compare with. Keeping the
-  newest card and handing it to `admit` is the job of the contact store,
-  which does not exist yet.
-- Tests: T-STALE (`session::tests`, `tests::contacts`: a retired transport
-  key against a contact that has received the new card, confirmed or not;
-  a dialed card that was superseded meanwhile; the property test of the
-  standing table).
+  dialed. `Credentials::admit` compares it: a lower epoch than the active
+  card, the same epoch with another transport key or endpoint set, a card
+  of the authorized key older than the announced one, or the retired key
+  gives `StaleCard`, which the session logic treats on the same code path
+  as an identity that is not a contact. Neither `InboundPeer` nor
+  `OutboundPeer` can be turned into a session without that function. An
+  EndpointUpdate goes through `Credentials::announce`, which applies the
+  same comparison.
+- Residual: a party with no record of the identity, or one that never
+  promoted the successor, has nothing newer to compare with. Keeping the
+  credentials and handing them to `admit` is the job of the contact store
+  of Phase 4.
+- Tests: T-STALE (`session::tests`, `credential::tests`,
+  `tests::contacts`: a retired transport key, also with a higher epoch,
+  against a contact that promoted the new one; a dialed card whose key
+  was retired meanwhile; the property tests of the standing table and of
+  the credential transitions).
 
-### S20. The display name is never a security identifier
+### S47. A local party belongs to one local identity
 
-- Mechanism: contacts are keyed by identity public key in every map, table
-  and message. Display names are stored as opaque validated text, byte for
-  byte as received, and are not unique. They are not normalized, and no
-  decision about identity, authentication, contact equality, authorization,
-  duplicate detection or protocol state reads one. A front end may
-  normalize a copy for drawing or searching. Security-relevant UI shows the
-  fingerprint next to the name.
-- Tests: T-ID-3 (two contacts with the same name stay distinct), T-TEXT-*
-  (names that differ only in normalization are both accepted and stay
-  different).
+- Mechanism: rule F2, half B. `LocalParty::issue` is the only way to make
+  a party: it signs the card from the identity key that is passed in, for
+  the transport key that is passed in, and decodes the result as a
+  receiver would. There is no constructor that takes a card, so a card
+  from outside, one signed by another identity and naming the local
+  transport key included, cannot become the local card. The identity key
+  is borrowed for the signature and not kept.
+- Tests: `key::tests` (the party's card is signed by its own identity key
+  and states its own transport key; key separation is checked), the
+  `compile_fail` example on `LocalParty` (adopting a card does not
+  compile), `tests::handshake` (a party acts only as the identity that
+  signed its card, as responder and as initiator), mutation faults K2 to
+  K4.
 
-### S21. Connection state is tied to the cryptographic identity
+### S48. A newer transport key never replaces the active one without continuity or the user
 
-- Mechanism: the session table of a local identity is keyed by the
-  identity key the handshake established; with several local identities
-  each has its own table (S40). A session has no entry in it before the handshake is
-  complete and the card checks have passed. `AuthenticatedSession` can be
-  obtained only from a completed handshake, holds the card that stands for
-  the peer for its whole life, and has no function that changes it. A
-  card inside a message that does not belong to that peer is a violation:
-  another identity always; in a ContactRequest from the initiator also any
-  card but the one of the handshake, and in one from the responder a card
-  that states another transport key than the one that was dialed.
-- Tests: T-DUP-*, `session::tests` (authentication before the handshake is
-  complete, as the local identity, as another identity than the dialed
-  one; foreign cards in a ContactRequest for every standing, and in an
-  EndpointUpdate on a confirmed session, the only state that takes one),
-  `tests::frames` (a card of another identity on a real session).
+- Mechanism: rule F4. `Credentials` is the only holder of which key stands
+  for a contact. A newer card with another key becomes the authorized
+  successor only through `Credentials::announce` on a session that was
+  authenticated with the active key, and the active key only when a
+  handshake proves it (`Credentials::admit`). Any other newer key is
+  pending: the session gets `Standing::PendingSuccessor`, which the
+  session logic treats as an identity that is not a contact, and the key
+  takes over only through `Credentials::confirm` with exactly the card
+  that is pending. An import for an accepted contact (`Credentials::import`)
+  never replaces the key. Every transition that replaces the key retires
+  the previous one. A copied identity key alone therefore cannot take a
+  contact over or lock the holder of the active key out.
+- Residual: a holder of the identity key and the active transport key can
+  produce continuity and is indistinguishable from the identity
+  (`THREAT_MODEL.md` adversary Q).
+- Tests: `credential::tests` (the transitions of the review, simultaneous
+  rotation, the property test that the key changes only through
+  continuity or the user), `tests::contacts`, `tests::credentials`,
+  mutation faults CR1 to CR9.
 
-### S22. Duplicate-connection handling happens only after authentication
+### S49. A session of a retired transport key delivers nothing after the retirement
 
-- Mechanism: duplicate resolution reads the session table of S21, which
-  belongs to one local identity and contains authenticated sessions only.
-  An unauthenticated stream cannot be compared with, replace or close any
-  other session.
-- Tests: T-DUP-1 to T-DUP-6.
+- Mechanism: `Credentials::authorizes` says whether the card of a session
+  still states the active key. When a key is retired, every session for
+  which it turns false is withdrawn before anything else is done with the
+  contact: `AuthenticatedSession::withdraw` drops its standing and ends it
+  with Close, and nothing it receives afterwards is delivered. Each link
+  has a `Withdrawal`, which the admission function keeps with the session
+  in the same step as the admission; withdrawing it stops delivery before
+  the next frame is taken from the buffer and wakes a link that waits for
+  the peer. The duplicate rule takes for each session whether its key is
+  current (`duplicate::Contender`), and a session that is not loses before
+  the preference is looked at.
+- Residual: keeping the withdrawals with the credentials and calling them
+  on retirement is the contact store's, in Phase 4; Phase 3 provides the
+  pieces and tests them with a minimal store.
+- Tests: `session::tests` (a withdrawn session delivers nothing),
+  `duplicate::tests`, `tests::credentials` (the session of the old key
+  after a promotion; the duplicate rule), `tests/credentials.rs` in the
+  core (a link with a buffered and an unread message, and a waiting link,
+  are withdrawn), mutation faults CR10 to CR15.
 
-### S23. Blocked and unknown peers learn nothing about the user's contacts
+### S50. A session is admitted against the contact state of that moment
 
-- Mechanism: in `AuthenticatedUnknown` Monolith sends only ContactAccept to
-  a peer it holds as an accepted contact, ContactRequest to a peer the user
-  has requested, and Close. To any other peer it sends only Close. A first
-  message from a blocked, declined or already pending identity, with no
-  capability, an unknown one or a revoked one, from a contact that
-  presented a stale card, or to a full queue, is answered the same way in
-  every case: Close, with no other reply. The handshake before it does not
-  look at any record of the peer.
-- Tests: T-CONFIRM-1, T-ORACLE-1 to T-ORACLE-8 (the cases cannot be told
-  apart by what is sent; equal timing is not claimed), T-BLOCK-1,
-  `tests::contacts` (what one side writes is byte for byte the same in
-  every such case), fuzz target `handshake_responder` (the handshake takes
-  no record; under the records none, blocked, requested and accepted, a
-  stranger or a blocked identity gets only a Close).
-
-### S24. No protocol operation answers questions about other peers
-
-- Mechanism: no message type has a field that names a third party. Every
-  identity or endpoint that appears on the wire belongs to the sender and is
-  signed by the sender.
-- Tests: review of PROTOCOL.md section 8 on every protocol change;
-  T-CONFIRM-2.
+- Mechanism: `link::dial` and `link::answer` hold no contact state. They
+  take an admission function and call it once, after the last wait: the
+  dial budget, the Tor stream and the three handshake messages are behind
+  it. The function receives the authenticated peer, which exists only
+  after the handshake, and admits it with a record borrowed mutably from
+  the contact state, so the standing and the change of the credentials
+  are one call. A contact store holds its lock from the lookup through
+  the admission to keeping the `Withdrawal`; a retirement after that
+  point withdraws the session (S49).
+- Tests: `tests/credentials.rs` in the core (a key retired while a dial
+  is in progress gives no contact session), `tests::contacts`, mutation
+  fault H16.
 
 ### S38. An invitation capability admits a request and does nothing else
 
@@ -310,9 +323,9 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
   function takes a remote identity alone. Accepting, blocking or deleting
   a peer for one identity changes nothing for another. A block list for
   all identities, if one is ever offered, is a separate record and an
-  explicit choice. In Phase 3, `link::answer` and `link::dial` take the
-  record or the lookup from the caller and hold none. The store is Phase
-  4.
+  explicit choice. In Phase 3, `link::answer` and `link::dial` take an
+  admission function from the caller and hold no contact state. The store
+  is Phase 4.
 - Tests: T-MI-2, T-MI-3.
 
 ### S41. An invitation capability admits requests only to the identity that issued it
@@ -339,7 +352,7 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
 
 - Mechanism: each publication has its own control connection, listener
   and handle, and `serve` runs the accept loop of one service. The core
-  runs that loop with the `LocalParty` and the contact lookup of the
+  runs that loop with the `LocalParty` and the admission function of the
   identity that owns the service. No code looks up "the" local identity
   for a stream, and a stream is never tried against several identities.
   An Onion Service key belongs to one identity. Where a platform profile
@@ -363,7 +376,7 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
 
 ### S45. Every outbound connection names the local identity it is made for
 
-- Mechanism: `link::dial` takes the local party, the record of the peer
+- Mechanism: `link::dial` takes the local party, the admission function
   and the isolation group as arguments. There is no default identity and
   no global place one could come from. The dial scheduler of Phase 4
   queues each dial with its local identity.

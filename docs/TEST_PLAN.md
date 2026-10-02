@@ -356,14 +356,56 @@ Identity binding (T-BIND)
    of a card with an invitation, and a card of the responder's own
    identity are refused.
 3. The local side cannot be built from a card and a transport key that do
-   not belong together.
+   not belong together: a party is only issued from an identity key, and
+   adopting a card does not compile (S47). A party that holds another
+   identity's transport key acts only as its own identity, as responder
+   and as initiator.
+4. A peer that authenticates with one key and presents a card of its own
+   identity that states another, its successor card with the current key
+   or its current card with the successor key, is refused (F3).
 
 Stale cards (T-STALE): the standing of a peer for every record and every
-relation between the card of the session and the newest card held; a
-retired transport key against a contact that has received the new card,
-before and after its user confirmed it; a dialed card that was superseded
-while the dial was in progress; a newer card keeps the contact and is
-reported as a pending change.
+relation between the card of the session and the credentials held; a
+retired transport key, also under a higher epoch, against a contact that
+promoted the new one; a dialed card whose key was retired while the dial
+was in progress; a newer card with the active key keeps the contact.
+
+Credentials (T-CRED), in `credential::tests`, `tests::credentials` and
+`tests::contacts` of the session crate, and `tests/credentials.rs` of the
+core:
+
+1. A session of the active key announces a successor: it is authorized,
+   and the active key keeps working.
+2. The successor is proven in a handshake: it is promoted and the old key
+   retired.
+3. A session of the old key after the promotion is withdrawn and delivers
+   nothing, also a frame already in its buffer or one still on the
+   stream; a waiting link wakes up and sends Close.
+4. A new session of the old key after the promotion is not a contact
+   session.
+5. A newer key without announcement is pending, gives no standing and
+   does not lock out the active key.
+6. Confirming exactly the pending card promotes it; any other card is
+   refused.
+7. A card of another identity never becomes a successor; a card with a
+   bad signature or a key other than the proven one never reaches the
+   credentials (T-BIND).
+8. An EndpointUpdate on a session of another key authorizes nothing.
+9. An import for an accepted contact never replaces the key; for a
+   requested contact it replaces the card and its capability (P10).
+10. Two identities rotating at the same time complete while the old keys
+    answer; when both old keys are gone, nothing is taken over and an
+    out-of-band card that the user confirms recovers.
+11. The duplicate rule never keeps a session of a retired key over one of
+    the active key.
+12. A key retired while a dial is in progress gives the dialed session no
+    contact standing: admission reads the contact state after the
+    handshake.
+13. Property: over random sequences of admissions, announcements,
+    confirmations and imports the invariants hold, the active epoch never
+    decreases, and the active key changes only by promoting a proven
+    authorized successor, by confirming the pending one, or by a
+    replacement for a requested contact.
 
 Frames on a session (T-FRAME-AUTH)
 
@@ -423,7 +465,10 @@ session logic tells them. Everything one side writes is recorded, so that
 - Filename sanitization output never contains a separator and is never
   empty.
 - The standing of an inbound peer follows the table of PROTOCOL.md 6.2 for
-  every record and every pair of presented and pinned card.
+  every record and every pair of presented and active card.
+- The active key of a contact changes only by a proven authorized
+  successor, a confirmed pending one, or a replacement for a requested
+  contact, over random sequences of credential events (T-CRED-13).
 - Any bit changed in any handshake message makes the handshake fail.
 - A stream of frames split at arbitrary points delivers the messages that
   were sent, in order.
@@ -724,7 +769,7 @@ results are in `mutation/`; see `mutation/README.md`.
 | --- | --- |
 | 1 | T-FRAME, T-FIELD, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ORACLE-1 to 5 pass; property tests in place; fuzz targets for every decoder run clean for a fixed budget |
 | 2 | handshake test vectors committed and reproduced; T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH and T-LIMIT pass; no mutation of an authentication check survives; fuzz targets for the handshake and for encrypted frames run clean for a fixed budget |
-| 3 | T-SOCKS, T-CTRL pass; T-NET-1 passes; two-node chat over a private Tor network |
+| 3 | T-SOCKS, T-CTRL, T-CRED pass; T-NET-1 passes; two-node chat over a private Tor network |
 | 4 | T-CONTACT, T-ID, T-DUP, T-CONFIRM, T-ORACLE-6 to 8, T-CRASH, T-INJ pass |
 | 5 | T-FILE passes; transfer fuzzing clean |
 | 6, 7 | platform matrix passes on the current release |

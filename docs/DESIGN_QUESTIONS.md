@@ -216,14 +216,15 @@ Nothing below is settled. Each is described in the document named.
 
 | Id | Question | Document |
 | --- | --- | --- |
-| F-R2 to F-R6 | Open points of the session layer: no external review of the binding rules, one maintainer of the library, no revocation of transport keys, stale cards towards parties without a record, no binding to the onion address | ADR 0002 |
+| F-R2 to F-R6 | Open points of the session layer: no external review of the binding rules and of the rotation and retirement state machine, one maintainer of the library, no revocation of transport keys, stale cards towards parties without a record, no binding to the onion address | ADR 0002 |
 | P1 | Padding block size | PROTOCOL.md 17 |
 | P2 | Bind the session to the dialed onion key | PROTOCOL.md 17 |
 | P3 | Epoch after restoring a backup | PROTOCOL.md 17 |
 | P4 | Invisible declines cause indefinite retries | PROTOCOL.md 17 |
 | P5 | Keep profile text in version 1 | PROTOCOL.md 17 |
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
-| P8 | A period in which two transport keys are answered | PROTOCOL.md 17 |
+| P8 | A responder that answers two transport keys at once during a rotation (the bounded overlap itself is decided) | PROTOCOL.md 17 |
+| CR-1 | Timing of a rotation: when the identity switches to the new key, and how long the old one is kept | DESIGN_QUESTIONS.md 8.2 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
 | - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
 | MI-1 to MI-4 | Several local identities: a target port per identity on Tails and Whonix, budget values and the number of identities, mixed storage modes, the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
@@ -716,3 +717,75 @@ F. Per-contact cards with independent epochs. Confirmed.
 
 None of the claims was wrong. The changes that follow keep the wire
 format, the Noise pattern and suite, and the card layout.
+
+### 8.2 What was decided and changed
+
+The chain stays: the identity signs the transport credential (F1), Noise
+XK proves possession of the transport key, and the session follows. What
+changed is the meaning of the states in between. A valid signature by the
+identity says that the identity issued a credential. The active
+credential says which transport key is trusted for the contact today.
+The two are not the same statement.
+
+C-C (F2). F2 has two halves (`CRYPTOGRAPHY.md` section 5.2). A, the
+    transcript: the responder's identity key in the prologue, unchanged.
+    B, local-state integrity: `LocalParty::issue` signs the local card from
+    the local identity key for the transport key that comes with it, and
+    there is no constructor that takes a card (S47). The identity key is
+    not kept in the party. Remote cards stay `ContactCard`; the local card
+    exists only inside a `LocalParty`, so the two cannot be confused.
+
+C-D (F4). `Credentials` holds per contact the active card, an authorized
+    successor, a pending successor and the retired key
+    (`PROTOCOL.md` section 11.4, S36, S48). A newer key becomes active only
+    through continuity, an EndpointUpdate on a session of the active key
+    followed by a handshake proving the new key, or through the user's
+    confirmation of exactly that card. Other newer keys are pending: the
+    session gets `Standing::PendingSuccessor`, treated like a stranger.
+    Endpoint-only changes keep the transport credential and advance the
+    active card; where to dial stays the user's decision and never changes
+    which key is trusted. Manual import: for a requested contact the card
+    replaces the held one (P10); for an accepted contact a new key is only
+    pending, and confirming it is a separate action. A card stating the
+    retired key never opens a contact session again.
+
+C-A (fresh admission). `link::dial` and `link::answer` take an admission
+    function called after the last wait; `PeerRecord` borrows the
+    credentials mutably, so deciding the standing and recording the change
+    are one call (S50). This is the smallest abstraction that gives fresh
+    admission without a contact store. A Phase 4 store holds one lock or
+    transaction around lookup, admission and keeping the withdrawal.
+
+C-B (retirement). Promotion retires the previous key. Every session whose
+    card no longer states the active key (`Credentials::authorizes`) is
+    withdrawn: `AuthenticatedSession::withdraw` ends it with Close and
+    delivers nothing more; each link has a `Withdrawal` kept with the
+    session in the admission step, which stops delivery before the next
+    buffered frame and wakes a waiting link (S49). The second race, a
+    retirement right after a fresh admission, is closed by the two
+    together: the admission step registers the withdrawal, and any later
+    retirement uses it. The duplicate rule takes for each session whether
+    its key is current and closes a non-current one before the preference
+    is looked at.
+
+C-E (rotation). The identity keeps the old key while it rotates: it
+    announces the successor on sessions of the old key, proves the new key
+    to each contact by dialing with it, and switches the key it answers
+    with when its contacts have promoted it. P8 is revisited: the overlap
+    is bounded and explicit, and a responder still answers one key at a
+    time. Simultaneous rotation completes as long as both old keys answer
+    until the successors were exchanged; if both disappear first, nothing
+    is taken over and the recovery is an out-of-band card the user
+    confirms. When to switch (CR-1) is set with the contact store.
+
+Limits stated in the documents: a copied identity key alone yields only
+pending successors; with the active transport key it yields continuity
+and is indistinguishable from the identity, and no rule of F1 to F5 can
+tell them apart (`THREAT_MODEL.md` adversary Q). Invitation capabilities
+are untouched: cards that differ only in their capability are one
+statement, and the capability is not part of the credentials.
+
+Not changed: the Noise pattern and suite, the prologue, the card layout
+and signature, the message set and the protocol version. Wire bytes and
+the handshake vectors are the same; one fuzz seed was added for the new
+standing.

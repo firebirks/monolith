@@ -516,13 +516,13 @@ fn signed_bytes(
     writer.into_bytes()
 }
 
-/// What a card of a contact means for what is held of that contact: its
-/// transport key and its endpoint set, as of an epoch.
+/// How a card of an identity compares with a card held of it: its
+/// transport key and its endpoint set, as of an epoch. What follows from
+/// the comparison for a contact is decided by
+/// [`crate::credential::Credentials`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CardChange {
-    /// The epoch is greater than that of the newest card held. The card
-    /// becomes the newest card held at once, and the pinned card once the
-    /// change is confirmed.
+    /// The epoch is greater than that of the held card.
     Newer,
     /// Same epoch, same transport key, same endpoint set. Nothing to do;
     /// this is the normal case.
@@ -531,19 +531,19 @@ pub enum CardChange {
     /// signed two statements with one epoch. Nothing changes; the user is
     /// told.
     Conflict,
-    /// The epoch is lower than that of the newest card held. Nothing
-    /// changes.
+    /// The epoch is lower than that of the held card. Nothing changes.
     Stale,
 }
 
-/// Compares a card of a contact with the newest card that is held of that
-/// contact: the pinned one, or a pending one with a greater epoch. See
-/// `docs/PROTOCOL.md` sections 6.2, 8.8 and 11.4.
+/// Compares a card of an identity with a card held of it, by epoch and
+/// statement. [`crate::credential::Credentials`] uses it against the active
+/// card and the authorized successor; see `docs/PROTOCOL.md` sections 6.2,
+/// 8.8 and 11.4.
 ///
 /// Fails with [`ProtocolError::IdentityMismatch`] if the card was signed by
 /// another identity than the held one. Nothing but [`CardChange::Newer`]
-/// ever leads to a change of what is held or pinned. An invitation
-/// capability in either card plays no part.
+/// can lead to a change of what is held. An invitation capability in
+/// either card plays no part.
 pub fn evaluate_card(held: &ContactCard, card: &ContactCard) -> Result<CardChange, ProtocolError> {
     if card.identity() != held.identity() {
         return Err(ProtocolError::IdentityMismatch);

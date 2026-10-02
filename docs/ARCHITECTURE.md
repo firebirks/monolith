@@ -31,7 +31,7 @@ streams of the Tor backend under the sessions of `monolith-session`
 | Crate | Owns | Must not |
 | --- | --- | --- |
 | `monolith-identity` | identity, transport and endpoint public key types, fingerprints, signing and verification, redaction wrappers | know about sessions, Tor or files; draw randomness |
-| `monolith-protocol` | limits, frame and message encoding, contact cards, the session state machine | do cryptography other than verifying a card; open sockets, touch files, know which Tor is used |
+| `monolith-protocol` | limits, frame and message encoding, contact cards, the credentials of a contact, the session state machine | do cryptography other than verifying a card; open sockets, touch files, know which Tor is used |
 | `monolith-session` | the handshake, the encrypted session, the transport secret key, every call to the Noise library, the random source | open sockets, touch files, read a clock, know about contacts beyond the record it is handed |
 | `monolith-tor` | the `TorBackend` trait and its implementations: SOCKS5 client, control client, listener | know about identities' meaning, messages or contacts |
 | `monolith-storage` | the vault, the message store, transfer files | change contact or session state on its own, interpret peer input |
@@ -83,12 +83,12 @@ keyed by the local identity, and for a peer by the local and the remote
 identity; nothing identity-dependent is process-wide (S40 to S46).
 
 - Inbound. Each local identity publishes its own Onion Service. The accept
-  loop of a service runs the responder with the party and the contact
-  lookup of the identity that owns the service, so the service a stream
+  loop of a service runs the responder with the party and the admission
+  function of the identity that owns the service, so the service a stream
   arrived at says which identity it addresses. No code asks for "the" local
   identity, and a stream is never tried against several identities.
 - Outbound. Every dial names the local identity it is made for: its party,
-  its record of the peer, its isolation group for that peer. There is no
+  its admission function, its isolation group for that peer. There is no
   default identity to fall back to.
 - Concurrency. Identities are independent contexts in one process; several
   can be online at once. Switching identity in an interface changes what
@@ -106,7 +106,7 @@ others exist (S44); the protocol is unchanged by it (PROTOCOL.md section
 `THREAT_MODEL.md` adversary S.
 
 State in Phase 3: no code holds a local identity as global state. `link`
-takes the party, the record or lookup and the isolation group as
+takes the party, an admission function and the isolation group as
 arguments, `serve` runs one service, the Tor backend holds several
 publications at once and keeps no identity state, and `Budgets` is a
 value, not a singleton. `dev-chat` makes one identity per run as a test
@@ -114,6 +114,38 @@ aid. The contact store and the vault of Phase 4 are built with
 identity-scoped records from the start, even if the first interface
 offers one identity; which phase offers several in the interface is not
 decided.
+
+### 1.2 Admission and credentials
+
+Which transport key stands for a contact is held in its `Credentials`
+(`monolith-protocol`, PROTOCOL.md section 11.4): the active card, an
+authorized and a pending successor, the retired key. Authentication says
+who the peer is; the credentials say whether that peer is the contact on
+this session.
+
+- Admission is one step. `link::dial` and `link::answer` call the
+  admission function after the last wait, the Tor stream and the
+  handshake included. The function looks up the record of the identity as
+  it is then, admits the authenticated peer with the record borrowed
+  mutably, so that the standing and the change of the credentials are one
+  call, and keeps the `Withdrawal` of the link with the session. Nothing
+  between the lookup and the end of the step waits.
+- Retirement withdraws. When a successor is promoted, by an admission or
+  by the user's confirmation, every session whose card no longer states
+  the active key (`Credentials::authorizes`) is withdrawn before anything
+  else is done with the contact, the duplicate rule included.
+- Phase 3 holds no contact state. It provides the credential type, the
+  admission entry points, the withdrawal and the duplicate rule with
+  credential standing, and tests them with a minimal store.
+
+What the contact store of Phase 4 has to add: one lock, or one
+transaction, per contact around lookup, admission and keeping the
+withdrawal; withdrawal of the sessions of a retired key inside the same
+step as the promotion; the confirmation and import actions of the
+interface on top of `Credentials::confirm`, `import` and `replace`;
+persisting the credentials atomically with the rest of the contact record
+(S31); the timing of a rotation and of the switch to the new key; and the
+dial card the user confirmed, kept apart from the credentials.
 
 ## 2. Processing order for peer input
 

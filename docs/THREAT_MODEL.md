@@ -113,8 +113,9 @@ send an endpoint update.
 - Cannot make a file arrive without acceptance (S13), choose where it is
   written (S14), or have it opened (S16).
 - Cannot change its own pinned identity (S9), and cannot roll back its
-  endpoint or its transport key: a card older than the newest one held
-  is not accepted, in an update or in a handshake (S36).
+  endpoint or its transport key: a card older than the active one, or one
+  that states the retired key, is not accepted, in an update or in a
+  handshake (S36).
 - Cannot learn anything about other contacts (S24).
 - Can sign an endpoint binding that names an Onion Service it does not
   control. Monolith will dial it after the user confirms; the handshake
@@ -172,8 +173,10 @@ against an Onion Service.
   record of identifiers is in memory unless history is enabled, so after a
   restart of the receiver a resent message can be delivered twice.
 - An old contact card cannot replace a newer one (strictly increasing
-  epoch), and presented in a handshake to a party that has received a
-  newer one it does not open a contact session (S36).
+  epoch), and presented in a handshake to a party that holds a newer one
+  it does not open a contact session (S36). A newer card with a new key
+  does not replace the active key either unless it came through the
+  active key or the user confirmed it (S48).
 - An invitation capability can be used by anyone who holds it, any number
   of times, until it is revoked. That is its definition: it is a reusable
   bearer capability that allows a contact request and authenticates
@@ -190,7 +193,10 @@ against an Onion Service.
   key holder is that identity. An identity that signs a card naming another
   party's transport key gets no session out of it: the responder puts its
   own identity key into the handshake, and the first message fails
-  (`CRYPTOGRAPHY.md` section 5.2, rule F2).
+  (`CRYPTOGRAPHY.md` section 5.2, rule F2, half A). On the local side a
+  party can only be made from the local identity key, so local code cannot
+  pair the user's transport key with someone else's card either (half B,
+  S47).
 - An endpoint that does not prove a known contact's pinned keys is a hard
   failure with a warning (S9). Monolith cannot tell an impostor from a
   contact that replaced its transport key, or from a service that is not
@@ -350,16 +356,27 @@ What each of them is worth alone:
   complete a handshake, so it learns that connections arrive and not from
   whom, and it can keep the real service from being reached.
 - The transport key: the holder can open and answer sessions as the
-  identity, towards everyone who has pinned the card that states this
-  key, and towards strangers. It cannot issue a card. The owner ends this
-  by signing a card with a greater epoch and a new transport key and
-  getting it to its contacts; a contact that has received the newer card
-  no longer takes the old key for a contact, whether or not its user has
-  confirmed the change (S36). There is no revocation: a contact that has
-  not received the newer card still does.
-- The identity key: the holder can sign cards, and with a card that names
-  a transport key of its own it becomes the identity for everyone. There
-  is no recovery other than telling contacts out of band.
+  identity, towards every contact that holds this key active, and towards
+  strangers. It cannot issue a card. The owner ends this by rotating
+  (`PROTOCOL.md` section 11.4): it announces a successor on sessions of
+  the old key and proves the new key to each contact, which then retires
+  the old key and withdraws its sessions (S48, S49). The thief can also
+  announce a successor of its own on a session it makes with the stolen
+  key, but only a card signed by the identity key, which it does not
+  hold. There is no revocation: a contact that has not promoted the
+  successor still takes the old key for the identity.
+- The identity key: the holder can sign cards with keys of its own and any
+  epoch. Towards a contact that holds the identity, such a card arrives
+  without continuity from the active key and is only a pending successor:
+  it gives no standing, does not lock the holder of the active key out,
+  and takes over only if the user confirms it (S48). Towards strangers,
+  and towards a user who confirms, the thief is the identity. There is no
+  recovery other than telling contacts out of band.
+- The identity key and the active transport key together: the holder can
+  announce a successor through the active key and prove it, which is
+  exactly what the owner does. No rule of F1 to F5 can tell the two
+  apart, and nothing in version 1 recovers from it except a new identity
+  handed over out of band.
 
 None of the three reveals past sessions. Their keys came from ephemeral
 keys that no longer exist.
@@ -486,13 +503,17 @@ interface must not suggest otherwise.
 - No post-quantum security. Sessions recorded today can be read by whoever
   breaks X25519 later.
 - No recovery from a stolen identity key other than telling contacts out of
-  band. A stolen transport key is replaced by issuing a new card, which
-  helps only towards contacts that receive it. There is no key revocation
-  in version 1 (Q); revoking an invitation capability revokes no key.
-- After an identity replaces its transport key, a contact that still holds
-  the previous card cannot open a session until it has the new one. It
-  gets the new card when the identity dials it, or out of band. Version 1
-  has no period in which both keys are answered.
+  band. Without the active transport key the thief's cards stay pending
+  at contacts; with it the thief is indistinguishable from the identity
+  (Q). A stolen transport key is replaced by rotation, which helps only
+  towards contacts that promote the successor. There is no key revocation
+  in version 1; revoking an invitation capability revokes no key.
+- While an identity rotates its transport key, a responder answers with
+  one key at a time: around the switch a contact on the other side of it
+  cannot dial, and the identity reaches it from its side. If both sides
+  of a contact give up their old keys before the successors were
+  exchanged, the contact is reached again only with a card handed over
+  out of band (`PROTOCOL.md` section 11.4).
 - The session layer binds a session to an identity, not to the onion
   address that was dialed (PROTOCOL.md open question P2).
 - The rules that bind the handshake to identities are Monolith's own and

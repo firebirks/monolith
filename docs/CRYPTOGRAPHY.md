@@ -203,16 +203,33 @@ those of the two cards, made when the cards were issued.
 F1. The card carries the transport key, and the card signature covers it.
     The card is the certificate; there is no second signed structure.
 
-F2. The prologue contains the responder's identity key. A card shows that
-    an identity vouches for a transport key. It does not show that the
-    holder of the transport key agrees to be that identity. Without F2 an
-    identity could sign a card naming another party's endpoint and
-    transport key, and a peer that imported it would complete a handshake
-    with that other party and attribute the session to the wrong
-    identity. With F2 the initiator hashes the identity it believes it is
-    dialing and the responder its own, and message 1 fails when they
-    differ. This is the misbinding described for certified Diffie-Hellman
-    keys in the SIGMA paper.
+F2. The holder of a transport key commits to the identity it acts as. A
+    card shows that an identity vouches for a transport key. It does not
+    show that the holder of the transport key agrees to be that identity.
+    Without F2 an identity could sign a card naming another party's
+    endpoint and transport key, and a peer that imported it would complete
+    a handshake with that other party and attribute the session to the
+    wrong identity. This is the misbinding described for certified
+    Diffie-Hellman keys in the SIGMA paper. F2 has two halves.
+
+    A. Transcript binding. The prologue contains the responder's identity
+       key: the initiator hashes the identity it believes it is dialing
+       and the responder its own, and message 1 fails when they differ.
+
+    B. Local-state integrity. A local party, the identity, signed card and
+       transport private key that a side brings to a handshake, cannot
+       exist unless all three belong to one local identity. The only way
+       to make one signs the card from the local identity key for the
+       transport key that comes with it (`LocalParty::issue`); there is no
+       way to adopt a card from outside as the local one. Without B, local
+       code could pair the local transport key with another identity's
+       card, and the party would answer and initiate as that identity with
+       the local key, which half A cannot see.
+
+    Neither half proves possession of the identity's Ed25519 private key
+    during a session. Noise proves possession of the transport key; the
+    signed card provides the identity's authorization of that key; half B
+    keeps a side from adopting another identity's card as its own.
 
 F3. The initiator's card travels inside the handshake, as the payload of
     message 3. The responder accepts the identity in it only if the card
@@ -221,14 +238,31 @@ F3. The initiator's card travels inside the handshake, as the payload of
     the card is inside message 3, it is the holder of the transport key
     who presents it; that is the initiator's half of F2.
 
-F4. A card that is older than the newest card the local side holds of
-    that identity, or that has the same epoch and states another transport
-    key or another endpoint set, does not open a contact session. An
-    invitation capability in either card plays no part. The peer is treated as an identity that is not
-    a contact and is not told why. The newest card held is the pinned one
-    or a later one that the user has not confirmed yet: what counts as
-    stale does not wait for the user. A responder applies the rule to the
-    card presented in message 3, an initiator to the card it dialed.
+F4. Credential epochs prevent rollback, and a newer credential takes over
+    only through continuity or the user. The local side holds, per
+    contact, the active card, whose transport key stands for the contact,
+    an authorized successor, a pending successor and the retired key
+    (PROTOCOL.md section 11.4).
+
+    - A card older than the active card, contradicting it at the same
+      epoch, older than the authorized successor for its key, or stating
+      the retired key does not open a contact session.
+    - A newer card with the active key is the active card from then on;
+      the transport credential has not changed.
+    - A newer card with another key becomes trusted for the contact only
+      through authenticated continuity, an EndpointUpdate on a session of
+      the active key followed by a handshake that proves the new key, or
+      through the user's explicit confirmation of that card. Any other
+      newer key is pending and gives no standing.
+    - Promotion retires the previous transport key, and every session
+      authenticated with it loses its standing before anything else,
+      the duplicate rule included.
+
+    An invitation capability in either card plays no part. A peer that is
+    not a contact for a session is treated as any identity that is not a
+    contact and is not told why. A responder applies the rule to the card
+    presented in message 3, an initiator to the card it dialed, both
+    against the credentials as they are when the handshake is complete.
 
 F5. A transport key or ephemeral key that is not canonically encoded or is
     of small order is invalid, and an X25519 result of all zeros ends the
@@ -275,7 +309,8 @@ capability is still accepted (PROTOCOL.md section 12.3).
   handshake with each. Towards A it cannot produce message 2. Towards B it
   can only present a card of its own.
 - Misbinding. Covered by F2 and F3: the holder of each transport key
-  commits to the identity it acts as, inside the handshake.
+  commits to the identity it acts as, inside the handshake, and a local
+  party cannot be made from another identity's card.
 - Replay. Each handshake uses new ephemeral keys on both sides. A replayed
   message 1 is answered with a message 2 that only the original initiator
   could use. A replayed message 3 does not fit another responder ephemeral
@@ -286,7 +321,10 @@ capability is still accepted (PROTOCOL.md section 12.3).
 - Key compromise impersonation. Someone who holds A's transport private
   key cannot pose as B towards A; Noise rates XK resistant from message 2
   on.
-- Stale credentials. F4, within the limits stated in section 5.5.
+- Stale credentials and takeover. F4, within the limits stated in section
+  5.5. A copied identity key alone gives newer cards but not the standing
+  of the contact: without continuity from the active key they stay
+  pending until the user confirms one.
 
 ### 5.5 What is not claimed
 
@@ -298,11 +336,22 @@ capability is still accepted (PROTOCOL.md section 12.3).
   own onion service cryptography has the same limitation today. A hybrid
   handshake is a possible later protocol version; it is not part of
   version 1.
-- Post-compromise security and revocation. A stolen identity key
-  impersonates the identity until contacts are told out of band. A stolen
-  transport key does the same towards any party that has not received a
-  newer card. There is no automatic healing and no revocation mechanism in
-  version 1. Revoking an invitation capability (PROTOCOL.md section 12.3)
+- Post-compromise security and revocation. What F4 gives is limited:
+  - A stolen identity key with the active transport key still safe: the
+    thief can sign newer cards, and they reach contacts only as pending
+    successors. They do not replace the active key or lock its holder
+    out unless the user confirms one. Towards a party that holds no
+    record of the identity the thief is the identity.
+  - A stolen identity key together with the active transport key: the
+    thief can announce a successor through the active key and is
+    indistinguishable from the identity. No rule of F1 to F5 can tell
+    them apart. The remedy is a new identity, handed over out of band.
+  - A stolen transport key alone: it authenticates as the identity
+    towards any party that still holds it active. Rotating the key
+    (PROTOCOL.md section 11.4) retires it at each contact that promotes
+    the successor; until then it works.
+  There is no automatic healing and no revocation mechanism in version 1,
+  and no recovery from a compromised identity key. Revoking an invitation capability (PROTOCOL.md section 12.3)
   is not key revocation: it is a local decision about which contact
   requests to consider, and it changes no key.
 - Binding to the onion address. A session is not tied to the endpoint that
@@ -313,7 +362,14 @@ capability is still accepted (PROTOCOL.md section 12.3).
   compromised machine are compromised.
 - An audit. Noise XK has published analyses and `snow` was audited in
   2024. The five rules of section 5.2 and Monolith's use of the library
-  have been reviewed by nobody outside the project.
+  have been reviewed by nobody outside the project. The internal review
+  passes, that of the credential binding of 2026-10-02 included, are not
+  an external review and not a formal verification. What an external
+  review has to cover: F1 (identity to transport certification), F2
+  (transcript and local-party binding), F3 (the initiator's card bound to
+  its static key), F4 (successor, rollback and promotion), F5 (X25519
+  validity), and the rotation and retirement state machine of PROTOCOL.md
+  section 11.4.
 
 ## 6. Transport
 
@@ -495,13 +551,16 @@ The questions Q1 to Q11 of earlier drafts are closed by ADR 0002, and so
 is the choice of the crypto provider (F-R1). What remains is listed
 there:
 
-- F-R2. The five rules have no external review.
+- F-R2. The five rules and the rotation and retirement state machine
+  have no external review (section 5.5 lists the scope).
 - F-R3. `snow` has one maintainer.
 - F-R4 and F-R5. No revocation of a transport key, and a stale card is
   accepted by a party that never saw a newer one.
 
-PROTOCOL.md open questions P2 (binding to the onion key) and P8 (a period
-in which two transport keys are answered) are open.
+PROTOCOL.md open question P2 (binding to the onion key) is open. P8 was
+revisited: rotation has a bounded overlap in which the identity holds two
+keys and answers with the old one; a responder that answers both keys at
+once is still not in version 1.
 
 ## 12. Sources
 

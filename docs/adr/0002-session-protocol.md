@@ -4,7 +4,9 @@ Status: decided. The session layer is Noise XK with a transport key that
 the identity certifies in the contact card, run through `snow` with a
 crypto resolver of Monolith's own over the current RustCrypto and dalek
 crates.
-Date: 2026-10-01
+Date: 2026-10-01. Amended 2026-10-02 by the credential binding review:
+rules F2 and F4 and the change of transport key (`DESIGN_QUESTIONS.md`
+section 8). The construction is unchanged.
 
 ## Context
 
@@ -178,7 +180,7 @@ specifies itself and that no standard or published analysis covers.
 | Downgrade resistance | one suite | same | one version, suite and group configured; negotiation covered by the transcript | one suite; the version is in the prologue |
 | Reflection and role confusion | role byte, by Monolith | same | context strings, by TLS | roles are fixed by the pattern |
 | Key separation | identity key signs under a Monolith prefix | same | identity key signs cards and, online at every handshake, TLS transcripts | identity key signs cards only and is not needed for a session |
-| Key rotation | none needed | none needed | none needed | a new transport key is a new card epoch; no revocation |
+| Key rotation | none needed | none needed | none needed | a new transport key is a new card epoch, announced through the old key and proven before it takes over; no revocation |
 | Session resumption | none exists | none exists | exists; disabled | none exists |
 | 0-RTT | none exists | none exists | exists; disabled | not with XK |
 | Implementation complexity | small | smallest | configuration, two verifiers, a signer | small: fixed messages, card checks |
@@ -253,8 +255,16 @@ where this design can go wrong.
 F1. The card carries the transport key, and the card signature covers it.
     The card is the certificate. No second signed structure is introduced.
 
-F2. The Noise prologue contains the responder's identity key. Without it
-    there is an attack. Mallory signs a card of her own that names Bob's
+F2. The holder of a transport key commits to the identity it acts as, in
+    two halves. A, transcript binding: the Noise prologue contains the
+    responder's identity key. B, local-state integrity: the local party
+    that brings a card and a transport key to a handshake can only be
+    made by signing the card from the local identity key
+    (`LocalParty::issue`); a card from outside cannot become the local
+    one. Neither half proves possession of the identity's private key in
+    a session; the card is the identity's authorization of the transport
+    key, and Noise proves possession of that key. Without half A there is
+    an attack. Mallory signs a card of her own that names Bob's
     endpoint and Bob's transport key. Alice imports it, connects, reaches
     Bob, and Noise succeeds, because Bob does hold that transport key.
     Alice now attributes Bob's messages to Mallory. Nothing in Noise
@@ -264,7 +274,9 @@ F2. The Noise prologue contains the responder's identity key. Without it
     own, and the first message fails. This is the misbinding that the
     SIGMA paper describes for certified Diffie-Hellman keys. Tor's ntor
     handshake mixes the relay identity into its key derivation for the same
-    reason.
+    reason. Without half B, local code that paired Bob's transport key
+    with Mallory's card would make Bob's side answer and initiate as
+    Mallory, which half A cannot see.
 
 F3. The initiator sends its own contact card, without capability, as the
     payload of the third message. The responder checks that the card is
@@ -273,16 +285,25 @@ F3. The initiator sends its own contact card, without capability, as the
     then is the initiator's identity the one in the card. The card is
     inside the handshake, so it is the key holder who presents it.
 
-F4. The stale-card rule. A card whose epoch is lower than that of the
-    newest card the local side holds of that identity, or whose epoch is
-    the same and which states another transport key or endpoint set, does
-    not make the session a contact session. The peer is treated as any identity that is not a
-    contact, with the same generic behavior, and is not told why. The
-    newest card held is the pinned one or a later one that the user has
-    not confirmed yet. A responder applies the rule to the card presented
-    in the third message, an initiator to the card it dialed. This keeps a
-    retired transport key from being used against contacts who hold its
-    successor.
+F4. Successor credentials and rollback. The local side holds, per
+    contact, the active card, an authorized successor, a pending successor
+    and the retired key (`PROTOCOL.md` section 11.4). A card older than
+    the active card, contradicting it at the same epoch, older than the
+    authorized successor for its key, or stating the retired key does not
+    make the session a contact session. A newer card with the active key
+    advances the active card. A newer card with another key becomes the
+    contact's credential only through continuity, an announcement in an
+    EndpointUpdate on a session of the active key followed by a handshake
+    that proves the new key, or through the user's explicit confirmation;
+    otherwise it is pending and gives no standing. Promotion retires the
+    previous key and withdraws its sessions before the duplicate rule is
+    applied. A peer that is not a contact for the session is treated as
+    any identity that is not a contact and is not told why. A responder
+    applies the rule to the card presented in the third message, an
+    initiator to the card it dialed, against the credentials as they are
+    when the handshake is complete. This keeps a retired key from being
+    used against contacts that promoted its successor, and keeps a copied
+    identity key alone from taking a contact over.
 
 F5. An X25519 key that is not canonically encoded or is of small order is
     invalid, as a transport key and as an ephemeral key, and a
@@ -338,8 +359,8 @@ The last row is not a new disclosure. An initiator dials only identities
 it holds as contacts or has asked to become contacts, and both receive its
 card anyway.
 
-Outbound pinning. An initiator dials with the card it has pinned and
-accepts nothing else: a responder that cannot answer for that transport
+Outbound pinning. An initiator dials with a card that states the active
+key of the contact and accepts nothing else: a responder that cannot answer for that transport
 key and that identity key fails message 2, and the initiator reports an
 identity mismatch. There is no option to continue and no fallback to an
 unknown peer.
@@ -355,17 +376,26 @@ with a capability. The epoch covers the transport key as it covers the
 endpoints.
 
 Changing the transport key. An identity replaces its transport key by
-signing a card with a greater epoch. Limitations, accepted for version 1:
+signing a card with a greater epoch, and keeps the old key while it does:
+it announces the successor card on sessions of the old key, then opens
+sessions with the new key, which each contact promotes in that handshake;
+it answers with the new key once its contacts have promoted it
+(`PROTOCOL.md` section 11.4). Limitations, accepted for version 1:
 
-- There is no period in which both keys are answered. A contact that
-  holds the previous card cannot open a session until it has the new one.
-  It learns the new card when the identity dials it and presents the card
-  in the handshake, or out of band.
-- There is no revocation. Against a party that has received the newer card,
-  the old key is useless by F4. Against a party that has never seen the
-  identity, or has only the older card, a stolen old key still
-  authenticates as the identity. The identity key has the same limitation
-  and cannot be replaced at all.
+- A responder answers with one key at a time (P8). Around the switch a
+  contact on the other side of it cannot dial, and the identity reaches it
+  from its side.
+- If both sides of a contact give up their old keys before the successor
+  cards were exchanged, neither reaches the other; the recovery is a card
+  handed over out of band and confirmed.
+- There is no revocation. Against a contact that promoted the successor,
+  the old key is retired. Against a party that has never seen the
+  identity, or still holds the old key active, a stolen old key still
+  authenticates as the identity.
+- A copied identity key alone yields only pending successors. A copied
+  identity key with the active transport key yields continuity and is
+  indistinguishable from the identity. The identity key cannot be
+  replaced.
 
 Invitation capability. Unchanged: inside the ContactRequest, in the
 authenticated channel, never on the wire in clear, compared in constant
@@ -425,7 +455,8 @@ No Monolith peer has been deployed, so nothing on any network is affected.
 - The handshake message sizes become 48, 48 and 235.
 - The session logic no longer receives an identity proof. It is told by
   the handshake which identity was authenticated, and gains the
-  stale-card standing.
+  stale-card standing, and since 2026-10-02 the pending-successor standing
+  of F4.
 - Unchanged: the frame format and its overhead of 16 bytes, padding, every
   other message, text rules, fingerprints, Ed25519 key validity, contact
   confirmation and duplicate resolution.
@@ -494,12 +525,18 @@ No Monolith peer has been deployed, so nothing on any network is affected.
   cryptographic crate is in the tree twice, and a second version of any
   crate in a product build still fails the check.
 - F-R2. The five rules have no external review. This is the first thing
-  to put in front of a cryptographer if one becomes available, together
-  with the handling of stale cards.
+  to put in front of a cryptographer if one becomes available. The scope:
+  F1, identity to transport certification; F2, transcript and local-party
+  binding; F3, the initiator's card bound to its static key; F4,
+  successor, rollback and promotion; F5, X25519 validity; and the
+  rotation and retirement state machine. The internal reviews, that of
+  2026-10-02 included, are not an external review, and nothing here is
+  formally verified.
 - F-R3. `snow` has one maintainer and no release since July 2025. The
   Noise handshake is small and specified; replacing the library is
   contained in one crate.
-- F-R4. No revocation of a transport key.
+- F-R4. No revocation of a transport key. Rotation retires a key at each
+  contact that promotes the successor, and nowhere else.
 - F-R5. A stale card presented to a responder that never saw a newer one
   is accepted. Same root as F-R4.
 - F-R6. A session is not bound to the onion address that was dialed
