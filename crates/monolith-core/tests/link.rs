@@ -24,7 +24,7 @@ use monolith_protocol::credential::Credentials;
 use monolith_protocol::limits::MAX_INBOUND_HANDSHAKES;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
-use monolith_session::{LocalParty, TransportSecretKey};
+use monolith_session::{LocalParty, SessionError, TransportSecretKey};
 use monolith_tor::{KeySource, MockNetwork, OnionService, TorBackend, TorError};
 use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
@@ -731,6 +731,49 @@ fn a_stranger_takes_a_slot_whatever_the_admission_returned_says() {
         assert_eq!(
             budgets.free_unknown_sessions(),
             monolith_protocol::limits::MAX_UNKNOWN_SESSIONS - 1
+        );
+    });
+}
+
+#[test]
+fn an_answer_whose_admission_fails_ends_its_withdrawal() {
+    run(async {
+        let network = MockNetwork::new();
+        let backend = network.backend();
+        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
+        let bob = party(2, *service.service_key());
+        let bob_card = bob.card().clone();
+        let budgets = Budgets::new();
+        let stranger = party(31, *service.service_key());
+        let isolation = backend.isolation_group().unwrap();
+        let kept = std::sync::Mutex::new(None);
+        let bob_side = async {
+            let stream = service.accept().await.unwrap();
+            answer(stream, &budgets, &bob, |_, withdrawal| {
+                *kept.lock().unwrap() = Some(withdrawal.clone());
+                Err(SessionError::Protocol(
+                    monolith_protocol::ProtocolError::IdentityMismatch,
+                ))
+            })
+            .await
+        };
+        let stranger_side = dial(
+            &backend,
+            fresh(),
+            &stranger,
+            &bob_card,
+            &isolation,
+            |peer, _| {
+                let mut held = Credentials::new(peer.card().clone());
+                peer.admit(PeerRecord::Requested(&mut held))
+            },
+        );
+        let (_, answered) = futures_join(stranger_side, bob_side).await;
+        assert!(answered.is_err());
+        assert!(kept.lock().unwrap().as_ref().unwrap().is_ended());
+        assert_eq!(
+            budgets.free_unknown_sessions(),
+            monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
         );
     });
 }
