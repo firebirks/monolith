@@ -9,6 +9,9 @@
 //! Phase 0 defines the states a front end must be able to tell apart. The
 //! command and event types follow with the features that need them.
 
+pub mod budget;
+pub mod link;
+
 /// State of the Tor connection as shown to the user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TorState {

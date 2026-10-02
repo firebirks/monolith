@@ -10,8 +10,13 @@ license.workspace = true
 [dependencies]
 monolith-identity.workspace = true
 monolith-protocol.workspace = true
+monolith-session.workspace = true
 monolith-storage.workspace = true
 monolith-tor.workspace = true
+tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
 
 [lints]
 workspace = true
