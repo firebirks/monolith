@@ -125,17 +125,24 @@ this session.
 
 - Admission is one step. `link::dial` and `link::answer` call the
   admission function when the peer is authenticated, after the Tor stream
-  and the handshake messages that authenticate it. A dial does so before
-  it writes message 3 and sends it only if the peer may learn the local
-  identity (`Admission::may_learn_local_identity`), racing the write
-  against the withdrawal; so an outbound session is always a contact's.
+  and the handshake messages that authenticate it. The function looks up
+  the record of the identity as it is then, admits the authenticated peer
+  with the record borrowed mutably, so that the standing and the change
+  of the credentials are one call, and keeps the `Withdrawal` of the link
+  with the session. Nothing between the lookup and the end of the step
+  waits.
+- A dial calls the admission function before it writes message 3, and
+  writes it only if the peer may learn the local identity
+  (`Admission::may_learn_local_identity`, read from the standing of the
+  session the function returned), racing the write against the
+  withdrawal; so an outbound session is always a contact's. The slot for
+  strangers of an inbound session also follows the standing of the
+  session.
 - A link ends at the deadlines of its session and on every failure, by
   one path that also gives back its slot for strangers; a link that is
-  over refuses every later call (`RESOURCE_LIMITS.md` section 4). The function looks up the record of the identity as
-  it is then, admits the authenticated peer with the record borrowed
-  mutably, so that the standing and the change of the credentials are one
-  call, and keeps the `Withdrawal` of the link with the session. Nothing
-  between the lookup and the end of the step waits.
+  over refuses every later call (`RESOURCE_LIMITS.md` section 4). A
+  message that ends the session, the first one of a stranger or a Close,
+  ends the link before it is returned.
 - Retirement withdraws. When a successor is promoted, by an admission or
   by the user's confirmation, every session that was admitted as a
   contact's and whose card no longer states the active key
@@ -143,7 +150,10 @@ this session.
   with the contact, the duplicate rule included. The store keeps the
   withdrawal of contact sessions only: a session admitted with another
   standing is left on the path of a stranger, because ending it early
-  would show the peer that it is held as a contact.
+  would show the peer that it is held as a contact. Deleting or blocking
+  the record of an identity withdraws its sessions in the same way, so a
+  dial whose contact is deleted or blocked after the admission writes no
+  message 3, or stops writing it.
 - Applying is checked again. A message a link has returned was decided
   when it was taken; what it would change in the contact state, a
   `MarkAccepted`, a request, an EndpointUpdate, is applied under the
@@ -160,7 +170,8 @@ this session.
 What the contact store of Phase 4 has to add: one lock, or one
 transaction, per contact around lookup, admission and keeping the
 withdrawal; withdrawal of the sessions of a retired key inside the same
-step as the promotion; the confirmation and import actions of the
+step as the promotion, and of every session of an identity whose record
+is deleted or blocked inside that step; the confirmation and import actions of the
 interface on top of `Credentials::confirm`, `import` and `replace`;
 persisting the credentials atomically with the rest of the contact record
 (S31), either inside the step or before its result is used, so that a

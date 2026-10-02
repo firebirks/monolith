@@ -402,14 +402,20 @@ core:
 12. A key retired while a dial is in progress gives the dialed session no
     contact standing, and message 3 with the local identity is not sent:
     admission reads the contact state after message 2.
+13. Property: over random sequences of admissions, announcements,
+    confirmations and imports the invariants hold, the active epoch never
+    decreases, and the active key changes only by promoting a proven
+    authorized successor, by confirming the pending one, or by a
+    replacement for a requested contact.
 14. A card a peer presents does not displace a pending card the user
     imported; a card at the epoch of the authorized successor that states
     something else is a conflict.
 15. A withdrawn link fails at once on every later call, also when it was
     withdrawn before it was polled; a withdrawal seen first by a send
-    writes the Close; a stale or pending session is not withdrawn early;
-    a dropped link, and one `answer` refused after the admission, report
-    that they ended.
+    writes the Close; a withdrawal while a send is pending ends it without
+    a Close; a stale or pending session is not withdrawn early; a dropped
+    link, one `answer` refused after the admission, and an admission
+    function that fails report that they ended.
 16. Message 3 is not written when the session is withdrawn right after
     the admission, nor after a withdrawal while its write is stalled; the
     bytes accepted before stay, nothing follows them.
@@ -420,6 +426,11 @@ core:
     free.
 18. A promotion made at message 2 stands when message 3 cannot be
     written.
+19. A proven key older than the successor announced through the active
+    key is stale: no message 3, and nothing is recorded. A pending key
+    gets no message 3; its card is held for the user, as inbound.
+20. Message 3 and the slot for strangers follow the standing of the
+    session, whatever admission the admission function returns.
 
 Session lifetime (T-LIFE), in `tests::deadlines` of the session crate and
 the unit tests of `link`:
@@ -435,11 +446,10 @@ the unit tests of `link`:
 5. The age limit ends a session that only receives part of a frame.
 6. After a timeout, a read error or a write error, every later receive
    and send fails at once, and no late frame is delivered.
-13. Property: over random sequences of admissions, announcements,
-    confirmations and imports the invariants hold, the active epoch never
-    decreases, and the active key changes only by promoting a proven
-    authorized successor, by confirming the pending one, or by a
-    replacement for a requested contact.
+7. The first message of a peer that is not a contact is returned with
+   the Close already written and the slot back, whether or not the caller
+   closes; in the session alone that Close is due at once. A Close from
+   the peer ends the link at once and gives back its slot.
 
 Frames on a session (T-FRAME-AUTH)
 

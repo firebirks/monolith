@@ -182,9 +182,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
   comes from one function, `PeerRecord::admit`, which borrows the
   credentials of the contact and takes the card that stands for the peer
   on the session: the one presented in the handshake, or the one that was
-  dialed. `Credentials::admit` compares it: a lower epoch than the active
-  card with another key, the same epoch with another transport key or
-  endpoint set, a card of the authorized key older than the announced
+  dialed. `Credentials::admit` compares it: a card of another key older
+  than the active card or than the authorized successor, a card with the
+  epoch of the active card or of the authorized successor that states
+  something else, a card of the authorized key older than the announced
   one, or the retired key gives `StaleCard`, which the session logic
   treats on the same code path as an identity that is not a contact.
   Only the key retired last is remembered; a key retired earlier is
@@ -253,9 +254,11 @@ Test area names refer to `docs/TEST_PLAN.md`.
   `Withdrawal`, which the admission function keeps with the session in
   the same step as the admission and which is handed out nowhere else;
   withdrawing it stops delivery before the next frame is taken from the
-  buffer, wakes a link that waits for the peer, and makes every later
-  call on the link fail at once. `Withdrawal::is_ended` tells the store
-  which links are gone. Sessions admitted with another standing are left
+  buffer, wakes a link that waits for the peer, ends a write in progress
+  without a Close, and makes every later call on the link fail at once.
+  Deleting or blocking the record of an identity withdraws its sessions
+  the same way. `Withdrawal::is_ended` tells the store which links are
+  gone, including those whose admission function failed. Sessions admitted with another standing are left
   on the path of a stranger, so that their end does not show the peer
   that it is held as a contact. The duplicate rule takes for each session
   whether its key is current (`duplicate::Contender`), and a session that
@@ -271,8 +274,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   after a promotion; the duplicate rule), `tests/credentials.rs` in the
   core (a link with a buffered and an unread message, a waiting link, a
   link withdrawn before it was polled, a withdrawal seen first by a send;
-  a stale session is not withdrawn; ended links), mutation faults CR10
-  to CR17.
+  a stale session is not withdrawn; ended links; a failed admission), the
+  unit tests of `link` (a withdrawal during a pending send), mutation
+  faults CR10 to CR17, CR34 and CR38.
 
 ### S50. A session is admitted against the contact state of that moment
 
@@ -294,22 +298,33 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 - Mechanism: a dial admits the responder after message 2 and writes
   message 3, which carries the local identity and card, only if
-  `Admission::may_learn_local_identity` holds: the proven key stands, as
-  of that moment, for an identity held as a requested or accepted
-  contact. That is decided on the transport key and the credentials, not
-  on a card object: an older card of the active key qualifies, a pending
-  or retired key, a contradicting card, and a deleted, declined or
-  blocked identity do not. The write races the withdrawal of the
-  session: a withdrawal before or during it ends the dial and the
-  session. Bytes the stream accepted before cannot be called back.
+  `Admission::may_learn_local_identity` holds for the standing of the
+  session the admission function returned, not for the admission it
+  returned beside it: the proven key stands, as of that moment, for an
+  identity held as a requested or accepted contact. That is decided on
+  the transport key and the credentials, not on a card object: an older
+  card of the active key qualifies; a pending or retired key, a key
+  older than the announced successor, a contradicting card, and a
+  deleted, declined or blocked identity do not. The write races the
+  withdrawal of the session: a withdrawal before or during it ends the
+  dial and the session.
+- Residual: bytes the stream accepted before a withdrawal cannot be
+  called back. The first 48 bytes of message 3 carry the local transport
+  key, which identifies the local side to a responder that knows its
+  card. A local stream takes the 235 bytes in one write in practice.
+  Only `link::dial` enforces this: `HandshakeInitiator::read_message_2`
+  returns message 3 before any admission, and a caller of the session
+  crate that writes it unchecked bypasses the gate.
 - Consequence: an outbound session is always a contact's, and none takes
   a slot of `MAX_UNKNOWN_SESSIONS`.
 - Tests: `tests/credentials.rs` in the core (withdrawal right after the
   admission, an older card of the active key, a conflicting card, a
   record deleted, declined or blocked during the dial, a full budget for
-  strangers, a promotion whose message 3 cannot be written), the unit
-  tests of `link` (a withdrawal before and during a stalled write of
-  message 3), mutation faults CR18 and CR22 to CR24.
+  strangers, a promotion whose message 3 cannot be written, a pending key,
+  a key older than the announced successor, an admission returned that
+  contradicts the session), the unit tests of `link` (a withdrawal before
+  and during a stalled write of message 3), mutation faults CR18, CR22 to
+  CR24 and CR35 to CR37.
 
 ### S52. Every session ends at its deadlines and on every failure
 
@@ -317,18 +332,26 @@ Test area names refer to `docs/TEST_PLAN.md`.
   of a session: a begun frame within `FRAME_READ_TIMEOUT` of its first
   byte, the next complete frame within `IDLE_TIMEOUT`, the age limit, and
   in `AuthenticatedUnknown` `UNKNOWN_SESSION_TIMEOUT` and, for a peer
-  that is not a contact, `UNKNOWN_FIRST_MESSAGE_TIMEOUT`. Bytes of an
-  incomplete frame move none of them. `Link::receive` waits for that
-  moment alongside the stream and the withdrawal, so a deadline fires
-  while bytes are awaited. The end of the stream, a read or write error,
-  a deadline, a withdrawal and a violation all end the link through one
-  path: the session is over, its slot for strangers goes back, the stream
-  is shut down, and every later call fails at once.
+  that is not a contact, `UNKNOWN_FIRST_MESSAGE_TIMEOUT`; a Close the
+  session logic decided on a message it received is due at once. Bytes
+  of an incomplete frame move none of them. `Link::receive` waits for
+  that moment alongside the stream and the withdrawal, so a deadline
+  fires while bytes are awaited, and a message that ends the session,
+  the first one of a stranger or a Close from the peer, ends the link
+  before it is returned. The end of the stream, a read or write error, a
+  deadline, a withdrawal, a violation and such a message all end the
+  link through one path: the session is over, its slot for strangers
+  goes back, the stream is shut down, and every later call fails at
+  once. The slot of an inbound stranger follows the standing of the
+  session, not the admission returned beside it.
 - Tests: `tests::deadlines` in the session crate, the unit tests of
-  `link` (a frame sent a byte at a time, a stranger that sends nothing,
-  an unconfirmed session, read and write errors, later calls on a link
-  that is over), fuzz target `session_frames` (partial frames and
-  expiry), mutation faults CR16 and CR25 to CR30.
+  `link` (a frame sent a byte at a time, a stranger that sends nothing or
+  sends its first message, a Close from the peer, an unconfirmed
+  session, read and write errors, later calls on a link that is over),
+  `tests/link.rs` in the core (the slot of a stranger whatever the
+  admission says), fuzz target `session_frames` (partial frames, expiry
+  at the deadline it works out itself), mutation faults CR16, CR25 to
+  CR33 and CR37.
 
 ### S38. An invitation capability admits a request and does nothing else
 
