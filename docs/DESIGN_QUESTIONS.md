@@ -228,10 +228,9 @@ Nothing below is settled. Each is described in the document named.
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
-| T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 3 and Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
+| T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
 | ST1 to ST6 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending) | STORAGE.md 9 |
-| T3-1 to T3-6 | Phase 3: the Tails precondition, `ADD_ONION` forms and key modes, status keys, stream isolation policy, proof of work, `MaxStreams`. Implementation waits for these. | section 5 of this document |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Security contact address and key | SECURITY.md |
@@ -276,11 +275,12 @@ any HTTP client, any DNS resolver.
 Before any Tor code was written, the Phase 0 documents were compared with
 the Phase 3 brief and with the current Tor specifications and source
 (sources at the end of this section, accessed 2026-10-02). Where they
-disagree, the disagreement is recorded here and nothing is implemented
-until it is decided. Section 5.1 needs a decision; section 5.2 lists
-changes that the brief decides and that reduce the surface.
+disagreed, the disagreement was recorded here before anything was
+implemented. Section 5.1 lists the six points that needed a decision,
+with the decision taken on 2026-10-02; section 5.2 lists changes that the
+brief decides and that reduce the surface.
 
-### 5.1 Open decisions
+### 5.1 Decisions
 
 T3-1. The Tails precondition.
     `ARCHITECTURE.md` section 12, ADR 0004 and `TOR_INTEGRATION.md` make
@@ -300,6 +300,7 @@ T3-1. The Tails precondition.
     - Recommendation: (b). The ARCHITECTURE and ADR text is changed to say
       that the Tails checks gate Phase 6 and any claim of Tails support,
       not the generic backend.
+    - Decided: (b).
 
 T3-2. The `ADD_ONION` forms and the key modes.
     `TOR_CONTROL_SURFACE.md` allows exactly two forms, `NEW:ED25519-V3`
@@ -324,6 +325,11 @@ T3-2. The `ADD_ONION` forms and the key modes.
       endpoint that dies with any Tor restart while contacts still hold it.
       Mode A can be added later as a third form without changing the
       `TorBackend` contract.
+    - Decided: (a). The two forms differ only in the key and share one
+      publication policy: `Flags=MaxStreamsCloseCircuit`, `MaxStreams=8`,
+      `PoWDefensesEnabled=1`, and none of `DiscardPK`, `Detach`,
+      `NonAnonymous`, `ClientAuth`, `ClientAuthV3` or custom proof-of-work
+      queue parameters.
 
 T3-3. Which status Monolith reads.
     Phase 0 reads only `GETINFO status/circuit-established` and
@@ -344,6 +350,8 @@ T3-3. Which status Monolith reads.
     - Recommendation: (b). The version comes from `PROTOCOLINFO`, so
       `GETINFO version` is not needed. `network-liveness` adds nothing that
       the two keys do not.
+    - Decided: (b), with the line filtered as strictly as described: the
+      progress number and `done`, nothing else survives the parser.
 
 T3-4. Stream isolation policy.
     Phase 0: one random 16-byte token per contact, made at process start
@@ -363,6 +371,14 @@ T3-4. Stream isolation policy.
       identity, the onion address, a name or a fingerprint. The backend
       takes the token from its caller and has no policy of its own.
     - Recommendation: per contact, as in Phase 0.
+    - Decided: per contact, reused for reconnects to that contact, a
+      different token for every contact. The token comes from the
+      operating system's CSPRNG, contains nothing identifying, is not
+      logged and is not exposed outside the Tor adapter. It is runtime
+      state, not contact data, and is made again after a restart. The
+      structured `<torS0X>0` format is used, not legacy username and
+      password isolation. Isolation is not claimed to prevent traffic
+      correlation.
 
 T3-5. Proof of work.
     Phase 0 sends `PoWDefensesEnabled=1` on every `ADD_ONION`, with Tor's
@@ -375,6 +391,9 @@ T3-5. Proof of work.
     - Recommendation: keep the Phase 0 decision. It costs nothing when
       there is no attack and was reviewed in Phase 0. Queue parameters stay
       at Tor's defaults (open item C2).
+    - Decided: `PoWDefensesEnabled=1` on both forms, no `PoWQueueRate` or
+      `PoWQueueBurst`. Requested is not verified active; Monolith does not
+      run the tor binary to find out. Application limits stay mandatory.
 
 T3-6. `MaxStreams`.
     Phase 0 sends `MaxStreams=8` with `MaxStreamsCloseCircuit` and leaves
@@ -385,6 +404,10 @@ T3-6. `MaxStreams`.
     - Recommendation: keep 8 as a provisional value, documented as defense
       in depth behind the application budgets, and settle it with the
       resource tuning of Phase 4.
+    - Decided: `MaxStreams=8` with `MaxStreamsCloseCircuit` on both forms,
+      provisional. It applies per rendezvous circuit, not to the service
+      as a whole, and is reviewed in Phase 4 against the real connection
+      model and measurements.
 
 ### 5.2 Changes the brief decides
 

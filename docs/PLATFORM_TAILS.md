@@ -142,8 +142,9 @@ not known. It has to be found out by experiment, not by reading.
 
 ### 3.4 Preconditions to verify on Tails
 
-To be done on a current supported Tails release, before any Tor code is
-written for Monolith. Each result is recorded here with the Tails version
+To be done on a current supported Tails release, before Phase 6 and before
+Monolith claims to work on Tails. They do not gate the generic system Tor
+backend of Phase 3 (`DESIGN_QUESTIONS.md` T3-1). Each result is recorded here with the Tails version
 and date.
 
 1. Whether `ADD_ONION` works through the filtered control interface on port

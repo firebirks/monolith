@@ -271,8 +271,10 @@ A phase starts after the previous one has been reviewed.
 Preconditions beyond review:
 
 - Phase 2 needs the session layer decision of ADR 0002.
-- Phase 3 and Phase 6 need the Tails checks of `PLATFORM_TAILS.md` section
-  3.4 to have been made on a current Tails release.
+- Phase 6, and any claim that Monolith works on Tails, needs the Tails
+  checks of `PLATFORM_TAILS.md` section 3.4 to have been made on a current
+  Tails release. They do not gate the generic system Tor backend of Phase
+  3 (`DESIGN_QUESTIONS.md` T3-1).
 - Phase 7 needs the Whonix isolation measures of `PLATFORM_WHONIX.md`
   section 4.5 to have been tested with two Workstations on one Gateway.
 

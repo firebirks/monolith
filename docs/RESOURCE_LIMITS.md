@@ -159,6 +159,14 @@ extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | `MAX_QUEUED_MESSAGE_BYTES` | 64 MiB | Outbound, all contacts. |
 | `MESSAGE_DEDUP_WINDOW` | 1024 | Received message identifiers kept per contact. |
 
+Tor applies one limit of its own in front of these: `MaxStreams=8` with
+`MaxStreamsCloseCircuit` on every `ADD_ONION` (`TOR_CONTROL_SURFACE.md`). It
+counts streams on one rendezvous circuit, not streams to the service as a
+whole, and a circuit that goes over it is closed. It is defense in depth
+only; the budgets above decide what Monolith accepts. The value is
+provisional and is reviewed in Phase 4 with the real connection model and
+measurements (`DESIGN_QUESTIONS.md` T3-6).
+
 When the handshake budget is full, the oldest unauthenticated stream is
 closed to make room for a new one. A flood therefore churns the 16 slots
 instead of pinning them, and a connection that completes its handshake
@@ -258,6 +266,7 @@ window or one desktop notification per request.
 | --- | --- |
 | `MAX_CONTROL_LINE_LEN` | 1024 |
 | `MAX_CONTROL_REPLY_LINES` | 16 |
+| `MAX_CONTROL_REPLY_LEN` | 4096 |
 | `MAX_SOCKS_REPLY_LEN` | 262 |
 | `MAX_VAULT_FILE_LEN` | 16 MiB |
 | `MIN_KDF_MEMORY_KIB` / `DEFAULT` / `MAX` | 64 MiB / 256 MiB / 1 GiB |

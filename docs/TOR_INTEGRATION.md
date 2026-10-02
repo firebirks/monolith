@@ -5,23 +5,34 @@ never embeds one and never configures one. This document describes how it
 talks to that Tor. Platform specifics are in `PLATFORM_TAILS.md` and
 `PLATFORM_WHONIX.md`; the control commands are in `TOR_CONTROL_SURFACE.md`.
 
-Status: provisional. Nothing here is implemented, and implementation does
-not start before the Tails preconditions in `PLATFORM_TAILS.md` section 3.4
-have been checked.
+Status: the generic system Tor backend is Phase 3 work. The Tails checks of
+`PLATFORM_TAILS.md` section 3.4 gate Phase 6 and any claim that Monolith
+works on Tails; they do not gate the generic backend (`DESIGN_QUESTIONS.md`
+T3-1). Tails and Whonix are not supported yet.
 
 Facts about Tor below were checked against the sources listed in section 11
-on 2026-10-01.
+on 2026-10-02.
 
 ## 1. Supported Tor
 
-- C tor, series 0.4.9, from 0.4.9.5 (the first stable release of the
-  series). Monolith refuses to use an older Tor. The 0.4.8 series reached
-  end of life on 2026-06-01. Debian 13 ships 0.4.9.11 with 0.4.9.13 in the
-  security archive; Tails 7.14 ships 0.4.9.13; Whonix 18 ships 0.4.9.x.
-- 0.4.9.13 or later is recommended. It fixes TROVE-2026-053, a stream
-  isolation bug in which an onion service circuit could be reused by a
-  stream from a different isolation context. `monolith doctor` warns on
-  older versions.
+Two things are kept apart: the oldest Tor that has every feature Monolith
+uses, and the Tor a user should run.
+
+- Feature baseline: C tor 0.4.9.5. It is the first stable release with the
+  proof-of-work keywords of `ADD_ONION` (added in 0.4.9.2-alpha) and with
+  the `<torS0X>0` SOCKS isolation format (0.4.9.1-alpha). Monolith refuses
+  a Tor whose `PROTOCOLINFO` reports an older version.
+- Run a supported, security-updated Tor. As of 2026-10-02 only the 0.4.9
+  series is supported upstream (0.4.8 reached end of life on 2026-06-01),
+  and the latest release is 0.4.9.13. 0.4.9.13 or later is recommended: it
+  fixes TROVE-2026-053, a stream isolation bug in which an onion service
+  circuit could be reused by a stream from a different isolation context.
+  `monolith doctor` says when the local Tor is older. A version at or above
+  the baseline is not thereby safe; that depends on the patches it has.
+- Tested with: none yet in this repository (no Tor in the development
+  environment); see `TEST_PLAN.md`.
+- The version comes from `PROTOCOLINFO` of the local Tor. Monolith never
+  asks the network which Tor is current.
 - Onion Service v3 only. Version 2 cannot be expressed in any Monolith data
   structure.
 
@@ -29,10 +40,11 @@ on 2026-10-01.
 
 Everything goes through the `TorBackend` trait in `monolith-tor`:
 
-    status()                    is Tor usable
-    connect_onion(key, port, isolation token)  -> stream
-    publish_onion_service(request)             -> service (accepts streams)
-    unpublish_onion_service(service)
+    status()                              what state Tor is in
+    isolation_group()                     a new isolation context
+    connect_onion(key, isolation group)   -> stream to port 29170 of the key
+    publish_onion(request)                -> service (accepts streams)
+    service.close()                       DEL_ONION, then close
 
 `monolith-core` and `monolith-protocol` see byte streams and nothing else.
 They do not know which backend is in use and they contain no socket code.
@@ -80,15 +92,26 @@ codes. No behavior depends on them.
 
 Tor does not share a circuit between streams with different SOCKS5
 credentials (`IsolateSOCKSAuth`, on by default for every SocksPort).
-Monolith uses the format Tor specifies for this purpose:
+Monolith uses the structured format Tor specifies for this purpose, not
+legacy username and password isolation:
 
     username = "<torS0X>0"
-    password = lower-case hex of the contact's isolation token
+    password = lower-case hex of an isolation token
 
-The isolation token is 16 random bytes generated per contact at process
-start and kept in memory only. All connections to one contact share it; no
-two contacts do. Tor 0.4.9.1 and later parse this format. Older versions
-treat it as ordinary credentials, with the same isolating effect.
+The policy (`DESIGN_QUESTIONS.md` T3-4) is one token per contact:
+
+- The Tor adapter makes the token: 16 bytes from the operating system's
+  CSPRNG. It contains nothing derived from an identity, an onion address,
+  a fingerprint, a name or a contact number.
+- The caller receives an opaque `IsolationGroup` that has no accessor for
+  the bytes. The core keeps one per contact and passes it with every dial
+  to that contact, so reconnects may reuse a rendezvous circuit and
+  different contacts never share an isolation context.
+- The token is runtime state. It is never stored, logged or shown, and a
+  new one is made after a restart.
+
+Tor 0.4.9.1 and later parse this format, and Monolith requires a later
+Tor.
 
 What this does and does not add:
 
@@ -101,6 +124,9 @@ What this does and does not add:
 - Monolith does not ask for, or depend on, `IsolateDestAddr`,
   `IsolateDestPort` or a dedicated SocksPort. The platform decides which
   port is used: `127.0.0.1:9050` on Tails and Whonix by default.
+- Isolation does not prevent traffic correlation. An observer of both ends
+  of a circuit, or of the guard and the timing of both parties, is not
+  affected by it.
 
 Monolith does not set any isolation flag itself and does not change the
 SocksPort configuration (S5).
@@ -114,11 +140,11 @@ SocksPort configuration (S5).
    address is taken from the control connection).
 3. It sends `ADD_ONION` with the listener as the target
    (`TOR_CONTROL_SURFACE.md`).
-4. Tor publishes the service descriptor. On Linux without a control port
-   filter Monolith waits for `HS_DESC UPLOADED` for its own address and
-   then reports the service as available. On Tails and Whonix that event is
-   not used, and the service is reported as published once `ADD_ONION`
-   succeeded.
+4. Tor publishes the service descriptor. Monolith subscribes to no event,
+   because `HS_DESC` events name every Onion Service of the Tor instance,
+   so it does not learn when the upload happened. The service is reported
+   as published once `ADD_ONION` succeeded (open item C3 in
+   `TOR_CONTROL_SURFACE.md`).
 5. Streams arriving at the listener are handed to the core as inbound
    sessions.
 
@@ -128,8 +154,16 @@ Monolith relies on this: a crash or a kill takes the service down without
 any cleanup step, and nothing is left behind in Tor.
 
 If the control connection is lost while Monolith is running, the service is
-gone. Monolith reports "Tor disconnected", reconnects with backoff and
-creates the service again from the key it holds. `Detach` is never used.
+gone. The publication handle notices it the next time it is asked to accept
+or to report its state, and from then on reports the service as not
+published; it never claims that the service is still online. Publishing
+again, from the key the caller holds, is the job of the supervisor in the
+core, with the backoff of `RESOURCE_LIMITS.md` section 7, not of the
+backend. `Detach` is never used.
+
+Shutdown: the handle's `close` sends `DEL_ONION` with a short deadline and
+then closes the control connection. Dropping the handle without `close`
+closes the connection, which removes the service as well.
 
 ### 4.1 Service keys
 
@@ -161,13 +195,28 @@ arrive from Tor.
 
 ## 5. Status
 
-Monolith asks one question, `GETINFO status/circuit-established`, and maps
-the answer to `NotReady` or `Ready`. It does not read bootstrap progress or
-any circuit, guard, stream or address information.
+A status query opens a control connection, authenticates, asks
+`GETINFO status/circuit-established` and `GETINFO status/bootstrap-phase`,
+closes the connection, and separately checks that the SOCKS endpoint
+answers a SOCKS5 greeting. From that it reports one of:
+
+- control unavailable: the control endpoint cannot be reached or does not
+  speak the protocol;
+- authentication failed;
+- unsupported Tor: older than the feature baseline;
+- not ready: Tor answers but has no circuit, with the bootstrap progress
+  when Tor gave one;
+- ready: Tor has a circuit;
+
+and, independently, whether the SOCKS endpoint is reachable. Only the
+progress number and whether the bootstrap is `done` are taken from the
+bootstrap line (`TOR_CONTROL_SURFACE.md`). Monolith does not read any
+circuit, guard, stream or address information, and its correctness does
+not depend on bootstrap percentages or tags.
 
 User-visible states derived from this and from the service lifecycle:
-Tor disconnected, Tor connecting, Onion Service publishing, Onion Service
-available.
+Tor disconnected, Tor connecting, Onion Service published, Onion Service
+not published.
 
 ## 6. Denial-of-service defenses provided by Tor
 
@@ -175,8 +224,11 @@ Monolith uses the mechanisms Tor offers and implements none of its own at
 this layer.
 
 - Proof of work. Tor's Onion Service proof-of-work defense (proposal 327) is
-  requested with `PoWDefensesEnabled=1` on `ADD_ONION`. The keyword exists
-  from tor 0.4.9.2, below Monolith's minimum, so it is always sent.
+  requested with `PoWDefensesEnabled=1` on `ADD_ONION`, with Tor's default
+  queue parameters. The keyword exists from tor 0.4.9.2-alpha, below
+  Monolith's baseline, so it is always sent (`DESIGN_QUESTIONS.md` T3-5).
+  Requested does not mean verified active: Monolith does not run the tor
+  binary or list its modules to find out.
   - The defense needs the `pow` module, which is compiled in only when tor
     is built with GPL code enabled. Debian's packages are. Tor does not
     report the module over the control port, and `ADD_ONION` succeeds
@@ -184,9 +236,10 @@ this layer.
     cannot confirm that proof of work is active and does not claim it is.
   - With the defense on and no attack, the required effort is zero and
     clients connect as usual.
-- Streams per circuit. `MaxStreams` with `MaxStreamsCloseCircuit` caps the
-  number of streams on one rendezvous circuit (open item C1 in
-  `TOR_CONTROL_SURFACE.md`).
+- Streams per circuit. `MaxStreams=8` with `MaxStreamsCloseCircuit` caps
+  the number of streams on one rendezvous circuit; it is not a limit for
+  the service as a whole. Provisional (open item C1 in
+  `TOR_CONTROL_SURFACE.md`, `DESIGN_QUESTIONS.md` T3-6).
 - Introduction point rate limiting (`HiddenServiceEnableIntroDoSDefense`)
   cannot be set through `ADD_ONION` and is therefore not used.
 
@@ -258,7 +311,8 @@ Consequences:
 
 ## 11. Sources
 
-Accessed 2026-10-01.
+Accessed 2026-10-01, and again on 2026-10-02 for the Phase 3 review
+(`DESIGN_QUESTIONS.md` section 5.4).
 
 - Control protocol: https://spec.torproject.org/control-spec/commands.html
 - Onion address encoding: https://spec.torproject.org/rend-spec/encoding-onion-addresses.html
