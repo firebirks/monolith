@@ -214,7 +214,11 @@ The initiator:
    the initiator closes, as for a failed check 2. While message 3 is being
    written, a withdrawal of the session (section 11.4) ends the write and
    closes the stream. Bytes the stream accepted before that cannot be
-   called back; what is prevented is everything after them.
+   called back; what is prevented is everything after them. The first 48
+   bytes of message 3 carry the initiator's transport key, encrypted to
+   the responder, and that key alone tells a responder who knows the
+   initiator's card who is dialing. In practice a local stream takes the
+   235 bytes of message 3 in one write.
 
 If check 2 fails the initiator closes. It has sent 48 bytes that carry no
 identity. The failure is reported to the user as an identity mismatch: the
@@ -412,9 +416,9 @@ key. The card of the session is compared with them.
 | requested or accepted | the active key, a lower epoch | as the record says; the card is not taken (section 11.4) |
 | requested or accepted | the active key, a greater epoch | as the record says; the card becomes the active card at once (section 11.4) |
 | requested or accepted | the key of the authorized successor, not older than the announced card | as the record says; the successor is promoted and the previous key retired (section 11.4) |
-| requested or accepted | another key, a greater epoch | not a contact; the card is held as the pending successor and shown to the user (section 11.4) |
-| requested or accepted | the epoch of the active card, another transport key or endpoint set | not a contact; reported to the user as a conflict |
-| requested or accepted | another key with a lower epoch than the active card, the retired key, or a card of the authorized key older than the announced one | not a contact |
+| requested or accepted | another key, an epoch greater than those of the active card and of the authorized successor | not a contact; the card is held as the pending successor and shown to the user (section 11.4) |
+| requested or accepted | the epoch of the active card or of the authorized successor, with another transport key or endpoint set | not a contact; reported to the user as a conflict |
+| requested or accepted | another key with a lower epoch than the active card or than the authorized successor, the retired key, or a card of the authorized key older than the announced one | not a contact |
 
 The last two rows are the stale-card rule. A card that is older than what
 the local side holds, or that contradicts it, does not open a contact
@@ -445,8 +449,9 @@ for a contact, the initiator does not send message 3 and no session
 exists (section 4.4, check 3).
 
 A session already open loses its standing when the transport key it was
-authenticated with is retired: it is withdrawn, ends with Close, and
-delivers nothing more (section 11.4).
+authenticated with is retired, or when the record of its identity is
+deleted or blocked: it is withdrawn, ends with Close, and delivers nothing
+more (section 11.4).
 
 What each standing means, as a responder, which learns the initiator's
 identity from message 3, and as an initiator, which decides whether to
@@ -454,12 +459,12 @@ send its own in message 3:
 
 | Standing for this session | Initiator sends message 3 | Session made | Contact session | Application data | Slot for strangers | Ends |
 | --- | --- | --- | --- | --- | --- | --- |
-| accepted or requested: the active key with any card of it | yes | yes | after confirmation (section 6.4) | after confirmation | no | at `UNKNOWN_SESSION_TIMEOUT` if not confirmed |
+| accepted or requested: the active key, with a card that contradicts no card held | yes | yes | after confirmation (section 6.4) | after confirmation | no | at `UNKNOWN_SESSION_TIMEOUT` if not confirmed |
 | accepted or requested: a proven authorized successor, promoted | yes | yes | after confirmation | after confirmation | no | as above |
 | a pending successor | no | as responder only | no | no | yes | Close after the first message, or at `UNKNOWN_FIRST_MESSAGE_TIMEOUT` |
 | the retired key | no | as responder only | no | no | yes | as above |
-| an older card of another key, or a card older than the authorized successor | no | as responder only | no | no | yes | as above |
-| a conflicting card at the same epoch | no | as responder only | no | no | yes | as above |
+| a card of another key older than the active card or than the authorized successor | no | as responder only | no | no | yes | as above |
+| a card that states something else at the epoch of the active card or of the authorized successor | no | as responder only | no | no | yes | as above |
 | no record | no | as responder only | no | no | yes | as above; a request is considered |
 | declined | no | as responder only | no | no | yes | as above |
 | blocked | no | as responder only | no | no | yes | as above |
@@ -471,7 +476,9 @@ initiator sends message 3, and with it its identity, only for the first
 two rows, so an outbound session is always one with a contact and never
 takes a slot for strangers. A peer whose key is pending or retired, or
 whose record was deleted, declined or blocked while the dial was in
-progress, learns nothing of the initiator from that dial.
+progress, learns nothing of the initiator from that dial: a change before
+the admission gives no message 3, and one after it withdraws the session,
+which stops the write of message 3 (section 4.4, check 3).
 
 Budgets are applied at this point according to the standing for this
 session, not according to the record alone. A session whose standing is
@@ -1232,6 +1239,9 @@ the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
    earlier is refused in its old cards by their epochs, and a newer card
    that states it is a new key without continuity as in 5.
 
+Deleting or blocking the record of an identity withdraws its sessions in
+the same way, a dial in progress included (section 4.4, check 3).
+
 Withdrawal concerns sessions that were admitted as a contact's. A session
 whose standing was not a contact's, a stale or pending key included, is on
 the path of a stranger from the start and is left to it (section 12.1):
@@ -1398,7 +1408,8 @@ so that the work of taking it happens after the last thing the sender can
 observe.
 
 If no message arrives within `UNKNOWN_FIRST_MESSAGE_TIMEOUT` of the
-handshake, the session is closed with Close, as after a first message. When `MAX_UNKNOWN_SESSIONS` such sessions exist and another peer
+handshake, the session is closed with Close, as after a first message.
+When `MAX_UNKNOWN_SESSIONS` such sessions exist and another peer
 authenticates, the oldest one that has not yet sent its message is closed
 to make room.
 
