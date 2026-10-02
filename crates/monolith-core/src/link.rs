@@ -746,13 +746,20 @@ mod tests {
         )
     }
 
+    /// Runs a test in paused time. A test that waits for something that
+    /// never comes fails instead of hanging: the clock moves on to the
+    /// limit when nothing else is due.
     fn run<F: Future>(future: F) -> F::Output {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .start_paused(true)
             .build()
             .unwrap()
-            .block_on(future)
+            .block_on(async {
+                tokio::time::timeout(core::time::Duration::from_secs(30 * 24 * 60 * 60), future)
+                    .await
+                    .expect("the test waited for something that never came")
+            })
     }
 
     #[test]
