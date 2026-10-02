@@ -123,13 +123,13 @@ extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | --- | --- | --- |
 | `CONNECT_TIMEOUT` | 120 s | Outbound stream through Tor. Onion connections need a descriptor fetch, an introduction and a rendezvous. |
 | `HANDSHAKE_TIMEOUT` | 30 s | From stream open to an authenticated state. Covers three messages over an established circuit. This is the slowloris bound for unauthenticated streams: a handshake message that arrives later is refused, and a peer that sends a valid first message and then nothing holds its pending handshake for this long. |
-| `UNKNOWN_SESSION_TIMEOUT` | 20 s | Longest time in `AuthenticatedUnknown`, measured from authentication. |
-| `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | 10 s | A peer with no contact record must send its first message within this time. |
+| `UNKNOWN_SESSION_TIMEOUT` | 20 s | Longest time in `AuthenticatedUnknown`, measured from authentication. Then the session is closed with Close. |
+| `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | 10 s | A peer that is not a contact for the session must send its first message within this time, measured from authentication. Then the session is closed with Close. |
 | `DUPLICATE_PROBE_TIMEOUT` | 10 s | Liveness probe of an older session during duplicate resolution. |
 | `PING_INTERVAL_MIN` / `MAX` | 90 s / 150 s | Each interval is drawn uniformly from this range. |
 | `PONG_TIMEOUT` | 60 s | |
-| `IDLE_TIMEOUT` | 240 s | No complete frame received. |
-| `FRAME_READ_TIMEOUT` | 60 s | From length prefix to last byte of a frame. |
+| `IDLE_TIMEOUT` | 240 s | No complete frame received, measured from the last complete frame or, before the first, from authentication. Bytes of a frame that is not complete do not count. The session ends without a Close. |
+| `FRAME_READ_TIMEOUT` | 60 s | From the first byte of a frame's length prefix to its last byte, an absolute deadline: later bytes of the same frame do not move it. The session ends without a Close. |
 | `FRAME_WRITE_TIMEOUT` | 60 s | One frame write. |
 | `FILE_OFFER_TIMEOUT` | 10 min | An unanswered file offer is dropped. |
 | `CONTROL_COMMAND_TIMEOUT` | 30 s | One Tor control command. |
@@ -141,6 +141,17 @@ extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 The timeouts are separate on purpose. A Tor that is still bootstrapping is
 not an error of any of them: the status query reports it, and the
 reconnect schedule of section 7 decides when to try again.
+
+After the handshake, `AuthenticatedSession::deadline` gives the earliest
+of the deadlines that apply to a session: the frame that has begun, the
+idle limit, the age limit of section 3, and while the session is in
+`AuthenticatedUnknown` the two unknown-session limits. `link::Link` waits
+for that moment alongside the stream and a withdrawal, so each deadline
+fires while bytes are awaited and does not depend on a frame completing.
+The frame and idle deadlines end the session without a Close; the age and
+unknown-session deadlines end it with one, as the local side ends a
+session on purpose. Whatever ends a link, it gives back its slot of
+`MAX_UNKNOWN_SESSIONS` at once.
 
 ## 5. Concurrency budgets (local)
 
@@ -509,8 +520,13 @@ of service against an Onion Service.
 
 Since Phase 3 the network layer of the core enforces the budgets for
 inbound handshakes (the accept loop), unknown sessions (`link::answer`
-closes a stranger for whom no slot is free) and dials (`link::dial` waits
-for a slot) with semaphores, and the handshake, write and idle deadlines.
+closes a stranger for whom no slot is free, and a link gives its slot back
+when it ends) and dials (`link::dial` waits for a slot) with semaphores,
+and every deadline of section 4: handshake, frame write, frame read,
+idle, the unknown-session limits and the age limit. An outbound session
+never takes a slot for strangers: a dial sends message 3, and makes a
+session, only to a peer that stands for a contact (`PROTOCOL.md` section
+4.4).
 An accept loop survives listener errors such as too many open files: it
 pauses for `ACCEPT_BACKOFF` and goes on while the service is published. The policies that need contacts and
 rates (closing the oldest handshake, the rate buckets of section 6, the
