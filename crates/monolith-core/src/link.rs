@@ -23,6 +23,9 @@ use monolith_protocol::limits::{
     HANDSHAKE_TIMEOUT, IDLE_TIMEOUT,
 };
 use monolith_protocol::session::{Action, Admission, PeerRecord};
+use tokio::sync::OwnedSemaphorePermit;
+
+use crate::budget::Budgets;
 use monolith_session::{
     AuthenticatedSession, HandshakeInitiator, HandshakeResponder, LocalParty, MessageBuffer,
     Received, SessionError,
@@ -47,6 +50,9 @@ pub enum LinkError {
     TimedOut,
     /// The contact card names no endpoint that can be dialed.
     NoEndpoint,
+    /// The peer is not a contact and the budget for such sessions is full.
+    /// The stream was closed without a reply.
+    Budget,
 }
 
 impl fmt::Display for LinkError {
@@ -57,6 +63,7 @@ impl fmt::Display for LinkError {
             Self::Stream => f.write_str("stream closed"),
             Self::TimedOut => f.write_str("timed out"),
             Self::NoEndpoint => f.write_str("no endpoint to dial"),
+            Self::Budget => f.write_str("session budget full"),
         }
     }
 }
@@ -93,6 +100,9 @@ pub struct Established<S> {
     pub admission: Admission,
     /// The first message to send, if any.
     pub first: Vec<Action>,
+    /// For a peer that is not a contact: its slot in the budget of
+    /// `MAX_UNKNOWN_SESSIONS`, held for as long as this value is.
+    pub unknown_slot: Option<OwnedSemaphorePermit>,
 }
 
 impl<S> fmt::Debug for Established<S> {
@@ -135,14 +145,18 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 
 /// Dials the first endpoint of `card` through `backend` and runs the
 /// initiator's handshake. `record` is what the local side holds about the
-/// identity of `card`; `isolation` is that contact's isolation group.
+/// identity of `card`; `isolation` is that contact's isolation group. A
+/// dial waits for a slot in the budget of `MAX_CONCURRENT_DIALS` and holds
+/// it through the SOCKS negotiation and the handshake.
 pub async fn dial<B: TorBackend>(
     backend: &B,
+    budgets: &Budgets,
     local: &LocalParty,
     card: &ContactCard,
     record: PeerRecord<'_>,
     isolation: &IsolationGroup,
 ) -> Result<Established<B::Stream>, LinkError> {
+    let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     let endpoint = *card.endpoints().first();
     let mut stream = backend
         .connect_onion(&endpoint, isolation)
@@ -159,6 +173,7 @@ pub async fn dial<B: TorBackend>(
             link: Link::new(stream, session),
             admission,
             first,
+            unknown_slot: None,
         })
     })
     .await
@@ -168,9 +183,13 @@ pub async fn dial<B: TorBackend>(
 /// Runs the responder's handshake on an inbound stream. `lookup` gives
 /// the record the local side holds about the identity in the card the
 /// initiator presented; it is asked only after the handshake has
-/// authenticated that card.
+/// authenticated that card. A peer that is not a contact needs a slot in
+/// the budget of `MAX_UNKNOWN_SESSIONS`; without one the stream is closed
+/// and nothing is sent. The caller holds the inbound handshake slot from
+/// the accept loop until this returns.
 pub async fn answer<'r, S, F>(
     mut stream: S,
+    budgets: &Budgets,
     local: &LocalParty,
     lookup: F,
 ) -> Result<Established<S>, LinkError>
@@ -187,10 +206,16 @@ where
         let inbound = waiting.read_message_3(&message_3, now())?;
         let record = lookup(inbound.card());
         let (session, admission, first) = inbound.admit(record)?;
+        let unknown_slot = if admission.standing.is_contact_record() {
+            None
+        } else {
+            Some(budgets.unknown_session().ok_or(LinkError::Budget)?)
+        };
         Ok(Established {
             link: Link::new(stream, session),
             admission,
             first,
+            unknown_slot,
         })
     })
     .await
@@ -216,9 +241,16 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// Encrypts a message and writes it, within `FRAME_WRITE_TIMEOUT`.
     pub async fn send(&mut self, message: &Message) -> Result<(), LinkError> {
         let frame = self.session.send(message, now())?;
-        tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
-            .await
-            .map_err(|_| LinkError::TimedOut)?
+        let written =
+            tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
+                .await
+                .map_err(|_| LinkError::TimedOut)
+                .and_then(|result| result);
+        if written.is_err() {
+            // Part of a frame may be on the stream: nothing more can follow.
+            self.session.stream_closed();
+        }
+        written
     }
 
     /// Waits for the next message. Fails when the peer breaks the

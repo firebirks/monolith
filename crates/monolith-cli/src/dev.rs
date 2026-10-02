@@ -12,6 +12,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
 
+use monolith_core::budget::Budgets;
 use monolith_core::link::{Established, Link, LinkError, answer, dial as dial_link};
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::{Message, MessageId};
@@ -139,7 +140,7 @@ pub(crate) async fn serve(config: SystemTorConfig, own_card: &str, peer_card: &s
             .await
             .map_err(|_| LinkError::TimedOut)?
             .map_err(LinkError::Tor)?;
-        let mut established = answer(stream, &local, |card| {
+        let mut established = answer(stream, &Budgets::new(), &local, |card| {
             if card.identity() == peer.identity() {
                 PeerRecord::Accepted(&peer)
             } else {
@@ -188,6 +189,7 @@ pub(crate) async fn dial(
         let isolation = backend.isolation_group().map_err(LinkError::Tor)?;
         let mut established = dial_link(
             &backend,
+            &Budgets::new(),
             &local,
             &peer,
             PeerRecord::Accepted(&peer),

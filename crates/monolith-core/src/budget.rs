@@ -125,6 +125,11 @@ where
             // The shutdown sender is gone: nobody can stop this loop any
             // more, so it stops now.
             Some(Err(None)) => break ServeEnd::Shutdown,
+            // A listener error such as too many open files passes; the
+            // service is still published, so the loop waits and goes on.
+            Some(Err(Some(TorError::Listener))) => {
+                tokio::time::sleep(ACCEPT_BACKOFF).await;
+            }
             Some(Err(Some(error))) => break ServeEnd::Service(error),
             Some(Ok(stream)) => match budgets.inbound_handshake() {
                 Some(permit) => {

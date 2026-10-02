@@ -51,6 +51,11 @@ fn party(seed: u8, endpoint: OnionServiceKey) -> LocalParty {
     LocalParty::new(card, transport).unwrap()
 }
 
+/// Budgets of their own for one call, for tests that do not exercise them.
+fn fresh() -> &'static Budgets {
+    Box::leak(Box::new(Budgets::new()))
+}
+
 fn chat(text: &str) -> Message {
     Message::ChatMessage {
         id: MessageId::from_bytes([1; 16]),
@@ -72,12 +77,13 @@ fn a_tor_stream_carries_an_authenticated_exchange_both_ways() {
         let isolation = alice_tor.isolation_group().unwrap();
         let bob_side = async {
             let stream = bob_service.accept().await.unwrap();
-            answer(stream, &bob, |_| PeerRecord::Accepted(&alice_card))
+            answer(stream, fresh(), &bob, |_| PeerRecord::Accepted(&alice_card))
                 .await
                 .unwrap()
         };
         let alice_side = dial(
             &alice_tor,
+            fresh(),
             &alice,
             &bob_card,
             PeerRecord::Accepted(&bob_card),
@@ -157,10 +163,11 @@ fn reaching_the_onion_service_does_not_authenticate_another_identity() {
         let isolation = backend.isolation_group().unwrap();
         let bob_side = async {
             let stream = bob_service.accept().await.unwrap();
-            answer(stream, &bob, |_| PeerRecord::None).await
+            answer(stream, fresh(), &bob, |_| PeerRecord::None).await
         };
         let alice_side = dial(
             &backend,
+            fresh(),
             &alice,
             mallory.card(),
             PeerRecord::None,
@@ -185,10 +192,13 @@ fn a_stranger_through_a_valid_tor_stream_gets_only_a_close() {
         let isolation = backend.isolation_group().unwrap();
         let bob_side = async {
             let stream = bob_service.accept().await.unwrap();
-            answer(stream, &bob, |_| PeerRecord::None).await.unwrap()
+            answer(stream, fresh(), &bob, |_| PeerRecord::None)
+                .await
+                .unwrap()
         };
         let alice_side = dial(
             &backend,
+            fresh(),
             &alice,
             &bob_card,
             PeerRecord::Requested(&bob_card),
@@ -227,7 +237,15 @@ fn without_socks_or_a_service_a_dial_fails_and_tries_nothing_else() {
         let isolation = backend.isolation_group().unwrap();
 
         network.set_socks_available(false);
-        let result = dial(&backend, &alice, bob.card(), PeerRecord::None, &isolation).await;
+        let result = dial(
+            &backend,
+            fresh(),
+            &alice,
+            bob.card(),
+            PeerRecord::None,
+            &isolation,
+        )
+        .await;
         assert_eq!(
             result.err(),
             Some(LinkError::Tor(TorError::SocksUnavailable))
@@ -236,7 +254,15 @@ fn without_socks_or_a_service_a_dial_fails_and_tries_nothing_else() {
 
         network.set_socks_available(true);
         network.lose_service(service.service_key());
-        let result = dial(&backend, &alice, bob.card(), PeerRecord::None, &isolation).await;
+        let result = dial(
+            &backend,
+            fresh(),
+            &alice,
+            bob.card(),
+            PeerRecord::None,
+            &isolation,
+        )
+        .await;
         assert_eq!(
             result.err(),
             Some(LinkError::Tor(TorError::OnionUnreachable))
@@ -374,7 +400,7 @@ fn several_peers_handshake_at_the_same_time() {
             let responder = responder.clone();
             let count = count.clone();
             async move {
-                if answer(stream, &responder, |_| PeerRecord::None)
+                if answer(stream, fresh(), &responder, |_| PeerRecord::None)
                     .await
                     .is_ok()
                 {
@@ -399,9 +425,16 @@ fn several_peers_handshake_at_the_same_time() {
                         .unwrap(),
                     );
                     let isolation = backend.isolation_group().unwrap();
-                    dial(backend, &alice, bob_card, PeerRecord::None, &isolation)
-                        .await
-                        .map(|_| ())
+                    dial(
+                        backend,
+                        fresh(),
+                        &alice,
+                        bob_card,
+                        PeerRecord::None,
+                        &isolation,
+                    )
+                    .await
+                    .map(|_| ())
                 });
             }
             let mut ok = 0;
@@ -441,10 +474,75 @@ fn a_silent_peer_is_dropped_after_the_handshake_timeout() {
                 .unwrap();
             let stream = service.accept().await.unwrap();
             let started = tokio::time::Instant::now();
-            let result = answer(stream, &bob, |_| PeerRecord::None).await;
+            let result = answer(stream, fresh(), &bob, |_| PeerRecord::None).await;
             assert_eq!(result.err(), Some(LinkError::TimedOut));
             let timeout = monolith_protocol::limits::HANDSHAKE_TIMEOUT;
             assert!(started.elapsed() >= timeout);
             assert!(started.elapsed() <= timeout + Duration::from_secs(1));
         });
+}
+
+#[test]
+fn strangers_beyond_the_unknown_session_budget_are_closed() {
+    run(async {
+        let network = MockNetwork::new();
+        let backend = network.backend();
+        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
+        let bob = party(2, *service.service_key());
+        let bob_card = bob.card().clone();
+        let budgets = Budgets::new();
+        let mut held = Vec::new();
+        for seed in
+            20..20 + u8::try_from(monolith_protocol::limits::MAX_UNKNOWN_SESSIONS).unwrap() + 1
+        {
+            let stranger = party(
+                seed,
+                OnionServiceKey::from_bytes(
+                    IdentitySecretKey::from_seed(&[seed.wrapping_add(100); 32])
+                        .public_key()
+                        .as_bytes(),
+                )
+                .unwrap(),
+            );
+            let isolation = backend.isolation_group().unwrap();
+            let bob_side = async {
+                let stream = service.accept().await.unwrap();
+                answer(stream, &budgets, &bob, |_| PeerRecord::None).await
+            };
+            let stranger_side = dial(
+                &backend,
+                fresh(),
+                &stranger,
+                &bob_card,
+                PeerRecord::None,
+                &isolation,
+            );
+            let (_, answered) = futures_join(stranger_side, bob_side).await;
+            if usize::from(seed - 20) < monolith_protocol::limits::MAX_UNKNOWN_SESSIONS {
+                let established = answered.unwrap();
+                assert!(established.unknown_slot.is_some());
+                held.push(established);
+            } else {
+                assert_eq!(answered.err(), Some(LinkError::Budget));
+            }
+        }
+        // A slot comes back when its session goes.
+        held.pop();
+        let isolation = backend.isolation_group().unwrap();
+        let late = party(99, *service.service_key());
+        let bob_side = async {
+            let stream = service.accept().await.unwrap();
+            answer(stream, &budgets, &bob, |_| PeerRecord::None).await
+        };
+        let late_side = dial(
+            &backend,
+            fresh(),
+            &late,
+            &bob_card,
+            PeerRecord::None,
+            &isolation,
+        );
+        let (_, answered) = futures_join(late_side, bob_side).await;
+        assert!(answered.is_ok());
+    });
 }
