@@ -8,12 +8,12 @@
 //! What a peer may do afterwards is decided by its record, as before.
 //!
 //! The record is read when the handshake is over and not earlier. `dial`
-//! and `answer` take an admission function, which they call once, after
-//! the last wait: the dial budget, the Tor stream and the three handshake
-//! messages are behind it. The function receives the authenticated peer
-//! and makes the session from the contact state as it is at that moment,
-//! in one synchronous step. Nothing a dial captured before it started can
-//! decide the standing of the peer.
+//! and `answer` take an admission function, which they call once, when
+//! the peer is authenticated: the dial budget, the Tor stream and the
+//! handshake messages that authenticate it are behind it. The function
+//! receives the authenticated peer and makes the session from the contact
+//! state as it is at that moment, in one synchronous step. Nothing a dial
+//! captured before it started can decide the standing of the peer.
 //!
 //! A session can lose its standing later: when a successor of the
 //! transport key it was authenticated with takes over. The admission
@@ -36,13 +36,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+use monolith_protocol::ProtocolError;
 use monolith_protocol::body::Message;
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
     FRAME_WRITE_TIMEOUT, HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN,
     HANDSHAKE_TIMEOUT, IDLE_TIMEOUT,
 };
-use monolith_protocol::session::{Action, Admission};
+use monolith_protocol::session::{Action, Admission, Standing};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 use crate::budget::Budgets;
@@ -110,16 +111,23 @@ fn now() -> Instant {
 ///
 /// The admission function of [`dial`] and [`answer`] receives it and keeps
 /// it with the session, in the same step in which it decides the session.
-/// When the transport key the session was authenticated with is retired,
-/// the contact state calls [`Self::withdraw`]. The link then delivers
-/// nothing more: a message that was being read is dropped, a link that
-/// waits for the peer wakes up, and it sends a Close and shuts the stream
-/// down. Clones refer to the same link.
+/// It is handed out nowhere else, so it cannot be kept later, outside that
+/// step. When the transport key the session was authenticated with is
+/// retired, the contact state calls [`Self::withdraw`]. The link then
+/// delivers nothing more: a frame still in its buffer is dropped, a link
+/// that waits for the peer wakes up, and it sends a Close and shuts the
+/// stream down. Clones refer to the same link.
+///
+/// [`Self::is_ended`] turns true when the link is dropped, or when it never
+/// came to exist because `answer` refused the peer after the admission, so
+/// that the contact state can forget the withdrawals of links that are
+/// gone.
 #[derive(Clone)]
 pub struct Withdrawal(Arc<WithdrawalState>);
 
 struct WithdrawalState {
     withdrawn: AtomicBool,
+    ended: AtomicBool,
     wake: Notify,
 }
 
@@ -127,8 +135,24 @@ impl Withdrawal {
     fn new() -> Self {
         Self(Arc::new(WithdrawalState {
             withdrawn: AtomicBool::new(false),
+            ended: AtomicBool::new(false),
             wake: Notify::new(),
         }))
+    }
+
+    fn end(&self) {
+        self.0.ended.store(true, Ordering::SeqCst);
+    }
+
+    /// Returns true once the link is gone. Withdrawing it then changes
+    /// nothing.
+    pub fn is_ended(&self) -> bool {
+        self.0.ended.load(Ordering::SeqCst)
+    }
+
+    /// Returns true if `other` refers to the same link.
+    pub fn same_link(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// Withdraws the session. It cannot be undone.
@@ -149,6 +173,7 @@ impl fmt::Debug for Withdrawal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Withdrawal")
             .field("withdrawn", &self.is_withdrawn())
+            .field("ended", &self.is_ended())
             .finish()
     }
 }
@@ -220,13 +245,24 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// dial waits for a slot in the budget of `MAX_CONCURRENT_DIALS` and holds
 /// it through the SOCKS negotiation and the handshake.
 ///
-/// `admit` is called once, when the handshake is complete and nothing is
-/// left to wait for. It looks up what the local side holds about the
-/// identity of `card` as it is then, admits the peer with
-/// [`OutboundPeer::admit`], keeps the [`Withdrawal`] with the session, and
-/// returns what `admit` returned, all in one step on the contact state.
-/// The record is never taken before the dial: a key that was retired while
-/// the dial was in progress gives no contact session.
+/// `admit` is called once, when message 2 has authenticated the responder
+/// and before message 3, which carries the local identity and card, is
+/// written. It looks up what the local side holds about the identity of
+/// `card` as it is then, admits the peer with [`OutboundPeer::admit`],
+/// keeps the [`Withdrawal`] with the session, and returns what
+/// `admit` returned, all in one step on the contact state. The record is
+/// never taken before the dial. If the key the responder proved is no
+/// longer the one that stands for the contact, because it was retired or
+/// is only pending, message 3 is not sent and the dial fails with
+/// [`ProtocolError::IdentityMismatch`]: the local identity is not shown to
+/// the holder of a key the contact has left (`docs/PROTOCOL.md` section
+/// 4.4). A retirement after the admission, while message 3 is written,
+/// reaches the session through its withdrawal.
+///
+/// `admit` runs inside the handshake deadline and must not block: it takes
+/// the lock of the contact state, does its work and lets go. The caller
+/// must not hold that lock, or a reference into the contact state, across
+/// the `await` of `dial`; the function is where the state is read.
 pub async fn dial<B, F>(
     backend: &B,
     budgets: &Budgets,
@@ -250,12 +286,22 @@ where
         write_all(&mut stream, &message_1).await?;
         let message_2 = read_message::<_, HANDSHAKE_MSG2_LEN>(&mut stream).await?;
         let (outbound, message_3) = initiator.read_message_2(&message_2, now())?;
-        write_all(&mut stream, &message_3).await?;
-        // The last wait is behind. From here to the session nothing waits.
+        // The responder is authenticated. The admission comes before the
+        // local identity goes out in message 3.
         let withdrawal = Withdrawal::new();
         let (session, admission, first) = admit(outbound, &withdrawal)?;
+        let mut link = Link::new(stream, session, withdrawal);
+        if matches!(
+            admission.standing,
+            Standing::StaleCard | Standing::PendingSuccessor
+        ) {
+            return Err(LinkError::Session(SessionError::Protocol(
+                ProtocolError::IdentityMismatch,
+            )));
+        }
+        write_all(&mut link.stream, &message_3).await?;
         Ok(Established {
-            link: Link::new(stream, session, withdrawal),
+            link,
             admission,
             first,
             unknown_slot: None,
@@ -273,7 +319,12 @@ where
 /// one step. A peer that is not a contact needs a slot in the budget of
 /// `MAX_UNKNOWN_SESSIONS`; without one the stream is closed and nothing is
 /// sent. The caller holds the inbound handshake slot from the accept loop
-/// until this returns.
+/// until this returns. `admit` is held to the same rules as for [`dial`].
+///
+/// The budget is applied after the admission, to the standing it decided
+/// (`docs/PROTOCOL.md` section 6.2). When it refuses the peer, `admit` has
+/// run and what it recorded stands, a pending successor included; the link
+/// is never made and its [`Withdrawal`] reports [`Withdrawal::is_ended`].
 pub async fn answer<S, F>(
     mut stream: S,
     budgets: &Budgets,
@@ -297,7 +348,11 @@ where
         let unknown_slot = if admission.standing.is_contact_record() {
             None
         } else {
-            Some(budgets.unknown_session().ok_or(LinkError::Budget)?)
+            let Some(slot) = budgets.unknown_session() else {
+                withdrawal.end();
+                return Err(LinkError::Budget);
+            };
+            Some(slot)
         };
         Ok(Established {
             link: Link::new(stream, session, withdrawal),
@@ -327,19 +382,24 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         &self.session
     }
 
-    /// Returns the withdrawal of this link.
-    pub const fn withdrawal(&self) -> &Withdrawal {
-        &self.withdrawal
+    /// Returns true once the session was withdrawn. A message that was
+    /// returned before stays the caller's to judge: what it would change in
+    /// the contact state is applied under the lock of that state, and only
+    /// while the session still stands for the contact
+    /// (`Credentials::authorizes` for its card in the protocol crate).
+    pub fn is_withdrawn(&self) -> bool {
+        self.withdrawal.is_withdrawn()
     }
 
     /// Ends a withdrawn session: the session gives up its standing, the
-    /// Close is written if it was not yet, and the stream is shut down.
+    /// Close is written if it was not yet, and the stream is shut down, each
+    /// within `FRAME_WRITE_TIMEOUT`.
     async fn end_withdrawn(&mut self) -> LinkError {
         if let Some(frame) = self.session.withdraw() {
             let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
                 .await;
         }
-        let _ = self.stream.shutdown().await;
+        let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, self.stream.shutdown()).await;
         LinkError::Withdrawn
     }
 
@@ -367,9 +427,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// the session is withdrawn. After a failure the session is over.
     ///
     /// A withdrawal is looked at before each frame is taken from the
-    /// buffer, and it ends a wait for the peer, also when it came before
-    /// the wait began. A frame that was not taken when the session was
-    /// withdrawn is not delivered.
+    /// buffer and before every wait for the peer, and it ends a wait that
+    /// is in progress. A frame that was not taken when the session was
+    /// withdrawn is not delivered, and every call after the withdrawal
+    /// fails with [`LinkError::Withdrawn`] at once.
     pub async fn receive(&mut self) -> Result<Received, LinkError> {
         loop {
             while self.start < self.end {
@@ -385,6 +446,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
                 if let Some(received) = received {
                     return Ok(received);
                 }
+            }
+            if self.withdrawal.is_withdrawn() {
+                return Err(self.end_withdrawn().await);
             }
             // Everything read so far was taken; only now is more read, or
             // the wait ends because the session was withdrawn.
@@ -427,6 +491,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         }
         let _ = self.stream.shutdown().await;
         Ok(())
+    }
+}
+
+impl<S> Drop for Link<S> {
+    fn drop(&mut self) {
+        self.withdrawal.end();
     }
 }
 

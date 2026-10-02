@@ -117,6 +117,10 @@ pub enum ProbeOutcome {
 }
 
 /// Turns the result of the probe into a decision.
+///
+/// The probe waits for a Pong. If the credentials of the contact changed in
+/// the meantime, the sessions of a retired key have been withdrawn, and the
+/// caller decides again with [`resolve`] before it acts on this.
 pub const fn after_probe(older_answered: bool) -> ProbeOutcome {
     if older_answered {
         ProbeOutcome::CloseNewer
