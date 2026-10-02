@@ -22,6 +22,9 @@
 //!   user confirms it.
 //! - Retired. The key that was active before the last change. A card that
 //!   states it never opens a contact session again, whatever its epoch.
+//!   Only that one key is remembered. A key retired earlier is refused in
+//!   its old cards by their epochs; a newer card that states it is treated
+//!   like any other new key without continuity.
 //!
 //! When a successor takes over, the previous key is retired at once, and
 //! every session that was authenticated with it loses its standing:
@@ -34,6 +37,11 @@
 //! An invitation capability in a card plays no part in any of this. The
 //! capability that a request to the contact carries is kept next to the
 //! credentials and changes only with a card the user imports.
+//!
+//! A value of this type is the state of one contact. Deciding on a copy of
+//! it and keeping the original is the stale admission that
+//! `docs/SECURITY_INVARIANTS.md` S50 rules out; the contact store works on
+//! the one it keeps, under its lock.
 
 use monolith_identity::{IdentityPublicKey, TransportPublicKey};
 
@@ -89,12 +97,16 @@ pub enum CredentialChange {
 /// - A successor has a greater epoch than the active card and another
 ///   transport key than the active one and the retired one.
 /// - The authorized and the pending successor state different keys.
+/// - Only a held pending card can be marked as imported.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Credentials {
     /// The newest card accepted for the active transport key.
     active: ContactCard,
     authorized: Option<ContactCard>,
     pending: Option<ContactCard>,
+    /// The pending card was imported by the user. A card a peer presents
+    /// does not take its place.
+    pending_imported: bool,
     retired: Option<TransportPublicKey>,
     /// The capability a contact request to this identity carries: the one
     /// in the card the user was given, if any.
@@ -117,6 +129,7 @@ impl Credentials {
             active: card,
             authorized: None,
             pending: None,
+            pending_imported: false,
             retired: None,
             invitation,
         }
@@ -143,6 +156,12 @@ impl Credentials {
         self.pending.as_ref()
     }
 
+    /// Returns true if the pending successor is a card the user imported,
+    /// false if a peer presented it or there is none.
+    pub const fn pending_was_imported(&self) -> bool {
+        self.pending_imported
+    }
+
     /// Returns the transport key that was active before the last change,
     /// if there was a change.
     pub const fn retired(&self) -> Option<&TransportPublicKey> {
@@ -158,9 +177,15 @@ impl Credentials {
     /// contact: the card is of this identity and states the active
     /// transport key. `card` is the card of the session
     /// (`AuthenticatedSession::peer_card` in the session crate), whose
-    /// transport key the handshake proved. A session for which this turns
-    /// false has to end before anything else is done with it, before the
-    /// duplicate rule in particular.
+    /// transport key the handshake proved.
+    ///
+    /// For a session that was admitted with the standing of a contact,
+    /// requested or accepted, this is true at admission. When it turns
+    /// false, the session has to be withdrawn before anything else is done
+    /// with the contact, before the duplicate rule in particular. A session
+    /// admitted with any other standing is on the path of a stranger and is
+    /// left to it: ending it early would tell the peer that it is held as a
+    /// contact (`docs/PROTOCOL.md` section 12.1).
     pub fn authorizes(&self, card: &ContactCard) -> bool {
         card.identity() == self.identity() && card.transport() == self.active.transport()
     }
@@ -177,6 +202,14 @@ impl Credentials {
         self.retired.as_ref() == Some(card.transport())
     }
 
+    /// True if `card` has the epoch of the authorized successor and states
+    /// something else: two statements for one epoch.
+    fn contradicts_successor(&self, card: &ContactCard) -> bool {
+        self.authorized.as_ref().is_some_and(|successor| {
+            successor.epoch() == card.epoch() && !same_statement(successor, card)
+        })
+    }
+
     /// A handshake proved that the peer holds the transport key of `card`:
     /// the card the peer presented in the third message, or the card that
     /// was dialed. Decides what that means for the contact and records it.
@@ -188,8 +221,13 @@ impl Credentials {
     /// - Another key with a newer card: `Pending`. The active key is not
     ///   touched, so whoever holds the identity key alone cannot take the
     ///   contact over or lock the holder of the active key out.
-    /// - An older card, a contradicting one, or the retired key: `Stale` or
+    /// - An older card, a card that contradicts the active card or the
+    ///   authorized successor at its epoch, or the retired key: `Stale` or
     ///   `Conflict`.
+    ///
+    /// A pending card the user imported is not replaced by a presented
+    /// one; the result is still `Pending`, and the card shown to the user
+    /// is [`Self::pending_successor`].
     ///
     /// Fails with [`ProtocolError::IdentityMismatch`] for a card of
     /// another identity.
@@ -203,6 +241,9 @@ impl Credentials {
             CardChange::Conflict => return Ok(CredentialChange::Conflict),
             CardChange::Stale => return Ok(CredentialChange::Stale),
             CardChange::Newer => {}
+        }
+        if self.contradicts_successor(card) {
+            return Ok(CredentialChange::Conflict);
         }
         if card.transport() == self.active.transport() {
             self.advance(card.clone());
@@ -260,6 +301,9 @@ impl Credentials {
             CardChange::Stale => return Ok(CredentialChange::Stale),
             CardChange::Newer => {}
         }
+        if self.contradicts_successor(card) {
+            return Ok(CredentialChange::Conflict);
+        }
         if card.transport() == self.active.transport() {
             self.advance(card.clone());
             return Ok(CredentialChange::Advanced);
@@ -272,8 +316,6 @@ impl Credentials {
                     CardChange::Stale => return Ok(CredentialChange::Stale),
                     CardChange::Newer => {}
                 }
-            } else if card.epoch() == successor.epoch() {
-                return Ok(CredentialChange::Conflict);
             } else if !successor.epoch().is_superseded_by(card.epoch()) {
                 return Ok(CredentialChange::Stale);
             }
@@ -326,6 +368,9 @@ impl Credentials {
                 self.invitation = card.invitation().cloned();
                 return Ok(CredentialChange::Unchanged);
             }
+            CardChange::Newer if self.contradicts_successor(&card) => {
+                return Ok(CredentialChange::Conflict);
+            }
             CardChange::Newer if card.transport() == self.active.transport() => {
                 CredentialChange::Advanced
             }
@@ -368,6 +413,9 @@ impl Credentials {
             CardChange::Stale => return Ok(CredentialChange::Stale),
             CardChange::Newer => {}
         }
+        if self.contradicts_successor(&card) {
+            return Ok(CredentialChange::Conflict);
+        }
         if card.transport() == self.active.transport() {
             self.advance(card);
             return Ok(CredentialChange::Advanced);
@@ -380,6 +428,7 @@ impl Credentials {
             return Ok(CredentialChange::Unchanged);
         }
         self.pending = Some(card);
+        self.pending_imported = true;
         self.prune();
         Ok(CredentialChange::Pending)
     }
@@ -398,15 +447,16 @@ impl Credentials {
         self.prune();
     }
 
-    /// Keeps `card` as the pending successor unless the one held is at
-    /// least as new. A pending card is only ever a candidate for the user.
+    /// Keeps the presented `card` as the pending successor unless the one
+    /// held was imported by the user or is at least as new. A pending card
+    /// is only ever a candidate for the user.
     fn hold_pending(&mut self, card: ContactCard) {
-        let keep = self
-            .pending
-            .as_ref()
-            .is_some_and(|held| !held.epoch().is_superseded_by(card.epoch()));
+        let keep = self.pending.as_ref().is_some_and(|held| {
+            self.pending_imported || !held.epoch().is_superseded_by(card.epoch())
+        });
         if !keep {
             self.pending = Some(card);
+            self.pending_imported = false;
         }
         self.prune();
     }
@@ -433,6 +483,7 @@ impl Credentials {
         {
             self.pending = None;
         }
+        self.pending_imported &= self.pending.is_some();
     }
 }
 
@@ -507,6 +558,7 @@ mod tests {
             assert_ne!(a.transport(), p.transport());
         }
         assert_ne!(Some(active.transport()), credentials.retired());
+        assert!(!credentials.pending_was_imported() || credentials.pending_successor().is_some());
     }
 
     #[test]
@@ -905,6 +957,70 @@ mod tests {
             Ok(CredentialChange::Promoted)
         );
         assert_eq!(credentials.active(), &alice(T2, 2));
+        check(&credentials);
+    }
+
+    #[test]
+    fn a_presented_card_does_not_displace_the_users_pending_card() {
+        let mut credentials = Credentials::new(alice(T1, 1));
+        assert_eq!(
+            credentials.import(alice(T2, 2)),
+            Ok(CredentialChange::Pending)
+        );
+        assert!(credentials.pending_was_imported());
+        // A card with a larger epoch, presented in a handshake.
+        assert_eq!(
+            credentials.admit(&alice(T3, u64::MAX)),
+            Ok(CredentialChange::Pending)
+        );
+        assert_eq!(credentials.pending_successor(), Some(&alice(T2, 2)));
+        assert_eq!(
+            credentials.confirm(&alice(T2, 2)),
+            Ok(CredentialChange::Promoted)
+        );
+        assert!(!credentials.pending_was_imported());
+        check(&credentials);
+
+        // A presented card replaces a presented one when it is newer.
+        let mut credentials = Credentials::new(alice(T1, 1));
+        credentials.admit(&alice(T2, 2)).unwrap();
+        assert!(!credentials.pending_was_imported());
+        credentials.admit(&alice(T3, 3)).unwrap();
+        assert_eq!(credentials.pending_successor(), Some(&alice(T3, 3)));
+    }
+
+    #[test]
+    fn a_card_at_the_epoch_of_the_successor_that_says_otherwise_is_a_conflict() {
+        // Alice announced T2 at epoch 2. A card of epoch 2 that keeps T1,
+        // or names T3, is a second statement for that epoch.
+        let mut credentials = Credentials::new(alice(T1, 1));
+        credentials.announce(&alice(T2, 2), &alice(T1, 1)).unwrap();
+        let before = credentials.clone();
+        let same_epoch_active_key = signed(ALICE, T1, 2, 2, None);
+        assert_eq!(
+            credentials.admit(&same_epoch_active_key),
+            Ok(CredentialChange::Conflict)
+        );
+        assert_eq!(
+            credentials.announce(&same_epoch_active_key, &alice(T1, 1)),
+            Ok(CredentialChange::Conflict)
+        );
+        assert_eq!(
+            credentials.import(same_epoch_active_key),
+            Ok(CredentialChange::Conflict)
+        );
+        assert_eq!(
+            credentials.admit(&alice(T3, 2)),
+            Ok(CredentialChange::Conflict)
+        );
+        assert_eq!(credentials, before);
+        // A later card with the active key still moves on, and drops the
+        // successor it supersedes.
+        assert_eq!(
+            credentials.admit(&signed(ALICE, T1, 3, 2, None)),
+            Ok(CredentialChange::Advanced)
+        );
+        assert!(credentials.authorized_successor().is_none());
         check(&credentials);
     }
 
