@@ -52,13 +52,14 @@ stays the same fault.
 
 ## Expected results
 
-With the credential binding review of Phase 3:
+With the credential binding review and the integration hardening of
+Phase 3:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
-| Phase 3 | 55 | 52 | Q14, Q18, Q29 |
+| Phase 3 | 72 | 69 | Q14, Q18, Q29 |
 
 The Phase 3 list covers the no-clearnet and Tor boundaries (onion address
 checks, SOCKS only, the onion name only, loopback endpoints and listener,
@@ -80,6 +81,32 @@ and a link and its end (CR10, CR12 to CR17, CR19), message 3 to a key
 the contact has left (CR18), and the duplicate rule with credentials
 (CR11). None is expected to survive. A doctest catches K4, so the runner
 names no failing test for it.
+
+The integration hardening added CR22 to CR38 and moved CR12, CR16, CR18
+and CR23 to the code they test now; Q26 follows the code. They cover:
+
+- message 3 only to a peer that may learn the local identity, read from
+  the session and not from the admission returned beside it, with the
+  withdrawal looked at before and during its write (CR18, CR22, CR36);
+- the identity predicate on the proven key and not on the stale-card
+  standing, an older card of the active key, and a proven key older
+  than the announced successor (CR23, CR24, CR35);
+- the deadlines of a session: an absolute frame deadline, the idle limit
+  that bytes of a frame do not move, `UNKNOWN_FIRST_MESSAGE_TIMEOUT`,
+  `UNKNOWN_SESSION_TIMEOUT`, the age limit without a complete frame, and
+  a Close the session decided (CR25 to CR28, CR31, CR32);
+- the one end of a link, which gives back its slot, after a deadline, a
+  read error or a message that ends the session, refuses later calls,
+  ends a pending send on a withdrawal, and reports a failed admission
+  (CR16, CR29, CR30, CR33, CR34, CR38), and the slot of a stranger read
+  from the session (CR37).
+
+None is expected to survive. A slot for an outbound session whose
+standing fell has no code to break: such a session is not made, which
+CR18 tests. A stranger answered without a slot is Q30. A fuzz target that
+compares accepted handshake messages with its transcript is not a fault
+for this runner, which runs the tests; the seeds of a third party and of
+another ephemeral key make such a target fail on its own corpus.
 
 No fault in authentication logic survives. The Phase 2 list covers each
 check that the two reviews of Phase 2 added: the grace after the age

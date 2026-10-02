@@ -893,7 +893,9 @@ On 2026-10-02 two further static reviews of `phase-3-system-tor` found no
 bypass of Noise XK or of F1, F2, F3 and F5, and reported seven issues in
 how authentication, credential standing, identity disclosure, session
 lifetime, budgets and socket I/O fit together. Section 9.1 records the
-check of each against `c7faad2` before anything was changed.
+check of each against `c7faad2` before anything was changed, 9.2 what was
+decided and changed, 9.3 the two review passes of the result, and 9.4 the
+commits.
 
 ### 9.1 Verification of the reported issues
 
@@ -971,3 +973,169 @@ G. `PROTOCOL.md` contradicts itself. Confirmed. Section 4.4, check 3,
 
 None of the claims was wrong. The fixes keep the wire format, Noise XK
 and the card layout.
+
+### 9.2 What was decided and changed
+
+A, F. One predicate decides whether the local identity goes in message
+   3: `Admission::may_learn_local_identity`, true exactly for the
+   standing of a requested or accepted contact. It is decided on the
+   proven transport key and the credentials of that moment, not on a card
+   object. For that, an older card of the active key is now
+   `CredentialChange::Superseded`: its holder holds the key that stands
+   for the contact and is the contact, with the standing of the record,
+   and the card is not taken. `StaleCard` keeps the other causes, now
+   listed exactly on the type. `link::dial` writes message 3 only if the
+   predicate holds, and through `write_unless_withdrawn`, which looks at
+   the withdrawal before the write and before every step of it; a
+   withdrawal ends the dial and the session. Bytes the stream accepted
+   before cannot be called back; nothing follows them.
+
+   The order of the side effects is the brief's option B: the outbound
+   admission records what the card changes when message 2 is accepted,
+   before message 3, and is not undone when the write fails. For a peer
+   that gets message 3 only `Advanced` and `Promoted` can be recorded,
+   and message 2 alone justifies both, since it proves the key of the
+   card. Undoing them would let the holder of the proven key decide, by
+   breaking the stream, whether the local state follows its own proof;
+   recording them after the write would put a wait between the admission
+   and the record, which section 8 removed. A pending card is held as
+   well when the peer gets no message 3, as for an inbound handshake: it
+   gives no standing until the user confirms it.
+
+   The dial card stays the caller's (brief item 25). Whatever card is
+   dialed, message 3 goes only to a key that the contact state of the
+   moment selects; a contact handle that the store hands out is Phase 4
+   work.
+
+B. The deadlines. `AuthenticatedSession` keeps when the frame in
+   progress began, when the last complete frame arrived, and whether the
+   peer was heard. `deadline()` gives the earliest of: the frame,
+   `FRAME_READ_TIMEOUT` from its first byte and moved by nothing; the
+   idle limit, `IDLE_TIMEOUT` from the last complete frame; the age
+   limit, which no longer waits for a complete frame;
+   `UNKNOWN_SESSION_TIMEOUT` in `AuthenticatedUnknown`; and
+   `UNKNOWN_FIRST_MESSAGE_TIMEOUT` for a peer that is not a contact and
+   has sent nothing. `expire()` ends the session: the frame and idle
+   limits silently, as a failed stream; the others with a Close.
+   `Link::receive` waits for the deadline beside the read and the
+   withdrawal; the timeout per read is gone.
+
+C. One end. `Link::finish` is the only way a link ends: the session is
+   over, the slot for strangers goes back, the stream is shut down within
+   `FRAME_WRITE_TIMEOUT`. The end of the stream, a read or write error or
+   timeout, a deadline, a withdrawal, a violation and `close` go through
+   it, and every later call fails at once.
+
+D. Outbound sessions. With A, a dial makes a session only for a
+   contact's key. A record that became none, declined or blocked, a
+   pending or retired key and a conflicting card give no message 3 and no
+   session, so an outbound session never needs a slot for strangers and
+   none is taken. Taking a slot on a downgrade, the brief's alternative,
+   would admit a session that should not exist.
+
+E. The handshake targets check invariants: the genuine messages are
+   always accepted, and an accepted message is judged by what it proves,
+   not compared with the stored transcript. Seeds from a third party and
+   from another ephemeral key make different valid messages; with the
+   old comparison put back, both targets fail on those seeds. The
+   known-answer vectors stay in `tests::vectors`. `session_frames` gained
+   partial frames and expiry.
+
+G. `PROTOCOL.md` 4.4 check 3, 6.2 with a table of what each standing
+   means for message 3, the session, the slot and the end, 11.4 and 12.1
+   now say one thing. `RESOURCE_LIMITS.md` section 4 says how each
+   deadline is measured and how it ends a session. S51 and S52 are new;
+   S36 and S50 were corrected.
+
+### 9.3 The two review passes
+
+Two focused reviews read the code of 9.2, one for privacy and
+authorization, one for resources and lifecycle. Neither found a way
+around the message 3 gate or the deadlines as designed. Fixed:
+
+- A stranger that had sent its first message kept its slot until the
+  idle limit when the caller did not close the link: the session logic
+  enters Closing and the Close was the caller's to write, and the
+  unknown-session deadlines apply only in `AuthenticatedUnknown`. A Close
+  the logic decides is now due at once in the session, and
+  `Link::receive` writes it, and ends the link, before it returns the
+  message. A Close from the peer ends the link the same way.
+- A failed seal inside `Link::send` ended the session without ending
+  the link. It is now ended through `finish`.
+- A withdrawal did not end a send whose write was pending; the frame
+  could still reach the holder of the withdrawn key. `Link::send` now
+  races the write against the withdrawal, as message 3 does, and ends the
+  link without a Close when it wins.
+- A dial whose authorized successor was replaced during the dial, by a
+  newer announcement, held the dialed key as pending. A proven key that
+  is older than the announced successor is now stale, as `announce`
+  already treated it, and nothing is recorded.
+- The gate of message 3 and the slot of a stranger read the admission the
+  function returned beside the session, which a faulty function could
+  contradict. Both now read the standing of the session.
+- A failed admission function dropped the `Withdrawal` without marking
+  it ended. It is now marked.
+- Deleting or blocking a record was not said to withdraw the sessions
+  of the identity, though `PROTOCOL.md` relied on it. It is now part of
+  11.4 and of what the contact store of Phase 4 has to do.
+- The documents: the conflict at the successor's epoch in both tables of
+  6.2, the first 48 bytes of message 3 as what a partial write gives
+  away, a full stranger budget that closes the newcomer until Phase 4
+  rather than the oldest silent stranger, and two misplaced list items.
+- Test gaps: bytes of a frame that would move the idle limit, a pending
+  key and an older key on a dial, a failed admission, and in
+  `session_frames` a deadline later than its own account.
+  `session_frames` now checks every deadline against that account.
+
+A check of the fixes against the findings found each one closed and no
+regression. It found four small points, fixed in the documents and one
+test: `Expiry::Close` and `RESOURCE_LIMITS.md` section 4 did not name the
+Close that is due; the slot of a stranger is held until its Close is
+written, not only until its first message; a withdrawal that comes while
+a send is under way ends the link without a Close even before the first
+byte, which the documentation of `Withdrawal` now says; and the failed
+admission of `answer` had no test.
+
+Left as residual, not changed:
+
+- `HandshakeInitiator::read_message_2` returns message 3 before any
+  admission, so the gate holds in `link::dial` and not in the session
+  crate (S51). Moving message 3 behind `OutboundPeer::admit` changes the
+  API of the handshake, its tests and the fuzz target, and is noted for
+  Phase 4.
+- A pending card that is not newer than a successor announced later
+  stays held, and the user can still confirm it, but a handshake that
+  proves it now gives `Stale` instead of `Pending`. Both give the
+  standing of a stranger. `import` still holds such a card as pending:
+  what the user brings in is the user's decision.
+- A withdrawal that `Link::send` sees just after its outer timeout fired
+  is reported as `TimedOut`; the link ends the same way.
+
+### 9.4 Commits
+
+On `phase-3-system-tor`, after `8f52eca`, oldest first:
+
+| Commit | Content |
+| --- | --- |
+| `ebf5d07` | An older card of the active key is the contact (`Superseded`). |
+| `980aa62` | Message 3 only while the key may learn the local identity. |
+| `5cd1cff` | Session deadlines for frames, silence, strangers and age. |
+| `4edca4a` | Every failure ends a link; the link waits for the deadlines. |
+| `bae9026` | Handshake targets by invariants; partial frames and expiry in `session_frames`. |
+| `f766554` | The withdrawal at every step of the message 3 write. |
+| `0147eb3`, `c94e8c8`, `1adc603`, `e075fee`, `7a3be8e` | The documents of 9.2. |
+| `d7d53ee` | A paused link test that waits forever fails. |
+| `30ad278` | A proven key older than the announced successor is stale. |
+| `b19acaa`, `6e22d53` | A Close the session decided is due at once; the idle limit test. |
+| `1e8ca52` | A link ends when its session ends or a pending send is withdrawn. |
+| `49fb144`, `88da043` | Message 3 and the slot from the session; failed admissions end. |
+| `7ddf4f2` | `session_frames` checks every deadline against its own account. |
+| `acd473b`, `755a045`, `4324da7`, `232d1a2` | The documents of 9.3. |
+| `a8126a8`, `46c5901` | The check of the fixes: a test and the documents. |
+
+The mutation faults CR22 to CR38, with CR12, CR16, CR18 and CR23 moved
+and Q26 following the code, come in the commit after the last one above.
+A targeted run of the new, moved and affected faults, 74 of them, without
+the `monolith-tor` tests, caught all but S15 and S24, which are expected
+to survive. The commit that adds this
+table also brings `STATUS.md` and `mutation/README.md` up to date.

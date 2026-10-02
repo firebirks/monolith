@@ -6,7 +6,8 @@ It is removed when Phase 3 is closed; it does not belong on `main`.
 
 Branch: `phase-3-system-tor`, on top of `main` at `5ac8bdf`.
 Last commit of work before this file: `ea8e64e`. Updated with the
-credential binding review of the same day (sections 2, 3, 6 and 6.0).
+credential binding review of the same day and with the integration
+hardening of 2026-10-02 and 2026-10-03 (sections 2, 3, 4, 6.0 and 6.1).
 
 ## 1. What Phase 3 is
 
@@ -57,6 +58,15 @@ Rules that hold until the phase is closed:
   until the successor is promoted, and the per-contact endpoint claim is
   withdrawn. `docs/DESIGN_QUESTIONS.md` section 8. No wire change; Noise
   XK unchanged.
+- The integration hardening, after two further static reviews: message
+  3 only to a peer that may learn the local identity, read from the
+  session and raced against the withdrawal; an older card of the active
+  key is the contact; the deadlines of a session (frame, idle, age, the
+  two unknown-session limits, a Close that is due) enforced while bytes
+  are awaited; one end for every failure of a link, which gives back its
+  slot; no outbound session for anyone but a contact; fuzz targets that
+  check invariants instead of a transcript. `docs/DESIGN_QUESTIONS.md`
+  section 9. No wire change; Noise XK unchanged.
 - Several local identities as an architectural requirement:
   `docs/DESIGN_QUESTIONS.md` section 7, `docs/ARCHITECTURE.md` section
   1.1, invariants S39 to S46. No wire change, nothing implemented as a
@@ -84,7 +94,8 @@ Commits on the branch, oldest first:
 | `c7bf65e`, `a59895d`, `ea8e64e` | Mutation suite extended to Phase 3; a lock against two runs; a timed-out or stopped fault ends its test binaries. |
 | `98a1c7a` to `fa87ba2` | Contact card and capability semantics, with one card test. |
 | `950d8ea` to `90ac497` | Several local identities: documents, comments, structural tests. |
-| `3bc40c5` onwards | The credential binding review: verification of the reported issues, the local party, credential states, fresh admission, withdrawal, the duplicate rule, mutation faults, documents, the fixes of the two review passes (`docs/DESIGN_QUESTIONS.md` 8.4 lists the commits). |
+| `3bc40c5` to `c7faad2` | The credential binding review: verification of the reported issues, the local party, credential states, fresh admission, withdrawal, the duplicate rule, mutation faults, documents, the fixes of the two review passes (`docs/DESIGN_QUESTIONS.md` 8.4 lists the commits). |
+| `8f52eca` onwards | The integration hardening: verification of the reported issues, the message 3 gate, session deadlines, the end of a link, fuzz invariants, documents, the fixes of two focused review passes, mutation faults (`docs/DESIGN_QUESTIONS.md` 9.4 lists the commits). |
 
 Note for the final report: `a11539a` also contains the Phase 3 list of
 `mutation/faults.py`, which was staged by mistake. It was not rewritten.
@@ -114,6 +125,15 @@ target, and two targeted runs of the changed and new mutation faults
 without the `monolith-tor` tests, all caught. The 8 `monolith-tor` system
 tests that fail on Windows fail the same way on `fe5327c`, before the
 review. None of this replaces section 6.1.
+
+The integration hardening was checked the same way on Windows, on
+`46c5901`, its last code commit: fmt, clippy, the tests of every crate but
+`monolith-tor`, a check on Rust 1.85.1, the fuzz build, the seeds of the
+four changed fuzz targets, 120 seconds of `session_frames` and 60 of
+`credential_sequence`, and targeted runs of the new, moved and affected
+mutation faults without the `monolith-tor` tests: 74 faults, all caught
+but S15 and S24, which are expected to survive. Not the final
+verification either.
 
 | Check | Result | Run on |
 | --- | --- | --- |
@@ -159,10 +179,11 @@ Two independent security reviews were made of the Phase 3 code. Fixed:
 
 ## 6. What is left, in order
 
-### 6.0 Owner review of the credential binding review
+### 6.0 Owner review of the credential binding review and the hardening
 
-The reopened review stops for the owner's review with its report before
-anything below is run. Nothing of 6.1 to 6.3 counts until then.
+The reopened review and the integration hardening stop for the owner's
+review with their reports before anything below is run. Nothing of 6.1
+to 6.3 counts until then.
 
 ### 6.1 Final verification on the final commit
 
@@ -177,7 +198,7 @@ anything below is run. Nothing of 6.1 to 6.3 counts until then.
     cargo tree -d
     cd fuzz && RUSTFLAGS="--cfg fuzzing" cargo +nightly check --bins --locked
 
-- Mutation suite: `python3 mutation/run.py all 3`. Expected: 199 faults,
+- Mutation suite: `python3 mutation/run.py all 3`. Expected: 216 faults,
   exit code 0, survivors only B3, B4, S15, S24, CAP2, CAP3, Q14, Q18 and
   Q29 (`mutation/README.md`). It takes well over an hour.
 - Fuzz smoke run of all 14 targets, 25 seconds each, as `fuzz/README.md`
