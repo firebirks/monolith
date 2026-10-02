@@ -453,15 +453,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// is withdrawn before the write starts or while it is pending. A
     /// withdrawal or a failed write ends the session.
     async fn write_unless_withdrawn(&mut self, bytes: &[u8]) -> Result<(), LinkError> {
-        if self.withdrawal.is_withdrawn() {
-            self.finish().await;
-            return Err(LinkError::Withdrawn);
-        }
         let outcome = {
-            let mut withdrawn = pin!(self.withdrawal.0.wake.notified());
+            let withdrawal = &self.withdrawal;
+            let mut withdrawn = pin!(withdrawal.0.wake.notified());
             let mut write = pin!(write_all(&mut self.stream, bytes));
+            // Looked at before every step of the write, the first included.
             poll_fn(|cx| {
-                if withdrawn.as_mut().poll(cx).is_ready() {
+                if withdrawal.is_withdrawn() || withdrawn.as_mut().poll(cx).is_ready() {
                     return Poll::Ready(None);
                 }
                 write.as_mut().poll(cx).map(Some)
