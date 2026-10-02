@@ -20,8 +20,36 @@ use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{PeerRecord, Standing};
 
 use crate::testing::{
-    ALICE, BOB, admit_outbound, card, chat, handshake, party, request_with, start,
+    ALICE, BOB, EPHEMERAL_R, admit_outbound, card, chat, handshake, party, request_with, start,
 };
+use crate::{HandshakeInitiator, HandshakeResponder};
+
+/// An initiator other than Alice, with an ephemeral key of its own.
+const CAROL: u8 = 0x33;
+
+/// An ephemeral key of Bob other than the one of the transcript.
+const OTHER_EPHEMERAL: [u8; 32] = [0x44; 32];
+
+/// The first and third message of a handshake that Carol makes with Bob,
+/// who answers with the ephemeral key of the transcript: valid, and not
+/// the stored transcript.
+fn carol_to_bob() -> ([u8; 48], [u8; 235]) {
+    let (carol, message_1) =
+        HandshakeInitiator::start_with_ephemeral(&party(CAROL), &card(BOB), start(), [0x33; 32])
+            .unwrap();
+    let bob = HandshakeResponder::new_with_ephemeral(&party(BOB), start(), EPHEMERAL_R).unwrap();
+    let (_, message_2) = bob.read_message_1(&message_1, start()).unwrap();
+    let (_, message_3) = carol.read_message_2(&message_2, start()).unwrap();
+    (message_1, message_3)
+}
+
+/// Bob's second message to Alice's first, made with another ephemeral key:
+/// valid, and not the stored transcript.
+fn bob_answers_otherwise(message_1: &[u8; 48]) -> [u8; 48] {
+    let bob =
+        HandshakeResponder::new_with_ephemeral(&party(BOB), start(), OTHER_EPHEMERAL).unwrap();
+    bob.read_message_1(message_1, start()).unwrap().1
+}
 
 /// The targets this file owns seeds for.
 const TARGETS: [&str; 3] = [
@@ -191,6 +219,12 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
     let mut raw = vec![first(NO_RECORD, 0), 0];
     raw.extend_from_slice(&[0; 48]);
     add("handshake_responder/raw_zeros.bin", raw);
+    // Another initiator: valid messages that are not the transcript.
+    let (message_1, message_3) = carol_to_bob();
+    let mut raw = vec![first(ACCEPTED, 63), 0];
+    raw.extend_from_slice(&message_1);
+    raw.extend_from_slice(&message_3);
+    add("handshake_responder/raw_valid_other_initiator.bin", raw);
 
     // handshake_initiator. Odd mode: piece size less one, mode, damage
     // position (2), damage value, tail. The stream is message 2, tail.
@@ -226,6 +260,11 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
     let mut raw = vec![3, 0];
     raw.extend_from_slice(&transcript.message_1);
     add("handshake_initiator/raw_reflected_first_message.bin", raw);
+    // Bob with another ephemeral key: a valid second message that is not
+    // the transcript.
+    let mut raw = vec![255, 0];
+    raw.extend_from_slice(&bob_answers_otherwise(&transcript.message_1));
+    add("handshake_initiator/raw_valid_other_ephemeral.bin", raw);
 
     // session_frames: piece selector, then operations. See the target for
     // the codes.
@@ -272,6 +311,12 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
         // Bob withdraws the session while a message from Alice is on its
         // way; it is not delivered, and Alice sees an ordinary Close.
         ("withdrawn", vec![2, 0, 1, 23, 2, 3, 0, 1, 2]),
+        // The first five bytes of a frame reach Bob, then a minute passes:
+        // the frame did not complete in time and his session ends
+        // silently; the rest is not taken.
+        ("partial_frame_expired", vec![1, 0, 1, 26, 4, 15, 61, 25, 2]),
+        // Bob hears nothing complete for the idle limit.
+        ("idle_expired", vec![1, 0, 1, 2, 25, 3]),
     ] {
         add(&format!("session_frames/{name}.bin"), input);
     }
@@ -356,6 +401,32 @@ fn handshake_seeds_are_what_their_names_say() {
 }
 
 #[test]
+fn seeds_named_valid_complete_a_handshake_that_is_not_the_transcript() {
+    // The fuzz targets accept these, and must not assume that only the
+    // stored transcript is valid.
+    let (_, _, transcript) = handshake(&party(ALICE), &party(BOB));
+    let (message_1, message_3) = carol_to_bob();
+    assert_ne!(message_1, transcript.message_1);
+    let bob = HandshakeResponder::new_with_ephemeral(&party(BOB), start(), EPHEMERAL_R).unwrap();
+    let (waiting, _) = bob.read_message_1(&message_1, start()).unwrap();
+    let inbound = waiting.read_message_3(&message_3, start()).unwrap();
+    assert_eq!(inbound.card(), &card(CAROL));
+
+    let message_2 = bob_answers_otherwise(&transcript.message_1);
+    assert_ne!(message_2, transcript.message_2);
+    let (alice, _) = HandshakeInitiator::start_with_ephemeral(
+        &party(ALICE),
+        &card(BOB),
+        start(),
+        crate::testing::EPHEMERAL_I,
+    )
+    .unwrap();
+    let (outbound, message_3) = alice.read_message_2(&message_2, start()).unwrap();
+    assert_eq!(outbound.card(), &card(BOB));
+    assert_ne!(message_3, transcript.message_3);
+}
+
+#[test]
 fn responder_seeds_cover_every_record() {
     // Among the seeds whose handshake completes, each of the four records
     // appears.
@@ -383,9 +454,9 @@ fn frame_seeds_are_complete_operation_lists() {
         let mut rest = &content[1..];
         let mut operations = 0;
         while let Some((operation, tail)) = rest.split_first() {
-            let kind = (operation % 24) / 2;
+            let kind = (operation % 28) / 2;
             let arguments = match kind {
-                0 | 7 => 1,
+                0 | 7 | 13 => 1,
                 2 => 3,
                 5 => 1 + usize::from(tail[0]),
                 _ => 0,
@@ -397,5 +468,5 @@ fn frame_seeds_are_complete_operation_lists() {
         }
         assert!(operations >= 3, "{path}");
     }
-    assert_eq!(seen, (0..12).collect::<BTreeSet<u8>>());
+    assert_eq!(seen, (0..14).collect::<BTreeSet<u8>>());
 }

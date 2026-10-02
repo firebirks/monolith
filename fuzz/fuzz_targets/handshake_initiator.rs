@@ -1,7 +1,10 @@
 //! The initiator's side of the handshake: whatever the endpoint answers,
-//! the initiator sends its identity only to a responder that sent the
-//! genuine second message, and ends with a session for the identity it
-//! dialed or with none.
+//! the initiator makes its third message, which carries its identity, only
+//! for a second message that Noise accepts, and ends with a session for
+//! the identity it dialed or with none. The genuine second message is
+//! always accepted. Another one could be accepted too, from whoever holds
+//! the responder's key and another ephemeral key; nothing here assumes
+//! that only the stored transcript is valid.
 //!
 //! Input: the first byte selects the size of the pieces the stream arrives
 //! in, the second the mode.
@@ -32,8 +35,8 @@ fuzz_target!(|data: &[u8]| {
     };
     let piece = usize::from(*piece) + 1;
 
-    let (stream, damaged) = if mode % 2 == 0 {
-        (rest.to_vec(), !rest.starts_with(&TRANSCRIPT.message_2))
+    let stream = if mode % 2 == 0 {
+        rest.to_vec()
     } else {
         let [high, low, damage, tail @ ..] = rest else {
             return;
@@ -44,7 +47,7 @@ fuzz_target!(|data: &[u8]| {
             stream[position] ^= damage;
         }
         stream.extend_from_slice(tail);
-        (stream, *damage != 0)
+        stream
     };
 
     let (alice, message_1) = alice_dialing();
@@ -57,15 +60,20 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
 
+    let genuine = message_2 == TRANSCRIPT.message_2;
     let Ok((outbound, message_3)) = alice.read_message_2(&message_2, start()) else {
-        // Nothing of Alice was sent: the third message was never made.
-        assert!(damaged);
+        // Nothing of Alice was sent: the third message was never made. The
+        // genuine second message is never refused.
+        assert!(!genuine);
         return;
     };
-    assert!(!damaged);
-    assert_eq!(message_2, TRANSCRIPT.message_2);
-    assert_eq!(message_3, TRANSCRIPT.message_3);
+    // Whoever answered holds the key of the card that was dialed: the
+    // session can only be one with Bob.
     assert_eq!(outbound.card(), &card(BOB));
+    if genuine {
+        // With both ephemeral keys fixed, the known answer.
+        assert_eq!(message_3, TRANSCRIPT.message_3);
+    }
 
     let (mut session, admission, first_actions) = outbound
         .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))

@@ -22,6 +22,13 @@
 //! | 18, 19 | Alice or Bob removes the contact | |
 //! | 20, 21 | the stream of Alice or of Bob is reported closed | |
 //! | 22, 23 | Alice or Bob withdraws the session: the peer's key was retired | |
+//! | 24, 25 | time moves to the deadline of Alice or of Bob, and its session expires | |
+//! | 26, 27 | the first bytes of the next frame to Bob or to Alice arrive; the rest stays on its way | how many (modulo the frame length less one, plus one) |
+//!
+//! A session that expires because a begun frame did not complete in time,
+//! or because nothing complete arrived for the idle limit, ends without a
+//! Close; at the age limit it ends with one. Those limits are written out
+//! here as well.
 //!
 //! The target keeps its own account of what was sent, of which direction
 //! was interfered with and of the time that has passed, and compares every
@@ -41,7 +48,7 @@ use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
 use monolith_protocol::{ProtocolError, SessionState};
-use monolith_session::{AuthenticatedSession, SessionError};
+use monolith_session::{AuthenticatedSession, Expiry, SessionError};
 use session_fixtures::{ALICE, BOB, card, handshake, start};
 
 /// The age at which a session sends nothing but Close
@@ -53,6 +60,12 @@ const CLOSE_GRACE: Duration = Duration::from_secs(120);
 
 /// The clock of the target stops here, far past every limit.
 const CLOCK_END: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// How long a frame may take from its first byte (`FRAME_READ_TIMEOUT`).
+const FRAME_DEADLINE: Duration = Duration::from_secs(60);
+
+/// How long a session may go without a complete frame (`IDLE_TIMEOUT`).
+const IDLE_LIMIT: Duration = Duration::from_secs(240);
 
 /// One direction of the stream, as the target sees it.
 #[derive(Default)]
@@ -67,6 +80,11 @@ struct Direction {
     /// changed, or foreign bytes arrived. Nothing may be delivered from
     /// this direction afterwards.
     interfered: bool,
+    /// When the frame whose first bytes arrived and whose rest did not
+    /// began to arrive.
+    partial_since: Option<Duration>,
+    /// When the last complete frame arrived.
+    last_complete: Duration,
     /// The receiver of this direction reported a violation. Its session
     /// is over.
     failed: bool,
@@ -264,6 +282,8 @@ impl World {
                             direction.sent.get(direction.delivered)
                         );
                         direction.delivered += 1;
+                        direction.partial_since = None;
+                        direction.last_complete = now.saturating_duration_since(start());
                         let expected = if received.message == Message::Close {
                             Action::Disconnect
                         } else {
@@ -320,6 +340,87 @@ impl World {
         }
     }
 
+    /// The first bytes of the next frame arrive; the rest stays first in
+    /// line.
+    fn deliver_part(&mut self, to_alice: bool, selector: u8) {
+        let elapsed = self.elapsed;
+        let (_, _, direction) = self.parts(to_alice);
+        let Some(mut frame) = direction.in_flight.pop_front() else {
+            return;
+        };
+        if frame.len() < 2 {
+            direction.in_flight.push_front(frame);
+            return;
+        }
+        let part = 1 + usize::from(selector) % (frame.len() - 1);
+        let rest = frame.split_off(part);
+        direction.in_flight.push_front(rest);
+        if direction.partial_since.is_none() {
+            direction.partial_since = Some(elapsed);
+        }
+        self.arrive(to_alice, &frame);
+    }
+
+    /// Time moves to the deadline of one side, and its session expires.
+    fn expire(&mut self, bob: bool) {
+        let deadline = {
+            let (session, _, _) = self.parts(bob);
+            session.deadline()
+        };
+        let Some(deadline) = deadline else {
+            let (session, _, _) = self.parts(bob);
+            assert!(session.is_over() || session.state() == SessionState::Closing);
+            return;
+        };
+        let due = deadline.saturating_duration_since(start());
+        if due > self.elapsed {
+            self.advance(due - self.elapsed);
+        }
+        let now = self.now();
+        let elapsed = self.elapsed;
+        // What the frames towards this side say about why it expires.
+        let silent = {
+            let (_, _, incoming) = self.parts(!bob);
+            (!incoming.interfered).then(|| {
+                incoming
+                    .partial_since
+                    .is_some_and(|since| elapsed >= since + FRAME_DEADLINE)
+                    || elapsed >= incoming.last_complete + IDLE_LIMIT
+            })
+        };
+        let (session, _, outgoing) = self.parts(bob);
+        let expiry = session.expire(now);
+        if now < deadline {
+            // The clock stopped before the deadline.
+            assert_eq!(expiry, Expiry::Running);
+            return;
+        }
+        match expiry {
+            Expiry::Running => panic!("a deadline passed and nothing happened"),
+            Expiry::Silent => {
+                assert_ne!(silent, Some(false));
+                let (_, _, incoming) = self.parts(!bob);
+                incoming.failed = true;
+            }
+            Expiry::Close(frame) => {
+                assert_ne!(silent, Some(true));
+                assert!(elapsed >= AGE_LIMIT);
+                if let Some(frame) = frame {
+                    assert_eq!(frame.len(), 1042);
+                    outgoing.in_flight.push_back(frame);
+                    outgoing.sent.push(Message::Close);
+                }
+            }
+        }
+        let (session, _, _) = self.parts(bob);
+        assert!(session.is_over());
+        assert_eq!(session.deadline(), None);
+        assert_eq!(
+            session.send(&Message::Ping([0; 8]), now).err(),
+            Some(SessionError::Closed)
+        );
+    }
+
     fn drop_frame(&mut self, to_alice: bool) {
         let (_, _, direction) = self.parts(to_alice);
         if direction.in_flight.pop_front().is_some() {
@@ -356,7 +457,7 @@ fuzz_target!(|data: &[u8]| {
     while let Some((operation, tail)) = rest.split_first() {
         rest = tail;
         let second = operation % 2 == 1;
-        match (operation % 24) / 2 {
+        match (operation % 28) / 2 {
             0 => {
                 let Some((selector, tail)) = rest.split_first() else {
                     return;
@@ -403,7 +504,15 @@ fuzz_target!(|data: &[u8]| {
             8 => world.end(second, End::Block),
             9 => world.end(second, End::Remove),
             10 => world.stream_closed(second),
-            _ => world.end(second, End::Withdraw),
+            11 => world.end(second, End::Withdraw),
+            12 => world.expire(second),
+            _ => {
+                let Some((selector, tail)) = rest.split_first() else {
+                    return;
+                };
+                rest = tail;
+                world.deliver_part(second, *selector);
+            }
         }
     }
 });

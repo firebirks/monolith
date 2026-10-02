@@ -1,7 +1,12 @@
 //! The responder's side of the handshake: whatever arrives on a stream, a
-//! session exists afterwards only if the bytes were the two genuine
-//! messages of an initiator that holds its keys, and nothing reaches the
-//! application before that session is confirmed.
+//! session exists afterwards only if Noise accepted a first and a third
+//! message, and its peer is the identity of a valid card whose key Noise
+//! authenticated; nothing reaches the application before that session is
+//! confirmed. The genuine messages are always accepted. Others could be
+//! too: anyone who knows the responder's card can make a first message
+//! with an ephemeral key of its own, and a third with a key and card of
+//! its own. Nothing here assumes that only the stored transcript is
+//! valid.
 //!
 //! Input: the first byte selects what the responder holds about the
 //! initiator and the size of the pieces the stream arrives in, the second
@@ -31,7 +36,7 @@ use libfuzzer_sys::fuzz_target;
 use monolith_protocol::credential::{CredentialChange, Credentials};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::{MessageType, SessionState};
-use session_fixtures::{ALICE, Pieces, TRANSCRIPT, bob_waiting, card, start};
+use session_fixtures::{ALICE, BOB, Pieces, TRANSCRIPT, bob_waiting, card, start};
 
 /// What Bob holds about Alice.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -58,8 +63,8 @@ fuzz_target!(|data: &[u8]| {
     genuine.extend_from_slice(&TRANSCRIPT.message_1);
     genuine.extend_from_slice(&TRANSCRIPT.message_3);
 
-    let (stream, damaged) = if mode % 2 == 0 {
-        (rest.to_vec(), !rest.starts_with(&genuine))
+    let stream = if mode % 2 == 0 {
+        rest.to_vec()
     } else {
         let [high, low, damage, tail @ ..] = rest else {
             return;
@@ -70,7 +75,7 @@ fuzz_target!(|data: &[u8]| {
             stream[position] ^= damage;
         }
         stream.extend_from_slice(tail);
-        (stream, *damage != 0)
+        stream
     };
 
     // The stream arrives in pieces. Each handshake message is read as
@@ -79,30 +84,39 @@ fuzz_target!(|data: &[u8]| {
     let Some(message_1) = pieces.message::<48>() else {
         return;
     };
+    let genuine_1 = message_1 == TRANSCRIPT.message_1;
     let Ok((waiting, reply)) = bob_waiting().read_message_1(&message_1, start()) else {
-        assert!(damaged);
+        // The genuine first message is never refused.
+        assert!(!genuine_1);
         return;
     };
-    // A first message that is accepted is the genuine one or a replay of
-    // it: nobody else knows a key to make another. The reply is then the
-    // genuine second message, since Bob's ephemeral key is fixed here.
-    assert_eq!(message_1, TRANSCRIPT.message_1);
-    assert_eq!(reply, TRANSCRIPT.message_2);
+    if genuine_1 {
+        // Bob's ephemeral key is fixed here, so the reply to the genuine
+        // first message is the known answer.
+        assert_eq!(reply, TRANSCRIPT.message_2);
+    }
 
     let Some(message_3) = pieces.message::<235>() else {
         return;
     };
+    let genuine = genuine_1 && message_3 == TRANSCRIPT.message_3;
     let Ok(inbound) = waiting.read_message_3(&message_3, start()) else {
-        assert!(damaged);
+        // The genuine third message, after the genuine first, is never
+        // refused.
+        assert!(!genuine);
         return;
     };
-    assert!(!damaged);
-    assert_eq!(message_3, TRANSCRIPT.message_3);
-    assert_eq!(inbound.card(), &card(ALICE));
+    // Whoever it is, its card is valid, carries no capability and is not
+    // Bob's identity.
+    assert!(inbound.card().invitation().is_none());
+    assert_ne!(inbound.card().identity(), card(BOB).identity());
+    if genuine {
+        assert_eq!(inbound.card(), &card(ALICE));
+    }
 
-    // Only now does the record play a part. Alice presented the card that
-    // Bob holds of her, if he holds one.
-    let alice = card(ALICE);
+    // Only now does the record play a part. The peer presented the card
+    // that Bob holds of it, if he holds one.
+    let alice = inbound.card().clone();
     let mut credentials = Credentials::new(alice.clone());
     let record = match held {
         Held::Nothing => PeerRecord::None,
