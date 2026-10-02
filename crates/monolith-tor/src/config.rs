@@ -114,7 +114,11 @@ mod tests {
             "127.0.0.1",
             "",
         ] {
-            assert_eq!(Endpoint::parse(refused), Err(TorError::Configuration), "{refused}");
+            assert_eq!(
+                Endpoint::parse(refused),
+                Err(TorError::Configuration),
+                "{refused}"
+            );
         }
         #[cfg(unix)]
         {

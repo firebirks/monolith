@@ -127,7 +127,10 @@ mod tests {
             text(&Command::AuthenticateSafeCookie(&[0x01; 32])),
             format!("AUTHENTICATE {}\r\n", "01".repeat(32))
         );
-        assert_eq!(text(&Command::AuthenticateTrustedFilter), "AUTHENTICATE\r\n");
+        assert_eq!(
+            text(&Command::AuthenticateTrustedFilter),
+            "AUTHENTICATE\r\n"
+        );
         assert_eq!(
             text(&Command::CircuitEstablished),
             "GETINFO status/circuit-established\r\n"

@@ -178,7 +178,10 @@ impl fmt::Debug for IsolationGroup {
 
 /// The base64 character for a six-bit value.
 fn alphabet(index: u8) -> u8 {
-    BASE64_ALPHABET.get(usize::from(index)).copied().unwrap_or(b'A')
+    BASE64_ALPHABET
+        .get(usize::from(index))
+        .copied()
+        .unwrap_or(b'A')
 }
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -227,7 +230,8 @@ mod tests {
 
     /// A key blob and its base64 form, computed with Python's base64
     /// module, independently of this crate: bytes 0, 1, ..., 63.
-    const COUNTING_BASE64: &[u8] = b"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw==";
+    const COUNTING_BASE64: &[u8] =
+        b"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw==";
 
     fn counting() -> [u8; 64] {
         core::array::from_fn(|index| u8::try_from(index).unwrap())
@@ -259,7 +263,14 @@ mod tests {
         long.push(b'=');
         assert!(OnionServiceSecret::from_base64(&long).is_err());
         assert!(OnionServiceSecret::from_base64(b"").is_err());
-        for (position, bad) in [(87, b'A'), (86, b'A'), (0, b'-'), (0, b'_'), (40, b' '), (3, b'=')] {
+        for (position, bad) in [
+            (87, b'A'),
+            (86, b'A'),
+            (0, b'-'),
+            (0, b'_'),
+            (40, b' '),
+            (3, b'='),
+        ] {
             let mut changed = good.clone();
             changed[position] = bad;
             assert!(
@@ -293,7 +304,11 @@ mod tests {
         assert_eq!(again.password().as_slice(), first.password().as_slice());
         let password = first.password();
         assert_eq!(password.len(), 32);
-        assert!(password.iter().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
+        assert!(
+            password
+                .iter()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        );
     }
 
     #[test]
@@ -301,7 +316,10 @@ mod tests {
         let bytes = counting();
         let text = hex(&bytes[..32]);
         assert_eq!(unhex::<32>(&text).unwrap(), bytes[..32]);
-        assert_eq!(unhex::<32>(&text.to_ascii_uppercase()).unwrap(), bytes[..32]);
+        assert_eq!(
+            unhex::<32>(&text.to_ascii_uppercase()).unwrap(),
+            bytes[..32]
+        );
         assert!(unhex::<32>(&text[..63]).is_err());
         let mut bad = text.to_vec();
         bad[5] = b'g';

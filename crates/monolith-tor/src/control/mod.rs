@@ -361,7 +361,10 @@ mod tests {
     #[test]
     fn getinfo_replies_are_read_strictly() {
         let good = reply(b"250-status/circuit-established=1\r\n250 OK\r\n");
-        assert_eq!(getinfo_value(&good, b"status/circuit-established"), Ok(&b"1"[..]));
+        assert_eq!(
+            getinfo_value(&good, b"status/circuit-established"),
+            Ok(&b"1"[..])
+        );
         // Another key, an extra line, no OK.
         assert!(getinfo_value(&good, b"status/bootstrap-phase").is_err());
         let extra = reply(b"250-status/circuit-established=1\r\n250-x=y\r\n250 OK\r\n");
@@ -376,7 +379,10 @@ mod tests {
     fn add_onion_replies_are_read_strictly() {
         let id = service_id();
         let key = format!("{}==", "A".repeat(86));
-        let new = format!("250-ServiceID={}\r\n250-PrivateKey=ED25519-V3:{key}\r\n250 OK\r\n", id.as_str());
+        let new = format!(
+            "250-ServiceID={}\r\n250-PrivateKey=ED25519-V3:{key}\r\n250 OK\r\n",
+            id.as_str()
+        );
         let (parsed, secret) = parse_add_onion(&reply(new.as_bytes()), true).unwrap();
         assert_eq!(ServiceId::from_key(&parsed), id);
         assert_eq!(secret.unwrap().expose(), &[0; 64]);
@@ -398,29 +404,49 @@ mod tests {
         // A malformed ServiceID, a malformed key, a key of another type.
         let mut bad_id = id.as_str().as_bytes().to_vec();
         bad_id[0] = if bad_id[0] == b'a' { b'b' } else { b'a' };
-        let bad = format!("250-ServiceID={}\r\n250 OK\r\n", String::from_utf8(bad_id).unwrap());
+        let bad = format!(
+            "250-ServiceID={}\r\n250 OK\r\n",
+            String::from_utf8(bad_id).unwrap()
+        );
         assert_eq!(
             parse_add_onion(&reply(bad.as_bytes()), false).err(),
             Some(TorError::InvalidTorResponse)
         );
-        for blob in [format!("{}=", "A".repeat(87)), format!("{}==", "A".repeat(85)), "!".repeat(88)] {
-            let bad = format!("250-ServiceID={}\r\n250-PrivateKey=ED25519-V3:{blob}\r\n250 OK\r\n", id.as_str());
+        for blob in [
+            format!("{}=", "A".repeat(87)),
+            format!("{}==", "A".repeat(85)),
+            "!".repeat(88),
+        ] {
+            let bad = format!(
+                "250-ServiceID={}\r\n250-PrivateKey=ED25519-V3:{blob}\r\n250 OK\r\n",
+                id.as_str()
+            );
             assert_eq!(
                 parse_add_onion(&reply(bad.as_bytes()), true).err(),
                 Some(TorError::InvalidTorResponse)
             );
         }
-        let rsa = format!("250-ServiceID={}\r\n250-PrivateKey=RSA1024:{key}\r\n250 OK\r\n", id.as_str());
+        let rsa = format!(
+            "250-ServiceID={}\r\n250-PrivateKey=RSA1024:{key}\r\n250 OK\r\n",
+            id.as_str()
+        );
         assert!(parse_add_onion(&reply(rsa.as_bytes()), true).is_err());
         // Lines Tor would send only for client authorization.
-        let auth = format!("250-ServiceID={}\r\n250-ClientAuthV3=abc\r\n250 OK\r\n", id.as_str());
+        let auth = format!(
+            "250-ServiceID={}\r\n250-ClientAuthV3=abc\r\n250 OK\r\n",
+            id.as_str()
+        );
         assert!(parse_add_onion(&reply(auth.as_bytes()), false).is_err());
     }
 
     #[test]
     fn add_onion_errors_are_told_apart() {
         assert_eq!(
-            parse_add_onion(&reply(b"512 Tor is in non-anonymous hidden service mode\r\n"), true).err(),
+            parse_add_onion(
+                &reply(b"512 Tor is in non-anonymous hidden service mode\r\n"),
+                true
+            )
+            .err(),
             Some(TorError::NonAnonymousTorMode)
         );
         assert_eq!(
@@ -440,8 +466,14 @@ mod tests {
     #[test]
     fn ok_replies_are_exact() {
         assert_eq!(expect_ok(&reply(b"250 OK\r\n")), Ok(()));
-        assert_eq!(expect_ok(&reply(b"250 Fine\r\n")), Err(TorError::InvalidTorResponse));
-        assert_eq!(expect_ok(&reply(b"250-a\r\n250 OK\r\n")), Err(TorError::InvalidTorResponse));
+        assert_eq!(
+            expect_ok(&reply(b"250 Fine\r\n")),
+            Err(TorError::InvalidTorResponse)
+        );
+        assert_eq!(
+            expect_ok(&reply(b"250-a\r\n250 OK\r\n")),
+            Err(TorError::InvalidTorResponse)
+        );
         assert_eq!(
             expect_ok(&reply(b"552 Unknown Onion Service id\r\n")),
             Err(TorError::CommandRefused)

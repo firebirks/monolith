@@ -26,9 +26,9 @@ mod transport;
 pub use endpoint::{EndpointEpoch, ONION_SERVICE_KEY_LEN, OnionServiceKey};
 pub use error::IdentityError;
 pub use fingerprint::{FINGERPRINT_LEN, Fingerprint};
-pub use onion::{ONION_HOSTNAME_LEN, SERVICE_ID_LEN, ServiceId};
 pub use key::{
     IDENTITY_PUBLIC_KEY_LEN, IDENTITY_SEED_LEN, IdentityPublicKey, IdentitySecretKey,
     SIGNATURE_LEN, Signature,
 };
+pub use onion::{ONION_HOSTNAME_LEN, SERVICE_ID_LEN, ServiceId};
 pub use transport::{TRANSPORT_PUBLIC_KEY_LEN, TransportPublicKey};

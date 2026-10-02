@@ -155,7 +155,9 @@ impl ReplyParser {
             &mut self.line,
             Zeroizing::new(Vec::with_capacity(MAX_CONTROL_LINE_LEN.saturating_add(4))),
         );
-        let (head, text) = line.split_at_checked(4).ok_or(TorError::InvalidTorResponse)?;
+        let (head, text) = line
+            .split_at_checked(4)
+            .ok_or(TorError::InvalidTorResponse)?;
         let [a, b, c, separator] = *head else {
             return Err(TorError::InvalidTorResponse);
         };

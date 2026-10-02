@@ -92,7 +92,9 @@ fn parse_auth_line(arguments: &[u8]) -> Result<(bool, Option<PathBuf>), TorError
         .iter()
         .position(|byte| *byte == b' ')
         .unwrap_or(methods.len());
-    let (list, rest) = methods.split_at_checked(end).ok_or(TorError::InvalidTorResponse)?;
+    let (list, rest) = methods
+        .split_at_checked(end)
+        .ok_or(TorError::InvalidTorResponse)?;
     let mut safecookie = false;
     for method in list.split(|byte| *byte == b',') {
         if method.is_empty() || !method.iter().all(u8::is_ascii_uppercase) {
@@ -151,7 +153,9 @@ fn parse_version_line(arguments: &[u8]) -> Result<TorVersion, TorError> {
 /// backslash before any other character stands for that character, as the
 /// specification's note on Tor's escaping recommends.
 pub(crate) fn decode_quoted(input: &[u8]) -> Result<(Vec<u8>, &[u8]), TorError> {
-    let body = input.strip_prefix(b"\"").ok_or(TorError::InvalidTorResponse)?;
+    let body = input
+        .strip_prefix(b"\"")
+        .ok_or(TorError::InvalidTorResponse)?;
     let mut out = Vec::with_capacity(body.len());
     let mut index = 0_usize;
     while let Some(byte) = body.get(index) {
@@ -203,7 +207,8 @@ pub(crate) fn safecookie_hashes(
     server_nonce: &[u8; NONCE_LEN],
 ) -> Result<(Hash, Hash), TorError> {
     let hash = |key: &[u8]| -> Result<Hash, TorError> {
-        let mut mac = Hmac::<Sha256>::new_from_slice(key).map_err(|_| TorError::ControlAuthentication)?;
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(key).map_err(|_| TorError::ControlAuthentication)?;
         mac.update(cookie);
         mac.update(client_nonce);
         mac.update(server_nonce);
@@ -231,7 +236,9 @@ pub(crate) fn parse_authchallenge(reply: &Reply) -> Result<([u8; 32], [u8; NONCE
         .text()
         .strip_prefix(b"AUTHCHALLENGE SERVERHASH=")
         .ok_or(TorError::InvalidTorResponse)?;
-    let (hash, rest) = rest.split_at_checked(64).ok_or(TorError::InvalidTorResponse)?;
+    let (hash, rest) = rest
+        .split_at_checked(64)
+        .ok_or(TorError::InvalidTorResponse)?;
     let nonce = rest
         .strip_prefix(b" SERVERNONCE=")
         .ok_or(TorError::InvalidTorResponse)?;
@@ -245,7 +252,9 @@ pub(crate) fn read_cookie(path: &Path) -> Result<Zeroizing<[u8; COOKIE_LEN]>, To
         return Err(TorError::ControlAuthentication);
     }
     let file = std::fs::File::open(path).map_err(|_| TorError::ControlAuthentication)?;
-    let metadata = file.metadata().map_err(|_| TorError::ControlAuthentication)?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| TorError::ControlAuthentication)?;
     if !metadata.is_file() || metadata.len() != 32 {
         return Err(TorError::ControlAuthentication);
     }
@@ -283,8 +292,14 @@ mod tests {
     fn safecookie_matches_the_independent_computation() {
         let cookie: [u8; 32] = core::array::from_fn(|index| u8::try_from(index).unwrap());
         let (server, client) = safecookie_hashes(&cookie, &[0x11; 32], &[0x22; 32]).unwrap();
-        assert_eq!(server.as_slice(), unhex::<32>(SERVER_HASH.as_bytes()).unwrap());
-        assert_eq!(client.as_slice(), unhex::<32>(CLIENT_HASH.as_bytes()).unwrap());
+        assert_eq!(
+            server.as_slice(),
+            unhex::<32>(SERVER_HASH.as_bytes()).unwrap()
+        );
+        assert_eq!(
+            client.as_slice(),
+            unhex::<32>(CLIENT_HASH.as_bytes()).unwrap()
+        );
         // Every input enters both hashes.
         let (other, _) = safecookie_hashes(&cookie, &[0x12; 32], &[0x22; 32]).unwrap();
         assert_ne!(other.as_slice(), server.as_slice());
@@ -306,7 +321,10 @@ mod tests {
         ))
         .unwrap();
         assert!(info.safecookie);
-        assert_eq!(info.cookie_file, Some(PathBuf::from("/run/tor/control.authcookie")));
+        assert_eq!(
+            info.cookie_file,
+            Some(PathBuf::from("/run/tor/control.authcookie"))
+        );
         assert_eq!(info.version, TorVersion::new(0, 4, 9, 13));
 
         // A filter that offers no authentication, lines in another order,
@@ -350,13 +368,19 @@ mod tests {
     #[test]
     fn quoted_strings_decode_with_tor_s_escapes() {
         let decoded = |input: &[u8]| decode_quoted(input).map(|(text, rest)| (text, rest.to_vec()));
-        assert_eq!(decoded(b"\"abc\" rest"), Ok((b"abc".to_vec(), b" rest".to_vec())));
+        assert_eq!(
+            decoded(b"\"abc\" rest"),
+            Ok((b"abc".to_vec(), b" rest".to_vec()))
+        );
         assert_eq!(
             decoded(b"\"a\\\\b\\\"c\\n\\t\\r\\'\""),
             Ok((b"a\\b\"c\n\t\r'".to_vec(), Vec::new()))
         );
         // Octal, as Tor writes bytes outside printable ASCII.
-        assert_eq!(decoded(b"\"\\303\\251\\0\\7\""), Ok((vec![0xC3, 0xA9, 0, 7], Vec::new())));
+        assert_eq!(
+            decoded(b"\"\\303\\251\\0\\7\""),
+            Ok((vec![0xC3, 0xA9, 0, 7], Vec::new()))
+        );
         assert_eq!(decoded(b"\"\\q\""), Ok((b"q".to_vec(), Vec::new())));
         for bad in [&b"abc"[..], b"\"abc", b"\"abc\\", b"\"\\777\"", b""] {
             assert!(decode_quoted(bad).is_err(), "{bad:?}");
@@ -374,13 +398,36 @@ mod tests {
         assert_eq!(hash, [0xAB; 32]);
         assert_eq!(nonce, [0xCD; 32]);
         for bad in [
-            format!("250 AUTHCHALLENGE SERVERHASH={} SERVERNONCE={}\r\n", "AB".repeat(31), "cd".repeat(32)),
-            format!("250 AUTHCHALLENGE SERVERHASH={} SERVERNONCE={}\r\n", "AB".repeat(32), "cd".repeat(33)),
-            format!("250 AUTHCHALLENGE SERVERNONCE={} SERVERHASH={}\r\n", "cd".repeat(32), "AB".repeat(32)),
-            format!("250 AUTHCHALLENGE SERVERHASH={}XX SERVERNONCE={}\r\n", "AB".repeat(31), "cd".repeat(32)),
-            format!("250-AUTHCHALLENGE SERVERHASH={} SERVERNONCE={}\r\n250 OK\r\n", "AB".repeat(32), "cd".repeat(32)),
+            format!(
+                "250 AUTHCHALLENGE SERVERHASH={} SERVERNONCE={}\r\n",
+                "AB".repeat(31),
+                "cd".repeat(32)
+            ),
+            format!(
+                "250 AUTHCHALLENGE SERVERHASH={} SERVERNONCE={}\r\n",
+                "AB".repeat(32),
+                "cd".repeat(33)
+            ),
+            format!(
+                "250 AUTHCHALLENGE SERVERNONCE={} SERVERHASH={}\r\n",
+                "cd".repeat(32),
+                "AB".repeat(32)
+            ),
+            format!(
+                "250 AUTHCHALLENGE SERVERHASH={}XX SERVERNONCE={}\r\n",
+                "AB".repeat(31),
+                "cd".repeat(32)
+            ),
+            format!(
+                "250-AUTHCHALLENGE SERVERHASH={} SERVERNONCE={}\r\n250 OK\r\n",
+                "AB".repeat(32),
+                "cd".repeat(32)
+            ),
         ] {
-            assert!(parse_authchallenge(&reply(bad.as_bytes())).is_err(), "{bad}");
+            assert!(
+                parse_authchallenge(&reply(bad.as_bytes())).is_err(),
+                "{bad}"
+            );
         }
         assert_eq!(
             parse_authchallenge(&reply(b"515 Cookie authentication is disabled\r\n")).err(),
@@ -398,7 +445,11 @@ mod tests {
         for (name, len) in [("short", 31), ("long", 33), ("empty", 0)] {
             let path = dir.join(name);
             std::fs::write(&path, vec![7_u8; len]).unwrap();
-            assert_eq!(read_cookie(&path).err(), Some(TorError::ControlAuthentication), "{name}");
+            assert_eq!(
+                read_cookie(&path).err(),
+                Some(TorError::ControlAuthentication),
+                "{name}"
+            );
         }
         assert!(read_cookie(&dir).is_err());
         assert!(read_cookie(&dir.join("missing")).is_err());

@@ -15,8 +15,8 @@ use crate::control::{ControlConnection, OnionKey};
 use crate::socks;
 use crate::stream::{TorStream, connect};
 use crate::{
-    ControlStatus, FEATURE_BASELINE, IsolationGroup, KeySource, OnionService,
-    OnionServiceSecret, SocksStatus, SystemTorConfig, TorBackend, TorError, TorStatus,
+    ControlStatus, FEATURE_BASELINE, IsolationGroup, KeySource, OnionService, OnionServiceSecret,
+    SocksStatus, SystemTorConfig, TorBackend, TorError, TorStatus,
 };
 
 /// A [`TorBackend`] that uses a Tor the system runs.
@@ -36,17 +36,18 @@ impl SystemTorBackend {
     }
 
     async fn control_status(&self) -> ControlStatus {
-        let mut control = match ControlConnection::open(&self.config.control, self.config.auth).await {
-            Ok(control) => control,
-            Err(TorError::ControlUnavailable | TorError::TimedOut | TorError::ControlLost) => {
-                return ControlStatus::Unavailable;
-            }
-            Err(TorError::ControlAuthenticationUnavailable) => {
-                return ControlStatus::AuthenticationUnavailable;
-            }
-            Err(TorError::ControlAuthentication) => return ControlStatus::AuthenticationFailed,
-            Err(_) => return ControlStatus::InvalidResponse,
-        };
+        let mut control =
+            match ControlConnection::open(&self.config.control, self.config.auth).await {
+                Ok(control) => control,
+                Err(TorError::ControlUnavailable | TorError::TimedOut | TorError::ControlLost) => {
+                    return ControlStatus::Unavailable;
+                }
+                Err(TorError::ControlAuthenticationUnavailable) => {
+                    return ControlStatus::AuthenticationUnavailable;
+                }
+                Err(TorError::ControlAuthentication) => return ControlStatus::AuthenticationFailed,
+                Err(_) => return ControlStatus::InvalidResponse,
+            };
         let version = control.version();
         if version < FEATURE_BASELINE {
             return ControlStatus::UnsupportedVersion(version);
@@ -106,10 +107,11 @@ impl TorBackend for SystemTorBackend {
         isolation: &IsolationGroup,
     ) -> Result<TorStream, TorError> {
         let service = ServiceId::from_key(target);
-        let mut stream = tokio::time::timeout(SOCKS_NEGOTIATION_TIMEOUT, connect(&self.config.socks))
-            .await
-            .map_err(|_| TorError::TimedOut)?
-            .map_err(|_| TorError::SocksUnavailable)?;
+        let mut stream =
+            tokio::time::timeout(SOCKS_NEGOTIATION_TIMEOUT, connect(&self.config.socks))
+                .await
+                .map_err(|_| TorError::TimedOut)?
+                .map_err(|_| TorError::SocksUnavailable)?;
         socks::negotiate(&mut stream, &service, isolation).await?;
         Ok(stream)
     }
@@ -132,7 +134,9 @@ impl TorBackend for SystemTorBackend {
         let (service_key, secret) = match &key {
             KeySource::Generate => control.add_onion(OnionKey::New, target).await?,
             KeySource::Existing { secret, expected } => {
-                let published = control.add_onion(OnionKey::Existing(secret), target).await?;
+                let published = control
+                    .add_onion(OnionKey::Existing(secret), target)
+                    .await?;
                 // The ServiceID must name the key the caller gave. On a
                 // mismatch the control connection is dropped below, which
                 // removes whatever Tor published.
@@ -170,7 +174,11 @@ pub struct PublishedOnionService {
 impl PublishedOnionService {
     /// Forgets the control connection when it is gone.
     fn check_control(&mut self) -> bool {
-        if self.control.as_ref().is_some_and(ControlConnection::is_alive) {
+        if self
+            .control
+            .as_ref()
+            .is_some_and(ControlConnection::is_alive)
+        {
             true
         } else {
             self.control = None;

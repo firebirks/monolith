@@ -154,7 +154,11 @@ mod tests {
             let key = key(seed);
             let id = ServiceId::from_key(&key);
             assert_eq!(id.as_str().len(), SERVICE_ID_LEN);
-            assert!(id.as_str().bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()));
+            assert!(
+                id.as_str()
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            );
             assert_eq!(ServiceId::parse(id.as_str().as_bytes()), Ok(key));
             assert_eq!(id.hostname(), format!("{}.onion", id.as_str()));
             assert_eq!(id.hostname().len(), ONION_HOSTNAME_LEN);

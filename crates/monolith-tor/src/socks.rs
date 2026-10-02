@@ -169,10 +169,16 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     tokio::time::timeout(SOCKS_NEGOTIATION_TIMEOUT, async {
-        stream.write_all(&GREETING).await.map_err(|_| TorError::SocksUnavailable)?;
+        stream
+            .write_all(&GREETING)
+            .await
+            .map_err(|_| TorError::SocksUnavailable)?;
         check_method_reply(read_two(stream).await?)?;
         let auth = auth_request(isolation);
-        stream.write_all(&auth).await.map_err(|_| TorError::SocksUnavailable)?;
+        stream
+            .write_all(&auth)
+            .await
+            .map_err(|_| TorError::SocksUnavailable)?;
         check_auth_reply(read_two(stream).await?)
     })
     .await
@@ -259,14 +265,21 @@ mod tests {
         let other = IsolationGroup::generate().unwrap();
         assert_ne!(auth_request(&other).as_slice(), first.as_slice());
         let id = target();
-        assert!(!first.windows(8).any(|w| id.as_str().as_bytes().starts_with(w)));
+        assert!(
+            !first
+                .windows(8)
+                .any(|w| id.as_str().as_bytes().starts_with(w))
+        );
     }
 
     #[test]
     fn method_and_auth_replies_are_checked() {
         assert_eq!(check_method_reply([5, 2]), Ok(()));
         for refused in [[5, 0], [5, 1], [5, 0xff]] {
-            assert_eq!(check_method_reply(refused), Err(TorError::SocksAuthentication));
+            assert_eq!(
+                check_method_reply(refused),
+                Err(TorError::SocksAuthentication)
+            );
         }
         for bad in [[4, 2], [0, 0], [0x48, 0x54]] {
             assert_eq!(check_method_reply(bad), Err(TorError::SocksProtocol));
@@ -279,18 +292,33 @@ mod tests {
     #[test]
     fn connect_replies_decode_with_their_exact_length() {
         let v4 = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
-        assert_eq!(decode_connect_reply(&v4), Ok(Some((ConnectReply::Succeeded, 10))));
+        assert_eq!(
+            decode_connect_reply(&v4),
+            Ok(Some((ConnectReply::Succeeded, 10)))
+        );
         let mut v6 = vec![5, 0, 0, 4];
         v6.extend_from_slice(&[0; 18]);
-        assert_eq!(decode_connect_reply(&v6), Ok(Some((ConnectReply::Succeeded, 22))));
+        assert_eq!(
+            decode_connect_reply(&v6),
+            Ok(Some((ConnectReply::Succeeded, 22)))
+        );
         let mut domain = vec![5, 0, 0, 3, 3, b'a', b'b', b'c', 0, 0];
-        assert_eq!(decode_connect_reply(&domain), Ok(Some((ConnectReply::Succeeded, 10))));
+        assert_eq!(
+            decode_connect_reply(&domain),
+            Ok(Some((ConnectReply::Succeeded, 10)))
+        );
         // Bytes after the reply are not part of it.
         domain.extend_from_slice(b"peer data");
-        assert_eq!(decode_connect_reply(&domain), Ok(Some((ConnectReply::Succeeded, 10))));
+        assert_eq!(
+            decode_connect_reply(&domain),
+            Ok(Some((ConnectReply::Succeeded, 10)))
+        );
         // A failure code.
         let failed = [5, 0xF2, 0, 1, 0, 0, 0, 0, 0, 0];
-        assert_eq!(decode_connect_reply(&failed), Ok(Some((ConnectReply::Failed(0xF2), 10))));
+        assert_eq!(
+            decode_connect_reply(&failed),
+            Ok(Some((ConnectReply::Failed(0xF2), 10)))
+        );
         // Every proper prefix is incomplete, not an error.
         for len in 0..v6.len() {
             assert_eq!(decode_connect_reply(&v6[..len]), Ok(None), "{len}");
@@ -317,7 +345,11 @@ mod tests {
             &[5, 0, 0, 3, 0, 0, 0],
             &[0x48, 0x54, 0x54, 0x50],
         ] {
-            assert_eq!(decode_connect_reply(bad), Err(TorError::SocksProtocol), "{bad:?}");
+            assert_eq!(
+                decode_connect_reply(bad),
+                Err(TorError::SocksProtocol),
+                "{bad:?}"
+            );
         }
     }
 
@@ -325,7 +357,9 @@ mod tests {
     fn failure_codes_map_to_errors_without_a_fallback() {
         assert_eq!(failure(0x01), TorError::SocksRefused);
         assert_eq!(failure(0x02), TorError::SocksRefused);
-        for code in [0x03, 0x04, 0x05, 0x06, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7] {
+        for code in [
+            0x03, 0x04, 0x05, 0x06, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
+        ] {
             assert_eq!(failure(code), TorError::OnionUnreachable, "{code:#x}");
         }
         assert_eq!(failure(0x07), TorError::SocksRefused);
@@ -380,9 +414,11 @@ mod tests {
         let mut after = Vec::new();
         if result.is_ok() {
             let mut buffer = [0_u8; 64];
-            if let Ok(Ok(n)) =
-                tokio::time::timeout(core::time::Duration::from_millis(100), client.read(&mut buffer))
-                    .await
+            if let Ok(Ok(n)) = tokio::time::timeout(
+                core::time::Duration::from_millis(100),
+                client.read(&mut buffer),
+            )
+            .await
             {
                 after.extend_from_slice(&buffer[..n]);
             }
@@ -425,10 +461,22 @@ mod tests {
             (vec![5, 0xff], TorError::SocksAuthentication),
             (vec![4, 2], TorError::SocksProtocol),
             (vec![5, 2, 1, 1], TorError::SocksAuthentication),
-            (vec![5, 2, 1, 0, 5, 0x05, 0, 1, 0, 0, 0, 0, 0, 0], TorError::OnionUnreachable),
-            (vec![5, 2, 1, 0, 5, 0xF0, 0, 1, 0, 0, 0, 0, 0, 0], TorError::OnionUnreachable),
-            (vec![5, 2, 1, 0, 5, 0x01, 0, 1, 0, 0, 0, 0, 0, 0], TorError::SocksRefused),
-            (vec![5, 2, 1, 0, 5, 0, 1, 1, 0, 0, 0, 0, 0, 0], TorError::SocksProtocol),
+            (
+                vec![5, 2, 1, 0, 5, 0x05, 0, 1, 0, 0, 0, 0, 0, 0],
+                TorError::OnionUnreachable,
+            ),
+            (
+                vec![5, 2, 1, 0, 5, 0xF0, 0, 1, 0, 0, 0, 0, 0, 0],
+                TorError::OnionUnreachable,
+            ),
+            (
+                vec![5, 2, 1, 0, 5, 0x01, 0, 1, 0, 0, 0, 0, 0, 0],
+                TorError::SocksRefused,
+            ),
+            (
+                vec![5, 2, 1, 0, 5, 0, 1, 1, 0, 0, 0, 0, 0, 0],
+                TorError::SocksProtocol,
+            ),
             (vec![5, 2, 1, 0, 5, 0, 0, 9], TorError::SocksProtocol),
             (vec![5, 2, 1, 0, 6, 0, 0, 1], TorError::SocksProtocol),
             // The proxy closes in the middle of a reply.

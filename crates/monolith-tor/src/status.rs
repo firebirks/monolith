@@ -187,7 +187,10 @@ mod tests {
 
     #[test]
     fn versions_parse_as_tor_reports_them() {
-        assert_eq!(TorVersion::parse(b"0.4.9.13"), Some(TorVersion::new(0, 4, 9, 13)));
+        assert_eq!(
+            TorVersion::parse(b"0.4.9.13"),
+            Some(TorVersion::new(0, 4, 9, 13))
+        );
         assert_eq!(
             TorVersion::parse(b"0.5.0.1-alpha"),
             Some(TorVersion::new(0, 5, 0, 1))
@@ -230,7 +233,10 @@ mod tests {
             bootstrap: Bootstrap::InProgress(40),
         };
         let status = |control, socks| TorStatus { control, socks }.readiness();
-        assert_eq!(status(reachable(true), SocksStatus::Reachable), Readiness::Ready);
+        assert_eq!(
+            status(reachable(true), SocksStatus::Reachable),
+            Readiness::Ready
+        );
         assert_eq!(
             status(reachable(false), SocksStatus::Reachable),
             Readiness::NotReady(Bootstrap::InProgress(40))
@@ -244,7 +250,10 @@ mod tests {
             Readiness::ControlUnavailable
         );
         assert_eq!(
-            status(ControlStatus::AuthenticationFailed, SocksStatus::InvalidResponse),
+            status(
+                ControlStatus::AuthenticationFailed,
+                SocksStatus::InvalidResponse
+            ),
             Readiness::Unavailable
         );
     }
