@@ -104,9 +104,10 @@ The policy (`DESIGN_QUESTIONS.md` T3-4) is one token per contact:
   CSPRNG. It contains nothing derived from an identity, an onion address,
   a fingerprint, a name or a contact number.
 - The caller receives an opaque `IsolationGroup` that has no accessor for
-  the bytes. The core keeps one per contact and passes it with every dial
-  to that contact, so reconnects may reuse a rendezvous circuit and
-  different contacts never share an isolation context.
+  the bytes and passes it with every dial. The core of Phase 4 keeps one
+  per contact, so that reconnects may reuse a rendezvous circuit and
+  different contacts never share an isolation context; in Phase 3 the
+  caller of `link::dial` supplies it, and `dev-chat` makes one per run.
 - The token is runtime state. It is never stored, logged or shown, and a
   new one is made after a restart.
 
@@ -253,7 +254,7 @@ stream that reaches Monolith regardless of what Tor did before.
 | --- | --- | --- | --- |
 | SOCKS | `127.0.0.1:9050` (configurable) | `127.0.0.1:9050` | `127.0.0.1:9050` |
 | Control | Unix socket `/run/tor/control` or `127.0.0.1:9051` | `127.0.0.1:951` (onion-grater) | Gateway `:9051` (onion-grater) |
-| Control auth | SAFECOOKIE | none (filter) | none (filter) |
+| Control auth | SAFECOOKIE, cookie file `/run/tor/control.authcookie` (configurable) | none (filter) | none (filter) |
 | Filter profile | none | `integrations/tails/` | `integrations/whonix/` |
 | Listener | `127.0.0.1`, OS-chosen port | `127.0.0.1:29170` | Workstation internal address, port 29170 |
 | Tor process | system service | Tails Tor | Gateway Tor |

@@ -43,7 +43,12 @@ command.
     AUTHENTICATE <64 hex digits>
     AUTHENTICATE
 
-- The first form carries the SAFECOOKIE client hash.
+- The first form carries the SAFECOOKIE client hash. The cookie file is
+  the one the configuration names (by default
+  `/run/tor/control.authcookie`); if `PROTOCOLINFO` names another file,
+  the endpoint is refused before `AUTHCHALLENGE`, and a cookie file that
+  is not a regular 32-byte file, or that its group or others can write, is
+  not read.
 - The second form is used only when the configuration says that the
   control endpoint is a trusted filter that answers authentication itself
   (onion-grater on Tails and Whonix, platform adapters of later phases).

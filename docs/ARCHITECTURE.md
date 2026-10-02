@@ -41,9 +41,11 @@ streams of the Tor backend under the sessions of `monolith-session`
 
 Three boundaries are enforced by dependencies, not by convention:
 
-- Only `monolith-tor` links a networking crate. Protocol and session code
-  is sans-IO: it consumes and produces byte buffers, and takes the time as
-  an argument, which also makes it directly fuzzable.
+- Only `monolith-tor` opens sockets. The lint in `clippy.toml` bans the
+  socket constructors and UDP everywhere else, because the standard
+  library and tokio would allow them in any crate. Protocol and session
+  code is sans-IO: it consumes and produces byte buffers, and takes the
+  time as an argument, which also makes it directly fuzzable.
 - Only `monolith-session` links the Noise library and the crates behind
   it. Contact logic, storage and front ends see plaintext messages on one
   side and opaque bytes for the stream on the other.

@@ -27,16 +27,22 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S1. No connection silently falls back to clearnet
 
-- Mechanism: `monolith-core` and `monolith-protocol` have no socket code and
-  no dependency that can open a socket. The only way to obtain a peer stream
+- Mechanism: only `monolith-tor` contains socket code. The standard
+  library and tokio could open sockets anywhere (Cargo unifies tokio's
+  `net` feature across the workspace), so `clippy.toml` bans the socket
+  constructors that take an address argument, and every UDP socket type,
+  in every crate; the two uses in `monolith-tor`, the SOCKS and control
+  connection and the loopback listener, pass a `SocketAddr` and are
+  allowed where they are. The only way to obtain a peer stream
   is `TorBackend::connect_onion` or `OnionService::accept`. `SystemTorBackend`
   opens exactly two kinds of connection: to the configured SOCKS endpoint and
   to the configured control endpoint, and binds one listener, on
   127.0.0.1. An `Endpoint` is a loopback address or an absolute socket
   path; anything else is refused when the configuration is read (the
-  Whonix-Gateway address belongs to the platform adapter of Phase 7). A
-  failed SOCKS connection is an error, never a trigger for another
-  transport.
+  Whonix-Gateway address belongs to the platform adapter of Phase 7).
+  `Endpoint` is opaque: only its validating constructors make one, and the
+  connection code checks the rule again. A failed SOCKS connection is an
+  error, never a trigger for another transport.
 - Tests: T-NET-1 (`tests/network/fail-closed.sh`: every network system
   call of the onion connection paths and of `monolith tor status`, with
   SOCKS present, absent, and in a namespace with only loopback, goes to a

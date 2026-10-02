@@ -456,8 +456,11 @@ streams per circuit act before Monolith sees a stream; see
 of service against an Onion Service.
 
 Since Phase 3 the network layer of the core enforces the budgets for
-inbound handshakes, unknown sessions and dials with semaphores, and the
-handshake, write and idle deadlines. The policies that need contacts and
+inbound handshakes (the accept loop), unknown sessions (`link::answer`
+closes a stranger for whom no slot is free) and dials (`link::dial` waits
+for a slot) with semaphores, and the handshake, write and idle deadlines.
+An accept loop survives listener errors such as too many open files: it
+pauses for `ACCEPT_BACKOFF` and goes on while the service is published. The policies that need contacts and
 rates (closing the oldest handshake, the rate buckets of section 6, the
 contact session budget) come with the application core of Phase 4. The
 session layer enforces what belongs to one stream: the message sizes, the
