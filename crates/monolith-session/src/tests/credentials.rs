@@ -1,7 +1,7 @@
 //! Changes of transport key over real sessions: a successor announced
 //! through the active key, its promotion when it is proven, the end of
-//! the sessions of the retired key, and two parties that rotate at the
-//! same time.
+//! the sessions of the retired key, the duplicate rule, and two parties
+//! that rotate at the same time.
 //!
 //! Each side's view of the other is a `Credentials` value, held by the
 //! test the way the contact store will hold it.
@@ -9,6 +9,7 @@
 use monolith_protocol::body::Message;
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::credential::{CredentialChange, Credentials};
+use monolith_protocol::duplicate::{Contender, Resolution, resolve};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::{ProtocolError, SessionState};
 
@@ -179,6 +180,50 @@ fn an_announcement_on_a_session_of_a_retired_key_proves_nothing() {
         CredentialChange::NoContinuity
     );
     assert!(alice_at_bob.authorized_successor().is_none());
+}
+
+#[test]
+fn the_duplicate_rule_never_keeps_a_session_of_a_retired_key() {
+    // Alice has the smaller identity key or Bob has; either way the T1
+    // session is older and would be the one probed and kept if only the
+    // preference counted. Its key was retired, so it loses.
+    let mut alice_at_bob = Credentials::new(card(ALICE));
+    let mut bob_at_alice = Credentials::new(card(BOB));
+    let (_, bob_t1) = confirmed_session(
+        &party(ALICE),
+        &party(BOB),
+        &card(BOB),
+        &mut bob_at_alice,
+        &mut alice_at_bob,
+    );
+    let successor = card_of(ALICE, T2, 2, false);
+    alice_at_bob.import(successor.clone()).unwrap();
+    alice_at_bob.confirm(&successor).unwrap();
+    let (_, bob_t2) = confirmed_session(
+        &party_with(ALICE, T2, 2),
+        &party(BOB),
+        &card(BOB),
+        &mut bob_at_alice,
+        &mut alice_at_bob,
+    );
+    let contender = |session: &AuthenticatedSession| Contender {
+        initiator: session.initiator(),
+        current: alice_at_bob.authorizes(session.peer_card()),
+    };
+    let older = contender(&bob_t1);
+    let newer = contender(&bob_t2);
+    assert!(!older.current);
+    assert!(newer.current);
+    let bob = card(BOB);
+    assert_eq!(
+        resolve(bob.identity(), card(ALICE).identity(), older, newer),
+        Ok(Resolution::CloseOlder)
+    );
+    // In the other order the retired one is the newer and is closed.
+    assert_eq!(
+        resolve(bob.identity(), card(ALICE).identity(), newer, older),
+        Ok(Resolution::CloseNewer)
+    );
 }
 
 #[test]

@@ -5,9 +5,13 @@
 //! `docs/PROTOCOL.md` section 14 decides which one stays. It looks only at
 //! confirmed sessions; an unauthenticated stream never takes part.
 //!
-//! The decision depends on the two identity keys and on who initiated each
-//! session, and on nothing else. When both sessions are alive, both ends
-//! therefore keep the same one without exchanging a message.
+//! Credentials come first. A session whose transport key is no longer the
+//! active credential of the contact is closed whatever the preference, so
+//! that the rule can never keep a session of a retired key over one of the
+//! active key. Among sessions of the active key, the decision depends on
+//! the two identity keys and on who initiated each session, and on nothing
+//! else. When both sessions are alive, both ends therefore keep the same
+//! one without exchanging a message.
 //!
 //! The one case that needs the network is a preferred session that may be
 //! dead. It is probed with an ordinary Ping and answered with its Pong
@@ -29,6 +33,27 @@ pub enum Initiator {
     Remote,
 }
 
+/// A confirmed session with a contact, as the duplicate rule sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Contender {
+    /// Which side opened the session.
+    pub initiator: Initiator,
+    /// Whether the transport key the session was authenticated with is
+    /// still the active credential of the contact
+    /// ([`crate::credential::Credentials::authorizes`]).
+    pub current: bool,
+}
+
+impl Contender {
+    /// A session of the active key.
+    pub const fn current(initiator: Initiator) -> Self {
+        Self {
+            initiator,
+            current: true,
+        }
+    }
+}
+
 /// What to do when a second session with the same contact is confirmed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Resolution {
@@ -38,20 +63,37 @@ pub enum Resolution {
     /// the local side having noticed. Send a Ping on it and wait up to
     /// `DUPLICATE_PROBE_TIMEOUT`. Then call [`after_probe`].
     ProbeOlder,
+    /// The newer session was made with a transport key that is no longer
+    /// active. Close it and keep the older one.
+    CloseNewer,
+    /// Neither session was made with the active transport key. Close both.
+    CloseBoth,
 }
 
 /// Decides between an older and a newer confirmed session with the same
 /// contact.
+///
+/// A session that is not [`Contender::current`] loses before the
+/// preference is looked at. Normally such a session was withdrawn when its
+/// key was retired and never gets here; this keeps the order of the two
+/// checks in the rule itself.
 ///
 /// Fails if the two identities are equal. A session with oneself is rejected
 /// long before this point, so that is an internal error, not a peer's doing.
 pub fn resolve(
     local: &IdentityPublicKey,
     remote: &IdentityPublicKey,
-    older: Initiator,
-    newer: Initiator,
+    older: Contender,
+    newer: Contender,
 ) -> Result<Resolution, ProtocolError> {
     let preferred = preferred_initiator(local, remote)?;
+    match (older.current, newer.current) {
+        (false, false) => return Ok(Resolution::CloseBoth),
+        (false, true) => return Ok(Resolution::CloseOlder),
+        (true, false) => return Ok(Resolution::CloseNewer),
+        (true, true) => {}
+    }
+    let (older, newer) = (older.initiator, newer.initiator);
     if older == newer {
         // A side opens a second session only after it considers the first
         // one dead, so the older session is stale.
@@ -105,6 +147,17 @@ mod tests {
         IdentitySecretKey::from_seed(&[seed; 32]).public_key()
     }
 
+    fn current(initiator: Initiator) -> Contender {
+        Contender::current(initiator)
+    }
+
+    fn retired(initiator: Initiator) -> Contender {
+        Contender {
+            initiator,
+            current: false,
+        }
+    }
+
     /// Two identities, the first with the smaller key.
     fn ordered_pair() -> (IdentityPublicKey, IdentityPublicKey) {
         let a = identity(1);
@@ -121,13 +174,14 @@ mod tests {
         newer: Initiator,
         local_is_small: bool,
     ) -> bool {
-        let kept = match resolve(local, remote, older, newer).unwrap() {
+        let kept = match resolve(local, remote, current(older), current(newer)).unwrap() {
             Resolution::CloseOlder => newer,
             // Both sessions are alive in this test, so the probe succeeds.
             Resolution::ProbeOlder => match after_probe(true) {
                 ProbeOutcome::CloseNewer => older,
                 ProbeOutcome::CloseOlder => newer,
             },
+            Resolution::CloseNewer | Resolution::CloseBoth => panic!("both are current"),
         };
         // "Local" on the small side and "Remote" on the large side both
         // mean "initiated by the small side".
@@ -152,7 +206,7 @@ mod tests {
         for (local, remote) in [(&small, &large), (&large, &small)] {
             for initiator in [Initiator::Local, Initiator::Remote] {
                 assert_eq!(
-                    resolve(local, remote, initiator, initiator),
+                    resolve(local, remote, current(initiator), current(initiator)),
                     Ok(Resolution::CloseOlder)
                 );
             }
@@ -164,20 +218,40 @@ mod tests {
         let (small, large) = ordered_pair();
         // On the small side: its own session is preferred.
         assert_eq!(
-            resolve(&small, &large, Initiator::Remote, Initiator::Local),
+            resolve(
+                &small,
+                &large,
+                current(Initiator::Remote),
+                current(Initiator::Local)
+            ),
             Ok(Resolution::CloseOlder)
         );
         assert_eq!(
-            resolve(&small, &large, Initiator::Local, Initiator::Remote),
+            resolve(
+                &small,
+                &large,
+                current(Initiator::Local),
+                current(Initiator::Remote)
+            ),
             Ok(Resolution::ProbeOlder)
         );
         // On the large side: the session the peer initiated is preferred.
         assert_eq!(
-            resolve(&large, &small, Initiator::Local, Initiator::Remote),
+            resolve(
+                &large,
+                &small,
+                current(Initiator::Local),
+                current(Initiator::Remote)
+            ),
             Ok(Resolution::CloseOlder)
         );
         assert_eq!(
-            resolve(&large, &small, Initiator::Remote, Initiator::Local),
+            resolve(
+                &large,
+                &small,
+                current(Initiator::Remote),
+                current(Initiator::Local)
+            ),
             Ok(Resolution::ProbeOlder)
         );
     }
@@ -208,7 +282,12 @@ mod tests {
         // T-DUP-7. The preferred session is half-open and does not answer.
         let (small, large) = ordered_pair();
         assert_eq!(
-            resolve(&small, &large, Initiator::Local, Initiator::Remote),
+            resolve(
+                &small,
+                &large,
+                current(Initiator::Local),
+                current(Initiator::Remote)
+            ),
             Ok(Resolution::ProbeOlder)
         );
         assert_eq!(after_probe(false), ProbeOutcome::CloseOlder);
@@ -216,10 +295,63 @@ mod tests {
     }
 
     #[test]
+    fn a_session_of_a_retired_key_never_wins() {
+        // Credentials first, preference second. Whichever side is
+        // preferred and whichever session is older, the session whose key
+        // is no longer active is closed, and the probe is not asked for.
+        let (small, large) = ordered_pair();
+        let directions = [Initiator::Local, Initiator::Remote];
+        for (local, remote) in [(&small, &large), (&large, &small)] {
+            for older in directions {
+                for newer in directions {
+                    assert_eq!(
+                        resolve(local, remote, retired(older), current(newer)),
+                        Ok(Resolution::CloseOlder)
+                    );
+                    assert_eq!(
+                        resolve(local, remote, current(older), retired(newer)),
+                        Ok(Resolution::CloseNewer)
+                    );
+                    assert_eq!(
+                        resolve(local, remote, retired(older), retired(newer)),
+                        Ok(Resolution::CloseBoth)
+                    );
+                }
+            }
+        }
+        // The case where the preference alone would keep the retired one:
+        // on the small side, an older session it initiated against a newer
+        // one of the peer is probed when both are current.
+        assert_eq!(
+            resolve(
+                &small,
+                &large,
+                current(Initiator::Local),
+                current(Initiator::Remote)
+            ),
+            Ok(Resolution::ProbeOlder)
+        );
+        assert_eq!(
+            resolve(
+                &small,
+                &large,
+                retired(Initiator::Local),
+                current(Initiator::Remote)
+            ),
+            Ok(Resolution::CloseOlder)
+        );
+    }
+
+    #[test]
     fn a_session_with_oneself_is_an_error() {
         let me = identity(1);
         assert_eq!(
-            resolve(&me, &me, Initiator::Local, Initiator::Remote),
+            resolve(
+                &me,
+                &me,
+                current(Initiator::Local),
+                current(Initiator::Remote)
+            ),
             Err(ProtocolError::InvalidValue)
         );
     }

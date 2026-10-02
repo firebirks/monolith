@@ -30,7 +30,9 @@ use monolith_protocol::card::{
     CardChange, ContactCard, EndpointSet, InvitationCapability, evaluate_card,
 };
 use monolith_protocol::credential::{CredentialChange, Credentials};
-use monolith_protocol::duplicate::{Initiator, ProbeOutcome, Resolution, after_probe, resolve};
+use monolith_protocol::duplicate::{
+    Contender, Initiator, ProbeOutcome, Resolution, after_probe, resolve,
+};
 use monolith_protocol::frame::{
     FrameParams, OuterDecoder, decode_plaintext, encode_outer, encode_plaintext,
 };
@@ -1228,12 +1230,15 @@ proptest! {
         };
         let kept = |local: &IdentityPublicKey, remote: &IdentityPublicKey, own_first: bool| {
             let (older, newer) = order(own_first);
-            match resolve(local, remote, older, newer).unwrap() {
+            match resolve(local, remote, Contender::current(older), Contender::current(newer))
+                .unwrap()
+            {
                 Resolution::CloseOlder => newer,
                 Resolution::ProbeOlder => match after_probe(true) {
                     ProbeOutcome::CloseNewer => older,
                     ProbeOutcome::CloseOlder => newer,
                 },
+                Resolution::CloseNewer | Resolution::CloseBoth => panic!("both are current"),
             }
         };
         let kept_by_a = kept(&a, &b, a_sees_own_first);
