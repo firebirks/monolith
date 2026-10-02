@@ -121,9 +121,10 @@ pub enum Expiry {
     /// `FRAME_READ_TIMEOUT`, or no frame completed within `IDLE_TIMEOUT`.
     /// The session is over; nothing is sent and the stream is closed.
     Silent,
-    /// The session reached its age limit, or stayed in
-    /// `AuthenticatedUnknown` longer than its peer is given there. The
-    /// session is over after this Close, if there is one to write.
+    /// The session reached its age limit, stayed in `AuthenticatedUnknown`
+    /// longer than its peer is given there, or had a Close due that the
+    /// caller did not write. The session is over after this Close, if
+    /// there is one to write.
     Close(Option<Vec<u8>>),
 }
 

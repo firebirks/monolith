@@ -144,14 +144,17 @@ reconnect schedule of section 7 decides when to try again.
 
 After the handshake, `AuthenticatedSession::deadline` gives the earliest
 of the deadlines that apply to a session: the frame that has begun, the
-idle limit, the age limit of section 3, and while the session is in
-`AuthenticatedUnknown` the two unknown-session limits. `link::Link` waits
-for that moment alongside the stream and a withdrawal, so each deadline
-fires while bytes are awaited and does not depend on a frame completing.
-The frame and idle deadlines end the session without a Close; the age and
-unknown-session deadlines end it with one, as the local side ends a
-session on purpose. Whatever ends a link, it gives back its slot of
-`MAX_UNKNOWN_SESSIONS` at once.
+idle limit, the age limit of section 3, while the session is in
+`AuthenticatedUnknown` the two unknown-session limits, and a Close the
+session logic decided after the first message of a peer that is not a
+contact, which is due at once. `link::Link` waits for that moment
+alongside the stream and a withdrawal, so each deadline fires while bytes
+are awaited and does not depend on a frame completing; the Close after a
+first message it writes before it returns the message. The frame and idle
+deadlines end the session without a Close; the others end it with one, as
+the local side ends a session on purpose. Whatever ends a link, it gives
+back its slot of `MAX_UNKNOWN_SESSIONS` as soon as the Close, if any, is
+written, within `FRAME_WRITE_TIMEOUT`.
 
 ## 5. Concurrency budgets (local)
 
@@ -199,7 +202,8 @@ oldest that has not yet sent its message is closed. Until the application
 core of Phase 4, which sees every link, `link::answer` closes the newcomer
 instead, without sending anything. The deadlines of section 4 bound how
 long a slot is held: `UNKNOWN_FIRST_MESSAGE_TIMEOUT` for a stranger that
-sends nothing, and no longer than its first message for one that does.
+sends nothing, and for one that does, until its first message and the
+Close after it, written within `FRAME_WRITE_TIMEOUT`.
 
 When the contact session budget is full, no further contact session is
 accepted or dialed until one ends. With more than 256 contacts online at the

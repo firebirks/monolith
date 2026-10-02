@@ -126,8 +126,10 @@ fn now() -> Instant {
 /// the contact state calls [`Self::withdraw`]. The link then delivers
 /// nothing more: a frame still in its buffer is dropped, a link that
 /// waits for the peer wakes up, a write in progress ends, and the link
-/// ends, with a Close unless part of a frame may already be on the stream.
-/// Clones refer to the same link.
+/// ends. A withdrawal seen before a send or a receive starts is ended with
+/// a Close; one that comes while a send is under way, even before its
+/// first byte, ends the link without one, as a failed stream. Clones refer
+/// to the same link.
 ///
 /// [`Self::is_ended`] turns true when the link is dropped, or when it never
 /// came to exist because `answer` refused the peer after the admission, so

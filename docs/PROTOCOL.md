@@ -1411,7 +1411,8 @@ If no message arrives within `UNKNOWN_FIRST_MESSAGE_TIMEOUT` of the
 handshake, the session is closed with Close, as after a first message.
 When `MAX_UNKNOWN_SESSIONS` such sessions exist and another peer
 authenticates, the oldest one that has not yet sent its message is closed
-to make room.
+to make room (`RESOURCE_LIMITS.md` section 5 says what the implementation
+does before the application core of Phase 4).
 
 The quota per capability keeps one capability, leaked or published, from
 filling the whole queue: requests that carry it occupy at most
