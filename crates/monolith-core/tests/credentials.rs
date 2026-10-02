@@ -286,7 +286,14 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
             );
         }
 
-        // A message on the T1 session that Bob has not read yet.
+        // Two messages that arrive together. Bob takes the first; the
+        // second waits in his buffer. A third is still on the stream.
+        alice_link.link.send(&chat("first")).await.unwrap();
+        alice_link.link.send(&chat("buffered")).await.unwrap();
+        assert_eq!(
+            bob_link.link.receive().await.unwrap().message,
+            chat("first")
+        );
         alice_link.link.send(&chat("in flight")).await.unwrap();
 
         // Alice dials with T2. Bob's admission promotes T2 and withdraws
@@ -299,7 +306,7 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
         assert!(bob_link.link.withdrawal().is_withdrawn());
         let mut alice_t2_link = alice_end.unwrap();
 
-        // The message in flight is not delivered.
+        // Neither the buffered message nor the one in flight is delivered.
         assert_eq!(
             bob_link.link.receive().await.err(),
             Some(LinkError::Withdrawn)

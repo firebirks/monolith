@@ -135,8 +135,7 @@ impl Withdrawal {
     pub fn withdraw(&self) {
         self.0.withdrawn.store(true, Ordering::SeqCst);
         // One task runs the link. If it is not waiting now, the permit is
-        // kept for its next wait; the flag is checked before every wait in
-        // any case.
+        // kept and ends its next wait at once.
         self.0.wake.notify_one();
     }
 
@@ -367,9 +366,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// protocol, the stream ends, nothing arrives for `IDLE_TIMEOUT`, or
     /// the session is withdrawn. After a failure the session is over.
     ///
-    /// A withdrawal is looked at before each frame, before a message is
-    /// returned, and while the link waits for the peer. A message that has
-    /// not been returned when the session is withdrawn is not delivered.
+    /// A withdrawal is looked at before each frame is taken from the
+    /// buffer, and it ends a wait for the peer, also when it came before
+    /// the wait began. A frame that was not taken when the session was
+    /// withdrawn is not delivered.
     pub async fn receive(&mut self) -> Result<Received, LinkError> {
         loop {
             while self.start < self.end {
@@ -383,14 +383,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
                 let (used, received) = self.session.receive(pending, now())?;
                 self.start = self.start.saturating_add(used).min(self.end);
                 if let Some(received) = received {
-                    if self.withdrawal.is_withdrawn() {
-                        return Err(self.end_withdrawn().await);
-                    }
                     return Ok(received);
                 }
-            }
-            if self.withdrawal.is_withdrawn() {
-                return Err(self.end_withdrawn().await);
             }
             // Everything read so far was taken; only now is more read, or
             // the wait ends because the session was withdrawn.
