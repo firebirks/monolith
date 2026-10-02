@@ -9,7 +9,8 @@
 use std::collections::VecDeque;
 
 use monolith_protocol::body::Message;
-use monolith_protocol::card::{CardChange, ContactCard, InvitationCapability};
+use monolith_protocol::card::{ContactCard, InvitationCapability};
+use monolith_protocol::credential::{CredentialChange, Credentials};
 use monolith_protocol::session::{Action, Admission, PeerRecord, Standing};
 use monolith_protocol::{ProtocolError, SessionState};
 
@@ -180,17 +181,21 @@ fn usual(alice_holds_bob: Standing, bob_record: PeerRecord<'_>) -> Run {
     Run::new(&party(ALICE), alice_holds_bob, bob_record)
 }
 
+/// What Bob holds of Alice: her usual card, active.
+fn held_alice() -> Credentials {
+    Credentials::new(card(ALICE))
+}
+
 #[test]
 fn accepted_contacts_confirm_each_other() {
-    let alice_card = card(ALICE);
-    let run = usual(Standing::Accepted, PeerRecord::Accepted(&alice_card));
+    let run = usual(Standing::Accepted, PeerRecord::Accepted(&mut held_alice()));
     assert!(run.confirmed());
     assert_eq!(
         run.alice_actions,
         vec![Action::SendContactAccept, Action::Confirmed]
     );
     assert_eq!(run.bob_actions, run.alice_actions);
-    assert_eq!(run.admission.card, Some(CardChange::Unchanged));
+    assert_eq!(run.admission.change, Some(CredentialChange::Unchanged));
     // One frame of one block in each direction.
     assert_eq!(run.from_alice.len(), 1);
     assert_eq!(run.from_bob.len(), 1);
@@ -201,8 +206,10 @@ fn accepted_contacts_confirm_each_other() {
 #[test]
 fn crossing_requests_accept_each_other() {
     // T-CONTACT-2 over real sessions.
-    let alice_card = card(ALICE);
-    let run = usual(Standing::Requested, PeerRecord::Requested(&alice_card));
+    let run = usual(
+        Standing::Requested,
+        PeerRecord::Requested(&mut held_alice()),
+    );
     assert!(run.confirmed());
     let expected = vec![
         Action::SendContactRequest,
@@ -220,7 +227,6 @@ fn crossing_requests_accept_each_other() {
 fn every_pair_of_records_ends_consistently() {
     // A session is confirmed on both sides or on neither, and exactly
     // when each side holds the other as requested or accepted.
-    let alice_card = card(ALICE);
     let standings = [
         Standing::None,
         Standing::Declined,
@@ -228,17 +234,18 @@ fn every_pair_of_records_ends_consistently() {
         Standing::Requested,
         Standing::Accepted,
     ];
-    let records = [
-        PeerRecord::None,
-        PeerRecord::Declined,
-        PeerRecord::Blocked,
-        PeerRecord::Requested(&alice_card),
-        PeerRecord::Accepted(&alice_card),
-    ];
     for alice_holds_bob in standings {
-        for bob_record in records {
+        for bob_holds_alice in standings {
+            let mut held = held_alice();
+            let bob_record = match bob_holds_alice {
+                Standing::Declined => PeerRecord::Declined,
+                Standing::Blocked => PeerRecord::Blocked,
+                Standing::Requested => PeerRecord::Requested(&mut held),
+                Standing::Accepted => PeerRecord::Accepted(&mut held),
+                _ => PeerRecord::None,
+            };
             let run = usual(alice_holds_bob, bob_record);
-            let pair = format!("{alice_holds_bob:?} / {bob_record:?}");
+            let pair = format!("{alice_holds_bob:?} / {bob_holds_alice:?}");
             let expected =
                 alice_holds_bob.is_contact_record() && run.admission.standing.is_contact_record();
             assert_eq!(run.confirmed(), expected, "{pair}");
@@ -266,12 +273,15 @@ fn a_card_older_than_the_pinned_one_does_not_open_a_contact_session() {
     // transport key it states and a valid signature, and is still not a
     // contact for this session.
     let pinned = card_of(ALICE, ALICE, 2, false);
-    let run = usual(Standing::Accepted, PeerRecord::Accepted(&pinned));
+    let run = usual(
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut Credentials::new(pinned.clone())),
+    );
     assert_eq!(
         run.admission,
         Admission {
             standing: Standing::StaleCard,
-            card: Some(CardChange::Stale)
+            change: Some(CredentialChange::Stale)
         }
     );
     assert!(!run.confirmed());
@@ -285,19 +295,35 @@ fn a_card_older_than_the_pinned_one_does_not_open_a_contact_session() {
     assert_eq!(run.from_bob.len(), 1);
 
     // The same for a pending request.
-    let run = usual(Standing::Requested, PeerRecord::Requested(&pinned));
+    let run = usual(
+        Standing::Requested,
+        PeerRecord::Requested(&mut Credentials::new(pinned)),
+    );
     assert_eq!(run.admission.standing, Standing::StaleCard);
     assert!(!run.confirmed());
     assert_eq!(run.bob_actions, vec![Action::SendClose]);
 }
 
+/// What Bob holds of Alice after her key of seed `ALICE` was retired: the
+/// card of epoch 2 with the key of seed `MALLORY` is active.
+fn held_alice_after_rotation() -> Credentials {
+    let mut held = held_alice();
+    let successor = card_of(ALICE, MALLORY, 2, false);
+    assert_eq!(
+        held.import(successor.clone()),
+        Ok(CredentialChange::Pending)
+    );
+    assert_eq!(held.confirm(&successor), Ok(CredentialChange::Promoted));
+    held
+}
+
 #[test]
 fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one() {
-    // Alice replaced her transport key: card of epoch 2 with the key of
-    // another seed, which Bob has pinned. Someone who obtained the old
-    // private key dials Bob with the old card.
-    let pinned = card_of(ALICE, MALLORY, 2, false);
-    let run = usual(Standing::Accepted, PeerRecord::Accepted(&pinned));
+    // Alice replaced her transport key, and Bob has made the new one
+    // active. Someone who obtained the old private key dials Bob with the
+    // old card.
+    let mut held = held_alice_after_rotation();
+    let run = usual(Standing::Accepted, PeerRecord::Accepted(&mut held));
     assert_eq!(run.admission.standing, Standing::StaleCard);
     assert!(!run.confirmed());
     assert!(!run.bob_actions.contains(&Action::Deliver));
@@ -305,7 +331,11 @@ fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one()
 
     // A fresh attempt that goes straight to a chat message is a violation,
     // as it is for any peer that is not a contact.
-    let mut run = Run::new(&party(ALICE), Standing::None, PeerRecord::Accepted(&pinned));
+    let mut run = Run::new(
+        &party(ALICE),
+        Standing::None,
+        PeerRecord::Accepted(&mut held),
+    );
     run.alice_breaks_the_rules(&chat("as Alice"));
     assert_eq!(
         run.violation,
@@ -316,63 +346,94 @@ fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one()
     );
     assert!(run.bob_actions.is_empty());
 
-    // The holder of the new key, with the new card, is the contact.
-    let new_alice = party_with(ALICE, MALLORY, 2);
-    assert_eq!(new_alice.card(), &pinned);
+    // The retired key with a card of a higher epoch, which whoever also
+    // holds the identity key could sign, is refused as well.
     let run = Run::new(
-        &new_alice,
+        &party_with(ALICE, ALICE, 7),
         Standing::Accepted,
-        PeerRecord::Accepted(&pinned),
+        PeerRecord::Accepted(&mut held),
     );
-    assert_eq!(run.admission.card, Some(CardChange::Unchanged));
-    assert!(run.confirmed());
-}
-
-#[test]
-fn a_retired_key_is_refused_as_soon_as_the_successor_card_was_shown() {
-    // Bob has pinned Alice's first card. Alice replaces her transport key
-    // and dials Bob with the new card. Bob's user has not confirmed the
-    // change, and may never do so.
-    let pinned = card(ALICE);
-    let successor = card_of(ALICE, MALLORY, 2, false);
-    let alice = party_with(ALICE, MALLORY, 2);
-    assert_eq!(alice.card(), &successor);
-    let run = Run::new(&alice, Standing::Accepted, PeerRecord::Accepted(&pinned));
-    assert_eq!(run.admission.card, Some(CardChange::Newer));
-    assert!(run.confirmed());
-
-    // From that moment the newest card Bob holds of Alice is the
-    // successor, and it is what later cards are compared with. Whoever
-    // dials with the first card and the key it states is not a contact,
-    // although that card is still the pinned one.
-    let newest_held = run.bob.peer_card().clone();
-    assert_eq!(newest_held, successor);
-    let run = usual(Standing::Accepted, PeerRecord::Accepted(&newest_held));
     assert_eq!(
         run.admission,
         Admission {
             standing: Standing::StaleCard,
-            card: Some(CardChange::Stale)
+            change: Some(CredentialChange::Stale)
+        }
+    );
+
+    // The holder of the new key, with the new card, is the contact.
+    let new_alice = party_with(ALICE, MALLORY, 2);
+    let run = Run::new(
+        &new_alice,
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut held),
+    );
+    assert_eq!(run.admission.change, Some(CredentialChange::Unchanged));
+    assert!(run.confirmed());
+}
+
+#[test]
+fn a_new_key_shown_without_continuity_does_not_lock_out_the_active_one() {
+    // Bob holds Alice's first card. A card of epoch 2 with another key,
+    // signed by Alice's identity key, is presented in a handshake that
+    // proves the new key. Nothing announced it on a session made with
+    // the active key: it may come from whoever copied Alice's identity
+    // key. It is held as pending and gives no standing.
+    let mut held = held_alice();
+    let successor = card_of(ALICE, MALLORY, 2, false);
+    let run = Run::new(
+        &party_with(ALICE, MALLORY, 2),
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut held),
+    );
+    assert_eq!(
+        run.admission,
+        Admission {
+            standing: Standing::PendingSuccessor,
+            change: Some(CredentialChange::Pending)
         }
     );
     assert!(!run.confirmed());
     assert_eq!(run.bob_actions, vec![Action::SendClose]);
+    assert_eq!(held.pending_successor(), Some(&successor));
+
+    // The holder of the active key is still the contact.
+    let run = usual(Standing::Accepted, PeerRecord::Accepted(&mut held));
+    assert_eq!(run.admission.change, Some(CredentialChange::Unchanged));
+    assert!(run.confirmed());
+
+    // Once the user confirms the new key, it is the contact, and the old
+    // one is refused.
+    assert_eq!(held.confirm(&successor), Ok(CredentialChange::Promoted));
+    let run = Run::new(
+        &party_with(ALICE, MALLORY, 2),
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut held),
+    );
+    assert!(run.confirmed());
+    let run = usual(Standing::Accepted, PeerRecord::Accepted(&mut held));
+    assert_eq!(run.admission.standing, Standing::StaleCard);
+    assert!(!run.confirmed());
 }
 
 #[test]
 fn a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session() {
-    // Alice dials Bob with the card she has pinned. While the dial is in
-    // progress a newer card of Bob reaches her, with another transport
-    // key. The responder has then proved a key that Alice knows to be
-    // retired: the session exists, and it is not a contact session.
+    // Alice dials Bob with the card she holds. While the dial is in
+    // progress Bob's key changes for her: a newer key became active. The
+    // responder has then proved a key that Alice no longer accepts: the
+    // session exists, and it is not a contact session. The record passed
+    // here is the one Alice holds after the handshake.
     let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-    let newer = card_of(BOB, MALLORY, 2, false);
-    let (alice, admission, first) = outbound.admit(PeerRecord::Accepted(&newer)).unwrap();
+    let mut held = Credentials::new(card(BOB));
+    let successor = card_of(BOB, MALLORY, 2, false);
+    held.import(successor.clone()).unwrap();
+    held.confirm(&successor).unwrap();
+    let (alice, admission, first) = outbound.admit(PeerRecord::Accepted(&mut held)).unwrap();
     assert_eq!(
         admission,
         Admission {
             standing: Standing::StaleCard,
-            card: Some(CardChange::Stale)
+            change: Some(CredentialChange::Stale)
         }
     );
     assert_eq!(first, Vec::new());
@@ -381,23 +442,27 @@ fn a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session() {
         assert!(!alice.may_send(message_type), "{message_type:?}");
     }
 
-    // The card that was dialed is the newest one held: the record decides.
+    // The card that was dialed states the active key: the record decides.
     let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-    let (_, admission, first) = outbound.admit(PeerRecord::Accepted(&card(BOB))).unwrap();
-    assert_eq!(admission.card, Some(CardChange::Unchanged));
+    let (_, admission, first) = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+        .unwrap();
+    assert_eq!(admission.change, Some(CredentialChange::Unchanged));
     assert_eq!(first, vec![Action::SendContactAccept]);
 
     // A record without a card: no comparison.
     let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
     let (_, admission, first) = outbound.admit(PeerRecord::Blocked).unwrap();
     assert_eq!(admission.standing, Standing::Blocked);
-    assert_eq!(admission.card, None);
+    assert_eq!(admission.change, None);
     assert_eq!(first, Vec::new());
 
     // The record of another identity is refused.
     let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
     assert_eq!(
-        outbound.admit(PeerRecord::Accepted(&card(MALLORY))).err(),
+        outbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(card(MALLORY))))
+            .err(),
         Some(SessionError::Protocol(ProtocolError::IdentityMismatch))
     );
 }
@@ -408,43 +473,54 @@ fn a_card_that_contradicts_the_pinned_one_does_not_open_a_contact_session() {
     // statements for one epoch. Bob keeps what he has and is told about
     // the conflict; the peer is told nothing.
     let pinned = card_of(ALICE, MALLORY, 1, false);
-    let run = usual(Standing::Accepted, PeerRecord::Accepted(&pinned));
+    let run = usual(
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut Credentials::new(pinned)),
+    );
     assert_eq!(
         run.admission,
         Admission {
             standing: Standing::StaleCard,
-            card: Some(CardChange::Conflict)
+            change: Some(CredentialChange::Conflict)
         }
     );
     assert!(!run.confirmed());
 
     // Same epoch and transport key, another endpoint.
     let pinned = card_with(ALICE, ALICE, 1, MALLORY, false);
-    let run = usual(Standing::Accepted, PeerRecord::Accepted(&pinned));
-    assert_eq!(run.admission.card, Some(CardChange::Conflict));
+    let run = usual(
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut Credentials::new(pinned)),
+    );
+    assert_eq!(run.admission.change, Some(CredentialChange::Conflict));
     assert_eq!(run.admission.standing, Standing::StaleCard);
 }
 
 #[test]
-fn a_newer_card_keeps_the_contact_and_is_reported_as_a_pending_change() {
-    // Alice presents a card of epoch 3 with a new transport key; Bob has
-    // pinned epoch 1. The handshake proves that she holds the new key, and
-    // the card is signed by her identity. The session is a contact
-    // session, and the change of what is pinned is left to the user.
-    let pinned = card(ALICE);
-    let newer = card_of(ALICE, MALLORY, 3, false);
-    let alice = party_with(ALICE, MALLORY, 3);
-    assert_eq!(alice.card(), &newer);
-    let run = Run::new(&alice, Standing::Accepted, PeerRecord::Accepted(&pinned));
+fn a_newer_card_with_the_active_key_keeps_the_contact() {
+    // Alice presents a card of epoch 3 with her current key and a new
+    // endpoint; Bob holds epoch 1. The transport credential did not
+    // change. The session is a contact session, the card is the active
+    // one from now on, and where Bob dials is left to the user.
+    let mut held = held_alice();
+    let alice = LocalParty::issue(
+        &crate::testing::identity_secret(ALICE),
+        crate::testing::transport_secret(ALICE),
+        monolith_identity::EndpointEpoch::new(3).unwrap(),
+        monolith_protocol::card::EndpointSet::single(crate::testing::endpoint(MALLORY)),
+    )
+    .unwrap();
+    let run = Run::new(&alice, Standing::Accepted, PeerRecord::Accepted(&mut held));
     assert_eq!(
         run.admission,
         Admission {
             standing: Standing::Accepted,
-            card: Some(CardChange::Newer)
+            change: Some(CredentialChange::Advanced)
         }
     );
     assert!(run.confirmed());
-    assert_eq!(run.bob.peer_card(), &newer);
+    assert_eq!(held.active(), alice.card());
+    assert!(held.retired().is_none());
 }
 
 #[test]
@@ -456,19 +532,38 @@ fn peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason() {
     // Alice's side is told to do.
     let newer = card_of(ALICE, ALICE, 2, false);
     let conflicting = card_of(ALICE, MALLORY, 1, false);
-    let records = [
-        PeerRecord::None,
-        PeerRecord::Declined,
-        PeerRecord::Blocked,
-        PeerRecord::Accepted(&newer),
-        PeerRecord::Requested(&newer),
-        PeerRecord::Accepted(&conflicting),
+    let mut held_newer = Credentials::new(newer);
+    let mut held_conflicting = Credentials::new(conflicting);
+    let cases = [
+        "none",
+        "declined",
+        "blocked",
+        "accepted, newer",
+        "requested, newer",
+        "accepted, conflicting",
     ];
+    fn record<'a>(
+        case: &str,
+        newer: &'a mut Credentials,
+        conflicting: &'a mut Credentials,
+    ) -> PeerRecord<'a> {
+        match case {
+            "declined" => PeerRecord::Declined,
+            "blocked" => PeerRecord::Blocked,
+            "accepted, newer" => PeerRecord::Accepted(newer),
+            "requested, newer" => PeerRecord::Requested(newer),
+            "accepted, conflicting" => PeerRecord::Accepted(conflicting),
+            _ => PeerRecord::None,
+        }
+    }
     for alice_holds_bob in [Standing::None, Standing::Requested, Standing::Accepted] {
         let reference = usual(alice_holds_bob, PeerRecord::None);
-        for record in records {
-            let run = usual(alice_holds_bob, record);
-            let case = format!("{alice_holds_bob:?} against {record:?}");
+        for name in cases {
+            let run = usual(
+                alice_holds_bob,
+                record(name, &mut held_newer, &mut held_conflicting),
+            );
+            let case = format!("{alice_holds_bob:?} against {name}");
             assert!(!run.admission.standing.is_contact_record(), "{case}");
             assert_eq!(run.from_bob, reference.from_bob, "{case}");
             assert_eq!(run.alice_actions, reference.alice_actions, "{case}");
@@ -494,8 +589,11 @@ fn peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason() {
 
     // A peer that breaks the rules gets the same treatment in every case
     // as well: the stream is closed and nothing is written.
-    for record in records {
-        let mut run = usual(Standing::None, record);
+    for name in cases {
+        let mut run = usual(
+            Standing::None,
+            record(name, &mut held_newer, &mut held_conflicting),
+        );
         run.alice_breaks_the_rules(&chat("hello"));
         assert_eq!(
             run.violation,
@@ -503,9 +601,25 @@ fn peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason() {
                 Side::Bob,
                 SessionError::Protocol(ProtocolError::MessageNotPermitted)
             )),
-            "{record:?}"
+            "{name}"
         );
-        assert!(run.from_bob.is_empty(), "{record:?}");
+        assert!(run.from_bob.is_empty(), "{name}");
+    }
+
+    // A new key without continuity: the peer sees what a stranger with
+    // that key sees.
+    let successor = party_with(ALICE, MALLORY, 2);
+    for alice_holds_bob in [Standing::None, Standing::Requested, Standing::Accepted] {
+        let reference = Run::new(&successor, alice_holds_bob, PeerRecord::None);
+        let run = Run::new(
+            &successor,
+            alice_holds_bob,
+            PeerRecord::Accepted(&mut held_alice()),
+        );
+        assert_eq!(run.admission.standing, Standing::PendingSuccessor);
+        assert_eq!(run.from_bob, reference.from_bob, "{alice_holds_bob:?}");
+        assert_eq!(run.alice_actions, reference.alice_actions);
+        assert_eq!(run.bob.state(), reference.bob.state());
     }
 }
 
@@ -615,9 +729,9 @@ fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
     // The side that was dialed asks with the capability of the card it
     // holds of the peer. Bob imported a card of Alice with a capability,
     // and Alice dialed first.
-    let held = card_inviting(ALICE, given);
+    let mut held = Credentials::new(card_inviting(ALICE, given));
     let (_, inbound, _) = handshake(&party(ALICE), &party(BOB));
-    let (mut bob, _, first) = inbound.admit(PeerRecord::Requested(&held)).unwrap();
+    let (mut bob, _, first) = inbound.admit(PeerRecord::Requested(&mut held)).unwrap();
     assert_eq!(first, vec![Action::SendContactRequest]);
     assert_eq!(
         bob.send(&request_with(card(BOB), None), start()).err(),
@@ -656,10 +770,11 @@ fn nothing_is_sent_on_a_confirmed_session_before_the_local_accept() {
     // The peer's ContactAccept confirms the session on this side. The
     // peer confirms it when it sees ours, and takes application messages
     // only then. So ours goes first.
-    let alice_card = card(ALICE);
     let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
     let (mut alice, _) = admit_outbound(outbound, Standing::Accepted);
-    let (mut bob, _, _) = inbound.admit(PeerRecord::Accepted(&alice_card)).unwrap();
+    let (mut bob, _, _) = inbound
+        .admit(PeerRecord::Accepted(&mut held_alice()))
+        .unwrap();
 
     // Bob's accept arrives before Alice has sent hers.
     let from_bob = bob.send(&Message::ContactAccept, start()).unwrap();
@@ -687,15 +802,16 @@ fn nothing_is_sent_on_a_confirmed_session_before_the_local_accept() {
 fn a_record_of_another_identity_is_refused() {
     let (_, inbound, _) = handshake(&party(ALICE), &party(BOB));
     assert_eq!(
-        inbound.admit(PeerRecord::Accepted(&card(MALLORY))).err(),
+        inbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(card(MALLORY))))
+            .err(),
         Some(SessionError::Protocol(ProtocolError::IdentityMismatch))
     );
 }
 
 #[test]
 fn a_contact_that_is_blocked_while_connected_sees_an_ordinary_close() {
-    let alice_card = card(ALICE);
-    let mut run = usual(Standing::Accepted, PeerRecord::Accepted(&alice_card));
+    let mut run = usual(Standing::Accepted, PeerRecord::Accepted(&mut held_alice()));
     assert!(run.confirmed());
     let close = run.bob.block_peer().unwrap();
     assert_eq!(run.bob.standing(), Standing::Blocked);

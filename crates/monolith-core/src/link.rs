@@ -7,6 +7,15 @@
 //! nothing about it, the onion address included, counts as authentication.
 //! What a peer may do afterwards is decided by its record, as before.
 //!
+//! The record is read when the handshake is over and not earlier. `dial`
+//! and `answer` take an admission function, which they call once, after
+//! the last wait: the dial budget, the Tor stream and the three handshake
+//! messages are behind it. The function receives the authenticated peer
+//! and makes the session from the contact state as it is at that moment,
+//! in one synchronous step. Nothing a dial captured before it started can
+//! decide the standing of the peer.
+
+//!
 //! Every step is bounded: the handshake by `HANDSHAKE_TIMEOUT`, each frame
 //! write by `FRAME_WRITE_TIMEOUT`, silence by `IDLE_TIMEOUT`. Reads go into
 //! one fixed buffer, and nothing more is read until the session has taken
@@ -22,13 +31,13 @@ use monolith_protocol::limits::{
     FRAME_WRITE_TIMEOUT, HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN,
     HANDSHAKE_TIMEOUT, IDLE_TIMEOUT,
 };
-use monolith_protocol::session::{Action, Admission, PeerRecord};
+use monolith_protocol::session::{Action, Admission};
 use tokio::sync::OwnedSemaphorePermit;
 
 use crate::budget::Budgets;
 use monolith_session::{
-    AuthenticatedSession, HandshakeInitiator, HandshakeResponder, LocalParty, MessageBuffer,
-    Received, SessionError,
+    Admitted, AuthenticatedSession, HandshakeInitiator, HandshakeResponder, InboundPeer,
+    LocalParty, MessageBuffer, OutboundPeer, Received, SessionError,
 };
 use monolith_tor::{IsolationGroup, TorBackend, TorError};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -144,18 +153,29 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 }
 
 /// Dials the first endpoint of `card` through `backend` and runs the
-/// initiator's handshake. `record` is what the local side holds about the
-/// identity of `card`; `isolation` is that contact's isolation group. A
+/// initiator's handshake. `isolation` is that contact's isolation group. A
 /// dial waits for a slot in the budget of `MAX_CONCURRENT_DIALS` and holds
 /// it through the SOCKS negotiation and the handshake.
-pub async fn dial<B: TorBackend>(
+///
+/// `admit` is called once, when the handshake is complete and nothing is
+/// left to wait for. It looks up what the local side holds about the
+/// identity of `card` as it is then, admits the peer with
+/// [`OutboundPeer::admit`], and returns what that returned, in one step on
+/// the contact state.
+/// The record is never taken before the dial: a key that was retired while
+/// the dial was in progress gives no contact session.
+pub async fn dial<B, F>(
     backend: &B,
     budgets: &Budgets,
     local: &LocalParty,
     card: &ContactCard,
-    record: PeerRecord<'_>,
     isolation: &IsolationGroup,
-) -> Result<Established<B::Stream>, LinkError> {
+    admit: F,
+) -> Result<Established<B::Stream>, LinkError>
+where
+    B: TorBackend,
+    F: FnOnce(OutboundPeer) -> Result<Admitted, SessionError>,
+{
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     let endpoint = *card.endpoints().first();
     let mut stream = backend
@@ -168,7 +188,8 @@ pub async fn dial<B: TorBackend>(
         let message_2 = read_message::<_, HANDSHAKE_MSG2_LEN>(&mut stream).await?;
         let (outbound, message_3) = initiator.read_message_2(&message_2, now())?;
         write_all(&mut stream, &message_3).await?;
-        let (session, admission, first) = outbound.admit(record)?;
+        // The last wait is behind. From here to the session nothing waits.
+        let (session, admission, first) = admit(outbound)?;
         Ok(Established {
             link: Link::new(stream, session),
             admission,
@@ -180,22 +201,23 @@ pub async fn dial<B: TorBackend>(
     .map_err(|_| LinkError::TimedOut)?
 }
 
-/// Runs the responder's handshake on an inbound stream. `lookup` gives
-/// the record the local side holds about the identity in the card the
-/// initiator presented; it is asked only after the handshake has
-/// authenticated that card. A peer that is not a contact needs a slot in
-/// the budget of `MAX_UNKNOWN_SESSIONS`; without one the stream is closed
-/// and nothing is sent. The caller holds the inbound handshake slot from
-/// the accept loop until this returns.
-pub async fn answer<'r, S, F>(
+/// Runs the responder's handshake on an inbound stream. `admit` is called
+/// once the handshake has authenticated the card the initiator presented,
+/// with nothing left to wait for; it looks up the record of that identity
+/// as it is then, admits the peer with [`InboundPeer::admit`], and returns
+/// what that returned, in one step. A peer that is not a contact needs a slot in the budget of
+/// `MAX_UNKNOWN_SESSIONS`; without one the stream is closed and nothing is
+/// sent. The caller holds the inbound handshake slot from the accept loop
+/// until this returns.
+pub async fn answer<S, F>(
     mut stream: S,
     budgets: &Budgets,
     local: &LocalParty,
-    lookup: F,
+    admit: F,
 ) -> Result<Established<S>, LinkError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    F: FnOnce(&ContactCard) -> PeerRecord<'r>,
+    F: FnOnce(InboundPeer) -> Result<Admitted, SessionError>,
 {
     tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         let responder = HandshakeResponder::new(local, now())?;
@@ -204,8 +226,8 @@ where
         write_all(&mut stream, &message_2).await?;
         let message_3 = read_message::<_, HANDSHAKE_MSG3_LEN>(&mut stream).await?;
         let inbound = waiting.read_message_3(&message_3, now())?;
-        let record = lookup(inbound.card());
-        let (session, admission, first) = inbound.admit(record)?;
+        // The last wait is behind. From here to the session nothing waits.
+        let (session, admission, first) = admit(inbound)?;
         let unknown_slot = if admission.standing.is_contact_record() {
             None
         } else {

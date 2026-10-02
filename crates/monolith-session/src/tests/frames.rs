@@ -4,6 +4,7 @@
 use core::time::Duration;
 
 use monolith_protocol::body::{FileChunk, Message, TransferId};
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::limits::{MAX_CHAT_TEXT_LEN, MAX_FILE_CHUNK_LEN, SESSION_CLOSE_GRACE};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
@@ -25,8 +26,9 @@ pub(super) fn confirmed_with(limits: SessionLimits) -> Pair {
     let bob = party(BOB).with_limits(limits);
     let (outbound, inbound, _) = handshake(&alice, &bob);
     let (mut initiator, initiator_first) = admit_outbound(outbound, Standing::Accepted);
-    let (mut responder, _, responder_first) =
-        inbound.admit(PeerRecord::Accepted(&card(ALICE))).unwrap();
+    let (mut responder, _, responder_first) = inbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(ALICE))))
+        .unwrap();
     let from_alice = initiator.send(&Message::ContactAccept, start()).unwrap();
     let from_bob = responder.send(&Message::ContactAccept, start()).unwrap();
     deliver(&mut responder, &from_alice).unwrap();
@@ -297,7 +299,10 @@ fn a_frame_of_another_session_or_direction_is_rejected() {
         old.send(&Message::ContactAccept, start()).unwrap()
     };
     let alice_card = card(ALICE);
-    let mut fresh = connect(Standing::Accepted, PeerRecord::Accepted(&alice_card));
+    let mut fresh = connect(
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut Credentials::new(alice_card.clone())),
+    );
     assert_eq!(deliver(&mut fresh.responder, &old_frame).err(), rejected);
 }
 
@@ -440,7 +445,10 @@ fn application_messages_are_refused_before_the_session_is_confirmed() {
     // S19. Both sides hold each other as accepted contacts, and neither
     // has confirmed yet.
     let alice_card = card(ALICE);
-    let mut pair = connect(Standing::Accepted, PeerRecord::Accepted(&alice_card));
+    let mut pair = connect(
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut Credentials::new(alice_card.clone())),
+    );
     assert_eq!(pair.initiator.state(), SessionState::AuthenticatedUnknown);
 
     // The local side cannot send one.
@@ -475,7 +483,10 @@ fn application_messages_are_refused_before_the_session_is_confirmed() {
 #[test]
 fn a_frame_of_more_than_one_block_is_refused_before_confirmation() {
     let alice_card = card(ALICE);
-    let mut pair = connect(Standing::Accepted, PeerRecord::Accepted(&alice_card));
+    let mut pair = connect(
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut Credentials::new(alice_card.clone())),
+    );
     let frame = pair.initiator.seal_unchecked(&chat(&"a".repeat(2000)));
     assert_eq!(frame.len(), 2 + 2 * 1024 + 16);
     // The length prefix alone is enough to refuse it.
@@ -506,7 +517,7 @@ fn a_card_of_another_identity_ends_the_session() {
     for record in [
         PeerRecord::None,
         PeerRecord::Blocked,
-        PeerRecord::Accepted(&card(ALICE)),
+        PeerRecord::Accepted(&mut Credentials::new(card(ALICE))),
     ] {
         let mut pair = connect(Standing::Requested, record);
         let frame = pair

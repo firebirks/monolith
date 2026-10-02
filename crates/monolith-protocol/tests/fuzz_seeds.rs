@@ -259,6 +259,7 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
         ("rekeyed_request_outbound", vec![7, 3, 0xc3]),
         ("rekeyed_update", vec![3, 4, 4, 0xc8, 5]),
         ("stale_card_request", vec![3, 5, 3, 5]),
+        ("pending_successor_request", vec![3, 6, 3, 5]),
         ("blocked_while_open", vec![3, 4, 4, 5, 16, 5]),
         ("removed_while_open", vec![3, 4, 4, 17, 4]),
         ("local_close", vec![3, 4, 4, 15, 5, 18]),
@@ -412,6 +413,6 @@ fn seeds_are_accepted_by_what_they_are_meant_for() {
     // string is a valid input. They are checked for their shape only.
     for (path, content) in find("session_sequence/") {
         assert!(content.len() >= 3, "{path} has no event");
-        assert!(content[0] <= 7 && content[1] <= 5, "{path}");
+        assert!(content[0] <= 7 && content[1] <= 6, "{path}");
     }
 }

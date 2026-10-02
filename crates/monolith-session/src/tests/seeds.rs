@@ -16,6 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use monolith_protocol::body::Message;
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{PeerRecord, Standing};
 
 use crate::testing::{
@@ -56,7 +57,11 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
     let (accept_from_alice, chat_from_alice, close_from_alice, accept_from_bob, chat_from_bob) = {
         let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
         let (mut alice, _) = admit_outbound(outbound, Standing::Accepted);
-        let (mut bob, _, _) = inbound.admit(PeerRecord::Accepted(&alice_card)).unwrap();
+        let (mut bob, _, _) = inbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(
+                alice_card.clone(),
+            )))
+            .unwrap();
         let from_alice = alice.send(&Message::ContactAccept, start()).unwrap();
         let from_bob = bob.send(&Message::ContactAccept, start()).unwrap();
         bob.receive(&from_alice, start()).unwrap();
@@ -78,7 +83,11 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
     let both_ask_from_alice = {
         let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
         let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
-        let (mut bob, _, _) = inbound.admit(PeerRecord::Requested(&alice_card)).unwrap();
+        let (mut bob, _, _) = inbound
+            .admit(PeerRecord::Requested(&mut Credentials::new(
+                alice_card.clone(),
+            )))
+            .unwrap();
         let request_from_alice = alice
             .send(&request_with(alice_card.clone(), None), start())
             .unwrap();

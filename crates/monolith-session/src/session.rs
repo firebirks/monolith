@@ -218,8 +218,10 @@ impl AuthenticatedSession {
     }
 
     /// Returns the card that stands for the peer: the card it presented in
-    /// the handshake of an inbound session, or the pinned card that an
-    /// outbound session dialed.
+    /// the handshake of an inbound session, or the card that an outbound
+    /// session dialed. Its transport key is the one the handshake proved,
+    /// and with its identity and epoch it says which credential the
+    /// session was authenticated with.
     pub const fn peer_card(&self) -> &ContactCard {
         &self.peer
     }

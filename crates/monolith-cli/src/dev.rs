@@ -17,6 +17,7 @@ use monolith_core::link::{Established, Link, LinkError, answer, dial as dial_lin
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::{Message, MessageId};
 use monolith_protocol::card::{ContactCard, EndpointSet};
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{Action, PeerRecord};
 use monolith_protocol::text::ChatText;
 use monolith_session::{LocalParty, TransportSecretKey};
@@ -133,16 +134,17 @@ pub(crate) async fn serve(config: SystemTorConfig, own_card: &str, peer_card: &s
         Ok(card) => card,
         Err(code) => return code,
     };
+    let mut held = Credentials::new(peer.clone());
     let result = async {
         let stream = tokio::time::timeout(ACCEPT_WAIT, service.accept())
             .await
             .map_err(|_| LinkError::TimedOut)?
             .map_err(LinkError::Tor)?;
-        let mut established = answer(stream, &Budgets::new(), &local, |card| {
-            if card.identity() == peer.identity() {
-                PeerRecord::Accepted(&peer)
+        let mut established = answer(stream, &Budgets::new(), &local, |inbound| {
+            if inbound.card().identity() == peer.identity() {
+                inbound.admit(PeerRecord::Accepted(&mut held))
             } else {
-                PeerRecord::None
+                inbound.admit(PeerRecord::None)
             }
         })
         .await?;
@@ -183,6 +185,7 @@ pub(crate) async fn dial(
         Ok(card) => card,
         Err(code) => return code,
     };
+    let mut held = Credentials::new(peer.clone());
     let result = async {
         let isolation = backend.isolation_group().map_err(LinkError::Tor)?;
         let mut established = dial_link(
@@ -190,8 +193,8 @@ pub(crate) async fn dial(
             &Budgets::new(),
             &local,
             &peer,
-            PeerRecord::Accepted(&peer),
             &isolation,
+            |outbound| outbound.admit(PeerRecord::Accepted(&mut held)),
         )
         .await?;
         confirm(&mut established).await?;

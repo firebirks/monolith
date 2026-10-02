@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 
 use libfuzzer_sys::fuzz_target;
 use monolith_protocol::body::{Message, MessageId};
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
 use monolith_protocol::{ProtocolError, SessionState};
@@ -103,8 +104,12 @@ fn rank(state: SessionState) -> u8 {
 impl World {
     fn new(piece: usize) -> Self {
         let (outbound, inbound, _) = handshake();
-        let (mut alice, _, _) = outbound.admit(PeerRecord::Accepted(&card(BOB))).unwrap();
-        let (mut bob, _, _) = inbound.admit(PeerRecord::Accepted(&card(ALICE))).unwrap();
+        let (mut alice, _, _) = outbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+            .unwrap();
+        let (mut bob, _, _) = inbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(card(ALICE))))
+            .unwrap();
         let from_alice = alice.send(&Message::ContactAccept, start()).unwrap();
         let from_bob = bob.send(&Message::ContactAccept, start()).unwrap();
         assert!(bob.receive(&from_alice, start()).unwrap().1.is_some());

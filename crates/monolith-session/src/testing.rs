@@ -10,6 +10,7 @@ use std::time::Instant;
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::{ContactRequest, FileChunk, Message, MessageId, TransferId};
 use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::limits::{HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::{ChatText, DisplayName, Filename, IntroductionText, ProfileText};
@@ -192,14 +193,14 @@ pub(crate) fn admit_outbound(
     outbound: OutboundPeer,
     standing: Standing,
 ) -> (AuthenticatedSession, Vec<Action>) {
-    let dialed = outbound.card().clone();
+    let mut held = Credentials::new(outbound.card().clone());
     let record = match standing {
         Standing::None => PeerRecord::None,
         Standing::Declined => PeerRecord::Declined,
         Standing::Blocked => PeerRecord::Blocked,
-        Standing::Requested => PeerRecord::Requested(&dialed),
-        Standing::Accepted => PeerRecord::Accepted(&dialed),
-        Standing::StaleCard => panic!("a stale card is not a record"),
+        Standing::Requested => PeerRecord::Requested(&mut held),
+        Standing::Accepted => PeerRecord::Accepted(&mut held),
+        Standing::StaleCard | Standing::PendingSuccessor => panic!("not a record"),
     };
     let (session, admission, actions) = outbound.admit(record).unwrap();
     assert_eq!(admission.standing, standing);
@@ -233,8 +234,10 @@ pub(crate) fn deliver(
 
 /// Two sessions between accepted contacts, confirmed on both sides.
 pub(crate) fn confirmed() -> Pair {
-    let alice_card = card(ALICE);
-    let mut pair = connect(Standing::Accepted, PeerRecord::Accepted(&alice_card));
+    let mut pair = connect(
+        Standing::Accepted,
+        PeerRecord::Accepted(&mut Credentials::new(card(ALICE))),
+    );
     assert_eq!(pair.initiator_first, vec![Action::SendContactAccept]);
     assert_eq!(pair.responder_first, vec![Action::SendContactAccept]);
     let from_alice = pair

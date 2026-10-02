@@ -162,7 +162,7 @@ fn a_handshake_authenticates_both_sides() {
     let (bob, admission, first) = inbound.admit(PeerRecord::None).unwrap();
     assert_eq!(first, Vec::new());
     assert_eq!(admission.standing, Standing::None);
-    assert_eq!(admission.card, None);
+    assert_eq!(admission.change, None);
 
     assert_eq!(alice.peer(), &identity(BOB));
     assert_eq!(alice.peer_card(), &card(BOB));

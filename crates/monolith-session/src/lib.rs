@@ -65,8 +65,8 @@ mod tests;
 
 pub use error::SessionError;
 pub use handshake::{
-    HandshakeInitiator, HandshakeResponder, HandshakeResponderFinal, InboundPeer, MessageBuffer,
-    OutboundPeer,
+    Admitted, HandshakeInitiator, HandshakeResponder, HandshakeResponderFinal, InboundPeer,
+    MessageBuffer, OutboundPeer,
 };
 pub use key::{LocalParty, TRANSPORT_SECRET_KEY_LEN, TransportSecretKey};
 pub use session::{AuthenticatedSession, Received};

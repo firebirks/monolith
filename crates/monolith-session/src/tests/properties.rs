@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use monolith_protocol::SessionState;
 use monolith_protocol::body::Message;
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::limits::{HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use proptest::collection::vec;
@@ -235,7 +236,7 @@ proptest! {
         let mut session = if confirmed_session {
             confirmed().responder
         } else {
-            connect(Standing::Accepted, PeerRecord::Accepted(&card(ALICE))).responder
+            connect(Standing::Accepted, PeerRecord::Accepted(&mut Credentials::new(card(ALICE)))).responder
         };
         let before = session.state();
         let mut rest = &stream[..];

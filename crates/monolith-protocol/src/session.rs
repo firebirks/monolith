@@ -42,7 +42,8 @@
 use monolith_identity::IdentityPublicKey;
 
 use crate::body::Message;
-use crate::card::{CardChange, ContactCard, evaluate_card};
+use crate::card::{ContactCard, InvitationCapability};
+use crate::credential::{CredentialChange, Credentials};
 use crate::duplicate::Initiator;
 use crate::{MessageType, ProtocolError, SessionState};
 
@@ -59,10 +60,18 @@ pub enum Standing {
     /// The user blocked this identity.
     Blocked,
     /// The identity is held as a requested or accepted contact, but the
-    /// card that stands for it on this session is older than the newest
-    /// one held or contradicts it. For this session it is not a contact
-    /// (`docs/PROTOCOL.md` section 6.2).
+    /// card that stands for it on this session is older than the active
+    /// card, contradicts it, or states the retired transport key. For this
+    /// session it is not a contact (`docs/PROTOCOL.md` section 6.2). A
+    /// session whose transport key was retired while it was open ends with
+    /// this standing as well.
     StaleCard,
+    /// The identity is held as a requested or accepted contact, and the
+    /// peer proved a newer transport key that did not come through the
+    /// active one. The key is held as the pending successor. For this
+    /// session the peer is not a contact; it may become one after the user
+    /// confirms the key (`docs/PROTOCOL.md` section 11.4).
+    PendingSuccessor,
     /// The user imported this identity's card and has not seen an acceptance.
     Requested,
     /// An accepted contact.
@@ -79,17 +88,15 @@ impl Standing {
 }
 
 /// What the local side holds about an identity. For a contact that
-/// includes the newest card it holds of that identity.
+/// includes its [`Credentials`]: which transport key stands for it, and
+/// its successors.
 ///
-/// The newest card is the pinned one, or a card with a greater epoch that
-/// arrived later and that the user has not confirmed yet. It is not the
-/// pinned card alone: a contact that has shown its successor card must not
-/// be impersonated with the older one while the change waits for the user
-/// (`docs/PROTOCOL.md` section 11.4).
-///
-/// For a requested contact the card also carries the invitation capability
-/// that a request to it has to present, if the user was given one.
-#[derive(Clone, Copy, Debug)]
+/// The record of a contact is borrowed mutably. Deciding the standing of
+/// a session is also the moment a promoted successor or a newer card is
+/// recorded, in the same call, so that the two cannot be separated. The
+/// caller looks the record up, admits, and keeps what changed as one step
+/// on its contact state, with nothing in between that waits.
+#[derive(Debug)]
 pub enum PeerRecord<'a> {
     /// No record of this identity.
     None,
@@ -98,57 +105,93 @@ pub enum PeerRecord<'a> {
     /// The user blocked this identity.
     Blocked,
     /// The user imported a card of this identity and has not seen an
-    /// acceptance. The card is the newest one held.
-    Requested(&'a ContactCard),
-    /// An accepted contact, with the newest card held of it.
-    Accepted(&'a ContactCard),
+    /// acceptance.
+    Requested(&'a mut Credentials),
+    /// An accepted contact.
+    Accepted(&'a mut Credentials),
 }
 
 /// The standing of a peer that presented a card in the handshake, and what
-/// that card means for the pinned one.
+/// that card did to the credentials of the contact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Admission {
     /// The standing of the peer for this session.
     pub standing: Standing,
-    /// For an identity held as a contact: how the card of the session
-    /// compares with the newest card held. With [`CardChange::Newer`] the
-    /// card of the session becomes the newest card held, at once, and is a
-    /// pending change of what is pinned. [`CardChange::Conflict`] is
-    /// reported to the user. Nothing of this is visible to the peer.
-    pub card: Option<CardChange>,
+    /// For an identity held as a contact: what the card of the session did
+    /// to its credentials. [`CredentialChange::Promoted`] means that
+    /// sessions authenticated with the previous transport key no longer
+    /// stand for the contact and have to be withdrawn.
+    /// [`CredentialChange::Pending`] and [`CredentialChange::Conflict`]
+    /// are for the user. Nothing of this is visible to the peer.
+    pub change: Option<CredentialChange>,
 }
 
 impl PeerRecord<'_> {
-    /// Decides the standing of a peer for one session. `card` is the card
-    /// that stands for the peer: the card it presented in the handshake of
-    /// an inbound session, or the card that an outbound session dialed.
-    /// This is the table of `docs/PROTOCOL.md` section 6.2.
+    /// Decides the standing of a peer for one session and records what the
+    /// card means for the contact. `card` is the card that stands for the
+    /// peer: the card it presented in the handshake of an inbound session,
+    /// or the card that an outbound session dialed. The handshake proved
+    /// that the peer holds its transport key. This is the table of
+    /// `docs/PROTOCOL.md` section 6.2; [`Credentials::admit`] does the
+    /// comparison.
     ///
-    /// A card that is older than the newest one held, or that states
-    /// something else for the same epoch, does not open a contact session:
-    /// the standing is [`Standing::StaleCard`], whatever the record says.
-    /// That keeps a transport key an identity has retired from being used
-    /// against the contacts that hold its successor.
+    /// The active key, with the active card or a newer one, and a proven
+    /// authorized successor give the standing of the record. A newer key
+    /// without continuity gives [`Standing::PendingSuccessor`]. An older or
+    /// contradicting card, or the retired key, gives
+    /// [`Standing::StaleCard`], whatever the record says.
     ///
     /// Fails with [`ProtocolError::IdentityMismatch`] if the record belongs
     /// to another identity than the card.
-    pub fn admit(&self, card: &ContactCard) -> Result<Admission, ProtocolError> {
-        let (held, as_recorded) = match self {
+    pub fn admit(&mut self, card: &ContactCard) -> Result<Admission, ProtocolError> {
+        let (credentials, as_recorded) = match self {
             Self::None => return Ok(Admission::without_record(Standing::None)),
             Self::Declined => return Ok(Admission::without_record(Standing::Declined)),
             Self::Blocked => return Ok(Admission::without_record(Standing::Blocked)),
-            Self::Requested(held) => (*held, Standing::Requested),
-            Self::Accepted(held) => (*held, Standing::Accepted),
+            Self::Requested(credentials) => (&mut **credentials, Standing::Requested),
+            Self::Accepted(credentials) => (&mut **credentials, Standing::Accepted),
         };
-        let change = evaluate_card(held, card)?;
+        let change = credentials.admit(card)?;
         let standing = match change {
-            CardChange::Newer | CardChange::Unchanged => as_recorded,
-            CardChange::Conflict | CardChange::Stale => Standing::StaleCard,
+            CredentialChange::Unchanged
+            | CredentialChange::Advanced
+            | CredentialChange::Promoted => as_recorded,
+            CredentialChange::Pending => Standing::PendingSuccessor,
+            CredentialChange::Conflict
+            | CredentialChange::Stale
+            | CredentialChange::Authorized
+            | CredentialChange::NoContinuity => Standing::StaleCard,
         };
         Ok(Admission {
             standing,
-            card: Some(change),
+            change: Some(change),
         })
+    }
+
+    /// Returns the capability a contact request to this identity carries,
+    /// for a record that has one.
+    pub const fn invitation(&self) -> Option<&InvitationCapability> {
+        match self {
+            Self::Requested(credentials) | Self::Accepted(credentials) => credentials.invitation(),
+            Self::None | Self::Declined | Self::Blocked => None,
+        }
+    }
+
+    /// The user imported `card` by hand for this identity. For a requested
+    /// contact the card takes the place of the held one
+    /// ([`Credentials::replace`]); for an accepted contact a new transport
+    /// key is only held as the pending successor ([`Credentials::import`]).
+    ///
+    /// Fails with [`ProtocolError::InvalidValue`] for an identity that is
+    /// not held as a contact: importing its card makes a new record, which
+    /// is the caller's. Fails with [`ProtocolError::IdentityMismatch`] for
+    /// a card of another identity.
+    pub fn import(&mut self, card: ContactCard) -> Result<CredentialChange, ProtocolError> {
+        match self {
+            Self::Requested(credentials) => credentials.replace(card),
+            Self::Accepted(credentials) => credentials.import(card),
+            Self::None | Self::Declined | Self::Blocked => Err(ProtocolError::InvalidValue),
+        }
     }
 }
 
@@ -156,7 +199,7 @@ impl Admission {
     const fn without_record(standing: Standing) -> Self {
         Self {
             standing,
-            card: None,
+            change: None,
         }
     }
 }
@@ -352,9 +395,11 @@ impl Session {
         Ok(match standing {
             Standing::Accepted => vec![Action::SendContactAccept],
             Standing::Requested => vec![Action::SendContactRequest],
-            Standing::None | Standing::Declined | Standing::Blocked | Standing::StaleCard => {
-                Vec::new()
-            }
+            Standing::None
+            | Standing::Declined
+            | Standing::Blocked
+            | Standing::StaleCard
+            | Standing::PendingSuccessor => Vec::new(),
         })
     }
 
@@ -462,7 +507,11 @@ impl Session {
                     ])
                 }
             }
-            Standing::None | Standing::Declined | Standing::Blocked | Standing::StaleCard => {
+            Standing::None
+            | Standing::Declined
+            | Standing::Blocked
+            | Standing::StaleCard
+            | Standing::PendingSuccessor => {
                 // One path for every identity that is not a contact. The
                 // Close goes out first; whether the request is looked at
                 // afterwards is local and cannot be seen by the peer.
@@ -736,18 +785,20 @@ mod tests {
     use super::*;
     use crate::card::InvitationCapability;
 
-    const NON_CONTACTS: [Standing; 4] = [
+    const NON_CONTACTS: [Standing; 5] = [
         Standing::None,
         Standing::Declined,
         Standing::Blocked,
         Standing::StaleCard,
+        Standing::PendingSuccessor,
     ];
 
-    const ALL_STANDINGS: [Standing; 6] = [
+    const ALL_STANDINGS: [Standing; 7] = [
         Standing::None,
         Standing::Declined,
         Standing::Blocked,
         Standing::StaleCard,
+        Standing::PendingSuccessor,
         Standing::Requested,
         Standing::Accepted,
     ];
@@ -1403,7 +1454,8 @@ mod tests {
     fn an_endpoint_update_may_announce_another_transport_key() {
         // PROTOCOL.md 8.8. The card is the sender's own and states a new
         // transport key under a greater epoch. That is not a violation;
-        // what it means for the pinned card is decided by evaluate_card.
+        // what it means for the contact is decided by
+        // Credentials::announce.
         let (mut session, _) = authenticated(Standing::Accepted);
         session.receive(&Message::ContactAccept).unwrap();
         let announcement = card_with(PEER, 0x52, 2, PEER + 3);
@@ -1418,77 +1470,129 @@ mod tests {
     #[test]
     fn standing_of_an_inbound_peer_follows_the_record_and_the_card() {
         // The table of PROTOCOL.md 6.2.
-        let pinned = card_with(PEER, PEER, 5, PEER + 1);
+        let active = card_with(PEER, PEER, 5, PEER + 1);
         let same = card_with(PEER, PEER, 5, PEER + 1);
-        let newer = card_with(PEER, 0x52, 6, PEER + 2);
-        let newer_same_content = card_with(PEER, PEER, 6, PEER + 1);
+        let new_key = card_with(PEER, 0x52, 6, PEER + 2);
+        let moved = card_with(PEER, PEER, 6, PEER + 2);
         let other_key = card_with(PEER, 0x52, 5, PEER + 1);
         let other_endpoint = card_with(PEER, PEER, 5, PEER + 2);
         let older = card_with(PEER, PEER, 4, PEER + 1);
         let older_other_key = card_with(PEER, 0x52, 4, PEER + 1);
 
         // Without a contact record the card is not compared with anything.
-        for (record, standing) in [
-            (PeerRecord::None, Standing::None),
-            (PeerRecord::Declined, Standing::Declined),
-            (PeerRecord::Blocked, Standing::Blocked),
-        ] {
-            for presented in [&same, &newer, &other_key, &older] {
+        for mut record in [PeerRecord::None, PeerRecord::Declined, PeerRecord::Blocked] {
+            let standing = match record {
+                PeerRecord::None => Standing::None,
+                PeerRecord::Declined => Standing::Declined,
+                _ => Standing::Blocked,
+            };
+            for presented in [&same, &new_key, &other_key, &older] {
                 assert_eq!(
                     record.admit(presented),
                     Ok(Admission {
                         standing,
-                        card: None
+                        change: None
                     })
                 );
             }
+            assert_eq!(record.invitation(), None);
         }
 
-        let records = [
-            (PeerRecord::Requested(&pinned), Standing::Requested),
-            (PeerRecord::Accepted(&pinned), Standing::Accepted),
-        ];
-        for (record, as_recorded) in records {
-            let admit = |presented: &ContactCard| record.admit(presented).unwrap();
+        for as_recorded in [Standing::Requested, Standing::Accepted] {
+            let admit = |presented: &ContactCard| {
+                let mut credentials = Credentials::new(active.clone());
+                let mut record = if as_recorded == Standing::Requested {
+                    PeerRecord::Requested(&mut credentials)
+                } else {
+                    PeerRecord::Accepted(&mut credentials)
+                };
+                let admission = record.admit(presented);
+                (admission, credentials)
+            };
+            let expect = |standing, change| {
+                Ok(Admission {
+                    standing,
+                    change: Some(change),
+                })
+            };
             assert_eq!(
-                admit(&same),
-                Admission {
-                    standing: as_recorded,
-                    card: Some(CardChange::Unchanged)
-                }
+                admit(&same).0,
+                expect(as_recorded, CredentialChange::Unchanged)
             );
-            for presented in [&newer, &newer_same_content] {
-                assert_eq!(
-                    admit(presented),
-                    Admission {
-                        standing: as_recorded,
-                        card: Some(CardChange::Newer)
-                    }
-                );
-            }
+            // A newer card with the active key: the contact, and the card
+            // is the active one from now on.
+            let (admission, credentials) = admit(&moved);
+            assert_eq!(admission, expect(as_recorded, CredentialChange::Advanced));
+            assert_eq!(credentials.active(), &moved);
+            // A newer key that did not come through the active one: not a
+            // contact for this session, and the key is only pending.
+            let (admission, credentials) = admit(&new_key);
+            assert_eq!(
+                admission,
+                expect(Standing::PendingSuccessor, CredentialChange::Pending)
+            );
+            assert_eq!(credentials.active(), &active);
+            assert_eq!(credentials.pending_successor(), Some(&new_key));
             // The stale-card rule.
             for presented in [&other_key, &other_endpoint] {
                 assert_eq!(
-                    admit(presented),
-                    Admission {
-                        standing: Standing::StaleCard,
-                        card: Some(CardChange::Conflict)
-                    }
+                    admit(presented).0,
+                    expect(Standing::StaleCard, CredentialChange::Conflict)
                 );
             }
             for presented in [&older, &older_other_key] {
                 assert_eq!(
-                    admit(presented),
-                    Admission {
-                        standing: Standing::StaleCard,
-                        card: Some(CardChange::Stale)
-                    }
+                    admit(presented).0,
+                    expect(Standing::StaleCard, CredentialChange::Stale)
                 );
             }
             // A record of another identity is the caller's mistake.
             assert_eq!(
-                record.admit(&card(STRANGER)),
+                admit(&card(STRANGER)).0,
                 Err(ProtocolError::IdentityMismatch)
+            );
+        }
+
+        // A successor announced through the active key is proven and
+        // keeps the standing of the record.
+        let mut credentials = Credentials::new(active.clone());
+        credentials.announce(&new_key, &active).unwrap();
+        assert_eq!(
+            PeerRecord::Accepted(&mut credentials).admit(&new_key),
+            Ok(Admission {
+                standing: Standing::Accepted,
+                change: Some(CredentialChange::Promoted)
+            })
+        );
+        assert_eq!(
+            PeerRecord::Accepted(&mut credentials).admit(&active),
+            Ok(Admission {
+                standing: Standing::StaleCard,
+                change: Some(CredentialChange::Stale)
+            })
+        );
+    }
+
+    #[test]
+    fn importing_a_card_depends_on_the_relationship() {
+        let held = card_with(PEER, PEER, 1, PEER + 1);
+        let new_key = card_with(PEER, 0x52, 2, PEER + 1);
+        let mut requested = Credentials::new(held.clone());
+        assert_eq!(
+            PeerRecord::Requested(&mut requested).import(new_key.clone()),
+            Ok(CredentialChange::Promoted)
+        );
+        assert_eq!(requested.active(), &new_key);
+        let mut accepted = Credentials::new(held.clone());
+        assert_eq!(
+            PeerRecord::Accepted(&mut accepted).import(new_key.clone()),
+            Ok(CredentialChange::Pending)
+        );
+        assert_eq!(accepted.active(), &held);
+        for mut record in [PeerRecord::None, PeerRecord::Declined, PeerRecord::Blocked] {
+            assert_eq!(
+                record.import(new_key.clone()),
+                Err(ProtocolError::InvalidValue)
             );
         }
     }

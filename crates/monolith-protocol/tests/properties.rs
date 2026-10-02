@@ -29,6 +29,7 @@ use monolith_protocol::body::{ContactRequest, FileChunk, Message, MessageId, Tra
 use monolith_protocol::card::{
     CardChange, ContactCard, EndpointSet, InvitationCapability, evaluate_card,
 };
+use monolith_protocol::credential::{CredentialChange, Credentials};
 use monolith_protocol::duplicate::{Initiator, ProbeOutcome, Resolution, after_probe, resolve};
 use monolith_protocol::frame::{
     FrameParams, OuterDecoder, decode_plaintext, encode_outer, encode_plaintext,
@@ -237,6 +238,7 @@ fn arb_standing() -> impl Strategy<Value = Standing> {
         Standing::Declined,
         Standing::Blocked,
         Standing::StaleCard,
+        Standing::PendingSuccessor,
         Standing::Requested,
         Standing::Accepted,
     ])
@@ -752,9 +754,9 @@ proptest! {
         other_endpoint in any::<bool>(),
     ) {
         // PROTOCOL.md 6.2, restated: without a contact record the card is
-        // not compared. With one, a greater epoch keeps the record, the
-        // same epoch keeps it only for the same content, and everything
-        // else is the stale-card standing.
+        // not compared. With one, the active key with a newer or the same
+        // card keeps the record, a newer key without continuity is pending,
+        // and everything else is the stale-card standing.
         let card = |epoch: u64, changed_transport: bool, changed_endpoint: bool| {
             let mut transport_bytes = PEER;
             transport_bytes[0] ^= u8::from(changed_transport);
@@ -774,13 +776,6 @@ proptest! {
         let presented = card(presented_epoch, other_transport, other_endpoint);
         let same_content = !other_transport && !other_endpoint;
 
-        let (record, as_recorded) = match record {
-            0 => (PeerRecord::None, Standing::None),
-            1 => (PeerRecord::Declined, Standing::Declined),
-            2 => (PeerRecord::Blocked, Standing::Blocked),
-            3 => (PeerRecord::Requested(&pinned), Standing::Requested),
-            _ => (PeerRecord::Accepted(&pinned), Standing::Accepted),
-        };
         let change = if presented_epoch > pinned_epoch {
             CardChange::Newer
         } else if presented_epoch < pinned_epoch {
@@ -792,20 +787,33 @@ proptest! {
         };
         prop_assert_eq!(evaluate_card(&pinned, &presented), Ok(change));
 
-        let expected = if !as_recorded.is_contact_record() {
-            Admission { standing: as_recorded, card: None }
-        } else if matches!(change, CardChange::Newer | CardChange::Unchanged) {
-            Admission { standing: as_recorded, card: Some(change) }
-        } else {
-            Admission { standing: Standing::StaleCard, card: Some(change) }
+        let mut credentials = Credentials::new(pinned.clone());
+        let (mut record, as_recorded) = match record {
+            0 => (PeerRecord::None, Standing::None),
+            1 => (PeerRecord::Declined, Standing::Declined),
+            2 => (PeerRecord::Blocked, Standing::Blocked),
+            3 => (PeerRecord::Requested(&mut credentials), Standing::Requested),
+            _ => (PeerRecord::Accepted(&mut credentials), Standing::Accepted),
         };
-        prop_assert_eq!(record.admit(&presented), Ok(expected));
+        let expected = if !as_recorded.is_contact_record() {
+            Admission { standing: as_recorded, change: None }
+        } else {
+            let (standing, credential) = match change {
+                CardChange::Unchanged => (as_recorded, CredentialChange::Unchanged),
+                CardChange::Newer if !other_transport => (as_recorded, CredentialChange::Advanced),
+                CardChange::Newer => (Standing::PendingSuccessor, CredentialChange::Pending),
+                CardChange::Conflict => (Standing::StaleCard, CredentialChange::Conflict),
+                CardChange::Stale => (Standing::StaleCard, CredentialChange::Stale),
+            };
+            Admission { standing, change: Some(credential) }
+        };
+        let admitted = record.admit(&presented);
+        prop_assert_eq!(admitted, Ok(expected));
 
-        // A stale card never leaves the peer with a standing that can
-        // become a contact session.
-        let admitted = record.admit(&presented).unwrap();
-        if matches!(admitted.card, Some(CardChange::Stale | CardChange::Conflict)) {
-            prop_assert!(!admitted.standing.is_contact_record());
+        // Nothing that is not the active key of a contact leaves the peer
+        // with a standing that can become a contact session.
+        if other_transport || matches!(change, CardChange::Stale | CardChange::Conflict) {
+            prop_assert!(!admitted.unwrap().standing.is_contact_record());
         }
         // The record of another identity is refused.
         let stranger = sample_card(STRANGER, 0);
@@ -1196,6 +1204,7 @@ proptest! {
         prop_assert_eq!(&transcript(Standing::Declined, &events), &reference);
         prop_assert_eq!(&transcript(Standing::Blocked, &events), &reference);
         prop_assert_eq!(&transcript(Standing::StaleCard, &events), &reference);
+        prop_assert_eq!(&transcript(Standing::PendingSuccessor, &events), &reference);
     }
 
     #[test]

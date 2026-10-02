@@ -20,6 +20,7 @@ use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::SessionState;
 use monolith_protocol::body::{Message, MessageId};
 use monolith_protocol::card::{ContactCard, EndpointSet};
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::limits::MAX_INBOUND_HANDSHAKES;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
@@ -75,18 +76,19 @@ fn a_tor_stream_carries_an_authenticated_exchange_both_ways() {
         let isolation = alice_tor.isolation_group().unwrap();
         let bob_side = async {
             let stream = bob_service.accept().await.unwrap();
-            answer(stream, fresh(), &bob, |_| PeerRecord::Accepted(&alice_card))
-                .await
-                .unwrap()
+            answer(stream, fresh(), &bob, |peer| {
+                peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                    alice_card.clone(),
+                )))
+            })
+            .await
+            .unwrap()
         };
-        let alice_side = dial(
-            &alice_tor,
-            fresh(),
-            &alice,
-            &bob_card,
-            PeerRecord::Accepted(&bob_card),
-            &isolation,
-        );
+        let alice_side = dial(&alice_tor, fresh(), &alice, &bob_card, &isolation, |peer| {
+            peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                bob_card.clone(),
+            )))
+        });
         let (alice_end, bob_end) = futures_join(alice_side, bob_side).await;
         let (mut alice_link, mut bob_link) = (alice_end.unwrap(), bob_end);
         assert_eq!(alice_link.first, vec![Action::SendContactAccept]);
@@ -161,15 +163,15 @@ fn reaching_the_onion_service_does_not_authenticate_another_identity() {
         let isolation = backend.isolation_group().unwrap();
         let bob_side = async {
             let stream = bob_service.accept().await.unwrap();
-            answer(stream, fresh(), &bob, |_| PeerRecord::None).await
+            answer(stream, fresh(), &bob, |peer| peer.admit(PeerRecord::None)).await
         };
         let alice_side = dial(
             &backend,
             fresh(),
             &alice,
             mallory.card(),
-            PeerRecord::None,
             &isolation,
+            |peer| peer.admit(PeerRecord::None),
         );
         let (alice_result, bob_result) = futures_join(alice_side, bob_side).await;
         assert!(alice_result.is_err());
@@ -190,18 +192,15 @@ fn a_stranger_through_a_valid_tor_stream_gets_only_a_close() {
         let isolation = backend.isolation_group().unwrap();
         let bob_side = async {
             let stream = bob_service.accept().await.unwrap();
-            answer(stream, fresh(), &bob, |_| PeerRecord::None)
+            answer(stream, fresh(), &bob, |peer| peer.admit(PeerRecord::None))
                 .await
                 .unwrap()
         };
-        let alice_side = dial(
-            &backend,
-            fresh(),
-            &alice,
-            &bob_card,
-            PeerRecord::Requested(&bob_card),
-            &isolation,
-        );
+        let alice_side = dial(&backend, fresh(), &alice, &bob_card, &isolation, |peer| {
+            peer.admit(PeerRecord::Requested(&mut Credentials::new(
+                bob_card.clone(),
+            )))
+        });
         let (alice_end, mut bob_end) = futures_join(alice_side, bob_side).await;
         let mut alice_end = alice_end.unwrap();
         assert_eq!(bob_end.admission.standing, Standing::None);
@@ -235,14 +234,9 @@ fn without_socks_or_a_service_a_dial_fails_and_tries_nothing_else() {
         let isolation = backend.isolation_group().unwrap();
 
         network.set_socks_available(false);
-        let result = dial(
-            &backend,
-            fresh(),
-            &alice,
-            bob.card(),
-            PeerRecord::None,
-            &isolation,
-        )
+        let result = dial(&backend, fresh(), &alice, bob.card(), &isolation, |peer| {
+            peer.admit(PeerRecord::None)
+        })
         .await;
         assert_eq!(
             result.err(),
@@ -252,14 +246,9 @@ fn without_socks_or_a_service_a_dial_fails_and_tries_nothing_else() {
 
         network.set_socks_available(true);
         network.lose_service(service.service_key());
-        let result = dial(
-            &backend,
-            fresh(),
-            &alice,
-            bob.card(),
-            PeerRecord::None,
-            &isolation,
-        )
+        let result = dial(&backend, fresh(), &alice, bob.card(), &isolation, |peer| {
+            peer.admit(PeerRecord::None)
+        })
         .await;
         assert_eq!(
             result.err(),
@@ -398,9 +387,11 @@ fn several_peers_handshake_at_the_same_time() {
             let responder = responder.clone();
             let count = count.clone();
             async move {
-                if answer(stream, fresh(), &responder, |_| PeerRecord::None)
-                    .await
-                    .is_ok()
+                if answer(stream, fresh(), &responder, |peer| {
+                    peer.admit(PeerRecord::None)
+                })
+                .await
+                .is_ok()
                 {
                     count.fetch_add(1, Ordering::SeqCst);
                 }
@@ -423,14 +414,9 @@ fn several_peers_handshake_at_the_same_time() {
                         .unwrap(),
                     );
                     let isolation = backend.isolation_group().unwrap();
-                    dial(
-                        backend,
-                        fresh(),
-                        &alice,
-                        bob_card,
-                        PeerRecord::None,
-                        &isolation,
-                    )
+                    dial(backend, fresh(), &alice, bob_card, &isolation, |peer| {
+                        peer.admit(PeerRecord::None)
+                    })
                     .await
                     .map(|_| ())
                 });
@@ -476,8 +462,10 @@ fn local_identities_are_reached_through_their_own_services() {
             let isolation = carol_tor.isolation_group().unwrap();
             let answering = async {
                 let stream = service.accept().await.unwrap();
-                answer(stream, fresh(), local, |_| {
-                    PeerRecord::Accepted(&carol_card)
+                answer(stream, fresh(), local, |peer| {
+                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                        carol_card.clone(),
+                    )))
                 })
                 .await
                 .unwrap()
@@ -487,8 +475,12 @@ fn local_identities_are_reached_through_their_own_services() {
                 fresh(),
                 &carol,
                 local.card(),
-                PeerRecord::Accepted(local.card()),
                 &isolation,
+                |peer| {
+                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                        local.card().clone(),
+                    )))
+                },
             );
             let (dialed, answered) = futures_join(dialing, answering).await;
             assert_eq!(
@@ -511,16 +503,11 @@ fn local_identities_are_reached_through_their_own_services() {
         let isolation = carol_tor.isolation_group().unwrap();
         let answering = async {
             let stream = service_b.accept().await.unwrap();
-            answer(stream, fresh(), &b, |_| PeerRecord::None).await
+            answer(stream, fresh(), &b, |peer| peer.admit(PeerRecord::None)).await
         };
-        let dialing = dial(
-            &carol_tor,
-            fresh(),
-            &carol,
-            &a_at_b,
-            PeerRecord::None,
-            &isolation,
-        );
+        let dialing = dial(&carol_tor, fresh(), &carol, &a_at_b, &isolation, |peer| {
+            peer.admit(PeerRecord::None)
+        });
         let (dialed, answered) = futures_join(dialing, answering).await;
         assert!(dialed.is_err());
         assert!(matches!(answered, Err(LinkError::Session(_))));
@@ -531,20 +518,19 @@ fn local_identities_are_reached_through_their_own_services() {
             let isolation = backend.isolation_group().unwrap();
             let answering = async {
                 let stream = service_carol.accept().await.unwrap();
-                answer(stream, fresh(), &carol, |_| {
-                    PeerRecord::Accepted(local.card())
+                answer(stream, fresh(), &carol, |peer| {
+                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                        local.card().clone(),
+                    )))
                 })
                 .await
                 .unwrap()
             };
-            let dialing = dial(
-                &backend,
-                fresh(),
-                local,
-                &carol_card,
-                PeerRecord::Accepted(&carol_card),
-                &isolation,
-            );
+            let dialing = dial(&backend, fresh(), local, &carol_card, &isolation, |peer| {
+                peer.admit(PeerRecord::Accepted(&mut Credentials::new(
+                    carol_card.clone(),
+                )))
+            });
             let (dialed, answered) = futures_join(dialing, answering).await;
             assert_eq!(dialed.unwrap().link.session().peer(), carol_card.identity());
             assert_eq!(answered.link.session().peer(), local.card().identity());
@@ -574,7 +560,7 @@ fn a_silent_peer_is_dropped_after_the_handshake_timeout() {
                 .unwrap();
             let stream = service.accept().await.unwrap();
             let started = tokio::time::Instant::now();
-            let result = answer(stream, fresh(), &bob, |_| PeerRecord::None).await;
+            let result = answer(stream, fresh(), &bob, |peer| peer.admit(PeerRecord::None)).await;
             assert_eq!(result.err(), Some(LinkError::TimedOut));
             let timeout = monolith_protocol::limits::HANDSHAKE_TIMEOUT;
             assert!(started.elapsed() >= timeout);
@@ -607,15 +593,15 @@ fn strangers_beyond_the_unknown_session_budget_are_closed() {
             let isolation = backend.isolation_group().unwrap();
             let bob_side = async {
                 let stream = service.accept().await.unwrap();
-                answer(stream, &budgets, &bob, |_| PeerRecord::None).await
+                answer(stream, &budgets, &bob, |peer| peer.admit(PeerRecord::None)).await
             };
             let stranger_side = dial(
                 &backend,
                 fresh(),
                 &stranger,
                 &bob_card,
-                PeerRecord::None,
                 &isolation,
+                |peer| peer.admit(PeerRecord::None),
             );
             let (_, answered) = futures_join(stranger_side, bob_side).await;
             if usize::from(seed - 20) < monolith_protocol::limits::MAX_UNKNOWN_SESSIONS {
@@ -632,16 +618,11 @@ fn strangers_beyond_the_unknown_session_budget_are_closed() {
         let late = party(99, *service.service_key());
         let bob_side = async {
             let stream = service.accept().await.unwrap();
-            answer(stream, &budgets, &bob, |_| PeerRecord::None).await
+            answer(stream, &budgets, &bob, |peer| peer.admit(PeerRecord::None)).await
         };
-        let late_side = dial(
-            &backend,
-            fresh(),
-            &late,
-            &bob_card,
-            PeerRecord::None,
-            &isolation,
-        );
+        let late_side = dial(&backend, fresh(), &late, &bob_card, &isolation, |peer| {
+            peer.admit(PeerRecord::None)
+        });
         let (_, answered) = futures_join(late_side, bob_side).await;
         assert!(answered.is_ok());
     });
@@ -700,14 +681,9 @@ fn dials_beyond_the_dial_budget_wait_for_a_slot() {
                 let local = party(seed, *service.service_key());
                 tasks.spawn(async move {
                     let isolation = backend.isolation_group().unwrap();
-                    dial(
-                        &backend,
-                        &budgets,
-                        &local,
-                        &card,
-                        PeerRecord::None,
-                        &isolation,
-                    )
+                    dial(&backend, &budgets, &local, &card, &isolation, |peer| {
+                        peer.admit(PeerRecord::None)
+                    })
                     .await
                     .err()
                 });

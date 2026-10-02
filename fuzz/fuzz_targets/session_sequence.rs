@@ -27,13 +27,14 @@ use monolith_protocol::session::{Action, Session, Standing};
 use monolith_protocol::text::{ChatText, DisplayName, Filename, IntroductionText, ProfileText};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
 
-const STANDINGS: [Standing; 6] = [
+const STANDINGS: [Standing; 7] = [
     Standing::None,
     Standing::Declined,
     Standing::Blocked,
     Standing::Requested,
     Standing::Accepted,
     Standing::StaleCard,
+    Standing::PendingSuccessor,
 ];
 
 const PEER: [u8; 32] = [0x51; 32];
@@ -347,9 +348,11 @@ fuzz_target!(|data: &[u8]| {
     }
 
     // Identities that are not contacts are indistinguishable to the peer,
-    // and so is a contact that presented a stale card.
+    // and so is a contact that presented a stale card or a new key without
+    // continuity.
     let reference = observe(steps, Standing::None, rest);
     assert_eq!(observe(steps, Standing::Declined, rest), reference);
     assert_eq!(observe(steps, Standing::Blocked, rest), reference);
     assert_eq!(observe(steps, Standing::StaleCard, rest), reference);
+    assert_eq!(observe(steps, Standing::PendingSuccessor, rest), reference);
 });

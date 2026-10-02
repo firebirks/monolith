@@ -13,6 +13,7 @@ use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::SessionState;
 use monolith_protocol::body::Message;
 use monolith_protocol::card::EndpointSet;
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use sha2::{Digest, Sha256};
 
@@ -143,7 +144,9 @@ fn the_handshake_reproduces_the_published_vectors() {
     // each sends is a ContactAccept.
     let (mut at_i, first_i) = admit_outbound(outbound, Standing::Accepted);
     let (mut at_r, admission, first_r) = inbound
-        .admit(PeerRecord::Accepted(initiator.card()))
+        .admit(PeerRecord::Accepted(&mut Credentials::new(
+            initiator.card().clone(),
+        )))
         .unwrap();
     assert_eq!(admission.standing, Standing::Accepted);
     assert_eq!(first_i, vec![Action::SendContactAccept]);

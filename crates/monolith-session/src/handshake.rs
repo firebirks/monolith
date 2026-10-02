@@ -38,6 +38,10 @@ use crate::resolver::Resolver;
 use crate::session::{AuthenticatedSession, Established, SessionLimits};
 use crate::{LocalParty, SessionError};
 
+/// What admitting an authenticated peer yields: the session, what the
+/// local side decided about the peer, and the first message to send.
+pub type Admitted = (AuthenticatedSession, Admission, Vec<Action>);
+
 /// The Noise protocol name of `docs/PROTOCOL.md` section 4.1. One suite;
 /// nothing is negotiated.
 const NOISE_PROTOCOL: &str = "Noise_XK_25519_ChaChaPoly_SHA256";
@@ -427,23 +431,22 @@ impl OutboundPeer {
     }
 
     /// Creates the session. `record` is what the local side holds about
-    /// the identity that was dialed.
+    /// the identity that was dialed, as it is now: the caller looks it up
+    /// after the handshake, not before the dial.
     ///
     /// The standing follows from the record and from the card that was
     /// dialed, by the same table as for an inbound peer
-    /// (`docs/PROTOCOL.md` section 6.2). Normally the dialed card is the
-    /// newest one held and the standing is that of the record. If a newer
-    /// card of the identity arrived while the dial was in progress, the
-    /// responder has proved a transport key that is known to be retired,
-    /// and the peer is not a contact for this session. The returned
-    /// actions are the first message to send, if any (section 6.4).
+    /// (`docs/PROTOCOL.md` section 6.2), and what the card means for the
+    /// contact is recorded in the same step. Normally the dialed card
+    /// states the active key and the standing is that of the record. If
+    /// the active key changed while the dial was in progress, the
+    /// responder has proved a key that is retired or never held, and the
+    /// peer is not a contact for this session. The returned actions are
+    /// the first message to send, if any (section 6.4).
     ///
     /// Fails with [`ProtocolError::IdentityMismatch`] if the record is one
     /// of another identity.
-    pub fn admit(
-        self,
-        record: PeerRecord<'_>,
-    ) -> Result<(AuthenticatedSession, Admission, Vec<Action>), SessionError> {
+    pub fn admit(self, mut record: PeerRecord<'_>) -> Result<Admitted, SessionError> {
         let admission = record.admit(&self.card)?;
         // A request to this peer carries the invitation of the card that
         // was dialed.
@@ -470,32 +473,31 @@ impl InboundPeer {
     }
 
     /// Creates the session. `record` is what the local side holds about
-    /// the identity of [`Self::card`].
+    /// the identity of [`Self::card`], as it is now.
     ///
     /// The standing of the peer follows from the record and from the card
-    /// it presented (`docs/PROTOCOL.md` section 6.2): a contact that
-    /// presented a card older than the newest one held, or one that
-    /// contradicts it, is not a contact for this session. The returned
-    /// [`Admission`] says how the card compares with the held one. When it
-    /// is newer, the caller records it as the newest card held before it
-    /// does anything else with the contact. All of that is for the
-    /// local side and is never visible to the peer. The returned actions
-    /// are the first message to send, if any.
+    /// it presented (`docs/PROTOCOL.md` section 6.2), and what the card
+    /// means for the contact is recorded in the same step: a newer card of
+    /// the active key, a promoted successor, a pending one. A contact that
+    /// presented a card older than the active one, one that contradicts
+    /// it, the retired key, or a new key without continuity, is not a
+    /// contact for this session. The returned [`Admission`] says what
+    /// changed; with [`CredentialChange::Promoted`] the caller withdraws
+    /// the sessions of the retired key before it does anything else with
+    /// the contact. All of that is for the local side and is never visible
+    /// to the peer. The returned actions are the first message to send, if
+    /// any.
     ///
     /// Fails with [`ProtocolError::IdentityMismatch`] if the record is one
     /// of another identity.
-    pub fn admit(
-        self,
-        record: PeerRecord<'_>,
-    ) -> Result<(AuthenticatedSession, Admission, Vec<Action>), SessionError> {
+    ///
+    /// [`CredentialChange::Promoted`]: monolith_protocol::credential::CredentialChange::Promoted
+    pub fn admit(self, mut record: PeerRecord<'_>) -> Result<Admitted, SessionError> {
         let admission = record.admit(&self.card)?;
         // The card of the handshake never carries an invitation. A request
         // to this peer carries the one in the card the user was given,
         // which is in the record.
-        let invitation = match record {
-            PeerRecord::Requested(held) | PeerRecord::Accepted(held) => held.invitation().cloned(),
-            PeerRecord::None | PeerRecord::Declined | PeerRecord::Blocked => None,
-        };
+        let invitation = record.invitation().cloned();
         let (session, actions) =
             AuthenticatedSession::new(self.established, self.card, admission.standing, invitation)?;
         Ok((session, admission, actions))

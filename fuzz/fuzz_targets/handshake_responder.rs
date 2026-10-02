@@ -28,7 +28,7 @@
 mod session_fixtures;
 
 use libfuzzer_sys::fuzz_target;
-use monolith_protocol::card::CardChange;
+use monolith_protocol::credential::{CredentialChange, Credentials};
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::{MessageType, SessionState};
 use session_fixtures::{ALICE, Pieces, TRANSCRIPT, bob_waiting, card, start};
@@ -103,11 +103,12 @@ fuzz_target!(|data: &[u8]| {
     // Only now does the record play a part. Alice presented the card that
     // Bob holds of her, if he holds one.
     let alice = card(ALICE);
+    let mut credentials = Credentials::new(alice.clone());
     let record = match held {
         Held::Nothing => PeerRecord::None,
         Held::Blocked => PeerRecord::Blocked,
-        Held::Requested => PeerRecord::Requested(&alice),
-        Held::Accepted => PeerRecord::Accepted(&alice),
+        Held::Requested => PeerRecord::Requested(&mut credentials),
+        Held::Accepted => PeerRecord::Accepted(&mut credentials),
     };
     let (mut session, admission, first_actions) = inbound.admit(record).unwrap();
     let (standing, change, first): (_, _, &[Action]) = match held {
@@ -115,17 +116,17 @@ fuzz_target!(|data: &[u8]| {
         Held::Blocked => (Standing::Blocked, None, &[]),
         Held::Requested => (
             Standing::Requested,
-            Some(CardChange::Unchanged),
+            Some(CredentialChange::Unchanged),
             &[Action::SendContactRequest],
         ),
         Held::Accepted => (
             Standing::Accepted,
-            Some(CardChange::Unchanged),
+            Some(CredentialChange::Unchanged),
             &[Action::SendContactAccept],
         ),
     };
     assert_eq!(admission.standing, standing);
-    assert_eq!(admission.card, change);
+    assert_eq!(admission.change, change);
     assert_eq!(first_actions, first);
     assert_eq!(session.state(), SessionState::AuthenticatedUnknown);
     assert_eq!(session.peer(), alice.identity());
