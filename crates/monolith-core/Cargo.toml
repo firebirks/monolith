@@ -16,7 +16,7 @@ monolith-tor.workspace = true
 tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "rt", "sync", "test-util", "time"] }
 
 [lints]
 workspace = true

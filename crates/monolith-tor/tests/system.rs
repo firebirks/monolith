@@ -604,7 +604,10 @@ fn losing_the_control_connection_unpublishes_the_service() {
             ControlAuth::SafeCookie,
         );
         let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        // The server closed right after the reply: accept reports it.
+        // The server closed right after the reply. Without any accept, the
+        // handle already reports the service as gone.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!service.is_published());
         let accepted = tokio::time::timeout(Duration::from_secs(5), service.accept())
             .await
             .unwrap();

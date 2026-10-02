@@ -420,3 +420,29 @@ fn several_peers_handshake_at_the_same_time() {
         assert_eq!(authenticated.load(Ordering::SeqCst), 8);
     });
 }
+
+#[test]
+fn a_silent_peer_is_dropped_after_the_handshake_timeout() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .build()
+        .unwrap()
+        .block_on(async {
+            let network = MockNetwork::new();
+            let backend = network.backend();
+            let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
+            let bob = party(2, *service.service_key());
+            let isolation = backend.isolation_group().unwrap();
+            // Connects and then sends nothing at all.
+            let _silent = backend
+                .connect_onion(service.service_key(), &isolation)
+                .await
+                .unwrap();
+            let stream = service.accept().await.unwrap();
+            let started = tokio::time::Instant::now();
+            let result = answer(stream, &bob, |_| PeerRecord::None).await;
+            assert_eq!(result.err(), Some(LinkError::TimedOut));
+            assert!(started.elapsed() >= monolith_protocol::limits::HANDSHAKE_TIMEOUT);
+        });
+}
