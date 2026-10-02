@@ -358,8 +358,11 @@ impl AuthenticatedSession {
 
     /// The deadlines of the session that end it, each with whether it ends
     /// it silently.
-    fn deadlines(&self) -> [(Option<Instant>, bool); 5] {
+    fn deadlines(&self) -> [(Option<Instant>, bool); 6] {
         let unknown = self.logic.state() == SessionState::AuthenticatedUnknown;
+        // The logic enters Closing only on a frame it received, and the
+        // Close it decided then is due at once.
+        let closing = self.logic.state() == SessionState::Closing;
         let first_message = unknown && !self.logic.standing().is_contact_record() && !self.heard;
         [
             (
@@ -381,6 +384,7 @@ impl AuthenticatedSession {
                     .flatten(),
                 false,
             ),
+            (closing.then_some(self.last_frame), false),
         ]
     }
 
@@ -397,7 +401,10 @@ impl AuthenticatedSession {
     /// - the session ends at its age limit;
     /// - it leaves `AuthenticatedUnknown` within `UNKNOWN_SESSION_TIMEOUT`
     ///   of the handshake, and a peer that is not a contact sends its first
-    ///   message within `UNKNOWN_FIRST_MESSAGE_TIMEOUT`.
+    ///   message within `UNKNOWN_FIRST_MESSAGE_TIMEOUT`;
+    /// - a Close the session logic decided on a message it received
+    ///   ([`Action::SendClose`]) is due at once, and the session ends with
+    ///   it whether or not the caller closes it.
     pub fn deadline(&self) -> Option<Instant> {
         if self.is_over() || self.close_sent {
             return None;
@@ -410,9 +417,10 @@ impl AuthenticatedSession {
 
     /// Ends the session if a deadline of [`Self::deadline`] has passed at
     /// `now`. A frame that did not complete in time and a peer that sent
-    /// nothing end it silently. The age limit and the time in
-    /// `AuthenticatedUnknown` end it with a Close, as the local side ends a
-    /// session on purpose. Either way the session is over afterwards.
+    /// nothing end it silently. The age limit, the time in
+    /// `AuthenticatedUnknown` and a Close that is due end it with a Close,
+    /// as the local side ends a session on purpose. Either way the session
+    /// is over afterwards.
     pub fn expire(&mut self, now: Instant) -> Expiry {
         if self.is_over() || self.close_sent {
             return Expiry::Running;

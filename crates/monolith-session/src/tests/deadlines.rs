@@ -11,7 +11,7 @@ use monolith_protocol::credential::Credentials;
 use monolith_protocol::limits::{
     FRAME_READ_TIMEOUT, IDLE_TIMEOUT, UNKNOWN_FIRST_MESSAGE_TIMEOUT, UNKNOWN_SESSION_TIMEOUT,
 };
-use monolith_protocol::session::{PeerRecord, Standing};
+use monolith_protocol::session::{Action, PeerRecord, Standing};
 
 use crate::session::SessionLimits;
 use crate::testing::{
@@ -125,6 +125,26 @@ fn a_peer_that_is_not_a_contact_has_to_send_its_first_message_in_time() {
     // Alice sees an ordinary Close.
     let mut alice = pair.initiator;
     let received = deliver(&mut alice, &close).unwrap().unwrap();
+    assert_eq!(received.message, Message::Close);
+}
+
+#[test]
+fn the_close_after_a_strangers_first_message_is_due_at_once() {
+    // Bob holds no record of Alice. Her request gets the Close the session
+    // logic decides; if the caller does not close, the session ends with
+    // that Close at its next deadline, which is the moment of the request.
+    let mut pair = connect(Standing::Requested, PeerRecord::None);
+    let request = crate::testing::request_with(card(ALICE), None);
+    let frame = pair.initiator.send(&request, start()).unwrap();
+    let (_, received) = pair.responder.receive(&frame, after(secs(3))).unwrap();
+    assert!(received.unwrap().actions.contains(&Action::SendClose));
+    assert_eq!(pair.responder.state(), SessionState::Closing);
+    assert_eq!(pair.responder.deadline(), Some(after(secs(3))));
+    let Expiry::Close(Some(close)) = pair.responder.expire(after(secs(3))) else {
+        panic!("no Close");
+    };
+    assert_over(&mut pair.responder);
+    let received = deliver(&mut pair.initiator, &close).unwrap().unwrap();
     assert_eq!(received.message, Message::Close);
 }
 
