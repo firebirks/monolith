@@ -372,6 +372,10 @@ What each of them is worth alone:
   and takes over only if the user confirms it (S48). Towards strangers,
   and towards a user who confirms, the thief is the identity. There is no
   recovery other than telling contacts out of band.
+- A successor key the owner announced: it does not expire. Whoever obtains
+  it before it is promoted can promote it at every contact that holds it
+  as authorized, which retires the active key there. The owner protects a
+  new key from the moment it announces it.
 - The identity key and the active transport key together: the holder can
   announce a successor through the active key and prove it, which is
   exactly what the owner does. No rule of F1 to F5 can tell the two

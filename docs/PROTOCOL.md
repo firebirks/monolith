@@ -199,12 +199,18 @@ the handshake hash `h`.
 The initiator:
 
 1. Before it sends anything: the card it dials is one it holds of a
-   contact and states the active key of that contact (section 11.4); the
-   identity of that card is not the initiator's own.
+   contact, chosen by the rules of section 11.4, and its identity is not
+   the initiator's own.
 2. Message 2 is 48 bytes, its ephemeral key is valid (section 10.2), and
    Noise accepts it. A message 2 that Noise accepts shows that the sender
    holds the transport key of the dialed card and used its identity key
    in its prologue.
+3. Before message 3, which carries its identity and card: the responder
+   is admitted against the credentials of the contact as they are then
+   (section 6.2). If the key it proved no longer stands for the contact,
+   because it was retired or is only pending, message 3 is not sent and
+   the initiator closes, as for a failed check 2. Its identity is never
+   sent to the holder of a key the contact has left.
 
 If check 2 fails the initiator closes. It has sent 48 bytes that carry no
 identity. The failure is reported to the user as an identity mismatch: the
@@ -212,7 +218,10 @@ service at the contact's address did not prove the contact's identity. An
 initiator cannot tell an impostor from a contact whose transport key has
 changed (section 11.4) or from a service that is not Monolith at all, and
 the interface says so. This is never resolved automatically, and there is
-no option to continue.
+no option to continue. During a rotation of the peer's key the dial of an
+authorized successor that fails is followed by a dial of the active card
+and is not reported (section 11.4); that is a new dial, not a way to go
+on with this one.
 
 The responder:
 
@@ -1140,9 +1149,10 @@ It is necessary for a card to count, and it is not sufficient to replace
 the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
 
 1. Rollback. A card older than the active card, a card with the epoch of
-   the active card that states something else, a card of the authorized
-   key older than the announced one, and a card that states the retired
-   key change nothing and open no contact session.
+   the active card or of the authorized successor that states something
+   else, a card of the authorized key older than the announced one, and a
+   card that states the retired key change nothing and open no contact
+   session.
 2. Endpoints. A newer card with the active key becomes the active card at
    once, from any source: presented by the key holder in a handshake,
    received in an EndpointUpdate on a session of the active key, or
@@ -1156,11 +1166,12 @@ the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
    active card and the previous key is retired.
 5. No continuity. A newer card with another key that is presented in a
    handshake without an announcement, or imported by hand for an accepted
-   contact, becomes the pending successor. A presented card replaces a
-   pending one only with a greater epoch; an imported card replaces it
-   whatever its epoch, so that a card planted by whoever copied the
-   identity key cannot keep the user's own out. The session it came with
-   is not a contact session. It becomes the active card only when the user
+   contact, becomes the pending successor. An imported card replaces the
+   pending one whatever its epoch; a presented card replaces it only with
+   a greater epoch and never replaces a card the user imported. So a card
+   planted by whoever copied the identity key can neither keep out nor
+   displace the user's own. The session it came with is not a contact
+   session. It becomes the active card only when the user
    confirms exactly that card; the previous key is then retired as in 4.
 6. Requests. For an identity held as requested and not yet accepted, a
    card the user imports by hand is the user's choice of the card to use
@@ -1171,18 +1182,33 @@ the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
    anything else is done with the contact, the duplicate rule of section
    14 included. It ends with Close and delivers nothing more. A card that
    states the retired key never opens a contact session again, whatever
-   its epoch.
+   its epoch. Only the key retired last is remembered: a key retired
+   earlier is refused in its old cards by their epochs, and a newer card
+   that states it is a new key without continuity as in 5.
+
+Withdrawal concerns sessions that were admitted as a contact's. A session
+whose standing was not a contact's, a stale or pending key included, is on
+the path of a stranger from the start and is left to it (section 12.1):
+ending it early would tell the peer that its identity is held as a
+contact.
 
 The state is bounded: one active card, one authorized and one pending
 successor, one retired key per contact. A newer announcement replaces the
-authorized successor; a pending card is replaced by a newer presented one
-or by any imported one.
+authorized successor; a pending card is replaced as rule 5 says.
 Promotion clears the authorized successor and drops a pending card that is
-not newer than the new active card.
+not newer than the new active card. An authorized successor does not
+expire: whoever holds its key can make it the active one at any time
+until a newer announcement replaces it, so an identity protects a new key
+from the moment it announces it.
 
-Dialing. A receiver dials a card that states the active key. A newer
-active card with another endpoint set takes effect for dialing when the
-user confirms it; a card the user imports by hand is confirmed by that.
+Dialing. A receiver dials a card that states the active key. While it
+holds an authorized successor it dials that card first and the active one
+if the successor does not answer; a successor that does not answer is not
+reported as an identity mismatch, because the identity may not use it yet.
+A handshake in which the successor answers promotes it as in rule 4. A
+newer active card with another endpoint set takes effect for dialing when
+the user confirms it; a card the user imports by hand is confirmed by
+that.
 Until then the contact is not dialed. When a promotion leaves the endpoint
 set that the user confirmed unchanged, the promoted card is dialed from
 then on. Confirming where to connect never changes which key stands for
@@ -1208,37 +1234,52 @@ signing a card with a greater epoch that states the new key. It does not
 give up the old key first:
 
 1. The identity generates the new key and signs the successor card.
-2. It keeps the old key: it goes on answering handshakes with it and may
-   still open sessions with it.
+2. It keeps the old key and goes on answering handshakes with it.
 3. On every confirmed session made with the old key it sends the
    successor card in an EndpointUpdate. Each contact that receives it
-   holds the new key as authorized successor.
-4. It opens a session to each such contact with the new key, dialing the
-   contact's active card. The contact promotes the new key in that
-   handshake; the old key is retired there, and the contact's sessions of
+   holds the new key as authorized successor and dials it first from then
+   on.
+4. When it begins to open sessions with the new key, it also answers with
+   the new key. It dials each contact's authorized successor first, if it
+   holds one, and the contact's active card otherwise. Each contact
+   promotes the new key in the first handshake that proves it, in either
+   direction; the old key is retired there, and the contact's sessions of
    the old key end.
-5. When its contacts have promoted the new key, it answers with the new
-   key and drops the old one. A contact has promoted the key once a
-   session made with the new key was confirmed.
+5. It keeps the old key for opening sessions to contacts that have not
+   promoted the new one, and announces the successor to them there. A
+   contact has promoted the key once a session made with the new key was
+   confirmed. When all have, or when local policy says so, it drops the
+   old key.
+
+The switch of step 4 does not wait for any confirmation. That matters when
+two identities rotate at the same time and their first dials with the new
+keys cross: each side promotes the other's new key in the handshake it
+answers, withdraws the session it opened to the other's old key, and must
+then be reachable at its own new key. Answering with the new key from
+step 4 on, and dialing a known successor first, gives exactly that. As
+long as each side kept its old key until the successors were exchanged on
+a session of the old keys, both rotations complete in either order.
 
 Between steps 1 and 5 the identity holds two keys, and each contact holds
 the old key active and the new one authorized until it promotes it. After
 a promotion only the new key stands for the identity at that contact. A
 responder of version 1 answers with one key at a time (section 17, P8):
-before step 5 a contact that has promoted the new key cannot dial the
-identity, and after it a contact that never received the successor card
-cannot. When to switch is local policy; its timing is set with the contact
+from step 4 on, a contact that never received the successor card cannot
+dial the identity, which reaches it with the old key as in step 5. When
+to drop the old key is local policy; its timing is set with the contact
 store in Phase 4.
 
-Two identities may rotate at the same time. As long as each keeps
-answering with its old key until both successor cards were exchanged on a
-session of the old keys, both rotations complete: each promotes the
-other's new key when the other dials with it. If both give up their old
-keys before that exchange, neither can reach the other: each dials a key
-the other no longer answers, and a new key presented without announcement
-is only pending. Nothing is taken over and no session is a contact
-session. In version 1 the recovery is a card handed over out of band,
-which the user imports and confirms.
+If both identities of a contact give up their old keys before the
+successor cards were exchanged, neither can reach the other: each dials a
+key the other no longer answers, and a new key presented without
+announcement is only pending. Nothing is taken over and no session is a
+contact session. In version 1 the recovery is a card handed over out of
+band, which the user imports and confirms.
+
+An identity that changes its endpoints during a rotation signs the new
+endpoints into a successor card with a greater epoch and announces it
+again: a card with the old key and an epoch not below the announced
+successor's drops or contradicts it (rules 1 and 2).
 
 There is no revocation. Against a contact that has promoted the successor,
 the old key is retired and useless. Against a party that has never seen

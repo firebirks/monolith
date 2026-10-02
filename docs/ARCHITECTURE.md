@@ -124,16 +124,31 @@ who the peer is; the credentials say whether that peer is the contact on
 this session.
 
 - Admission is one step. `link::dial` and `link::answer` call the
-  admission function after the last wait, the Tor stream and the
-  handshake included. The function looks up the record of the identity as
+  admission function when the peer is authenticated, after the Tor stream
+  and the handshake messages that authenticate it; a dial does so before
+  it writes message 3 and sends it only to a key that still stands for the
+  contact. The function looks up the record of the identity as
   it is then, admits the authenticated peer with the record borrowed
   mutably, so that the standing and the change of the credentials are one
   call, and keeps the `Withdrawal` of the link with the session. Nothing
   between the lookup and the end of the step waits.
 - Retirement withdraws. When a successor is promoted, by an admission or
-  by the user's confirmation, every session whose card no longer states
-  the active key (`Credentials::authorizes`) is withdrawn before anything
-  else is done with the contact, the duplicate rule included.
+  by the user's confirmation, every session that was admitted as a
+  contact's and whose card no longer states the active key
+  (`Credentials::authorizes`) is withdrawn before anything else is done
+  with the contact, the duplicate rule included. The store keeps the
+  withdrawal of contact sessions only: a session admitted with another
+  standing is left on the path of a stranger, because ending it early
+  would show the peer that it is held as a contact.
+- Applying is checked again. A message a link has returned was decided
+  when it was taken; what it would change in the contact state, a
+  `MarkAccepted`, a request, an EndpointUpdate, is applied under the
+  lock of that state and only while the session still stands for the
+  contact (`Credentials::authorizes` for its card, or the link not
+  withdrawn). `Credentials::announce` makes this check itself.
+- The admission function runs inside the handshake deadline and must not
+  block or wait: it takes the lock, works on memory and lets go. No lock
+  of the contact state is held across the `await` of `dial`.
 - Phase 3 holds no contact state. It provides the credential type, the
   admission entry points, the withdrawal and the duplicate rule with
   credential standing, and tests them with a minimal store.
@@ -144,8 +159,12 @@ withdrawal; withdrawal of the sessions of a retired key inside the same
 step as the promotion; the confirmation and import actions of the
 interface on top of `Credentials::confirm`, `import` and `replace`;
 persisting the credentials atomically with the rest of the contact record
-(S31); the timing of a rotation and of the switch to the new key; and the
-dial card the user confirmed, kept apart from the credentials.
+(S31), either inside the step or before its result is used, so that a
+crash cannot bring a retired key back; forgetting the withdrawals of links
+that ended (`Withdrawal::is_ended`), including those `answer` refused for
+lack of a slot after the admission had run; the timing of a rotation and
+of the switch to the new key; and the dial card the user confirmed, kept
+apart from the credentials.
 
 ## 2. Processing order for peer input
 

@@ -227,6 +227,7 @@ Nothing below is settled. Each is described in the document named.
 | P8 | A responder that answers two transport keys at once during a rotation (the bounded overlap itself is decided) | PROTOCOL.md 17 |
 | CR-1 | Timing of a rotation: when the identity switches to the new key, and how long the old one is kept | DESIGN_QUESTIONS.md 8.2 |
 | CR-2 | A recipient-bound card format for per-contact endpoints | DESIGN_QUESTIONS.md 8.2 |
+| CR-3 | A bound on how far an epoch may jump in one card | DESIGN_QUESTIONS.md 8.2 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
 | - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
 | MI-1 to MI-4 | Several local identities: a target port per identity on Tails and Whonix, budget values and the number of identities, mixed storage modes, the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
@@ -805,3 +806,54 @@ Spec authority. The rule that the documents always win over the code is
 replaced: the normative documents define intended behavior, `STATUS.md`
 records what is implemented, and a disagreement is a bug to resolve in
 either direction (`ARCHITECTURE.md` section 9).
+
+### 8.3 The two review passes
+
+Two focused reviews were made of the result: one of the authentication
+and credential semantics, one of the implementation, state and
+concurrency. Fixed after them:
+
+- Crossing dials of two rotations deadlocked. When both identities rotate
+  and their first dials with the new keys cross, each promotes the other's
+  new key and withdraws the session it opened to the other's old key, so
+  no session of a new key was ever confirmed, which was the trigger to
+  start answering with the new key. The procedure of `PROTOCOL.md` 11.4
+  now answers with the new key from the first use on, and dials a known
+  authorized successor first; a test makes the crossing dials.
+- Withdrawing stale or pending sessions at admission told the peer that
+  it is held as a contact. Only sessions admitted as a contact's are
+  withdrawn; the others stay on the path of a stranger.
+- A presented card could displace a pending card the user imported. It
+  no longer can.
+- A card with the active key at the epoch of the authorized successor
+  silently dropped the successor. It is a conflict now.
+- An initiator sent message 3, with its identity and card, before it
+  admitted the responder. It now admits after message 2 and does not send
+  message 3 to a key that was retired or is only pending
+  (`PROTOCOL.md` 4.4, check 3).
+- The outbound request took its capability from the dialed card and the
+  inbound one from the record. Both take it from the record now (P10).
+- A link that had reported its withdrawal could wait for the idle limit
+  on the next call; every call now fails at once. Links report when they
+  end, so a store can forget their withdrawals, also when `answer` refused
+  a peer after the admission. The withdrawal is handed out only to the
+  admission function. The Close and the shutdown of a withdrawn link are
+  bounded.
+- Documented: only the key retired last is remembered; an announced
+  successor does not expire; an endpoint change during a rotation is a
+  new successor card; what a returned message changes in the contact state
+  is applied only while its session still stands; the admission function
+  must not block; credentials are persisted before the result is used.
+
+Not changed, and why:
+
+- `Link::send` is not cancel-safe: a send dropped in the middle of a
+  write leaves part of a frame on the stream. That predates this review
+  and ends the session at the peer.
+- CR-3, a bound on epoch jumps, is a protocol rule and is left to the
+  owner. Without it, a card the user imports with the active key and an
+  epoch near the largest makes every later card of the owner stale, and
+  a presented card with such an epoch occupies the pending slot until the
+  user imports another. Recommended: refuse a card whose epoch exceeds
+  the held one by more than 2^48, which leaves room for the jump of 2^32
+  that P3 proposes for a restored backup.

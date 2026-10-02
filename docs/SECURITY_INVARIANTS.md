@@ -186,7 +186,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
   card, the same epoch with another transport key or endpoint set, a card
   of the authorized key older than the announced one, or the retired key
   gives `StaleCard`, which the session logic treats on the same code path
-  as an identity that is not a contact. Neither `InboundPeer` nor
+  as an identity that is not a contact. Only the key retired last is
+  remembered; a key retired earlier is refused in its old cards by their
+  epochs, and a newer card stating it is a new key without continuity
+  (S48). Neither `InboundPeer` nor
   `OutboundPeer` can be turned into a session without that function. An
   EndpointUpdate goes through `Credentials::announce`, which applies the
   same comparison.
@@ -226,8 +229,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   pending: the session gets `Standing::PendingSuccessor`, which the
   session logic treats as an identity that is not a contact, and the key
   takes over only through `Credentials::confirm` with exactly the card
-  that is pending. An import for an accepted contact (`Credentials::import`)
-  never replaces the key. Every transition that replaces the key retires
+  that is pending. A card the user imported is never displaced from the
+  pending slot by a presented one. An import for an accepted contact
+  (`Credentials::import`) never replaces the key. Every transition that replaces the key retires
   the previous one. A copied identity key alone therefore cannot take a
   contact over or lock the holder of the active key out.
 - Residual: a holder of the identity key and the active transport key can
@@ -241,39 +245,51 @@ Test area names refer to `docs/TEST_PLAN.md`.
 ### S49. A session of a retired transport key delivers nothing after the retirement
 
 - Mechanism: `Credentials::authorizes` says whether the card of a session
-  still states the active key. When a key is retired, every session for
-  which it turns false is withdrawn before anything else is done with the
-  contact: `AuthenticatedSession::withdraw` drops its standing and ends it
-  with Close, and nothing it receives afterwards is delivered. Each link
-  has a `Withdrawal`, which the admission function keeps with the session
-  in the same step as the admission; withdrawing it stops delivery before
-  the next frame is taken from the buffer and wakes a link that waits for
-  the peer. The duplicate rule takes for each session whether its key is
-  current (`duplicate::Contender`), and a session that is not loses before
-  the preference is looked at.
+  still states the active key. When a key is retired, every session that
+  was admitted as a contact's and for which it turns false is withdrawn
+  before anything else is done with the contact:
+  `AuthenticatedSession::withdraw` drops its standing and ends it with
+  Close, and nothing it receives afterwards is delivered. Each link has a
+  `Withdrawal`, which the admission function keeps with the session in
+  the same step as the admission and which is handed out nowhere else;
+  withdrawing it stops delivery before the next frame is taken from the
+  buffer, wakes a link that waits for the peer, and makes every later
+  call on the link fail at once. `Withdrawal::is_ended` tells the store
+  which links are gone. Sessions admitted with another standing are left
+  on the path of a stranger, so that their end does not show the peer
+  that it is held as a contact. The duplicate rule takes for each session
+  whether its key is current (`duplicate::Contender`), and a session that
+  is not loses before the preference is looked at.
 - Residual: keeping the withdrawals with the credentials and calling them
   on retirement is the contact store's, in Phase 4; Phase 3 provides the
-  pieces and tests them with a minimal store.
+  pieces and tests them with a minimal store. A message the link returned
+  before the withdrawal is the caller's to judge: what it would change in
+  the contact state is applied under the store's lock only while the
+  session still stands (`ARCHITECTURE.md` section 1.2).
 - Tests: `session::tests` (a withdrawn session delivers nothing),
   `duplicate::tests`, `tests::credentials` (the session of the old key
   after a promotion; the duplicate rule), `tests/credentials.rs` in the
-  core (a link with a buffered and an unread message, and a waiting link,
-  are withdrawn), mutation faults CR10 to CR15.
+  core (a link with a buffered and an unread message, a waiting link, a
+  link withdrawn before it was polled, a withdrawal seen first by a send;
+  a stale session is not withdrawn; ended links), mutation faults CR10
+  to CR17.
 
 ### S50. A session is admitted against the contact state of that moment
 
 - Mechanism: `link::dial` and `link::answer` hold no contact state. They
-  take an admission function and call it once, after the last wait: the
-  dial budget, the Tor stream and the three handshake messages are behind
-  it. The function receives the authenticated peer, which exists only
+  take an admission function and call it once, when the peer is
+  authenticated: the dial budget, the Tor stream and the handshake
+  messages that authenticate the peer are behind it. A dial admits the
+  responder after message 2 and writes message 3, which carries the local
+  identity, only if the proven key still stands for the contact. The function receives the authenticated peer, which exists only
   after the handshake, and admits it with a record borrowed mutably from
   the contact state, so the standing and the change of the credentials
   are one call. A contact store holds its lock from the lookup through
   the admission to keeping the `Withdrawal`; a retirement after that
   point withdraws the session (S49).
 - Tests: `tests/credentials.rs` in the core (a key retired while a dial
-  is in progress gives no contact session), `tests::contacts`, mutation
-  fault H16.
+  is in progress gives no contact session, and message 3 is not sent),
+  `tests::contacts`, mutation faults H16 and CR18.
 
 ### S38. An invitation capability admits a request and does nothing else
 

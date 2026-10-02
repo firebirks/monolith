@@ -394,13 +394,22 @@ core:
 9. An import for an accepted contact never replaces the key; for a
    requested contact it replaces the card and its capability (P10).
 10. Two identities rotating at the same time complete while the old keys
-    answer; when both old keys are gone, nothing is taken over and an
-    out-of-band card that the user confirms recovers.
+    answer, also when their first dials with the new keys cross; when both
+    old keys are gone, nothing is taken over and an out-of-band card that
+    the user confirms recovers.
 11. The duplicate rule never keeps a session of a retired key over one of
     the active key.
 12. A key retired while a dial is in progress gives the dialed session no
-    contact standing: admission reads the contact state after the
-    handshake.
+    contact standing, and message 3 with the local identity is not sent:
+    admission reads the contact state after message 2.
+14. A card a peer presents does not displace a pending card the user
+    imported; a card at the epoch of the authorized successor that states
+    something else is a conflict.
+15. A withdrawn link fails at once on every later call, also when it was
+    withdrawn before it was polled; a withdrawal seen first by a send
+    writes the Close; a stale or pending session is not withdrawn early;
+    a dropped link, and one `answer` refused after the admission, report
+    that they ended.
 13. Property: over random sequences of admissions, announcements,
     confirmations and imports the invariants hold, the active epoch never
     decreases, and the active key changes only by promoting a proven
