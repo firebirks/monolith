@@ -269,6 +269,23 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
         add(&format!("session_sequence/{name}.bin"), input);
     }
 
+    // credential_sequence: events of three bytes, see the target. A
+    // rotation through the active key, a pending key confirmed, a planted
+    // pending card overridden by an import, the retired key under a higher
+    // epoch, an endpoint change, a replacement for a requested contact,
+    // and an announcement on a session of another key.
+    for (name, input) in [
+        ("rotation", vec![1, 1, 1, 0, 1, 1]),
+        ("pending_confirmed", vec![0, 2, 2, 2, 2, 2]),
+        ("planted_then_imported", vec![0, 3, 255, 3, 1, 1, 2, 1, 1]),
+        ("retired_key_returns", vec![1, 1, 1, 0, 1, 1, 0, 0, 7]),
+        ("endpoint_change", vec![0, 4, 1, 0, 0, 0]),
+        ("replaced", vec![4, 1, 2, 0, 0, 0]),
+        ("no_continuity", vec![11, 2, 2, 0, 2, 2]),
+    ] {
+        add(&format!("credential_sequence/{name}.bin"), input);
+    }
+
     seeds
 }
 
@@ -414,5 +431,9 @@ fn seeds_are_accepted_by_what_they_are_meant_for() {
     for (path, content) in find("session_sequence/") {
         assert!(content.len() >= 3, "{path} has no event");
         assert!(content[0] <= 7 && content[1] <= 6, "{path}");
+    }
+    // credential_sequence seeds are whole events of three bytes.
+    for (path, content) in find("credential_sequence/") {
+        assert!(!content.is_empty() && content.len() % 3 == 0, "{path}");
     }
 }

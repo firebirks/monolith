@@ -269,6 +269,9 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
         // Alice's stream is gone: what was on its way to her is dropped,
         // what she sent before still arrives.
         ("stream_closed", vec![2, 0, 1, 1, 1, 20, 3, 2, 0, 1, 21]),
+        // Bob withdraws the session while a message from Alice is on its
+        // way; it is not delivered, and Alice sees an ordinary Close.
+        ("withdrawn", vec![2, 0, 1, 23, 2, 3, 0, 1, 2]),
     ] {
         add(&format!("session_frames/{name}.bin"), input);
     }
@@ -380,7 +383,7 @@ fn frame_seeds_are_complete_operation_lists() {
         let mut rest = &content[1..];
         let mut operations = 0;
         while let Some((operation, tail)) = rest.split_first() {
-            let kind = (operation % 22) / 2;
+            let kind = (operation % 24) / 2;
             let arguments = match kind {
                 0 | 7 => 1,
                 2 => 3,
@@ -394,5 +397,5 @@ fn frame_seeds_are_complete_operation_lists() {
         }
         assert!(operations >= 3, "{path}");
     }
-    assert_eq!(seen, (0..11).collect::<BTreeSet<u8>>());
+    assert_eq!(seen, (0..12).collect::<BTreeSet<u8>>());
 }

@@ -21,6 +21,7 @@
 //! | 16, 17 | Alice or Bob blocks the peer | |
 //! | 18, 19 | Alice or Bob removes the contact | |
 //! | 20, 21 | the stream of Alice or of Bob is reported closed | |
+//! | 22, 23 | Alice or Bob withdraws the session: the peer's key was retired | |
 //!
 //! The target keeps its own account of what was sent, of which direction
 //! was interfered with and of the time that has passed, and compares every
@@ -77,6 +78,7 @@ enum End {
     Close,
     Block,
     Remove,
+    Withdraw,
 }
 
 struct World {
@@ -183,6 +185,7 @@ impl World {
             End::Close => sender.close(),
             End::Block => sender.block_peer(),
             End::Remove => sender.remove_contact(),
+            End::Withdraw => sender.withdraw(),
         };
         // A Close is produced exactly when the session was still open,
         // also past the age limit.
@@ -199,6 +202,7 @@ impl World {
             End::Close => standing,
             End::Block => Standing::Blocked,
             End::Remove => Standing::None,
+            End::Withdraw => Standing::StaleCard,
         };
         assert_eq!(sender.standing(), expected);
     }
@@ -352,7 +356,7 @@ fuzz_target!(|data: &[u8]| {
     while let Some((operation, tail)) = rest.split_first() {
         rest = tail;
         let second = operation % 2 == 1;
-        match (operation % 22) / 2 {
+        match (operation % 24) / 2 {
             0 => {
                 let Some((selector, tail)) = rest.split_first() else {
                     return;
@@ -398,7 +402,8 @@ fuzz_target!(|data: &[u8]| {
             }
             8 => world.end(second, End::Block),
             9 => world.end(second, End::Remove),
-            _ => world.stream_closed(second),
+            10 => world.stream_closed(second),
+            _ => world.end(second, End::Withdraw),
         }
     }
 });

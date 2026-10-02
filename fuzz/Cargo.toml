@@ -85,6 +85,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "credential_sequence"
+path = "fuzz_targets/credential_sequence.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "handshake_responder"
 path = "fuzz_targets/handshake_responder.rs"
 test = false

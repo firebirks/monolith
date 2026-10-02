@@ -23,6 +23,7 @@ handshake with fixed ephemeral keys. The functions that allow this exist in
 | `frame_stream` | state, piece size, mode, then a byte stream or records to build one from | fails, or yields payloads of legal length; never holds more than one frame; undamaged frames all come out again |
 | `text_fields` | bytes | every validator accepts exactly what the rules of PROTOCOL.md section 9 accept, written out a second time in the target, and keeps accepted text byte for byte; save names are single safe path components |
 | `session_sequence` | progress and direction, standing, events | no application data before confirmation; no backward transition; a card that does not belong to the authenticated peer is always a violation; nothing is sent that `may_send` forbids; identities that are not contacts look alike, a contact with a stale card or a pending key among them |
+| `credential_sequence` | events: admission, announcement on a session of a chosen key, confirmation, import, replacement, each with one of 72 cards of one identity | the invariants of the credentials hold; the active epoch never goes down; the active key changes exactly on a promotion, and only by a proven authorized successor, a confirmed pending card or a replacement; a promotion retires the previous key; what changes nothing leaves the state as it was; an announcement on a session of another key changes nothing; the standing is a contact's exactly for the active key or a promoted one |
 | `handshake_responder` | record and piece size, mode, then a stream or the damage to apply to the genuine one | a session exists only after the two genuine messages of an initiator; the reply is made only to a first message that verifies; the handshake takes no record and ends the same way under each; afterwards every message has exactly the actions its record (none, blocked, requested or accepted) allows: a stranger or a blocked identity gets a Close and nothing else, a requested contact is marked accepted once, and nothing is delivered before the session is confirmed |
 | `handshake_initiator` | piece size, mode, then a stream or the damage to apply to the genuine one | the third message, which carries the initiator's identity, is made only after the genuine second message; the session is one with the identity that was dialed or there is none |
 | `session_frames` | piece size, then operations: send, deliver, change a byte, drop, repeat, inject, close, block, remove the contact, lose the stream, let time pass | a message is delivered only if the peer sent it, once and in order; nothing is delivered from a direction that was interfered with, or after the age limit and its grace; a violation occurs only there; from the age limit on nothing but Close is sent; every way of ending a session sends the same Close; a failed session stays failed |
@@ -49,7 +50,7 @@ signature check, a padding check or an authentication tag.
 
 The seeds are generated, not written by hand. Two tests build them from
 fixed values and fail if a committed seed is not what the current code
-produces: `fuzz_seeds` in `monolith-protocol` for the first eight targets,
+produces: `fuzz_seeds` in `monolith-protocol` for the first nine targets,
 `seeds` in `monolith-session` for the three session targets, and
 `fuzz_seeds` in `monolith-tor` for the two Tor targets. After a format
 change:
