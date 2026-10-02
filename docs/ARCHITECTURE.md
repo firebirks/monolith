@@ -58,6 +58,63 @@ Three boundaries are enforced by dependencies, not by convention:
 Tor transport does not define identity; the GUI does not define protocol
 state; storage does not mutate protocol state.
 
+### 1.1 Local identities
+
+One installation may hold several local identities, and one process may
+run several of them at the same time. A local identity is a Monolith
+identity of its own, with its own identity key, transport key and Onion
+Service key (S39). It is not a profile name, an account of the interface
+or an alias, and two local identities are as unrelated on the wire as two
+users on two machines.
+
+    process
+      +-- identity A   keys A, onion service A, contacts A, capabilities A
+      +-- identity B   keys B, onion service B, contacts B, capabilities B
+      +-- shared       Tor backend and its status, runtime, supervisor,
+                       storage task, configuration, process-wide budgets
+
+Everything that depends on an identity belongs to the context of one
+local identity: its keys and `LocalParty`, its cards and active set of
+invitation capabilities, its contacts, blocked, declined and former
+contacts, verification marks and aliases, pending requests in both
+directions, queued messages and history, isolation groups, its published
+service with the accept loop of that service, and its budgets. State is
+keyed by the local identity, and for a peer by the local and the remote
+identity; nothing identity-dependent is process-wide (S40 to S46).
+
+- Inbound. Each local identity publishes its own Onion Service. The accept
+  loop of a service runs the responder with the party and the contact
+  lookup of the identity that owns the service, so the service a stream
+  arrived at says which identity it addresses. No code asks for "the" local
+  identity, and a stream is never tried against several identities.
+- Outbound. Every dial names the local identity it is made for: its party,
+  its record of the peer, its isolation group for that peer. There is no
+  default identity to fall back to.
+- Concurrency. Identities are independent contexts in one process; several
+  can be online at once. Switching identity in an interface changes what
+  is shown, not which identities run.
+- Labels. A local label such as "Personal" or "Project" is local metadata.
+  It never enters a card, a handshake, Tor or any other peer-visible data,
+  and it is not a credential or a unique name.
+- Not multi-device. Several identities in one installation are unrelated
+  identities. One identity on several devices (a root identity with device
+  keys) is a different, later design and is not modelled by this.
+
+The peer does not learn how many identities a process holds or which
+others exist (S44); the protocol is unchanged by it (PROTOCOL.md section
+1). What can still link identities that run together is in
+`THREAT_MODEL.md` adversary S.
+
+State in Phase 3: no code holds a local identity as global state. `link`
+takes the party, the record or lookup and the isolation group as
+arguments, `serve` runs one service, the Tor backend holds several
+publications at once and keeps no identity state, and `Budgets` is a
+value, not a singleton. `dev-chat` makes one identity per run as a test
+aid. The contact store and the vault of Phase 4 are built with
+identity-scoped records from the start, even if the first interface
+offers one identity; which phase offers several in the interface is not
+decided.
+
 ## 2. Processing order for peer input
 
 Every byte from a peer passes these stages in order. A failure at any stage
@@ -85,7 +142,8 @@ Persistent state is written only at "applied".
     it starts in a `JoinSet`, at most `MAX_INBOUND_HANDSHAKES` of them, and
     aborts them when it ends;
   - a dial scheduler with at most `MAX_CONCURRENT_DIALS` dials;
-  - one Tor control task;
+  - Tor control connections: one held by each published service, which
+    ends with it, and short ones for status queries;
   - one storage task; vault writes and KDF work run on the blocking pool;
   - one writer task per active file transfer.
 - Every channel is bounded, with its capacity in `limits.rs` (S12).
@@ -108,14 +166,18 @@ storage task or the control task ends the process cleanly.
 
 Front ends send commands and receive events. Both are plain typed values.
 Events come through one bounded queue (`MAX_UI_EVENTS`) with coalescing for
-state-like events (`RESOURCE_LIMITS.md` section 8).
+state-like events (`RESOURCE_LIMITS.md` section 8). A command or event
+that concerns an identity names the local identity it belongs to (section
+1.1); only those about Tor and the process do not.
 
 Commands (version 1): create or unlock identity; lock; show own contact
 card; create a card with a new invitation capability and a local label;
 revoke an invitation capability; set request mode; add contact card;
 accept, decline, block a request; block, unblock, delete a contact; mark
 verified; send message; offer file; accept, reject, abort a transfer;
-confirm endpoint update; set profile; shut down.
+confirm endpoint update; set profile; shut down. For several local
+identities, later: create another identity, set its local label, take it
+online or offline, delete it (`STORAGE.md` section 1.1).
 
 Events (version 1): Tor state; service state; peer state per contact;
 identity mismatch; request count changed; message received; message
@@ -145,6 +207,15 @@ revoking a card's access affects contacts already accepted. A card can be
 issued without a capability; the user chooses that, and Monolith does not
 add one.
 
+Local identities (section 1.1). A front end of a later phase may show a
+current identity with a list to switch to ("Personal", "Project",
+"Pseudonym"), or the notifications of several active identities at once,
+each marked with the identity it belongs to. The labels are the user's
+convenience: they are not unique, not usernames and not shown to peers.
+Security-relevant views still show the fingerprint of the local identity
+and of the peer. Switching the identity that is shown takes no identity
+offline.
+
 ## 5. Command-line interface
 
     monolith status
@@ -159,6 +230,10 @@ add one.
 
 No command prints a private key. There is no export of secrets in version
 1. Peer-supplied text is escaped before it is written to a terminal.
+
+The identity, card and contact commands act on one local identity. Once
+an installation can hold several, they take the identity to act on as an
+argument; none of them picks one silently.
 
 Phase 3 implements `tor status` and `doctor`, with the options `--socks`,
 `--control` and `--control-auth`, and the development command
@@ -206,6 +281,8 @@ switch.
 
 No operating system, distribution, Tails or Whonix indication, architecture,
 locale, hostname, username, toolkit, build hash or version string. Nothing
+about other local identities: not their number, keys, cards, endpoints,
+labels or state. Nothing
 is negotiated: the protocol version is a label that both sides hash into
 the handshake and that never appears on the wire. Timestamps are not
 transmitted.

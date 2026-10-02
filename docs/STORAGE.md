@@ -44,6 +44,44 @@ Data directory: `$XDG_DATA_HOME/monolith`, falling back to
 Monolith writes no log file. Logs go to standard error or the journal and
 contain nothing sensitive (S18).
 
+### 1.1 Several local identities
+
+An installation may hold several local identities (`ARCHITECTURE.md`
+section 1.1). Every stored record belongs to one of them:
+
+    vault
+      +-- identity A   keys, onion key, cards and capabilities, contacts,
+      |                block and declined lists, labels and settings
+      +-- identity B   the same, separately
+    message store
+      +-- (A, peer)    queue, history, duplicate window
+      +-- (B, peer)    the same, separately
+
+- Records of contacts, blocked, declined and former contacts, verification
+  marks, aliases, pending requests in both directions, queued messages,
+  history and duplicate windows are keyed by the local identity and the
+  remote identity. A conversation is never identified by the remote
+  identity alone. No record of one identity applies to another; a block
+  list for all identities, if ever offered, is a separate record and an
+  explicit choice.
+- In version 1 one vault, under one passphrase, may hold several
+  identities. A vault per identity is possible later and is not planned.
+- Deleting a local identity removes its keys, its Onion Service key, its
+  cards and capabilities, its contact state, its queued messages and its
+  history, and nothing of any other identity. As in section 6, it does not
+  reach older copies, backups or freed disk blocks.
+- A backup or export (section 7) may cover one identity or all of them.
+  Each identity keeps its identity key, transport key, Onion Service key,
+  capabilities and contacts together; keys are never moved from one
+  identity to another.
+- An identity whose identity, transport or Onion Service key equals one
+  held by another local identity is refused at creation, import or
+  restore (S39).
+
+Whether ephemeral and persistent identities can be mixed in one process,
+and so whether `StateMode` is per identity or per installation, is open
+item ST7.
+
 ## 2. Threat addressed
 
 An attacker who obtains the storage medium, or a copy of the data directory,
@@ -198,7 +236,8 @@ will never be the only one.
 
 A versioned sequence of typed records in the same fixed-layout style as the
 wire protocol: identity, endpoint, invitations, contacts, block list,
-declined list, settings. The exact record layout is written down with the
+declined list, settings, each set of them belonging to one local identity
+(section 1.1). The exact record layout is written down with the
 Phase 4 implementation and becomes part of this document.
 
 Rules that are fixed now:
@@ -324,8 +363,9 @@ it from older copies, backups or freed disk blocks.
 
 ## 7. Backups
 
-The vault file is a complete, encrypted backup of the identity, the Onion
-Service key, the contacts and the endpoint epoch. Copying it while Monolith
+The vault file is a complete, encrypted backup of every identity it holds:
+for each, its keys, its Onion Service key, its contacts and its endpoint
+epoch. Copying it while Monolith
 is not running is a valid backup. Message history is a separate file and is
 included only if the user copies it too.
 
@@ -376,6 +416,11 @@ ST5. Passphrase strength policy. Currently a non-empty passphrase and a
 
 ST6. Default Argon2id parameters. Provisional until the benchmark of
      section 3.3 has been run.
+
+ST7. With several local identities (section 1.1): whether `StateMode` and
+     `HistoryPolicy` are chosen per identity or for the installation, and
+     the record layout that scopes every record to its identity. Decided
+     with the vault in Phase 4.
 
 ## 10. Sources
 

@@ -32,6 +32,15 @@ A connection goes through these steps:
 3. Messages are exchanged as encrypted, padded frames (section 5), subject
    to the session state (section 7).
 
+The protocol is spoken between two identities. An installation may hold
+several local identities (`ARCHITECTURE.md` section 1.1); each speaks this
+protocol as if it were alone, with its own keys, endpoints, cards,
+capabilities and records. Wherever this document says "the local side",
+its contacts, its records or its capabilities, it means those of one
+local identity. A peer cannot tell from anything the protocol carries
+whether other identities run beside the one it talks to, or how many, and
+nothing in the protocol depends on it.
+
 Design rules that hold throughout:
 
 - A connection makes claims only about the identity of the peer that opened

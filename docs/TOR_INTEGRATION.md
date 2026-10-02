@@ -98,7 +98,9 @@ legacy username and password isolation:
     username = "<torS0X>0"
     password = lower-case hex of an isolation token
 
-The policy (`DESIGN_QUESTIONS.md` T3-4) is one token per contact:
+The policy (`DESIGN_QUESTIONS.md` T3-4) is one token per contact, and with
+several local identities (`ARCHITECTURE.md` section 1.1) one token per
+local identity and contact:
 
 - The Tor adapter makes the token: 16 bytes from the operating system's
   CSPRNG. It contains nothing derived from an identity, an onion address,
@@ -110,6 +112,11 @@ The policy (`DESIGN_QUESTIONS.md` T3-4) is one token per contact:
   caller of `link::dial` supplies it, and `dev-chat` makes one per run.
 - The token is runtime state. It is never stored, logged or shown, and a
   new one is made after a restart.
+- The backend keeps no token. The core keeps one group per pair of local
+  identity and remote identity: identity A dialing Bob, A dialing Claire
+  and B dialing Bob use three independent tokens, even though A and B
+  reach the same Bob. No token is derived from a key, an address, a name
+  or a local label.
 
 Tor 0.4.9.1 and later parse this format, and Monolith requires a later
 Tor.
@@ -193,6 +200,34 @@ that cannot produce a valid first message, and because every budget in
 `RESOURCE_LIMITS.md` applies to local connections as well. It is the reason
 application-layer authentication is mandatory even when traffic can only
 arrive from Tor.
+
+### 4.3 Several services
+
+Several local identities each publish their own service at the same time.
+The backend allows it as it is: every `publish_onion` opens its own
+control connection, binds its own listener and returns its own handle, and
+the backend keeps no state about the services it published. Ending one
+publication does not touch another. An Onion Service key belongs to one
+local identity, and Tor refuses to publish a key it already holds.
+
+A stream reaches the listener of the service it was sent to, so the
+handle that accepted it says which local identity it addresses. The core
+runs one accept loop per service with the party and contact lookup of
+the identity that owns it. Nothing about this is visible to a peer.
+
+Platforms whose filter profile fixes the target port (Tails, and Whonix,
+section 7) give every service the same listener, and a stream would no
+longer say which identity it addresses. Running several identities with
+inbound streams there needs one port per identity in the profiles, for
+example a small fixed range. Until the profiles allow that, those
+platforms can publish one identity's service at a time. Trying a first
+message against the key of every identity would also route a stream, at
+the cost of one X25519 operation per identity for every stream, and is
+not planned. Open item MI-1 in `DESIGN_QUESTIONS.md` section 7.
+
+All services of a process are published by one Tor, which uses the same
+guards for all of them and is up exactly when they are. That can link
+them for an observer; `THREAT_MODEL.md` adversary S.
 
 ## 5. Status
 

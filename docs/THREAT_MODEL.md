@@ -13,6 +13,9 @@ Invariant numbers (S1 and so on) refer to `SECURITY_INVARIANTS.md`.
   Service private key.
 - The contact list: who the user's contacts are, and that two given
   identities are contacts of each other.
+- The separation of the local identities of one installation in the
+  protocol: what one identity's peers can learn about the others (adversary
+  S).
 - The user's network location, to the extent Tor protects it.
 - The integrity of local state: contacts, pinned keys, endpoint epochs.
 - The availability of the application under hostile input, within stated
@@ -368,6 +371,47 @@ database and a licence and source policy in CI, and reviewed on update.
 Releases are to be signed and reproducible where practical. No dependency
 is fetched at run time.
 
+### S. Someone who wants to link local identities
+
+One installation may run several local identities (`ARCHITECTURE.md`
+section 1.1). The attacker holds the cards of two of them, is a contact of
+both, or watches the network, and wants to know whether they belong to one
+installation.
+
+What the protocol gives it: nothing. Each identity has its own three keys,
+its own Onion Service, its own cards and capabilities and its own contact
+state. No message, card or error names another local identity or says how
+many there are (S39 to S46). A capability of one identity admits nothing
+at another, and a peer that is a contact of A is a stranger to B unless B
+accepted it as well. The streams of A and of B to the same peer use
+different isolation tokens.
+
+What can still link them:
+
+- Presence. Identities in one process are online together: they come up
+  when the process starts and disappear when it stops or loses Tor, and a
+  holder of both cards can watch that (section 6).
+- One Tor. All services of the process are published by one Tor instance,
+  with the same guards and the same uptime. A party that can observe
+  guards or availability can correlate them.
+- Shared resources. Where two identities share a budget, the processor or
+  the process itself, load put on one is visible through the other: a
+  flood that fills a shared handshake budget, or a stall of the process,
+  shows on both. Phase 4 gives each identity its own budgets for what a
+  peer can observe (`RESOURCE_LIMITS.md` section 5.1); the process-wide
+  ceilings behind them, and the processor, remain shared.
+- Timing and traffic analysis by an observer of the network, as for any
+  Tor user (L).
+- The local system: a compromised operating system, or forensic access to
+  the device, sees every identity (section 2, J, P).
+- The user: the same display name, profile text, writing style or
+  contacts, or cards published side by side.
+
+Residual: several identities in one process are separated in the
+protocol. They are not unlinkable, and Monolith does not claim that they
+are. Monolith avoids creating links in the protocol; it cannot remove the
+links that running them together creates.
+
 ## 5. Lessons from TorChat
 
 The 2015 analysis of TorChat (Viigipuu, Tallinn University of Technology)
@@ -432,6 +476,10 @@ interface must not suggest otherwise.
 - Monolith cannot know whether a card it exported is still private. It
   treats every capability as possibly known to others once the card has
   left the device.
+- Several local identities in one installation are separate in the
+  protocol, not unlinkable. Shared presence, one Tor, shared resources,
+  traffic analysis, local access and the user's own behavior can link
+  them (adversary S). Perfect separation of personas is not claimed.
 - Deniability is not a goal. No signature is made during a session, but
   contact cards are signed, and nothing was designed or analyzed to let a
   party deny a conversation.

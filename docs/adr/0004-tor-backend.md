@@ -56,7 +56,9 @@ to work there.
 
 7. Stream isolation uses SOCKS credentials in the structured `<torS0X>0`
    format, one random token per contact, made by the adapter and never
-   exposed outside it (T3-4). The platform chooses the SocksPort.
+   exposed outside it (T3-4). With several local identities the scope is
+   the local identity and the contact. The platform chooses the
+   SocksPort.
 
 8. Tor's proof-of-work defense is always requested, with Tor's default
    queue parameters; Monolith cannot verify that it is active (T3-5).
@@ -89,6 +91,12 @@ to work there.
   access to Tor's control socket, which is full control of Tor.
 - Two small protocol clients to write and maintain. Both face a local,
   mostly trusted daemon, are bounded, and are fuzzed.
+- The backend holds no identity state. Each publication has its own
+  control connection, listener and handle, and isolation groups are kept
+  by the caller, so one backend can serve several local identities at
+  once (`TOR_INTEGRATION.md` section 4.3). Where a platform profile fixes
+  the target port, only one of them can receive streams; see the open
+  questions.
 
 ## Alternatives considered
 
@@ -113,6 +121,9 @@ to work there.
 - Behavior of `ADD_ONION` under `Sandbox 1` on Tails. This blocks Tails
   support, Phase 6 (PLATFORM_TAILS.md section 3.4), not the generic
   backend.
+- A target port per local identity in the Tails and Whonix profiles, so
+  that several identities can receive streams there
+  (`DESIGN_QUESTIONS.md` MI-1).
 
 ## Sources
 

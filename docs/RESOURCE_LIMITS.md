@@ -209,6 +209,37 @@ is revoked; nothing is revoked automatically. 16 is the value of Phase 0.
 It has not been checked against how many cards users keep in circulation,
 and is confirmed or changed with the contact store in Phase 4.
 
+### 5.1 Several local identities
+
+Every value above is written for one local identity in one process. With
+several (`ARCHITECTURE.md` section 1.1), a per-identity value must not be
+multiplied by the number of identities without bound. Budgets fall into
+three levels:
+
+    process-wide     a ceiling for the whole process
+      per identity   what one identity's peers can use
+        per contact  what one peer of one identity can use
+
+For example: inbound sockets of the process above the handshake slots of
+one identity, above the requests of one peer.
+
+- Per identity: what a peer can observe, so that load on one identity is
+  not visible through another (`THREAT_MODEL.md` adversary S). That covers
+  the inbound handshake slots, the budget for strangers, the pending
+  request queue and its quota per capability, the active set of
+  capabilities, the contact sessions, and the inbound rates of section 6.
+- Process-wide: ceilings on the totals, such as open streams, memory,
+  dials and transfers, sized so that they bind only when the process as a
+  whole is under pressure. When one binds, its effect is shared by every
+  identity, and that link is a residual risk.
+- Per contact: the limits that are per contact today stay per pair of
+  local and remote identity.
+
+No values are chosen here. Phase 4 sets them with the contact store and
+the resource tuning, and section 11 is then extended from one identity to
+the number of identities a process allows. Phase 3 has one set of
+`Budgets` per process; nothing in it prevents a set per identity.
+
 ## 6. Rates (local)
 
 Token buckets. "Burst" is the capacity, "per minute" the refill.

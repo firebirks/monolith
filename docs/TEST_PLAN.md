@@ -213,6 +213,38 @@ signature and do not conflict).
     exactly the requests that capability admitted; the record of which
     capability admitted a request appears in no frame.
 
+Local identities (T-MI)
+
+`ARCHITECTURE.md` section 1.1, invariants S39 to S46. Mandatory in the
+phase that lets a process hold several identities; the parts that need
+the contact store and the vault come with them in Phase 4. Covered
+structurally today: two publications coexist on one backend and a stream
+reaches only its own (`tests/system.rs`), and each of two local
+identities answers at its own service and dials the same contact with
+its own isolation group (`tests/link.rs`).
+
+1. An identity whose identity, transport or Onion Service key equals one
+   of another local identity is refused at creation, import and restore.
+2. Contact state is per identity: a peer accepted by A is a stranger to
+   B, and A's verification marks, aliases, pending requests and former
+   contacts do not exist for B.
+3. Blocking a peer for A leaves B's handling of that peer unchanged.
+4. A capability issued by A admits no request to B, and revoking it at A
+   changes nothing at B.
+5. The core keeps one isolation group per local and remote identity: A to
+   Bob, A to Claire and B to Bob use three groups.
+6. With A and B published, every stream to A's service runs A's party,
+   policy and lookup, and every stream to B's runs B's.
+7. What a peer of A receives (messages, their number and order, the close
+   condition) does not change with the number or state of other local
+   identities, and a flood of strangers at B leaves A's budgets and
+   answers unchanged.
+8. Every dial names its local identity; dials of A and B use their own
+   parties, records and groups.
+9. Deleting B leaves every record of A byte for byte unchanged, and a
+   backup of one identity restores its keys, capabilities and contacts
+   together.
+
 Duplicate sessions (T-DUP)
 
 1. Simultaneous dial in both directions: both sides keep the same session.

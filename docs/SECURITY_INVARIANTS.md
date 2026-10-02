@@ -5,17 +5,19 @@ peer. A change that weakens one of them is a security change and needs the
 review described in `docs/ARCHITECTURE.md` section 9.
 
 The invariants are grouped by topic, so the numbers are not in order.
-S29 to S38 were added after the first list was written.
+S29 to S46 were added after the first list was written.
 
 Implemented so far. In the protocol core: the frame and field bounds of
 S10, S11 and S26, the state gate of S19, the single encoding of S30, the
 text and filename rules behind S14, S15 and S20, the message logic of S7,
 S23 and S24, the card check of S33, the stale-card rule of S36 and the
-part of S38 that cards and sessions hold. In the
-session layer: the pinning of S9, the handshake bounds of S10, the
-randomness of S17, the redaction of S18 for its own types, the typed
-session of S19 and S21, and S34, S35 and S37. Everything that involves
-the network, storage or a user interface is still a planned mechanism.
+part of S38 that cards and sessions hold. In the session layer: the
+pinning of S9, the handshake bounds of S10, the randomness of S17, the
+redaction of S18 for its own types, the typed session of S19 and S21, and
+S34, S35 and S37. In the Tor adapter and the core, since Phase 3: S1 to S3
+and S5, the command set of S6, the connection budgets of S12, and the
+parts of S42, S43, S45 and S46 named in their entries. Everything that
+involves storage or a user interface is still a planned mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single
@@ -37,8 +39,8 @@ Test area names refer to `docs/TEST_PLAN.md`.
   allowed where they are. The only way to obtain a peer stream
   is `TorBackend::connect_onion` or `OnionService::accept`. `SystemTorBackend`
   opens exactly two kinds of connection: to the configured SOCKS endpoint and
-  to the configured control endpoint, and binds one listener, on
-  127.0.0.1. An `Endpoint` is a loopback address or an absolute socket
+  to the configured control endpoint, and binds one listener per
+  published service, on 127.0.0.1. An `Endpoint` is a loopback address or an absolute socket
   path; anything else is refused when the configuration is read (the
   Whonix-Gateway address belongs to the platform adapter of Phase 7).
   `Endpoint` is opaque: only its validating constructors make one, and the
@@ -211,8 +213,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S21. Connection state is tied to the cryptographic identity
 
-- Mechanism: the session table is keyed by the identity key the handshake
-  established. A session has no entry in it before the handshake is
+- Mechanism: the session table of a local identity is keyed by the
+  identity key the handshake established; with several local identities
+  each has its own table (S40). A session has no entry in it before the handshake is
   complete and the card checks have passed. `AuthenticatedSession` can be
   obtained only from a completed handshake, holds the card that stands for
   the peer for its whole life, and has no function that changes it. A
@@ -229,8 +232,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
 ### S22. Duplicate-connection handling happens only after authentication
 
 - Mechanism: duplicate resolution reads the session table of S21, which
-  contains authenticated sessions only. An unauthenticated stream cannot be
-  compared with, replace or close any other session.
+  belongs to one local identity and contains authenticated sessions only.
+  An unauthenticated stream cannot be compared with, replace or close any
+  other session.
 - Tests: T-DUP-1 to T-DUP-6.
 
 ### S23. Blocked and unknown peers learn nothing about the user's contacts
@@ -279,6 +283,102 @@ Test area names refer to `docs/TEST_PLAN.md`.
   pinned), `tests::contacts` (a capability changes nothing a requester can
   see; a request carries the capability of the card held of the peer and
   no other), T-ORACLE-1, T-INV-1 to T-INV-11 (Phase 4).
+
+## Local identities
+
+An installation may hold several local identities (`ARCHITECTURE.md`
+section 1.1). Most of the mechanisms below belong to the contact store and
+the vault of Phase 4; what Phase 3 already holds is named in each entry.
+
+### S39. Each local identity has its own identity, transport and Onion Service keys
+
+- Mechanism: every key of an identity is generated from the CSPRNG for
+  that identity alone and held only in its context; S33 separates the
+  three keys within one identity. Planned for Phase 4: the vault refuses
+  to create, import or restore an identity whose identity key, transport
+  key or Onion Service key equals one held by another local identity, so
+  one identity key is never held by two contexts (that would be a form of
+  multi-device, which version 1 does not have). Tor refuses to publish a
+  key it already holds, and so does the mock backend.
+- Tests: T-MI-1, T-MI-9.
+
+### S40. Contact state belongs to one local identity
+
+- Mechanism: every record of an accepted, requested, blocked, declined or
+  former contact, a pending request, a verification mark or a local alias
+  is keyed by the local identity and the remote identity. No store
+  function takes a remote identity alone. Accepting, blocking or deleting
+  a peer for one identity changes nothing for another. A block list for
+  all identities, if one is ever offered, is a separate record and an
+  explicit choice. In Phase 3, `link::answer` and `link::dial` take the
+  record or the lookup from the caller and hold none. The store is Phase
+  4.
+- Tests: T-MI-2, T-MI-3.
+
+### S41. An invitation capability admits requests only to the identity that issued it
+
+- Mechanism: each local identity has its own active set (PROTOCOL.md
+  section 12.3). A request is compared only with the set of the identity
+  whose service it reached, and revoking changes only that set. There is
+  no lookup across the sets of all identities. Phase 4.
+- Tests: T-MI-4.
+
+### S42. Stream isolation is per local identity and contact
+
+- Mechanism: the backend makes an `IsolationGroup` from 16 CSPRNG bytes
+  and keeps none; `link::dial` takes the group from its caller. The core
+  of Phase 4 keeps one group per pair of local identity and remote
+  identity, in memory only, so two local identities never share a group,
+  also for the same contact. A group is never derived from a key, an
+  address, a name or a label (`TOR_INTEGRATION.md` section 3.2).
+- Tests: `secret::tests` (groups are random and distinct),
+  `tests/link.rs` (two local identities dial the same contact, each with
+  its own group); T-MI-5 (the core keeps the groups per pair).
+
+### S43. An inbound stream belongs to the identity whose service it reached
+
+- Mechanism: each publication has its own control connection, listener
+  and handle, and `serve` runs the accept loop of one service. The core
+  runs that loop with the `LocalParty` and the contact lookup of the
+  identity that owns the service. No code looks up "the" local identity
+  for a stream, and a stream is never tried against several identities.
+  An Onion Service key belongs to one identity. Where a platform profile
+  fixes the target port, this holds only while one identity receives
+  streams (`TOR_INTEGRATION.md` section 4.3).
+- Tests: `tests/system.rs` (two publications coexist, and a stream reaches
+  only the service it was sent to), `tests/link.rs` (each local identity
+  answers at its own service, and a card of one identity that names the
+  service of another gets no session); T-MI-6.
+
+### S44. A peer of one local identity learns nothing about the others
+
+- Mechanism: no message, field or card names a local identity other than
+  the one of the session (S24), a card is signed by one identity and
+  names only its own endpoints, and a peer is answered only with what
+  that identity holds. Peers are never told the number of local
+  identities, their labels or their state. What one identity sends does
+  not depend on another's records; shared resources are the residual of
+  `THREAT_MODEL.md` adversary S.
+- Tests: T-MI-7.
+
+### S45. Every outbound connection names the local identity it is made for
+
+- Mechanism: `link::dial` takes the local party, the record of the peer
+  and the isolation group as arguments. There is no default identity and
+  no global place one could come from. The dial scheduler of Phase 4
+  queues each dial with its local identity.
+- Tests: review of the signature of `link::dial`; T-MI-8.
+
+### S46. No local identity is process-wide state
+
+- Mechanism: no static, global or thread-local value holds a key, a card,
+  a party, contact state, a capability, a service or an isolation group;
+  every function that needs one takes it as an argument or from the
+  context of one identity. Process-wide are only the Tor backend and its
+  status, the runtime, the configuration and the process-wide budget
+  ceilings. `dev-chat` makes one identity per run as a test aid.
+- Tests: review; on every change, the crates are searched for static
+  state outside test fixtures (Phase 3: none).
 
 ## Protocol and parsing
 

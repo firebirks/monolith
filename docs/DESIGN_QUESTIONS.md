@@ -226,12 +226,13 @@ Nothing below is settled. Each is described in the document named.
 | P8 | A period in which two transport keys are answered | PROTOCOL.md 17 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
 | - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
+| MI-1 to MI-4 | Several local identities: a target port per identity on Tails and Whonix, budget values and the number of identities, mixed storage modes, the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
-| ST1 to ST6 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending) | STORAGE.md 9 |
+| ST1 to ST7 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending), storage mode per identity | STORAGE.md 9 |
 | T3-7 | Phase 3: the two-node test on a private Tor network is written but has not run; no Tor in the development environment | tests/tor-network/README.md |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
@@ -557,3 +558,72 @@ carries the capability of the card held of the peer. The active set,
 revocation, the replacement of P10, the decision of `PROTOCOL.md`
 section 12, step 3, and the tests T-INV-1 to T-INV-11 of `TEST_PLAN.md`
 belong to the contact store of Phase 4.
+
+## 7. Several local identities
+
+On 2026-10-02 support for several local identities in one installation
+was made an architectural requirement. Nothing of it is implemented as a
+feature yet; the requirement is that no layer assumes exactly one local
+identity, so that it can be added without a new wire protocol.
+`ARCHITECTURE.md` section 1.1 describes the model, `STORAGE.md` section
+1.1 the storage, `TOR_INTEGRATION.md` sections 3.2 and 4.3 the Tor side,
+`RESOURCE_LIMITS.md` section 5.1 the budgets, `THREAT_MODEL.md` adversary
+S what still links identities, and S39 to S46 the invariants.
+
+Requirement and where it is held:
+
+| Requirement | Invariant |
+| --- | --- |
+| A local identity has its own identity, transport and Onion Service keys | S39 |
+| Contact state is scoped to one local identity | S40 |
+| Invitation capabilities are scoped to one local identity | S41 |
+| Stream isolation is scoped to local identity and contact | S42 |
+| An inbound service maps to exactly one local identity | S43 |
+| A peer of one identity learns nothing about the others | S44 |
+| Every outbound connection names its local identity | S45 |
+| No local identity is process-wide state | S46 |
+
+Review of Phases 1 to 3:
+
+- No wire dependency on one local identity. Cards, the handshake, frames,
+  keys, the onion address format and the protocol version are unchanged.
+- No global state. No static or thread-local value holds an identity, a
+  key, a party, a card, a capability, a service or an isolation group.
+- `TorBackend` takes no identity and keeps no identity state. Each
+  `publish_onion` has its own control connection, listener and handle, so
+  one `SystemTorBackend` can hold several publications at once; the mock
+  backend does too.
+- Isolation groups are made by the backend and kept by the caller; the
+  scope per local identity and contact is the core's, in Phase 4.
+- `link::dial` and `link::answer` take the local party, the record or
+  lookup and the isolation group as arguments, and `serve` runs one
+  service, so the accept loop of a service knows its identity.
+- `Budgets` is a value passed by reference. Phase 3 uses one per process;
+  Phase 4 splits the budgets into process-wide, per identity and per
+  contact.
+- `dev-chat` makes one identity per run. It is a test aid and stays so.
+- No Phase 3 interface had to change. Structural tests were added for two
+  publications on one backend and for two local identities on one
+  backend.
+
+Open items:
+
+MI-1. The Tails and Whonix profiles fix the target port at 29170, so all
+      services of a process would share one listener and a stream would
+      not say which identity it addresses. Proposed: a small fixed range
+      of ports in the profiles, one per identity; until then one identity
+      at a time receives streams on those platforms. Phases 6 and 7.
+
+MI-2. The values of the per-identity and process-wide budgets, and the
+      number of local identities one process may hold. Phase 4.
+
+MI-3. Whether ephemeral and persistent identities can be mixed in one
+      process (`STORAGE.md` ST7). Phase 4.
+
+MI-4. Which phase offers several identities in the interface. Not
+      decided; Phase 4 builds identity-scoped storage either way.
+
+Not a goal: unlinkability of identities that run in one process. They
+share Tor, presence and the process (`THREAT_MODEL.md` adversary S).
+Several identities are also not multi-device: one identity on several
+devices needs device keys and is separate later work.
