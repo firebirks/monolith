@@ -86,20 +86,53 @@ fn messages_cross_a_confirmed_session_in_both_directions() {
     assert!(!frame.windows(12).any(|window| window == b"recognizable"));
     assert!(deliver(&mut pair.responder, &frame).unwrap().is_some());
 
-    // One message of every type that a confirmed session carries.
+    // One message of every type that a confirmed session carries, in both
+    // directions.
+    every_type(&mut pair.initiator, &mut pair.responder, ALICE);
+    every_type(&mut pair.responder, &mut pair.initiator, BOB);
+}
+
+/// Sends one message of every type that a confirmed session carries, as
+/// the identity of `seed`, and checks that each arrives as it was sent.
+fn every_type(sender: &mut AuthenticatedSession, receiver: &mut AuthenticatedSession, seed: u8) {
     for message_type in MessageType::ALL {
-        if !pair.initiator.may_send(message_type) {
+        if !sender.may_send(message_type) {
             assert!(matches!(
                 message_type,
                 MessageType::Close | MessageType::ContactRequest
             ));
             continue;
         }
-        let message = sample(message_type, ALICE);
-        let frame = pair.initiator.send(&message, start()).unwrap();
-        let received = deliver(&mut pair.responder, &frame).unwrap().unwrap();
+        let message = sample(message_type, seed);
+        let frame = sender.send(&message, start()).unwrap();
+        let received = deliver(receiver, &frame).unwrap().unwrap();
         assert_eq!(received.message, message, "{message_type:?}");
     }
+}
+
+#[test]
+fn what_a_session_returns_prints_no_content() {
+    // A message that arrived prints its type and the actions, nothing of
+    // its content.
+    let mut pair = confirmed();
+    let frame = pair
+        .initiator
+        .send(&chat("a recognizable sentence"), start())
+        .unwrap();
+    let received = deliver(&mut pair.responder, &frame).unwrap().unwrap();
+    assert_eq!(
+        format!("{received:?}"),
+        "Received { message: Message(ChatMessage), actions: [Deliver] }"
+    );
+    // An error names its category and carries no peer data.
+    assert_eq!(
+        format!(
+            "{:?}",
+            SessionError::Protocol(ProtocolError::FrameAuthenticationFailed)
+        ),
+        "Protocol(FrameAuthenticationFailed)"
+    );
+    assert_eq!(format!("{:?}", SessionError::Closed), "Closed");
 }
 
 #[test]
