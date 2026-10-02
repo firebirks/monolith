@@ -95,6 +95,19 @@ fn a_frame_sent_a_byte_at_a_time_does_not_hold_the_session() {
 }
 
 #[test]
+fn bytes_of_an_incomplete_frame_do_not_move_the_idle_limit() {
+    // A frame begins a second before the idle limit. Its first bytes do
+    // not move the limit, which comes before the frame deadline.
+    let mut pair = confirmed();
+    let frame = frame_from(&mut pair.initiator);
+    let begun = after(IDLE_TIMEOUT - secs(1));
+    assert_eq!(pair.responder.receive(&frame[..2], begun), Ok((2, None)));
+    assert_eq!(pair.responder.deadline(), Some(after(IDLE_TIMEOUT)));
+    assert_eq!(pair.responder.expire(after(IDLE_TIMEOUT)), Expiry::Silent);
+    assert_over(&mut pair.responder);
+}
+
+#[test]
 fn a_frame_that_completes_in_time_clears_its_deadline() {
     let mut pair = confirmed();
     let frame = frame_from(&mut pair.initiator);
