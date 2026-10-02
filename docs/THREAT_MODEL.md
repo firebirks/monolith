@@ -479,8 +479,11 @@ interface must not suggest otherwise.
   holders. Version 1 uses one Onion Service for all contacts, so every
   contact, and everyone a card was leaked to, can do this until the
   endpoint is rotated. The identity model allows a set of endpoints per
-  identity (PROTOCOL.md 11.4), which leaves room for per-contact or
-  rotating endpoints later; none of that is in version 1.
+  identity (PROTOCOL.md 11.4), which leaves room for rotating endpoints
+  later. Per-contact endpoints are not provided by the version 1 card: a
+  card is a bearer statement, and one made for one contact would be a
+  newer statement for any other that saw it. They need a recipient-bound
+  card format first. None of that is in version 1.
 - Endpoint rotation cannot notify contacts if every endpoint they know has
   disappeared before a signed update reached them. The recovery is a new
   contact card handed over out of band.

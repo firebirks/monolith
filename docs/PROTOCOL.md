@@ -1096,13 +1096,19 @@ a new identity model or a new signature format:
 
 - rotation, with the old and the new endpoint both valid for a while;
 - endpoints used during a migration;
-- temporary endpoints, which a later statement drops again;
-- endpoints given to one contact only. This needs no extra field: epochs
-  only have to increase as seen by each receiver, so an identity can sign
-  different statements for different contacts.
+- temporary endpoints, which a later statement drops again.
 
 None of these is implemented in version 1, and a version 1 card with more
 than one endpoint is invalid.
+
+Endpoints given to one contact only are not on this list. A version 1 card
+is a bearer statement of the identity: nothing in it names the contact it
+was made for, and every holder compares it with what it holds under one
+epoch per identity. A card made for Carol with epoch 6 is, for Bob who
+holds epoch 5, a newer statement of the same identity, and Bob would take
+it as such if he ever saw it. Per-contact endpoints therefore need a signed
+statement that is bound to its recipient or otherwise namespaced, which is
+a later card version and not part of version 1.
 
 The owner of an identity keeps a counter. Each time its endpoint set or
 its transport key changes it increments the counter and signs a new card.

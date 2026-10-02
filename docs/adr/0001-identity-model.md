@@ -85,11 +85,15 @@ service from per-contact endpoint services.
   Monolith does not hide endpoint availability from card holders, and the
   documentation must not suggest it does.
 - What the set model leaves room for, none of it implemented: rotation with
-  an overlap of old and new endpoint, migration endpoints, temporary
-  endpoints, and endpoints given to one contact only, as in Gosling and
-  Briar. Per-contact endpoints need no extra field, because epochs only
-  have to increase as seen by each receiver; they cost one Onion Service
-  per contact and a more complex introduction step.
+  an overlap of old and new endpoint, migration endpoints and temporary
+  endpoints. Endpoints given to one contact only, as in Gosling and Briar,
+  are not covered by it. A version 1 card is a bearer statement under one
+  epoch per identity, so a card made for one contact is a newer statement
+  for every other contact that sees it. Per-contact endpoints need a
+  signed statement bound to its recipient or otherwise namespaced, a later
+  card version, besides one Onion Service per contact and a more complex
+  introduction step. Corrected on 2026-10-02 (`DESIGN_QUESTIONS.md`
+  section 8); this record earlier said they needed no extra field.
 - What was deliberately not added: endpoint types, per-endpoint flags,
   priorities, audiences. They can come with the feature that needs them,
   as a new card version.

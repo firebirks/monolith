@@ -165,8 +165,9 @@ Protocol and cryptography
 15. Contact card of up to 8 KiB. It is exactly 171 or 187 bytes in version 1.
 15a. One endpoint per identity. The card now states a set of endpoints with
     a count, limited to one in version 1, so that rotation with overlap,
-    migration, temporary and per-contact endpoints do not need a new
-    identity model later.
+    migration and temporary endpoints do not need a new identity model
+    later. Per-contact endpoints are not covered: they need a
+    recipient-bound card format (section 8.2, C-F).
 16. Suggested text limits were lowered: chat 16 KiB, introduction 512
     bytes, profile text 1 KiB (RESOURCE_LIMITS.md 2).
 17. `ContactReject`. Not a message. Rejection is silent so that it cannot be
@@ -225,6 +226,7 @@ Nothing below is settled. Each is described in the document named.
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
 | P8 | A responder that answers two transport keys at once during a rotation (the bounded overlap itself is decided) | PROTOCOL.md 17 |
 | CR-1 | Timing of a rotation: when the identity switches to the new key, and how long the old one is kept | DESIGN_QUESTIONS.md 8.2 |
+| CR-2 | A recipient-bound card format for per-contact endpoints | DESIGN_QUESTIONS.md 8.2 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
 | - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
 | MI-1 to MI-4 | Several local identities: a target port per identity on Tails and Whonix, budget values and the number of identities, mixed storage modes, the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
@@ -777,6 +779,12 @@ C-E (rotation). The identity keeps the old key while it rotates: it
     until the successors were exchanged; if both disappear first, nothing
     is taken over and the recovery is an out-of-band card the user
     confirms. When to switch (CR-1) is set with the contact store.
+
+C-F (per-contact endpoints). Withdrawn from `PROTOCOL.md` 11.4 and ADR
+    0001. Version 1 cards are bearer statements under one epoch per
+    identity; per-contact endpoints need a recipient-bound or namespaced
+    signed format (CR-2), a later card version. No field was added and no
+    wire byte changed.
 
 Limits stated in the documents: a copied identity key alone yields only
 pending successors; with the active transport key it yields continuity
