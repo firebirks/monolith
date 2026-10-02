@@ -19,7 +19,7 @@ monolith-session.workspace = true
 monolith-tor.workspace = true
 getrandom.workspace = true
 zeroize.workspace = true
-tokio = { workspace = true, features = ["io-util", "net", "rt", "time"] }
+tokio = { workspace = true, features = ["io-util", "rt", "time"] }
 
 [lints]
 workspace = true
