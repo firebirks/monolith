@@ -224,8 +224,8 @@ impl Credentials {
     ///
     /// - The active key with the active card: `Unchanged`.
     /// - The active key with an older card: `Superseded`. The holder of the
-    ///   active key is the contact whatever card it shows; the card is not
-    ///   taken.
+    ///   active key is the contact whichever older card of that key it
+    ///   shows; the card is not taken.
     /// - The active key with a newer card: `Advanced`.
     /// - The key of the authorized successor, with a card not older than
     ///   the announced one: `Promoted`. The previous key is retired.

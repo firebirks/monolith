@@ -212,10 +212,12 @@ impl Admission {
     /// Returns true if the peer may learn the local identity: its proven
     /// transport key stands, as of this admission, for an identity the
     /// local side holds as a requested or accepted contact. That is the
-    /// active key, with the active card, an older or a newer one, and an
-    /// authorized successor this admission promoted. It is false for a
-    /// pending or retired key, a contradicting card, and for an identity
-    /// that is not held as a contact or is declined or blocked.
+    /// active key, with the active card, an older card or a newer one that
+    /// contradicts no card held, and an authorized successor this
+    /// admission promoted. It is false for a pending or retired key, a key
+    /// older than the authorized successor, a contradicting card, and for
+    /// an identity that is not held as a contact or is declined or
+    /// blocked.
     ///
     /// An initiator writes message 3, which carries its identity and
     /// card, only when this is true (`docs/PROTOCOL.md` section 4.4).

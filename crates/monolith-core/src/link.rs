@@ -267,14 +267,16 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// Message 3 is written only if the peer may learn the local identity
 /// ([`Admission::may_learn_local_identity`], read from the standing of the
 /// session `admit` returned): its key stands for a contact the local side
-/// holds as requested or accepted. Otherwise, for a
-/// key that was retired or is pending, a contradicting card, or an
-/// identity that was deleted, declined or blocked during the dial, the
-/// dial fails with [`ProtocolError::IdentityMismatch`], nothing more is
-/// sent and no session is made (`docs/PROTOCOL.md` section 4.4). The
-/// withdrawal is looked at before the write starts and while it is
-/// pending; a withdrawal ends the dial with [`LinkError::Withdrawn`].
-/// Bytes the stream accepted before that cannot be called back.
+/// holds as requested or accepted. Otherwise, for a key that was retired
+/// or is pending, a key older than the announced successor, a
+/// contradicting card, or an identity that was deleted, declined or
+/// blocked during the dial, the dial fails with
+/// [`ProtocolError::IdentityMismatch`], nothing more is sent and no
+/// session is made (`docs/PROTOCOL.md` section 4.4). The withdrawal is
+/// looked at before the write starts and while it is pending; a
+/// withdrawal ends the dial with [`LinkError::Withdrawn`]. Bytes the
+/// stream accepted before that cannot be called back. If `admit` fails,
+/// the [`Withdrawal`] it was given reports [`Withdrawal::is_ended`].
 ///
 /// `admit` runs inside the handshake deadline and must not block: it takes
 /// the lock of the contact state, does its work and lets go. The caller
