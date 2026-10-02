@@ -15,6 +15,7 @@
 use core::future::Future;
 use core::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -119,6 +120,7 @@ impl FakeControl {
         std::fs::write(&cookie_path, COOKIE).unwrap();
         let lines = Arc::new(Mutex::new(Vec::new()));
         let recorded = lines.clone();
+        let publications = Arc::new(AtomicU8::new(0));
         tokio::spawn(async move {
             loop {
                 let Ok((stream, _)) = listener.accept().await else {
@@ -127,7 +129,8 @@ impl FakeControl {
                 let script = script.clone();
                 let recorded = recorded.clone();
                 let cookie_path = cookie_path.clone();
-                tokio::spawn(serve(stream, script, recorded, cookie_path));
+                let publications = publications.clone();
+                tokio::spawn(serve(stream, script, recorded, cookie_path, publications));
             }
         });
         Self {
@@ -153,6 +156,7 @@ async fn serve(
     script: Script,
     recorded: Arc<Mutex<Vec<String>>>,
     cookie: PathBuf,
+    publications: Arc<AtomicU8>,
 ) {
     let (read, mut write) = stream.into_split();
     let mut reader = BufReader::new(read);
@@ -207,7 +211,9 @@ async fn serve(
         } else if command == "GETINFO status/bootstrap-phase" {
             script.bootstrap.as_bytes().to_vec()
         } else if command.starts_with("ADD_ONION ") {
-            let id = ServiceId::from_key(&key(77));
+            // The first service of a server is key(77), the next key(78),
+            // and so on, as a Tor names every service it holds differently.
+            let id = ServiceId::from_key(&key(77 + publications.fetch_add(1, Ordering::SeqCst)));
             let reply = script
                 .add_onion
                 .replace("{id}", id.as_str())
@@ -580,6 +586,58 @@ fn a_published_service_is_owned_by_its_control_connection() {
                 "{line}"
             );
         }
+    });
+}
+
+#[test]
+fn two_published_services_coexist_and_each_owns_its_listener() {
+    // One backend holds several publications at once, as several local
+    // identities need: each has its own control connection, listener and
+    // key, a stream reaches only the service whose listener it was sent
+    // to, and ending one publication leaves the other.
+    run(async {
+        let control = FakeControl::start(Script::good()).await;
+        let backend = system(closed_port().await, control.address, safecookie(&control));
+        let mut first = backend.publish_onion(KeySource::Generate).await.unwrap();
+        let mut second = backend.publish_onion(KeySource::Generate).await.unwrap();
+        assert_eq!(first.service_key(), &key(77));
+        assert_eq!(second.service_key(), &key(78));
+        assert!(first.is_published() && second.is_published());
+
+        let ports: Vec<u16> = control
+            .lines()
+            .iter()
+            .filter(|line| line.starts_with("ADD_ONION"))
+            .map(|line| line.trim_end().rsplit(':').next().unwrap().parse().unwrap())
+            .collect();
+        assert_eq!(ports.len(), 2);
+        assert_ne!(ports[0], ports[1]);
+
+        let quiet = Duration::from_millis(200);
+        let _to_second = TcpStream::connect(("127.0.0.1", ports[1])).await.unwrap();
+        assert!(tokio::time::timeout(quiet, first.accept()).await.is_err());
+        assert!(second.accept().await.is_ok());
+        let _to_first = TcpStream::connect(("127.0.0.1", ports[0])).await.unwrap();
+        assert!(tokio::time::timeout(quiet, second.accept()).await.is_err());
+        assert!(first.accept().await.is_ok());
+
+        first.close().await.unwrap();
+        assert!(second.is_published());
+        let _again = TcpStream::connect(("127.0.0.1", ports[1])).await.unwrap();
+        assert!(second.accept().await.is_ok());
+        let removed: Vec<String> = control
+            .lines()
+            .into_iter()
+            .filter(|line| line.starts_with("DEL_ONION"))
+            .collect();
+        assert_eq!(
+            removed,
+            vec![format!(
+                "DEL_ONION {}\r\n",
+                ServiceId::from_key(&key(77)).as_str()
+            )]
+        );
+        second.close().await.unwrap();
     });
 }
 

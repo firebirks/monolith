@@ -455,6 +455,108 @@ fn several_peers_handshake_at_the_same_time() {
 }
 
 #[test]
+fn local_identities_are_reached_through_their_own_services() {
+    // One process and one Tor backend can serve several local identities.
+    // Each identity has its own service and answers the streams of that
+    // service with its own party and its own contact lookup; a stream is
+    // never answered by another local identity. Each identity dials with
+    // isolation groups of its own, also towards the same remote contact.
+    run(async {
+        let network = MockNetwork::new();
+        let backend = network.backend();
+        let carol_tor = network.backend();
+        let mut service_a = backend.publish_onion(KeySource::Generate).await.unwrap();
+        let mut service_b = backend.publish_onion(KeySource::Generate).await.unwrap();
+        let mut service_carol = carol_tor.publish_onion(KeySource::Generate).await.unwrap();
+        let a = party(1, *service_a.service_key());
+        let b = party(2, *service_b.service_key());
+        let carol = party(3, *service_carol.service_key());
+        let carol_card = carol.card().clone();
+
+        // Carol reaches each local identity at its own service.
+        for (service, local) in [(&mut service_a, &a), (&mut service_b, &b)] {
+            let isolation = carol_tor.isolation_group().unwrap();
+            let answering = async {
+                let stream = service.accept().await.unwrap();
+                answer(stream, fresh(), local, |_| {
+                    PeerRecord::Accepted(&carol_card)
+                })
+                .await
+                .unwrap()
+            };
+            let dialing = dial(
+                &carol_tor,
+                fresh(),
+                &carol,
+                local.card(),
+                PeerRecord::Accepted(local.card()),
+                &isolation,
+            );
+            let (dialed, answered) = futures_join(dialing, answering).await;
+            assert_eq!(
+                dialed.unwrap().link.session().peer(),
+                local.card().identity()
+            );
+            assert_eq!(answered.link.session().peer(), carol_card.identity());
+        }
+
+        // A card of A that names the service of B reaches B, and B does
+        // not answer as A.
+        let a_at_b = ContactCard::sign(
+            &IdentitySecretKey::from_seed(&[1; 32]),
+            *a.card().transport(),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(*service_b.service_key()),
+            None,
+        )
+        .unwrap();
+        let isolation = carol_tor.isolation_group().unwrap();
+        let answering = async {
+            let stream = service_b.accept().await.unwrap();
+            answer(stream, fresh(), &b, |_| PeerRecord::None).await
+        };
+        let dialing = dial(
+            &carol_tor,
+            fresh(),
+            &carol,
+            &a_at_b,
+            PeerRecord::None,
+            &isolation,
+        );
+        let (dialed, answered) = futures_join(dialing, answering).await;
+        assert!(dialed.is_err());
+        assert!(matches!(answered, Err(LinkError::Session(_))));
+
+        // A and B both dial Carol, each with a group of its own.
+        let mut groups = Vec::new();
+        for local in [&a, &b] {
+            let isolation = backend.isolation_group().unwrap();
+            let answering = async {
+                let stream = service_carol.accept().await.unwrap();
+                answer(stream, fresh(), &carol, |_| {
+                    PeerRecord::Accepted(local.card())
+                })
+                .await
+                .unwrap()
+            };
+            let dialing = dial(
+                &backend,
+                fresh(),
+                local,
+                &carol_card,
+                PeerRecord::Accepted(&carol_card),
+                &isolation,
+            );
+            let (dialed, answered) = futures_join(dialing, answering).await;
+            assert_eq!(dialed.unwrap().link.session().peer(), carol_card.identity());
+            assert_eq!(answered.link.session().peer(), local.card().identity());
+            groups.push(isolation);
+        }
+        assert!(!groups[0].same_as(&groups[1]));
+    });
+}
+
+#[test]
 fn a_silent_peer_is_dropped_after_the_handshake_timeout() {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
