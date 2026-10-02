@@ -95,8 +95,8 @@ How the limits are applied, by the session object itself
   the only thing that can still be sent at the limit. At the age limit
   nothing but Close is sent.
 - Receiving: a frame beyond the frame or byte limit is a protocol
-  violation. So is a frame that arrives more than `SESSION_CLOSE_GRACE`
-  after the age limit. The stream is closed and nothing is sent.
+  violation. So is a frame that arrives once `SESSION_CLOSE_GRACE` has
+  passed after the age limit. The stream is closed and nothing is sent.
 - The age is measured from the moment the handshake completed, on each
   side's own clock. The two clocks start up to one handshake apart, which
   `HANDSHAKE_TIMEOUT` bounds at 30 seconds, and a Close that is sent at the

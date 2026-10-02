@@ -354,7 +354,7 @@ removes each class, so that the class is hard to reintroduce.
 | GUI impersonation with a lookalike address and the same name | Name shown as identity; contacts auto-added | Fingerprints in security-relevant UI; requests need acceptance; pinning (S9, S20). |
 | File transfer auto-accepted, one window per file | No consent, unbounded UI state | Offer and explicit accept (S13); bounded offers; coalesced notifications. |
 | `add_me` flooding | Unbounded requests | Bounded queue, one entry per identity, global rate, optional invitation. |
-| Restart detectable by a contact | Handshake value reused across connections | Nothing on the wire outlives a session except the identity key itself. |
+| Restart detectable by a contact | Handshake value reused across connections | Every session uses fresh ephemeral keys. What a peer sees again from one session to the next is the contact card: the identity key, the transport key and the endpoint, none of which changes when Monolith restarts. |
 | Plaintext traces on disk | Contact list, logs, queues, key in clear files | Encrypted vault, ephemeral mode, no log file, history off by default. |
 | Removed contact reappears | Removal depended on a message to the peer | Deletion is local. A deleted peer is unknown again and must be accepted again. |
 | Two connections per peer, file data accepted on either | Protocol structure | One authenticated session per peer; duplicates resolved after authentication. |

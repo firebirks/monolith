@@ -72,9 +72,11 @@ from outside.
 Tests that need a reproducible handshake fix the ephemeral keys. The means
 to do that is a second random source in the resolver that returns fixed
 bytes. It is compiled only into the tests of the session crate and into
-builds made with `--cfg fuzzing`, which is what `cargo fuzz` passes and
-nothing else does. It is not a cargo feature, so no crate in a dependency
-tree can switch it on. The test hook of the Noise library's builder for
+builds made with `--cfg fuzzing`. That flag is passed by `cargo fuzz` and
+by the CI job that checks that the fuzz targets compile, and by nothing
+else. It is not a cargo feature, so no crate in a dependency tree can
+switch it on, and `monolith-cli` refuses to compile with it, so no build
+of the application can contain the fixed source. The test hook of the Noise library's builder for
 fixed ephemeral keys is not used at all.
 
 Jitter for reconnect timing and ping intervals uses the operating system
@@ -121,8 +123,8 @@ derived from another or from a shared seed.
   invariant S33).
 - Private keys are stored only in the encrypted vault (persistent mode) or
   in memory (ephemeral mode). They are never exported in plaintext, never
-  logged, and held in types that zeroize on drop and have no `Debug`
-  output.
+  logged, and held in types that zeroize on drop and whose `Debug` output
+  shows nothing of the key.
 
 What a stolen key allows:
 
@@ -220,8 +222,9 @@ F3. The initiator's card travels inside the handshake, as the payload of
     who presents it; that is the initiator's half of F2.
 
 F4. A card that is older than the newest card the local side holds of
-    that identity, or that has the same epoch and other contents, does not
-    open a contact session. The peer is treated as an identity that is not
+    that identity, or that has the same epoch and states another transport
+    key or another endpoint set, does not open a contact session. An
+    invitation capability in either card plays no part. The peer is treated as an identity that is not
     a contact and is not told why. The newest card held is the pinned one
     or a later one that the user has not confirmed yet: what counts as
     stale does not wait for the user. A responder applies the rule to the
@@ -378,19 +381,32 @@ reduced values exists only in test builds of the session crate.
 | Transport private key | by Monolith, independently | until replaced by a card with a greater epoch | vault, or memory in ephemeral mode | one copy per handshake, into the Noise state | by its type on drop; the copy when the handshake ends |
 | Onion Service private key | by Tor or by Monolith | until the endpoint is retired | vault, or memory in ephemeral mode | no | by its type on drop |
 | Noise ephemeral private key | per handshake | one handshake | never | no | when the handshake ends |
-| Chaining key and handshake hash | by Noise | one handshake | never | no | not by `snow` |
+| Chaining key | by Noise | one handshake | never | no | not by `snow` |
+| Handshake hash | by Noise | the session object; it is not a secret (PROTOCOL.md section 4) | never | one copy, into the session object | not erased |
 | Frame cipher keys | by Noise | one session: at most 24 hours, 48 with a file transfer, plus the grace of section 7 for receiving | never | no | when the session ends: on a violation, when a Close was received, when the local Close has been made, or when the stream is reported closed |
-| Invitation capability | by Monolith | until revoked | vault | no | by its type on drop |
+| Invitation capability | by Monolith | until revoked | vault, and inside every card that carries it | yes: a plain value, copied with the cards that carry it | no |
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
 
 Session keys and ephemeral keys are never written to storage. Types that
 hold a secret do not derive `Debug`.
 
+The invitation capability is not erased. It is a 16-byte value of a
+`Copy` type inside `ContactCard`, and cards are cloned freely. It is
+handed to the people the user invites, so it is not a secret of this
+device alone, but a copy left in freed memory would let a reader of that
+memory produce requests that pass the invitation check until the user
+revokes it. Giving it a type that is not `Copy` and erases itself would
+cover the copies Monolith makes; it would not reach the text form of
+cards the user has handed out. This is open for review; the
+recommendation is to make that change when the vault that stores
+capabilities is written, together with the card storage.
+
 Compromise of the identity key, the transport key or the Onion Service key
 does not reveal past sessions: after message 3 the keys depend on an
 exchange between two ephemeral keys.
 
-Erasure: Monolith's own secret types zeroize on drop. So do the objects
+Erasure: Monolith's own types for private keys zeroize on drop; the
+invitation capability does not (above). So do the objects
 of the resolver that hold a key for `snow`: the copy of the transport
 private key, the ephemeral private key and the cipher keys are held in
 types that clear their memory when they are dropped (ADR 0002, F-R1). The
@@ -415,8 +431,8 @@ a limit, not hidden.
 Secrets are not locked into RAM. Doing so needs `mlock`, which needs
 `unsafe` or a dependency that wraps it. On a system with swap, secrets can
 reach the swap device. Tails has no swap. The recommendation for other
-systems is encrypted swap or none; `monolith doctor` reports the swap
-state.
+systems is encrypted swap or none. `monolith doctor` is to report the
+swap state; the command is not implemented yet.
 
 ## 9. Storage encryption
 
@@ -429,7 +445,9 @@ Monolith manages them, the Onion Service private keys.
 ## 10. Implementation rules
 
 - Noise is driven only through the library. No Monolith code implements a
-  Noise step, a key derivation or a nonce.
+  Noise step or a key derivation. The nonce counter is that of the
+  library; the resolver only lays it out in the 12 bytes that the Noise
+  specification gives for ChaChaPoly.
 - One crate holds every call to the Noise library. Contact logic, storage
   and front ends do not depend on it.
 - The pattern string and the prologue label are constants, and a test
@@ -440,8 +458,9 @@ Monolith manages them, the Onion Service private keys.
   completed handshake. The object it returns owns the session logic of the
   protocol core; callers are not handed a session they could mark
   authenticated themselves.
-- Ed25519 verification is always `verify_strict`. A lint bans the
-  non-strict `verify` in Monolith crates.
+- Ed25519 verification is always `verify_strict`. A lint in
+  `clippy.toml` bans the non-strict `verify` in Monolith crates; the one
+  test that calls it on purpose says so.
 - Test vectors with fixed keys are committed for every signed structure
   and for a complete handshake (PROTOCOL.md section 16). They were
   produced by an implementation that shares no code with Monolith, and

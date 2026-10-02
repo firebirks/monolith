@@ -21,8 +21,8 @@ sessions connected in memory, with fixed keys; property tests over real
 handshakes; three more fuzz targets. In the protocol core: the transport
 key, the contact card with the transport key, and the stale-card rule.
 Covered now: T-XKEY, T-VEC, T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH,
-T-LIMIT, T-SEND, T-RNG-1 for the handshake, T-ORACLE-8 for bytes, and the
-handshake cases of T-MAL.
+T-LIMIT, T-SEND, T-RNG-1 and T-RNG-2 for the handshake, T-ORACLE-8 for
+bytes, and the handshake cases of T-MAL.
 
 The rest need the core, Tor or storage, and are not written yet.
 
@@ -177,8 +177,10 @@ Duplicate sessions (T-DUP)
 Randomness (T-RNG)
 
 1. A failing CSPRNG source makes key generation fail; there is no fallback.
-   Covered for the handshake's key object: a source that fails leaves no
-   key behind.
+   Covered for the handshake's key object, where a source that fails
+   leaves no key behind, and for a whole handshake, which fails with
+   `SessionError::Randomness`. A transport secret key of 32 zero bytes,
+   what a buffer that was never filled holds, is refused.
 2. The operating system source fills its whole buffer; two generated keys
    differ; two handshakes with fresh randomness differ in every message.
 
@@ -208,7 +210,9 @@ never produce.
 Known answers (T-VEC): the handshake between the two parties of PROTOCOL.md
 16.1 with the ephemeral keys given there produces the three messages, the
 handshake hash and the first frames of each side that the document states.
-The constants in the test are searched for in the text of the document.
+The values the document states are searched for in its text; it gives the
+frames as SHA-256 digests. The test also pins the first 34 bytes of the
+initiator's first frame, which the document does not list.
 X25519 against RFC 7748, the cipher against values computed outside the
 code with the Noise nonce, SHA-256 and the HMAC built on it against the
 standard vectors.
@@ -355,7 +359,7 @@ Targets in `fuzz/`:
 | `frame_stream` | byte stream split at arbitrary points | exists |
 | `text_fields` | bytes, against every text type and the save-name suggestion | exists |
 | `session_sequence` | sequence of messages and local events against a session | exists |
-| `handshake_responder` | a stream from an initiator, raw or the genuine one with damage, under each record the responder can hold of the initiator | exists |
+| `handshake_responder` | a stream from an initiator, raw or the genuine one with damage, under the records none, blocked, requested and accepted | exists |
 | `handshake_initiator` | a stream from a responder, raw or the genuine one with damage | exists |
 | `session_frames` | operations on two connected sessions: send, deliver, change, drop, repeat, inject, close, block, remove, stream closed, time passing | exists |
 | `socks_reply`, `control_reply` | bytes | with the Tor backend |

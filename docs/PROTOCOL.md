@@ -4,8 +4,9 @@ Status: the protocol core (framing, messages, text rules, session states,
 contact confirmation, duplicate resolution) is implemented in
 `monolith-protocol`. The session layer is decided in ADR 0002: Noise XK
 with a transport key that the identity certifies in the contact card.
-Sections 3, 4 and 6.1 to 6.3 specify it, section 11 gives the contact card
-with the transport key, and `monolith-session` implements it. This
+Sections 3, 4, 5, 6.1 to 6.3 and 7.1 specify it, section 11 gives the
+contact card with the transport key, and `monolith-session` implements it.
+This
 document was written first and the implementation follows it; where the
 two disagree, the implementation is wrong.
 
@@ -422,18 +423,25 @@ product information.
 ### 6.4 Contact confirmation
 
 What a side sends first in `AuthenticatedUnknown` depends only on what it
-holds locally about the peer's identity:
+holds locally about the peer's identity, through the standing of section
+6.2:
 
-| Local record of the peer | First message |
+| Standing of the peer | First message |
 | --- | --- |
 | accepted contact | ContactAccept |
 | requested (the user imported the peer's card; no acceptance seen yet) | ContactRequest |
-| none, declined or blocked | nothing |
+| none, declined, blocked, or a contact whose card is stale for this session | nothing |
 
 A session becomes `AuthenticatedContact` on a side when both of these are
 true: the side holds the peer as an accepted contact, and it has received
 ContactAccept from the peer on this session. A side sends no message other
 than ContactAccept, ContactRequest and Close before that.
+
+A side that was confirmed before it sent its own ContactAccept, because it
+held the peer as requested and the peer's ContactAccept arrived, sends its
+ContactAccept next. Until that has gone out it sends nothing but Close:
+the peer takes contact-only messages only after it has received the
+ContactAccept of this side.
 
 This is repeated on every session and costs one frame in each direction.
 Its purpose is that no contact-only message is ever sent to a peer that
@@ -454,7 +462,8 @@ Receiving, in `AuthenticatedUnknown`:
 - ContactRequest from a peer held as accepted: the peer does not know yet,
   or has lost its record. ContactAccept was already sent; nothing more to
   do.
-- Anything from a peer with no record, declined or blocked: section 12.
+- Anything from a peer with no record, declined or blocked, or from a
+  contact whose card is stale for this session: section 12.
 
 Before any of this, a ContactRequest is checked against the proven identity
 (section 8.3). That check does not depend on the record of the peer.
@@ -475,7 +484,7 @@ A session that is not confirmed within `UNKNOWN_SESSION_TIMEOUT` is closed.
 | --- | --- | --- |
 | Connecting | Stream being opened | none |
 | CryptoHandshake | Noise handshake messages are exchanged | none (the three fixed-size handshake messages only) |
-| IdentityAuth | Noise handshake complete; the card checks of section 4.4 and the standing of section 6.2 are being applied | none |
+| IdentityAuth | Noise handshake complete and the card checks of section 4.4 passed; the identity is being bound to the session and the standing of section 6.2 applied | none |
 | AuthenticatedUnknown | Peer's identity proven; contact relationship not confirmed on this session | ContactRequest, ContactAccept, Close |
 | AuthenticatedContact | Both sides hold each other as accepted contacts and have said so on this session | every message type |
 | Closing | Close sent; the stream is being shut down | none |
@@ -524,10 +533,12 @@ are not negotiated.
   Close always fits.
 - Each side counts the age from the moment it completed the handshake, on
   its own clock. The two moments are up to one handshake apart.
-- The longer age limit applies to a session on which a file transfer was
-  active when it reached 24 hours. A transfer that would begin later does
-  not extend the session, and no transfer is started on a session that is
-  past 24 hours.
+- The longer age limit applies while a file transfer is active, and only
+  if the transfer was already active when the session reached 24 hours. A
+  transfer that would begin later does not extend the session, and no
+  transfer is started on a session that is past 24 hours. When the
+  transfer ends, the ordinary limit applies again, so a session past 24
+  hours then sends nothing but Close.
 - A receiver takes frames until `SESSION_CLOSE_GRACE` after the age limit
   that applies. This lets the last frames that were sent in time, and the
   Close, arrive from a peer whose clock started a little later. A frame
@@ -605,7 +616,9 @@ at what it holds about the sender, so the outcome is the same for a
 stranger, a blocked identity and a contact.
 
 `capability` is the invitation capability copied from the card of the peer
-being asked (section 12).
+being asked (section 12): on a session the local side opened, the card
+that was dialed; on one the peer opened, the card of the peer that the
+local side holds. A request with any other capability is not sent.
 
 Receiver behavior is in sections 6.4 and 12. The receiver's response to a
 well-formed request from an identity it neither requested nor accepted is
@@ -1129,8 +1142,9 @@ any of them. Revoking a capability does not change the identity or the
 endpoint; it only stops cards that carry it from producing requests.
 
 Processing of the first message received in `AuthenticatedUnknown` from a
-peer that the local side neither requested nor accepted. Peers that are
-requested or accepted are handled by section 6.4.
+peer that is not a contact for this session: one the local side neither
+requested nor accepted, or a contact whose card is stale (section 6.2).
+Peers whose standing is requested or accepted are handled by section 6.4.
 
 1. Validate the body, including that the card in a ContactRequest is the
    sender's own (section 8.3). A malformed message is a violation.
@@ -1139,7 +1153,7 @@ requested or accepted are handled by section 6.4.
    blocked sender sees exactly what a stranger with a bad invitation sees.
 3. If the message is a ContactRequest, decide whether to queue it. The
    request is dropped if the sender is on the block list or the declined
-   list, if the policy mode does not admit it, if the capability does not
+   list, if the sender is a contact whose card is stale, if the policy mode does not admit it, if the capability does not
    match a valid one (compared in constant time), if a request from this
    identity is already pending, if `MAX_PENDING_REQUESTS_PER_INVITATION`
    requests with the same capability (or, in open mode, with none) are

@@ -196,13 +196,14 @@ Test area names refer to `docs/TEST_PLAN.md`.
   obtained only from a completed handshake, holds the card that stands for
   the peer for its whole life, and has no function that changes it. A
   card inside a message that does not belong to that peer is a violation:
-  another identity always, and in a ContactRequest also another card than
-  the one of the handshake.
+  another identity always; in a ContactRequest from the initiator also any
+  card but the one of the handshake, and in one from the responder a card
+  that states another transport key than the one that was dialed.
 - Tests: T-DUP-*, `session::tests` (authentication before the handshake is
   complete, as the local identity, as another identity than the dialed
-  one; foreign cards in ContactRequest and EndpointUpdate for every
-  standing), `tests::frames` (a card of another identity on a real
-  session).
+  one; foreign cards in a ContactRequest for every standing, and in an
+  EndpointUpdate on a confirmed session, the only state that takes one),
+  `tests::frames` (a card of another identity on a real session).
 
 ### S22. Duplicate-connection handling happens only after authentication
 
@@ -223,9 +224,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Tests: T-CONFIRM-1, T-ORACLE-1 to T-ORACLE-8 (the cases cannot be told
   apart by what is sent; equal timing is not claimed), T-BLOCK-1,
   `tests::contacts` (what one side writes is byte for byte the same in
-  every such case), fuzz target `handshake_responder` (the handshake ends
-  the same way under every record, and a stranger or a blocked identity
-  gets only a Close).
+  every such case), fuzz target `handshake_responder` (the handshake takes
+  no record; under the records none, blocked, requested and accepted, a
+  stranger or a blocked identity gets only a Close).
 
 ### S24. No protocol operation answers questions about other peers
 
@@ -279,7 +280,7 @@ Test area names refer to `docs/TEST_PLAN.md`.
   property tests and in the `session_sequence` fuzz target), `tests::frames`
   (a chat message before confirmation, sent and received), fuzz target
   `handshake_responder` (nothing is delivered before confirmation, under
-  every record the responder can hold).
+  the records none, blocked, requested and accepted).
 
 ### S26. The parser never buffers an attacker-controlled amount of data
 
@@ -381,10 +382,15 @@ Test area names refer to `docs/TEST_PLAN.md`.
   handshake with fixed ephemeral keys can be built only in the tests of
   that crate and in a build made with `--cfg fuzzing`; no cargo feature
   enables it, so it cannot be switched on through a dependency. The
-  `monolith` binary refuses to compile with that configuration.
+  `monolith` binary refuses to compile with that configuration, through a
+  `compile_error!` that no test exercises. `TransportSecretKey::from_bytes`
+  refuses 32 zero bytes, which is what a buffer that the source never
+  filled holds.
 - Tests: `resolver::tests` (the source fills its buffer, two keys differ,
-  a failing source leaves no key), `tests::handshake` (two handshakes
-  differ in every message), T-RNG-1.
+  a failing source leaves no key), `key::tests` (two generated transport
+  keys differ, 32 zero bytes are not a key), `tests::handshake` (two
+  handshakes differ in every message, a failing source fails the
+  handshake), T-RNG-1, T-RNG-2.
 
 ### S18. Secrets and sensitive values do not appear in ordinary logs
 
@@ -395,7 +401,8 @@ Test area names refer to `docs/TEST_PLAN.md`.
   there is to say. A type that is made only of such types may derive
   `Debug`, because the fields print themselves. Error types carry no peer
   data. See `monolith_identity::redact`. The handshake and session types
-  print `[redacted]`; a session prints its state and its frame counters.
+  print `[redacted]`; a session prints its state, its frame and byte
+  counters and whether it failed.
   The session crate has no logging at all and returns no key material from
   any function.
 - Tests: unit tests per type, T-LOG-1 (run the malicious-peer suite with
@@ -417,8 +424,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Residual: erasure is best effort, and the Noise library does not erase
   what it holds itself (`CRYPTOGRAPHY.md` section 8).
 - Tests: review of the public API of `monolith-session`; `Debug` tests of
-  every type; `tests::frames` (the keys are gone after a violation, after
-  a Close in either direction and after the stream closed).
+  every type, among them what a session returns (`tests::frames`);
+  `tests::frames` (the keys are gone after a violation, after a Close in
+  either direction and after the stream closed).
 
 ### S35. A failure tells the peer nothing but that the stream closed
 
@@ -437,10 +445,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
   each direction and knows when it was established. `send` refuses every
   message but Close once the age, frame or byte limit is reached, and
   always leaves room for one Close. `receive` treats a frame beyond the
-  frame or byte limit as a violation, and a frame that arrives more than
-  `SESSION_CLOSE_GRACE` after the age limit as well. A file transfer
-  extends the age limit only if it was active before the limit was
-  reached. The limits are constants of the protocol: a product build has
+  frame or byte limit as a violation, and a frame that arrives once
+  `SESSION_CLOSE_GRACE` has passed after the age limit as well. A file
+  transfer extends the age limit only while it is active, and only if it
+  was active before the limit was reached. The limits are constants of the protocol: a product build has
   no function that sets them. There is no rekey and no way to reset a
   counter; a new session is a new handshake.
 - Tests: T-LIMIT (`tests::frames` with reduced limits, the property test

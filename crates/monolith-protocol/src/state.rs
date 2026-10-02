@@ -12,9 +12,9 @@ pub enum SessionState {
     Connecting,
     /// The three handshake messages are being exchanged.
     CryptoHandshake,
-    /// The handshake is complete. The checks on the peer's card and the
-    /// standing of the peer are being applied. No message is exchanged in
-    /// this state.
+    /// The handshake is complete and the peer's card passed its checks.
+    /// The identity is being bound to the session and the standing of the
+    /// peer applied. No message is exchanged in this state.
     IdentityAuth,
     /// The peer's identity is authenticated. Whether the two sides are
     /// contacts has not been confirmed on this session.

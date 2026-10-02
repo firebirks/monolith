@@ -271,8 +271,8 @@ F3. The initiator sends its own contact card, without capability, as the
 
 F4. The stale-card rule. A card whose epoch is lower than that of the
     newest card the local side holds of that identity, or whose epoch is
-    the same and whose contents differ, does not make the session a
-    contact session. The peer is treated as any identity that is not a
+    the same and which states another transport key or endpoint set, does
+    not make the session a contact session. The peer is treated as any identity that is not a
     contact, with the same generic behavior, and is not told why. The
     newest card held is the pinned one or a later one that the user has
     not confirmed yet. A responder applies the rule to the card presented

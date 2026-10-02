@@ -313,12 +313,13 @@ pub const FILE_OFFER_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Inbound streams that have not completed authentication.
 pub const MAX_INBOUND_HANDSHAKES: usize = 16;
 
-/// Sessions with authenticated peers for which no contact record exists,
-/// or which are declined or blocked.
+/// Sessions with authenticated peers that are not contacts for the
+/// session: no contact record exists, the identity is declined or blocked,
+/// or a contact presented a stale card.
 pub const MAX_UNKNOWN_SESSIONS: usize = 4;
 
-/// Sessions with identities held as accepted or requested contacts, inbound
-/// and outbound together, confirmed or not.
+/// Sessions whose standing is accepted or requested, inbound and outbound
+/// together, confirmed or not.
 pub const MAX_CONTACT_SESSIONS: usize = 256;
 
 /// Outbound connection attempts in progress at the same time.
