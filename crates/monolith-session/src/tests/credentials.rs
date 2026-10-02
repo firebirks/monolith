@@ -270,7 +270,8 @@ fn simultaneous_rotation_completes_while_the_old_keys_answer() {
     assert_eq!(alice_at_bob.active(), &alice_t2_card);
     assert_eq!(bob_at_alice.active(), &card(BOB));
 
-    // Alice now answers with T2. Bob dials it with U2: Alice promotes U2.
+    // Alice answers with T2 since she began to use it. Bob dials it with
+    // U2: Alice promotes U2.
     let (_, _) = confirmed_session(
         &party_with(BOB, U2, 2),
         &party_with(ALICE, T2, 2),
@@ -281,6 +282,69 @@ fn simultaneous_rotation_completes_while_the_old_keys_answer() {
     assert_eq!(bob_at_alice.active(), &bob_u2_card);
     assert_eq!(bob_at_alice.retired(), Some(card(BOB).transport()));
     assert_eq!(alice_at_bob.retired(), Some(card(ALICE).transport()));
+}
+
+#[test]
+fn crossing_dials_of_two_rotations_complete() {
+    // Both successors were announced. Each side now answers with its new
+    // key, because it has begun to use it, and dials the other's
+    // authorized successor first. The two dials cross: both handshakes
+    // complete before either side admits the peer of the other one. Each
+    // initiator admits the successor its responder proved; each responder
+    // then finds the new key already active. No session of a new key is
+    // withdrawn, and neither side is left answering a key the other no
+    // longer dials.
+    let alice_t2 = party_with(ALICE, T2, 2);
+    let bob_u2 = party_with(BOB, U2, 2);
+    let mut alice_at_bob = Credentials::new(card(ALICE));
+    let mut bob_at_alice = Credentials::new(card(BOB));
+    let (mut alice_t1, mut bob_u1) = confirmed_session(
+        &party(ALICE),
+        &party(BOB),
+        &card(BOB),
+        &mut bob_at_alice,
+        &mut alice_at_bob,
+    );
+    announce(
+        &mut alice_t1,
+        &mut bob_u1,
+        alice_t2.card(),
+        &mut alice_at_bob,
+    );
+    announce(&mut bob_u1, &mut alice_t1, bob_u2.card(), &mut bob_at_alice);
+
+    let (alice_dials, bob_answers, _) = handshake_with(&alice_t2, &bob_u2, bob_u2.card()).unwrap();
+    let (bob_dials, alice_answers, _) =
+        handshake_with(&bob_u2, &alice_t2, alice_t2.card()).unwrap();
+
+    let (_, at_alice_out, _) = alice_dials
+        .admit(PeerRecord::Accepted(&mut bob_at_alice))
+        .unwrap();
+    let (_, at_bob_out, _) = bob_dials
+        .admit(PeerRecord::Accepted(&mut alice_at_bob))
+        .unwrap();
+    assert_eq!(at_alice_out.change, Some(CredentialChange::Promoted));
+    assert_eq!(at_bob_out.change, Some(CredentialChange::Promoted));
+    let (alice_session, at_bob_in, _) = bob_answers
+        .admit(PeerRecord::Accepted(&mut alice_at_bob))
+        .unwrap();
+    let (bob_session, at_alice_in, _) = alice_answers
+        .admit(PeerRecord::Accepted(&mut bob_at_alice))
+        .unwrap();
+    for admission in [at_alice_out, at_bob_out, at_bob_in, at_alice_in] {
+        assert_eq!(admission.standing, Standing::Accepted);
+    }
+    assert_eq!(at_bob_in.change, Some(CredentialChange::Unchanged));
+    assert_eq!(at_alice_in.change, Some(CredentialChange::Unchanged));
+
+    // The new sessions stand, the old one does not.
+    assert!(alice_at_bob.authorizes(alice_session.peer_card()));
+    assert!(bob_at_alice.authorizes(bob_session.peer_card()));
+    assert!(!alice_at_bob.authorizes(bob_u1.peer_card()));
+    assert!(!bob_at_alice.authorizes(alice_t1.peer_card()));
+    // And each side still reaches the other at the key it now holds.
+    assert!(handshake_with(&alice_t2, &bob_u2, bob_at_alice.active()).is_ok());
+    assert!(handshake_with(&bob_u2, &alice_t2, alice_at_bob.active()).is_ok());
 }
 
 #[test]
