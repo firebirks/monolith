@@ -786,6 +786,10 @@ mod tests {
             decoder.feed(&two_blocks, UNKNOWN),
             Err(ProtocolError::FrameLengthOutOfRange)
         );
+        // A decoder that failed stays failed, also in a state that would
+        // allow the length it refused.
+        assert!(decoder.feed(&two_blocks, CONTACT).is_err());
+        assert_eq!(decoder.buffered(), 0);
 
         let mut decoder = OuterDecoder::new(P);
         assert_eq!(
