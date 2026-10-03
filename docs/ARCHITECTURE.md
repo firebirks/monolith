@@ -1,7 +1,9 @@
 # Architecture
 
-Status: Phase 2. The protocol core and the session layer are implemented;
-everything that touches the network or the disk is still design. This
+Status: Phase 3, waiting for its final verification. The protocol core,
+the session layer and the integration with a Tor the system runs are
+implemented; the contact store, storage and the interface are still
+design. `STATUS.md` records what is implemented and verified. This
 document describes the structure the phases build.
 
 ## 1. Shape
@@ -178,8 +180,14 @@ persisting the credentials atomically with the rest of the contact record
 crash cannot bring a retired key back; forgetting the withdrawals of links
 that ended (`Withdrawal::is_ended`), including those `answer` refused for
 lack of a slot after the admission had run; the timing of a rotation and
-of the switch to the new key; and the dial card the user confirmed, kept
-apart from the credentials.
+of the switch to the new key; the dial card the user confirmed, kept
+apart from the credentials; and one evaluation of a card for the import
+by the user and for the admission of a peer. Today
+`Credentials::import` holds a card of another key that is older than an
+announced successor as pending, while admission and announcement call it
+stale. Both give no standing, neither lowers the epoch of the active
+card, and the pending card takes over only if the user confirms exactly
+that card; the store has to bring the two under one rule.
 
 ## 2. Processing order for peer input
 
@@ -425,7 +433,7 @@ the platform's packaging.
 
 | Phase | Content |
 | --- | --- |
-| 0 | Design, specifications, workspace skeleton. This phase. |
+| 0 | Design, specifications, workspace skeleton. |
 | 1 | Protocol core without cryptography or Tor: framing, encoding, identity types, contact cards, state machine; unit, property and fuzz tests. |
 | 2 | Cryptographic session: Noise XK handshake, the contact card as certificate of the transport key, encrypted frames, session limits, test vectors, hostile-handshake tests. |
 | 3 | System Tor: SOCKS5, control client, mock backend, two-node CLI chat. |

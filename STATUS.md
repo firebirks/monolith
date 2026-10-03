@@ -244,3 +244,7 @@ Listed in `docs/DESIGN_QUESTIONS.md` section 3:
   them).
 - The value of `MAX_ACTIVE_INVITATIONS`, the active set, revocation and
   the tests T-INV and T-MI come with the contact store of Phase 4.
+- One evaluation of a card for import and admission, in the contact store
+  of Phase 4 (`docs/ARCHITECTURE.md` section 1.2,
+  `docs/DESIGN_QUESTIONS.md` 10.1). Until then `import` holds a card older
+  than an announced successor as pending and admission calls it stale.
