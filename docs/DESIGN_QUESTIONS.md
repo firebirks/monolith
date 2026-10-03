@@ -237,7 +237,7 @@ Nothing below is settled. Each is described in the document named.
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
 | ST1 to ST7 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending), storage mode per identity | STORAGE.md 9 |
-| T3-7 | Phase 3: the two-node test on a private Tor network is written but has not run; no Tor in the development environment | tests/tor-network/README.md |
+| T3-7 | Phase 3: the two-node test on a private Tor network runs in a Linux container with Tor 0.4.9.13 and Chutney; it is settled by the run on the commit of the final verification | tests/tor-network/README.md |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Security contact address and key | SECURITY.md |
@@ -1206,3 +1206,78 @@ The three accepted residuals of section 9.3 were checked as well:
 - Withdrawal against write timeout. Either way `finish` runs, the
   session is over and holds no key, the stream is shut down, and every
   later call fails.
+
+### 10.2 What was decided and changed
+
+1. A link ends once. `Link::finish` shuts the stream down the first time
+   and returns at once afterwards, and `send` and `receive` look at
+   whether the session is over before they look at the withdrawal. The
+   first terminal event may wait `FRAME_WRITE_TIMEOUT` for the shutdown;
+   every later call, `close` included, returns at once. Tested with a
+   stream whose shutdown never completes.
+
+2. The handshake targets assert again that a genuine message with one
+   byte changed is refused, while a valid message of another ephemeral
+   key may still be accepted and is then held to the invariants. The
+   seeds hold both kinds. A mutant of the session crate that ignores a
+   failed Noise read does not make a corrupted message accepted, because
+   Noise fails at the next step; such mutants are caught by the unit
+   tests (H5, H6, H9).
+
+3. `CRYPTOGRAPHY.md` and ADR 0002 state F4 as implemented: an older card
+   of the active key opens a contact session and is not taken; a card of
+   another key that is older than the active card or the authorized
+   successor, a contradicting card and the retired key do not.
+
+4. A dial that the gate of message 3 refuses returns
+   `LinkError::Refused` with the admission, so a conflict, a pending key
+   or a stale card is seen by the local side whatever the admission
+   function does with it. Nothing changes on the wire: no message 3, and
+   the stream closes as after a failed handshake.
+
+5. The three residuals stay as accepted: the documentation of the
+   session crate says that message 3 leaves the process only through
+   `link::dial`; the different treatment of a card older than an
+   announced successor by import and admission is recorded for the
+   contact store of Phase 4 (`ARCHITECTURE.md` section 1.2, `STATUS.md`
+   section 7); and a withdrawal that coincides with a write timeout may
+   be reported as `TimedOut`.
+
+6. `README.md` and the status line of `ARCHITECTURE.md` describe the
+   branch as it is: the Tor integration is implemented and waits for its
+   final verification.
+
+7. The private network test was brought to the Chutney of today, which
+   takes the network file through `init --net-from-script-path` and
+   writes the torrc itself, and was extended: the two nodes exchange
+   "hello" and "hello back"; a service whose control connection went
+   away is published again from the key held in memory and reached again
+   under the same name (`tests/tor_network.rs` in the core, ignored
+   unless the script sets the endpoints); a dial without SOCKS fails;
+   Tor B going away while B waits is reported as the control connection
+   lost; and every Monolith process runs under `strace`, which must show
+   only loopback and Unix sockets. The development dial tries again
+   while Tor cannot reach the service yet, since a descriptor needs a
+   moment to reach the directories.
+
+### 10.3 Commits
+
+On `phase-3-system-tor`, after `6bd9074`, oldest first:
+
+| Commit | Content |
+| --- | --- |
+| `94f5762` | `README.md` brought up to the Tor integration. |
+| `1343b68` | Section 10.1, the verification of the reported issues. |
+| `e00e64a` | A link ends once; later calls fail without waiting for the stream. |
+| `5e64924` | The handshake targets assert again that a corrupted genuine message is refused. |
+| `08d91af` | F4 in `CRYPTOGRAPHY.md` and ADR 0002: an older card of the active key. |
+| `e5a4fdc` | A dial refused before message 3 returns its admission. |
+| `36551ad`, `754a3c7` | The documents: the message 3 boundary, refused dials, a link that ends once, the architecture status, the card evaluation of Phase 4. |
+| `dfd12ea` | The development dial answers "hello back" and tries again while the service is unreachable. |
+| `d0f9d2a` | The real-Tor test of publishing again from the held key and of a dial without SOCKS. |
+| `0496610` | The private network test on the current Chutney, every node traced. |
+| `c095969` | Mutation faults CR39 and CR40; CR12 and CR13 follow the code. |
+
+The commit that adds this table also brings `STATUS.md`, `fuzz/README.md`
+and `docs/TEST_PLAN.md` up to date. It is the last commit before the
+final verification.

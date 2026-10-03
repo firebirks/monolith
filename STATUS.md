@@ -6,8 +6,9 @@ It is removed when Phase 3 is closed; it does not belong on `main`.
 
 Branch: `phase-3-system-tor`, on top of `main` at `5ac8bdf`.
 Last commit of work before this file: `ea8e64e`. Updated with the
-credential binding review of the same day and with the integration
-hardening of 2026-10-02 and 2026-10-03 (sections 2, 3, 4, 6.0 and 6.1).
+credential binding review of the same day, the integration hardening of
+2026-10-02 and 2026-10-03, and the final hardening of 2026-10-03
+(sections 2, 3, 4, 6 and 7).
 
 ## 1. What Phase 3 is
 
@@ -67,6 +68,12 @@ Rules that hold until the phase is closed:
   slot; no outbound session for anyone but a contact; fuzz targets that
   check invariants instead of a transcript. `docs/DESIGN_QUESTIONS.md`
   section 9. No wire change; Noise XK unchanged.
+- The final hardening, accepted residuals included: a link ends once, the
+  handshake targets refuse a corrupted genuine message again, F4 is stated
+  as implemented in the cryptography documents, a refused dial keeps its
+  admission for the local side, and the private network test runs.
+  `docs/DESIGN_QUESTIONS.md` section 10. No wire change; Noise XK
+  unchanged.
 - Several local identities as an architectural requirement:
   `docs/DESIGN_QUESTIONS.md` section 7, `docs/ARCHITECTURE.md` section
   1.1, invariants S39 to S46. No wire change, nothing implemented as a
@@ -95,7 +102,8 @@ Commits on the branch, oldest first:
 | `98a1c7a` to `fa87ba2` | Contact card and capability semantics, with one card test. |
 | `950d8ea` to `90ac497` | Several local identities: documents, comments, structural tests. |
 | `3bc40c5` to `c7faad2` | The credential binding review: verification of the reported issues, the local party, credential states, fresh admission, withdrawal, the duplicate rule, mutation faults, documents, the fixes of the two review passes (`docs/DESIGN_QUESTIONS.md` 8.4 lists the commits). |
-| `8f52eca` onwards | The integration hardening: verification of the reported issues, the message 3 gate, session deadlines, the end of a link, fuzz invariants, documents, the fixes of two focused review passes, mutation faults (`docs/DESIGN_QUESTIONS.md` 9.4 lists the commits). |
+| `8f52eca` to `6bd9074` | The integration hardening: verification of the reported issues, the message 3 gate, session deadlines, the end of a link, fuzz invariants, documents, the fixes of two focused review passes, mutation faults (`docs/DESIGN_QUESTIONS.md` 9.4 lists the commits). |
+| `94f5762` onwards | The final hardening: README, a link that ends once, the corruption assertion of the handshake targets, F4 in the cryptography documents, refused dials that keep their admission, the private network test brought to the current Chutney and extended (`docs/DESIGN_QUESTIONS.md` section 10). |
 
 Note for the final report: `a11539a` also contains the Phase 3 list of
 `mutation/faults.py`, which was staged by mistake. It was not rewritten.
@@ -135,6 +143,13 @@ mutation faults without the `monolith-tor` tests: 74 faults, all caught
 but S15 and S24, which are expected to survive. Not the final
 verification either.
 
+The final hardening was checked during development on Windows (fmt,
+clippy, the tests of every crate but `monolith-tor`, the seeds of the
+handshake targets, and a targeted run of the 20 mutation faults in
+`link.rs`, all caught) and in a Linux container (the tests of every
+crate, the fail-closed test and the private network test, all passing).
+The final verification is sections 6.1 and 6.2, on the final commit.
+
 | Check | Result | Run on |
 | --- | --- | --- |
 | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` | clean | `90ac497` |
@@ -145,7 +160,7 @@ verification either.
 | `cargo tree -d` | one pair: `rand_core` 0.9.5 (tests only) and 0.10.1 | before `98a1c7a` |
 | Mutation suite, all phases, 177 faults | stopped at 82; only expected survivors up to there | `a59895d`, intermediate |
 | Fuzz smoke run of the 14 targets | not run in Phase 3 | |
-| Private Tor network test (T3-7) | not run: no `tor` or Chutney on the first machine | |
+| Private Tor network test (T3-7) | runs in a Linux container with Tor 0.4.9.13 and Chutney `ae3a33c`; the run that counts is the final one (section 6.2) | development runs on the final hardening |
 | Measurements of `RESOURCE_LIMITS.md` 11.2 | measured | before `98a1c7a` |
 
 The intermediate mutation run was stopped because the final run has to
@@ -179,11 +194,12 @@ Two independent security reviews were made of the Phase 3 code. Fixed:
 
 ## 6. What is left, in order
 
-### 6.0 Owner review of the credential binding review and the hardening
+### 6.0 Owner review
 
-The reopened review and the integration hardening stop for the owner's
-review with their reports before anything below is run. Nothing of 6.1
-to 6.3 counts until then.
+The owner accepted the integration hardening and asked for the final
+hardening of `docs/DESIGN_QUESTIONS.md` section 10, then the final
+verification on the commit that ends it. No file changes once that run
+has started; if one does, the run starts again on the new commit.
 
 ### 6.1 Final verification on the final commit
 
@@ -198,12 +214,12 @@ to 6.3 counts until then.
     cargo tree -d
     cd fuzz && RUSTFLAGS="--cfg fuzzing" cargo +nightly check --bins --locked
 
-- Mutation suite: `python3 mutation/run.py all 3`. Expected: 216 faults,
+- Mutation suite: `python3 mutation/run.py all 3`. Expected: 218 faults,
   exit code 0, survivors only B3, B4, S15, S24, CAP2, CAP3, Q14, Q18 and
   Q29 (`mutation/README.md`). It takes well over an hour.
 - Fuzz smoke run of all 14 targets, 25 seconds each, as `fuzz/README.md`
-  describes. Then update its status paragraph, which still says "All
-  eleven targets".
+  describes, and longer runs of the Tor parsers, the session and
+  credential targets and the handshake targets.
 - Seeds and vectors: `cargo test -p monolith-protocol --test fuzz_seeds`,
   `cargo test -p monolith-tor --test fuzz_seeds`, and the known-answer
   vectors of `PROTOCOL.md` 16.1 in the session tests.
@@ -213,23 +229,25 @@ to 6.3 counts until then.
 
 Tools needed: Rust 1.95.0 (pinned in `rust-toolchain.toml`), 1.85.1,
 stable, nightly with `cargo-fuzz`, `cargo-deny`, `cargo-audit`, Python 3,
-`strace`.
+`strace`. The tests of `monolith-tor` need a Unix system: 8 of its system
+tests fail on Windows. The results of the run go to the final report, not
+into the repository.
 
 ### 6.2 Private Tor network test
 
 `tests/tor-network/two-node.sh` with Chutney and `tor` and `tor-gencert`
-0.4.9.5 or later (`tests/tor-network/README.md`). If it runs, update the
-status in that README and close T3-7 in `docs/DESIGN_QUESTIONS.md`. If it
-cannot be run, it stays an open item of the final report.
+0.4.9.5 or later (`tests/tor-network/README.md`). It is a hard gate of
+Phase 3: if it cannot be run on the final commit, Phase 3 is not
+complete, and the report names the blocker.
 
 ### 6.3 Final report
 
-The Phase 3 brief asks for a final report of 35 items and then a stop: no
-Phase 4, no merge to `main`. The brief is not in the repository; the
-owner has it. Besides its items, the report states: the private network
-test result, the mutation list that landed in `a11539a`, the discarded
-mutation run and the runner fixes, and the results of section 6.1 with
-the commit they were run on.
+The brief of the final hardening asks for a final report of 39 items and
+then a stop: no Phase 4, no push, no merge to `main`. The brief is not in
+the repository; the owner has it. Besides its items, the report states:
+the mutation list that landed in `a11539a`, the discarded mutation run
+and the runner fixes, and the results of sections 6.1 and 6.2 with the
+commit they were run on.
 
 Then remove this file.
 

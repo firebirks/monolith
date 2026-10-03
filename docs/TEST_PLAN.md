@@ -33,8 +33,10 @@ SOCKS and control servers on loopback, hostile ones included
 session on `MockTorBackend`, with the handshake deadline and the accept
 loop's budget (`tests/link.rs`); two more fuzz targets; a Phase 3
 mutation list; the fail-closed network test (`tests/network/`); and the
-private Tor network test (`tests/tor-network/`), which is written but not
-yet run. Covered now: T-SOCKS, T-CTRL, T-NET-1.
+private Tor network test (`tests/tor-network/`): a message each way over a
+Chutney network, a service published again from its key, a dial without
+SOCKS, a lost control connection, every node under `strace`. Covered
+now: T-SOCKS, T-CTRL, T-NET-1.
 
 The rest need the core, Tor or storage, and are not written yet.
 
