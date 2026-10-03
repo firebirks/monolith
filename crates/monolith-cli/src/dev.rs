@@ -23,6 +23,7 @@ use monolith_protocol::text::ChatText;
 use monolith_session::{LocalParty, TransportSecretKey};
 use monolith_tor::{
     KeySource, OnionService, PublishedOnionService, SystemTorBackend, SystemTorConfig, TorBackend,
+    TorError,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -31,6 +32,11 @@ const CARD_WAIT: Duration = Duration::from_secs(600);
 
 /// How long to wait for the peer to connect.
 const ACCEPT_WAIT: Duration = Duration::from_secs(600);
+
+/// How often, and how far apart, a dial is tried while Tor cannot reach
+/// the peer's service yet: its descriptor may still be on its way.
+const DIAL_ATTEMPTS: u32 = 30;
+const DIAL_PAUSE: Duration = Duration::from_secs(10);
 
 fn fail(what: &str) -> ExitCode {
     eprintln!("monolith dev-chat: {what}");
@@ -153,7 +159,7 @@ pub(crate) async fn serve(config: SystemTorConfig, own_card: &str, peer_card: &s
         confirm(&mut established).await?;
         let text = next_chat(&mut established.link).await?;
         println!("Received: {text:?}");
-        let reply = chat("pong").ok_or(LinkError::Stream)?;
+        let reply = chat("hello back").ok_or(LinkError::Stream)?;
         established.link.send(&reply).await?;
         // Wait for the peer's Close.
         let _ = established.link.receive().await;
@@ -189,16 +195,31 @@ pub(crate) async fn dial(
     };
     let mut held = Credentials::new(peer.clone());
     let result = async {
-        let isolation = backend.isolation_group().map_err(LinkError::Tor)?;
-        let mut established = dial_link(
-            &backend,
-            &Budgets::new(),
-            &local,
-            &peer,
-            &isolation,
-            |outbound, _| outbound.admit(PeerRecord::Accepted(&mut held)),
-        )
-        .await?;
+        let mut attempt = 1;
+        let mut established = loop {
+            let isolation = backend.isolation_group().map_err(LinkError::Tor)?;
+            match dial_link(
+                &backend,
+                &Budgets::new(),
+                &local,
+                &peer,
+                &isolation,
+                |outbound, _| outbound.admit(PeerRecord::Accepted(&mut held)),
+            )
+            .await
+            {
+                Ok(established) => break established,
+                // Only a service Tor cannot reach yet is tried again.
+                Err(LinkError::Tor(error @ TorError::OnionUnreachable))
+                    if attempt < DIAL_ATTEMPTS =>
+                {
+                    println!("Dial attempt {attempt}: {error}; trying again.");
+                    attempt = attempt.saturating_add(1);
+                    tokio::time::sleep(DIAL_PAUSE).await;
+                }
+                Err(error) => return Err(error),
+            }
+        };
         confirm(&mut established).await?;
         let text = chat(message).ok_or(LinkError::Stream)?;
         established.link.send(&text).await?;
