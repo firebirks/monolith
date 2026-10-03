@@ -1,10 +1,10 @@
 # Architecture
 
-Status: Phase 3, waiting for its final verification. The protocol core,
-the session layer and the integration with a Tor the system runs are
-implemented; the contact store, storage and the interface are still
-design. `STATUS.md` records what is implemented and verified. This
-document describes the structure the phases build.
+Status: Phase 3 complete (tag `phase-3-complete`); Phase 4 not started.
+The protocol core, the session layer and the integration with a Tor the
+system runs are implemented and verified; the contact store, storage and
+the interface are still design. `STATUS.md` records what is implemented
+and verified. This document describes the structure the phases build.
 
 ## 1. Shape
 

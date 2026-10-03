@@ -17,9 +17,10 @@ redaction of S18 for its own types, the typed session of S19 and S21, S34,
 S35 and S37, and the local party of S47. In the Tor adapter and the core,
 since Phase 3: S1 to S3 and S5, the command set of S6, the connection
 budgets of S12, the withdrawal of S49 and the admission of S50 up to the
-contact store, and the parts of S42, S43, S45 and S46 named in their
-entries. Everything that
-involves storage or a user interface is still a planned mechanism.
+contact store, the message 3 gate of S51, the deadlines and single end of
+S52, and the parts of S42, S43, S45 and S46 named in their entries.
+Everything that involves storage or a user interface is still a planned
+mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single

@@ -5,7 +5,8 @@ never embeds one and never configures one. This document describes how it
 talks to that Tor. Platform specifics are in `PLATFORM_TAILS.md` and
 `PLATFORM_WHONIX.md`; the control commands are in `TOR_CONTROL_SURFACE.md`.
 
-Status: the generic system Tor backend is Phase 3 work. The Tails checks of
+Status: the generic system Tor backend was built and verified in Phase 3,
+including a test over a private Tor network. The Tails checks of
 `PLATFORM_TAILS.md` section 3.4 gate Phase 6 and any claim that Monolith
 works on Tails; they do not gate the generic backend (`DESIGN_QUESTIONS.md`
 T3-1). Tails and Whonix are not supported yet.

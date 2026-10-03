@@ -9,7 +9,8 @@ Status: early development. There is no working messenger in this repository
 yet. The protocol core (encoding, contact cards, session state logic) and
 the session layer (the handshake and the encrypted frames) are implemented
 as libraries that do no I/O. The integration with a Tor the system runs is
-implemented and waits for its final verification: a SOCKS5 client, a
+implemented and was verified at the end of Phase 3 (tag `phase-3-complete`),
+including a two-node test over a private Tor network: a SOCKS5 client, a
 control client for status and for publishing an Onion Service, sessions
 over Tor streams with their budgets and deadlines, and development commands
 in the command-line binary. The contact store, storage, the user interface
