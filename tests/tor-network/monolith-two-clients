@@ -1,9 +1,9 @@
 # Chutney network for the Monolith two-node test: three authorities, five
 # relays (which serve as HSDirs in a testing network) and two clients, one
 # Tor for each Monolith node. Nothing here reaches the public network.
-Authority = Node(tag="a", authority=1, relay=1, torrc="authority.tmpl")
-Relay = Node(tag="r", relay=1, torrc="relay.tmpl")
-Client = Node(tag="c", torrc="client.tmpl")
+Authority = Node(tag="a", authority=1, relay=1)
+Relay = Node(tag="r", relay=1)
+Client = Node(tag="c", client=1)
 
 NODES = Authority.getN(3) + Relay.getN(5) + Client.getN(2)
 

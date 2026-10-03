@@ -13,7 +13,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 cargo build --quiet --locked -p monolith-cli
-monolith="$root/target/debug/monolith"
+monolith="${CARGO_TARGET_DIR:-$root/target}/debug/monolith"
 tests=$(cargo test --quiet --locked -p monolith-tor --test system --no-run --message-format=json 2>/dev/null |
     python3 -c '
 import json, sys
