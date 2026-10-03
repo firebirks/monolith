@@ -25,7 +25,7 @@ use monolith_protocol::ProtocolError;
 use monolith_protocol::body::{Message, MessageId};
 use monolith_protocol::card::{ContactCard, EndpointSet};
 use monolith_protocol::credential::{CredentialChange, Credentials};
-use monolith_protocol::session::{Action, PeerRecord, Standing};
+use monolith_protocol::session::{Action, Admission, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
 use monolith_session::{Admitted, LocalParty, OutboundPeer, SessionError, TransportSecretKey};
 use monolith_tor::{KeySource, MockNetwork, OnionService, TorBackend};
@@ -228,12 +228,7 @@ fn a_dial_is_admitted_against_the_contact_state_after_the_handshake() {
         assert_eq!(admission.standing, Standing::StaleCard);
         assert_eq!(admission.change, Some(CredentialChange::Stale));
         assert_eq!(alice_holds_bob.lock().unwrap().held.active(), &successor);
-        assert_eq!(
-            alice_end.err(),
-            Some(LinkError::Session(SessionError::Protocol(
-                ProtocolError::IdentityMismatch
-            )))
-        );
+        assert_eq!(alice_end.err(), Some(LinkError::Refused(admission)));
         // Bob never got message 3: his side ended without an admission.
         assert_eq!(bob_end.err(), Some(LinkError::Stream));
     });
@@ -725,6 +720,11 @@ where
     (dialed_result, reached.get())
 }
 
+/// The error of a dial refused with `standing` and `change`.
+fn refused(standing: Standing, change: Option<CredentialChange>) -> Option<LinkError> {
+    Some(LinkError::Refused(Admission { standing, change }))
+}
+
 fn identity_mismatch() -> Option<LinkError> {
     Some(LinkError::Session(SessionError::Protocol(
         ProtocolError::IdentityMismatch,
@@ -758,7 +758,10 @@ fn an_older_card_of_the_active_key_still_receives_message_3() {
         let (result, reached) = dial_bob(&Budgets::new(), |dialed, peer, _| {
             let mut held = Credentials::new(bob_at(2, elsewhere()).card().clone());
             assert_eq!(held.active().transport(), dialed.transport());
-            peer.admit(PeerRecord::Accepted(&mut held))
+            let admitted = peer.admit(PeerRecord::Accepted(&mut held));
+            // The card of epoch 2 stays the active one: no rollback.
+            assert_eq!(held.active(), bob_at(2, elsewhere()).card());
+            admitted
         })
         .await;
         let established = result.unwrap();
@@ -789,7 +792,10 @@ fn a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3() {
             )))
         })
         .await;
-        assert_eq!(result.err(), identity_mismatch());
+        assert_eq!(
+            result.err(),
+            refused(Standing::StaleCard, Some(CredentialChange::Conflict))
+        );
         assert!(!reached);
     });
 }
@@ -809,7 +815,12 @@ fn a_contact_deleted_declined_or_blocked_during_the_dial_gets_no_message_3() {
                 })
             })
             .await;
-            assert_eq!(result.err(), identity_mismatch(), "{record}");
+            let standing = match record {
+                0 => Standing::None,
+                1 => Standing::Declined,
+                _ => Standing::Blocked,
+            };
+            assert_eq!(result.err(), refused(standing, None), "{record}");
             assert!(!reached, "{record}");
             assert_eq!(
                 budgets.free_unknown_sessions(),
@@ -828,7 +839,7 @@ fn a_dial_that_loses_its_contact_takes_no_slot_when_none_is_left() {
         let held: Vec<_> = core::iter::from_fn(|| budgets.unknown_session()).collect();
         assert_eq!(held.len(), monolith_protocol::limits::MAX_UNKNOWN_SESSIONS);
         let (result, reached) = dial_bob(&budgets, |_, peer, _| peer.admit(PeerRecord::None)).await;
-        assert_eq!(result.err(), identity_mismatch());
+        assert_eq!(result.err(), refused(Standing::None, None));
         assert!(!reached);
         assert_eq!(budgets.free_unknown_sessions(), 0);
         drop(held);
@@ -858,7 +869,10 @@ fn a_pending_key_does_not_receive_message_3() {
             admitted
         })
         .await;
-        assert_eq!(result.err(), identity_mismatch());
+        assert_eq!(
+            result.err(),
+            refused(Standing::PendingSuccessor, Some(CredentialChange::Pending))
+        );
         assert!(!reached);
         let held = held.lock().unwrap();
         assert_eq!(held.active(), &active);
@@ -895,7 +909,10 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
             admitted
         })
         .await;
-        assert_eq!(result.err(), identity_mismatch());
+        assert_eq!(
+            result.err(),
+            refused(Standing::StaleCard, Some(CredentialChange::Stale))
+        );
         assert!(!reached);
         assert_eq!(*held.lock().unwrap(), before);
     });
@@ -913,7 +930,7 @@ fn message_3_follows_the_standing_of_the_session_not_the_admission_returned() {
             Ok((session, admission, first))
         })
         .await;
-        assert_eq!(result.err(), identity_mismatch());
+        assert_eq!(result.err(), refused(Standing::Accepted, None));
         assert!(!reached);
     });
 }

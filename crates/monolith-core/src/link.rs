@@ -45,6 +45,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+use monolith_protocol::SessionState;
 use monolith_protocol::body::Message;
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
@@ -52,7 +53,6 @@ use monolith_protocol::limits::{
     HANDSHAKE_TIMEOUT,
 };
 use monolith_protocol::session::{Action, Admission};
-use monolith_protocol::{ProtocolError, SessionState};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 use crate::budget::Budgets;
@@ -87,6 +87,13 @@ pub enum LinkError {
     /// The session was withdrawn: the transport key it was authenticated
     /// with is no longer the active one of the peer.
     Withdrawn,
+    /// A dial authenticated the responder, but the key it proved may not
+    /// learn the local identity: message 3 was not sent and no session was
+    /// made. The admission says why, for the local side only; a conflict
+    /// ([`monolith_protocol::credential::CredentialChange::Conflict`]) or a
+    /// pending key is for the user. The peer sees the stream close, as for
+    /// a failed handshake.
+    Refused(Admission),
 }
 
 impl fmt::Display for LinkError {
@@ -99,6 +106,7 @@ impl fmt::Display for LinkError {
             Self::NoEndpoint => f.write_str("no endpoint to dial"),
             Self::Budget => f.write_str("session budget full"),
             Self::Withdrawn => f.write_str("session withdrawn"),
+            Self::Refused(_) => f.write_str("peer may not learn the local identity"),
         }
     }
 }
@@ -275,9 +283,9 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// holds as requested or accepted. Otherwise, for a key that was retired
 /// or is pending, a key older than the announced successor, a
 /// contradicting card, or an identity that was deleted, declined or
-/// blocked during the dial, the dial fails with
-/// [`ProtocolError::IdentityMismatch`], nothing more is sent and no
-/// session is made (`docs/PROTOCOL.md` section 4.4). The withdrawal is
+/// blocked during the dial, the dial fails with [`LinkError::Refused`],
+/// which carries the admission, nothing more is sent and no session is
+/// made (`docs/PROTOCOL.md` section 4.4). The withdrawal is
 /// looked at before the write starts and while it is pending; a
 /// withdrawal ends the dial with [`LinkError::Withdrawn`]. Bytes the
 /// stream accepted before that cannot be called back. If `admit` fails,
@@ -317,9 +325,7 @@ where
             admit(outbound, &withdrawal).inspect_err(|_| withdrawal.end())?;
         let mut link = Link::new(stream, session, withdrawal, None);
         if !link.session.standing().may_learn_local_identity() {
-            return Err(LinkError::Session(SessionError::Protocol(
-                ProtocolError::IdentityMismatch,
-            )));
+            return Err(LinkError::Refused(admission));
         }
         link.write_unless_withdrawn(&message_3).await?;
         Ok(Established {
