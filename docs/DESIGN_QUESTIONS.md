@@ -237,7 +237,6 @@ Nothing below is settled. Each is described in the document named.
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
 | ST1 to ST7 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending), storage mode per identity | STORAGE.md 9 |
-| T3-7 | Phase 3: the two-node test on a private Tor network runs in a Linux container with Tor 0.4.9.13 and Chutney; it is settled by the run on the commit of the final verification | tests/tor-network/README.md |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Security contact address and key | SECURITY.md |
@@ -1281,3 +1280,59 @@ On `phase-3-system-tor`, after `6bd9074`, oldest first:
 The commit that adds this table also brings `STATUS.md`, `fuzz/README.md`
 and `docs/TEST_PLAN.md` up to date. It is the last commit before the
 final verification.
+
+### 10.4 Final verification and completion
+
+The final verification ran on `2f27dcb99df0f86bb1c539ff69b2323a43d75a05`,
+from a clone at that commit, with no file of the repository changed while
+it ran. Results:
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo test --workspace --locked`, Rust 1.95.0, Linux | 517 passed, 0 failed, 1 ignored (`tests/tor_network.rs`, run by the private network test) |
+| Rust 1.85.1: `check --all-targets` and `test` | clean; 517 passed, 0 failed |
+| Rust stable (1.99.0): `test` | 517 passed, 0 failed |
+| `cargo deny check` | advisories, bans, licenses and sources ok |
+| `cargo audit` | no advisory for the 71 crates |
+| `cargo tree -d` | one pair: `rand_core` 0.9.5 (tests only, through proptest) and 0.10.1 |
+| Seeds of `monolith-protocol`, `monolith-session` and `monolith-tor` | consistent |
+| Known-answer vectors of `PROTOCOL.md` 16.1 | unchanged, pass |
+| Fuzz, 14 targets, 25 seconds each | no failure |
+| Fuzz, 900 seconds each: `tor_control_reply`, `socks_reply`, `session_frames`, `credential_sequence`, `handshake_initiator`, `handshake_responder` | no failure; 2.5 million, 85.6 million, 84 thousand, 12.3 million, 170 thousand and 233 thousand executions |
+| Mutation suite, 218 faults | 209 caught, the nine expected survivors (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29), none unexpected, none invalid; exit code 0 |
+| `tests/network/fail-closed.sh` | pass, all four cases |
+| `tests/tor-network/two-node.sh`, Tor 0.4.9.13, Chutney `ae3a33c` | pass: "hello" and "hello back" over the private network, a service published again from its key and reached under the same name, a dial without SOCKS refused, a lost control connection reported; every Monolith process traced with loopback and Unix sockets only and no DNS |
+
+The owner declared Phase 3 complete on that commit on 2026-10-03, with
+the residuals A, B and C of section 10.2 accepted and no known security
+blocker, and had the branch pushed at that commit; the requirement of the
+brief that nothing be pushed was superseded by that instruction. The
+commit is tagged `phase-3-complete`. T3-7 is closed by the private
+network test. Phase 4 has not started.
+
+Notes kept for the record:
+
+- `a11539a`, a lint commit, also contains the Phase 3 list of
+  `mutation/faults.py`, which was staged by mistake. It was not
+  rewritten.
+- An earlier full mutation run was discarded because two runners shared
+  the same copies (`a59895d` prevents that), and an intermediate run was
+  stopped because the final run had to be on the final commit; a test
+  binary left over from the discarded run had slowed it down (`ea8e64e`
+  makes the runner end the test binaries of a fault on a timeout and when
+  it is stopped).
+- During the final verification the long fuzz runs, first started in
+  parallel, and the mutation run, first started with three workers and a
+  shared target directory, were stopped for memory and started again on
+  the same commit, one fuzz run at a time and with two workers each in
+  its own directory.
+- The two security reviews of Phase 3 that came before the credential
+  binding review fixed: SAFECOOKIE pinned to the configured cookie file
+  and checked before use; `Endpoint` opaque and checked again by the
+  connection code; tokio networking kept out of the CLI and unbounded
+  channels banned; the dial and unknown-session budgets enforced; a
+  listener error no longer ending the accept loop; a failed write marking
+  the session stream closed; intermediate base64 copies of a key erased;
+  the trust placed in the control endpoint documented (`THREAT_MODEL.md`
+  adversary O).

@@ -1,8 +1,11 @@
 # Status of the Phase 3 work
 
 Written on 2026-10-02 so that the work can be picked up on another machine.
-This file describes work in progress on the branch `phase-3-system-tor`.
-It is removed when Phase 3 is closed; it does not belong on `main`.
+This file describes the work on the branch `phase-3-system-tor`. Phase 3
+is complete: the owner declared it so on 2026-10-03, on the verified
+commit `2f27dcb`, tagged `phase-3-complete` (section 6). Whether this file
+stays, or is removed before the branch goes to `main`, is the owner's
+decision.
 
 Branch: `phase-3-system-tor`, on top of `main` at `5ac8bdf`.
 Last commit of work before this file: `ea8e64e`. Updated with the
@@ -143,7 +146,8 @@ mutation faults without the `monolith-tor` tests: 74 faults, all caught
 but S15 and S24, which are expected to survive. Not the final
 verification either.
 
-The final hardening was checked during development on Windows (fmt,
+The definitive results are those of section 6.0, on `2f27dcb`. The
+final hardening was checked during development on Windows (fmt,
 clippy, the tests of every crate but `monolith-tor`, the seeds of the
 handshake targets, and a targeted run of the 20 mutation faults in
 `link.rs`, all caught) and in a Linux container (the tests of every
@@ -160,7 +164,7 @@ The final verification is sections 6.1 and 6.2, on the final commit.
 | `cargo tree -d` | one pair: `rand_core` 0.9.5 (tests only) and 0.10.1 | before `98a1c7a` |
 | Mutation suite, all phases, 177 faults | stopped at 82; only expected survivors up to there | `a59895d`, intermediate |
 | Fuzz smoke run of the 14 targets | not run in Phase 3 | |
-| Private Tor network test (T3-7) | runs in a Linux container with Tor 0.4.9.13 and Chutney `ae3a33c`; the run that counts is the final one (section 6.2) | development runs on the final hardening |
+| Private Tor network test (T3-7) | pass, in a Linux container with Tor 0.4.9.13 and Chutney `ae3a33c` | `2f27dcb`, final |
 | Measurements of `RESOURCE_LIMITS.md` 11.2 | measured | before `98a1c7a` |
 
 The intermediate mutation run was stopped because the final run has to
@@ -194,12 +198,16 @@ Two independent security reviews were made of the Phase 3 code. Fixed:
 
 ## 6. What is left, in order
 
-### 6.0 Owner review
+### 6.0 Result
 
-The owner accepted the integration hardening and asked for the final
-hardening of `docs/DESIGN_QUESTIONS.md` section 10, then the final
-verification on the commit that ends it. No file changes once that run
-has started; if one does, the run starts again on the new commit.
+The final verification ran on `2f27dcb99df0f86bb1c539ff69b2323a43d75a05`,
+with no file changed while it ran, and passed;
+`docs/DESIGN_QUESTIONS.md` section 10.4 records it. The owner declared
+Phase 3 complete on that commit, accepted the residuals A, B and C of
+section 10, and had the branch pushed at that commit. The commit is
+tagged `phase-3-complete`. Phase 4 has not started.
+
+What follows is the procedure that was run.
 
 ### 6.1 Final verification on the final commit
 
@@ -216,7 +224,8 @@ has started; if one does, the run starts again on the new commit.
 
 - Mutation suite: `python3 mutation/run.py all 3`. Expected: 218 faults,
   exit code 0, survivors only B3, B4, S15, S24, CAP2, CAP3, Q14, Q18 and
-  Q29 (`mutation/README.md`). It takes well over an hour.
+  Q29 (`mutation/README.md`). It was run with two workers, for memory, and
+  took about four hours.
 - Fuzz smoke run of all 14 targets, 25 seconds each, as `fuzz/README.md`
   describes, and longer runs of the Tor parsers, the session and
   credential targets and the handshake targets.
@@ -230,8 +239,9 @@ has started; if one does, the run starts again on the new commit.
 Tools needed: Rust 1.95.0 (pinned in `rust-toolchain.toml`), 1.85.1,
 stable, nightly with `cargo-fuzz`, `cargo-deny`, `cargo-audit`, Python 3,
 `strace`. The tests of `monolith-tor` need a Unix system: 8 of its system
-tests fail on Windows. The results of the run go to the final report, not
-into the repository.
+tests fail on Windows. The Linux part ran in a container with Tor
+0.4.9.13 from the Tor Project's repository and Chutney `ae3a33c`; the
+fuzz targets ran on the Windows host.
 
 ### 6.2 Private Tor network test
 
@@ -242,14 +252,11 @@ complete, and the report names the blocker.
 
 ### 6.3 Final report
 
-The brief of the final hardening asks for a final report of 39 items and
-then a stop: no Phase 4, no push, no merge to `main`. The brief is not in
-the repository; the owner has it. Besides its items, the report states:
-the mutation list that landed in `a11539a`, the discarded mutation run
-and the runner fixes, and the results of sections 6.1 and 6.2 with the
-commit they were run on.
-
-Then remove this file.
+The final report of 39 items was given to the owner. Its point 38, that
+nothing was pushed, does not apply: the owner asked for the push during
+the run. The notes this file kept for that report, the mutation list that
+landed in `a11539a` and the discarded mutation runs with the runner fixes
+of section 4, are in `docs/DESIGN_QUESTIONS.md` section 10.4 as well.
 
 ## 7. Open points that are not Phase 3 work
 
