@@ -52,14 +52,14 @@ stays the same fault.
 
 ## Expected results
 
-With the credential binding review and the integration hardening of
-Phase 3:
+With the credential binding review, the integration hardening and the
+final hardening of Phase 3:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
-| Phase 3 | 72 | 69 | Q14, Q18, Q29 |
+| Phase 3 | 74 | 71 | Q14, Q18, Q29 |
 
 The Phase 3 list covers the no-clearnet and Tor boundaries (onion address
 checks, SOCKS only, the onion name only, loopback endpoints and listener,
@@ -107,6 +107,17 @@ CR18 tests. A stranger answered without a slot is Q30. A fuzz target that
 compares accepted handshake messages with its transcript is not a fault
 for this runner, which runs the tests; the seeds of a third party and of
 another ephemeral key make such a target fail on its own corpus.
+
+The final hardening added CR39, a link that ended and waits for its
+stream again, and CR40, a dial refused before message 3 that loses its
+admission, and moved CR12 and CR13 to the code they test now. Neither is
+expected to survive. A send on a link that is over without the first
+check is equivalent: the session refuses it and the link fails the same
+way, so no fault is listed for it. The fuzz targets `handshake_initiator`
+and `handshake_responder` assert again that a genuine message with one
+byte changed is refused; their seeds hold such messages next to valid
+ones of another ephemeral key. That assertion is not a fault for this
+runner either.
 
 No fault in authentication logic survives. The Phase 2 list covers each
 check that the two reviews of Phase 2 added: the grace after the age
