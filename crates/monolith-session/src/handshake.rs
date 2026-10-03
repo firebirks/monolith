@@ -219,6 +219,10 @@ impl HandshakeInitiator {
     /// transport key of the pinned card and used the pinned identity key
     /// in its prologue. Only then is message 3 produced, which carries the
     /// local transport key and the local card, encrypted to that responder.
+    /// Producing it is not sending it: it may be written only after
+    /// [`OutboundPeer::admit`] gave a standing that may learn the local
+    /// identity, and while the session is not withdrawn. `link::dial` in
+    /// `monolith-core` does that; nothing else writes it.
     ///
     /// Any failure is [`ProtocolError::IdentityMismatch`]: the endpoint did
     /// not prove the identity that was dialed. The caller reports it and

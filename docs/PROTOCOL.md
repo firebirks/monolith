@@ -218,7 +218,10 @@ The initiator:
    bytes of message 3 carry the initiator's transport key, encrypted to
    the responder, and that key alone tells a responder who knows the
    initiator's card who is dialing. In practice a local stream takes the
-   235 bytes of message 3 in one write.
+   235 bytes of message 3 in one write. Locally the reason a peer was
+   refused is kept: a conflict is reported to the user as such, as in
+   section 6.2. The peer sees only the stream close, as after a failed
+   check 2.
 
 If check 2 fails the initiator closes. It has sent 48 bytes that carry no
 identity. The failure is reported to the user as an identity mismatch: the

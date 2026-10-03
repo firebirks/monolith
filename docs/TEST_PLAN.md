@@ -423,7 +423,9 @@ core:
     a conflicting card of the same epoch, a pending or retired key, and a
     record deleted, declined or blocked during the dial get no message 3
     and no session, and take no slot for strangers, also when none is
-    free.
+    free. A refused dial returns the admission, so a conflict is seen
+    locally while the peer sees only the stream close; the active card is
+    not rolled back by an older card of its key.
 18. A promotion made at message 2 stands when message 3 cannot be
     written.
 19. A proven key older than the successor announced through the active
@@ -450,6 +452,9 @@ the unit tests of `link`:
    the Close already written and the slot back, whether or not the caller
    closes; in the session alone that Close is due at once. A Close from
    the peer ends the link at once and gives back its slot.
+8. A link that ended, by a withdrawal or a read error, gives a stream
+   whose shutdown never completes `FRAME_WRITE_TIMEOUT` once; every later
+   receive, send and close returns at once.
 
 Frames on a session (T-FRAME-AUTH)
 

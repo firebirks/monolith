@@ -307,14 +307,18 @@ Test area names refer to `docs/TEST_PLAN.md`.
   older than the announced successor, a contradicting card, and a
   deleted, declined or blocked identity do not. The write races the
   withdrawal of the session: a withdrawal before or during it ends the
-  dial and the session.
+  dial and the session. A refused dial returns `LinkError::Refused` with
+  the admission, so a conflict stays visible to the local side; the peer
+  sees the stream close, as for a failed handshake.
 - Residual: bytes the stream accepted before a withdrawal cannot be
   called back. The first 48 bytes of message 3 carry the local transport
   key, which identifies the local side to a responder that knows its
   card. A local stream takes the 235 bytes in one write in practice.
   Only `link::dial` enforces this: `HandshakeInitiator::read_message_2`
-  returns message 3 before any admission, and a caller of the session
-  crate that writes it unchecked bypasses the gate.
+  prepares message 3 before any admission, and a caller of the session
+  crate that wrote it unchecked would bypass the gate. `link::dial` is
+  the one production path that writes it, and the documentation of the
+  session crate says so.
 - Consequence: an outbound session is always a contact's, and none takes
   a slot of `MAX_UNKNOWN_SESSIONS`.
 - Tests: `tests/credentials.rs` in the core (withdrawal right after the
@@ -322,9 +326,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   record deleted, declined or blocked during the dial, a full budget for
   strangers, a promotion whose message 3 cannot be written, a pending key,
   a key older than the announced successor, an admission returned that
-  contradicts the session), the unit tests of `link` (a withdrawal before
-  and during a stalled write of message 3), mutation faults CR18, CR22 to
-  CR24 and CR35 to CR37.
+  contradicts the session, the conflict reported locally), the unit tests
+  of `link` (a withdrawal before and during a stalled write of message
+  3), mutation faults CR18, CR22 to CR24, CR35 to CR37 and CR40.
 
 ### S52. Every session ends at its deadlines and on every failure
 
@@ -341,17 +345,19 @@ Test area names refer to `docs/TEST_PLAN.md`.
   before it is returned. The end of the stream, a read or write error, a
   deadline, a withdrawal, a violation and such a message all end the
   link through one path: the session is over, its slot for strangers
-  goes back, the stream is shut down, and every later call fails at
-  once. The slot of an inbound stranger follows the standing of the
-  session, not the admission returned beside it.
+  goes back, the stream is shut down once, within its bound, and every
+  later call, `close` included, fails or returns at once without waiting
+  for the stream again. The slot of an inbound stranger follows the
+  standing of the session, not the admission returned beside it.
 - Tests: `tests::deadlines` in the session crate, the unit tests of
   `link` (a frame sent a byte at a time, a stranger that sends nothing or
   sends its first message, a Close from the peer, an unconfirmed
-  session, read and write errors, later calls on a link that is over),
+  session, read and write errors, later calls on a link that is over,
+  a stream whose shutdown never completes),
   `tests/link.rs` in the core (the slot of a stranger whatever the
   admission says), fuzz target `session_frames` (partial frames, expiry
   at the deadline it works out itself), mutation faults CR16, CR25 to
-  CR33 and CR37.
+  CR33, CR37 and CR39.
 
 ### S38. An invitation capability admits a request and does nothing else
 

@@ -22,7 +22,12 @@
 //!   one.
 //! - To dial a contact: [`HandshakeInitiator::start`] with the pinned card
 //!   of that contact, then [`HandshakeInitiator::read_message_2`], then
-//!   [`OutboundPeer::admit`].
+//!   [`OutboundPeer::admit`]. Message 3, which `read_message_2` returns,
+//!   carries the local identity and may leave the process only if the
+//!   admission allows it. This crate prepares the bytes; the core decides
+//!   whether they are sent, and `link::dial` in `monolith-core` is the one
+//!   production path that writes them (`docs/PROTOCOL.md` section 4.4).
+//!   These functions are not a shortcut around it.
 //! - To answer a stream: [`HandshakeResponder::new`], then
 //!   [`HandshakeResponder::read_message_1`], then
 //!   [`HandshakeResponderFinal::read_message_3`], then
