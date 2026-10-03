@@ -8,9 +8,14 @@ no server and no account.
 Status: early development. There is no working messenger in this repository
 yet. The protocol core (encoding, contact cards, session state logic) and
 the session layer (the handshake and the encrypted frames) are implemented
-as libraries that do no I/O. The Tor integration, storage and the Tails
-and Whonix integration are designs and are not implemented. Nothing here
-has been audited. Do not rely on it for anything.
+as libraries that do no I/O. The integration with a Tor the system runs is
+implemented and waits for its final verification: a SOCKS5 client, a
+control client for status and for publishing an Onion Service, sessions
+over Tor streams with their budgets and deadlines, and development commands
+in the command-line binary. The contact store, storage, the user interface
+and the Tails and Whonix integration are designs and are not implemented.
+`STATUS.md` records what is implemented and what has been verified. Nothing
+here has been audited. Do not rely on it for anything.
 
 ## What it is
 
@@ -81,15 +86,20 @@ Checks run in CI:
     crates/monolith-protocol   limits, encoding, contact cards, messages,
                                frames, session logic
     crates/monolith-session    handshake and encrypted session
-    crates/monolith-tor        Tor backend interface (no implementation)
+    crates/monolith-tor        Tor backend: SOCKS5 client, control client,
+                               Onion Service publication, mock backend
     crates/monolith-storage    storage policy types (no implementation)
-    crates/monolith-core       application core (types only)
-    crates/monolith-cli        the monolith binary (no commands yet)
+    crates/monolith-core       sessions over Tor streams, connection
+                               budgets
+    crates/monolith-cli        the monolith binary: Tor status, doctor,
+                               development chat between two nodes
     crates/monolith-desktop    desktop front end (placeholder)
     integrations/tails         Tails control port profile (draft)
     integrations/whonix        Whonix profile and firewall rule (draft)
-    fuzz/                      fuzz targets for the protocol core and the
-                               session layer
+    fuzz/                      fuzz targets for the protocol core, the
+                               session layer and the Tor replies
+    tests/network              fail-closed network test (Linux)
+    tests/tor-network          two-node test over a private Tor network
     docs/                      specifications and decision records
 
 ## Security
