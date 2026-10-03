@@ -244,9 +244,14 @@ F4. Credential epochs prevent rollback, and a newer credential takes over
     an authorized successor, a pending successor and the retired key
     (PROTOCOL.md section 11.4).
 
-    - A card older than the active card, contradicting it at the same
-      epoch, older than the authorized successor for its key, or stating
-      the retired key does not open a contact session.
+    - A card of another key older than the active card or than the
+      authorized successor, a card that contradicts the active card or
+      the authorized successor at its epoch, a card of the authorized key
+      older than the announced one, or a card that states the retired key
+      does not open a contact session.
+    - An older card of the active key does: its holder proves the key
+      that stands for the contact now. The card is not taken, so the
+      active card never goes back to a lower epoch.
     - A newer card with the active key is the active card from then on;
       the transport credential has not changed.
     - A newer card with another key becomes trusted for the contact only

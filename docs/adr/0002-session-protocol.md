@@ -287,11 +287,15 @@ F3. The initiator sends its own contact card, without capability, as the
 
 F4. Successor credentials and rollback. The local side holds, per
     contact, the active card, an authorized successor, a pending successor
-    and the retired key (`PROTOCOL.md` section 11.4). A card older than
-    the active card, contradicting it at the same epoch, older than the
-    authorized successor for its key, or stating the retired key does not
-    make the session a contact session. A newer card with the active key
-    advances the active card. A newer card with another key becomes the
+    and the retired key (`PROTOCOL.md` section 11.4). A card of another
+    key older than the active card or than the authorized successor, a
+    card that contradicts the active card or the authorized successor at
+    its epoch, a card of the authorized key older than the announced one,
+    or a card that states the retired key does not make the session a
+    contact session. An older card of the active key does, since its
+    holder proves the key that stands for the contact now; the card is not
+    taken, so the active card never goes back to a lower epoch. A newer
+    card with the active key advances the active card. A newer card with another key becomes the
     contact's credential only through continuity, an announcement in an
     EndpointUpdate on a session of the active key followed by a handshake
     that proves the new key, or through the user's explicit confirmation;
