@@ -3,8 +3,9 @@
 Status: Phase 3 complete (tag `phase-3-complete`); Phase 4 not started.
 The protocol core, the session layer and the integration with a Tor the
 system runs are implemented and verified; the contact store, storage and
-the interface are still design. `STATUS.md` records what is implemented
-and verified. This document describes the structure the phases build.
+the interface are still design. `DESIGN_QUESTIONS.md` section 10.4
+records the final verification of Phase 3. This document describes the
+structure the phases build.
 
 ## 1. Shape
 
@@ -372,10 +373,10 @@ For such a change:
 
 - tests come with it;
 - the specification is updated in the same change if behavior changes;
-  the normative documents define intended behavior, `STATUS.md` records
-  what is implemented, and a disagreement between code and a normative
-  document is a bug to resolve, never a silent override in either
-  direction;
+  the normative documents define intended behavior, a status file kept
+  while a phase is in progress (`STATUS.md`) records what is implemented,
+  and a disagreement between code and a normative document is a bug to
+  resolve, never a silent override in either direction;
 - affected invariants are named in the description;
 - no unrelated refactoring rides along;
 - a second person reviews it.

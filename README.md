@@ -15,7 +15,8 @@ control client for status and for publishing an Onion Service, sessions
 over Tor streams with their budgets and deadlines, and development commands
 in the command-line binary. The contact store, storage, the user interface
 and the Tails and Whonix integration are designs and are not implemented.
-`STATUS.md` records what is implemented and what has been verified. Nothing
+`docs/DESIGN_QUESTIONS.md` section 10.4 records the final verification of
+Phase 3. Nothing
 here has been audited. Do not rely on it for anything.
 
 ## What it is

@@ -230,6 +230,7 @@ Nothing below is settled. Each is described in the document named.
 | CR-3 | A bound on how far an epoch may jump in one card | DESIGN_QUESTIONS.md 8.2 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
 | - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
+| - | One evaluation of a card for the import by the user and the admission of a peer, in the contact store of Phase 4 | ARCHITECTURE.md 1.2 |
 | MI-1 to MI-4 | Several local identities: a target port per identity on Tails and Whonix, budget values and the number of identities, mixed storage modes, the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
