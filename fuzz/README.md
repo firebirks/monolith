@@ -82,10 +82,12 @@ To check that the targets compile without running them:
 
 ## Status
 
-All fourteen targets build. The smoke and longer runs of the Phase 3
-final verification are recorded in its report. Before that, the targets
-were run from their seeds for short smoke tests only (about 25 seconds
-each, no failure), last for all of them at the end of Phase 2. The eight targets of the protocol core make between 77 thousand
+All fourteen targets build. In the final verification of Phase 3 (on
+`2f27dcb`) each ran for 25 seconds, and the two Tor parsers, the session,
+credential and handshake targets for 900 seconds each, without a failure
+(`docs/DESIGN_QUESTIONS.md` 10.4). Before that, the targets were run from
+their seeds for short smoke tests only, last for all of them at the end
+of Phase 2. The eight targets of the protocol core make between 77 thousand
 and 12 million executions in that time. The three session targets make
 between 4 thousand and 16 thousand, because every execution runs a
 handshake under the address sanitizer. After they gained time and

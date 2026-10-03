@@ -44,7 +44,9 @@ Outcomes:
 
 The results go to `mutation/results-<list>-<commit>.json`. The exit code
 is 0 if every fault had the outcome its entry expects, and 1 otherwise. A
-full run of both lists takes about an hour with three workers.
+full run of all lists took about four hours with two workers in a Linux
+container in the final verification of Phase 3; three workers are faster
+where memory allows.
 
 When code moves, a pattern may no longer match. The runner then stops
 before testing and names the entry; update the pattern so that the fault
@@ -53,7 +55,8 @@ stays the same fault.
 ## Expected results
 
 With the credential binding review, the integration hardening and the
-final hardening of Phase 3:
+final hardening of Phase 3; the final verification on `2f27dcb` gave
+exactly this, with exit code 0:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |

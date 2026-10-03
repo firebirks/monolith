@@ -42,6 +42,6 @@ a control socket and cookie authentication in each node's directory).
 The script starts Tor processes: test tooling may, Monolith never does.
 It is not part of CI, because it needs Tor and takes minutes.
 
-Status: runs with Tor 0.4.9.13 and Chutney at commit `ae3a33c` in a Linux
-container. The result that counts for Phase 3 is the run on the commit
-of the final verification, recorded in the final report.
+Status: passed in the final verification of Phase 3, on `2f27dcb`, with
+Tor 0.4.9.13 and Chutney at commit `ae3a33c` in a Linux container
+(`docs/DESIGN_QUESTIONS.md` 10.4).

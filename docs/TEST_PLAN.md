@@ -36,7 +36,8 @@ mutation list; the fail-closed network test (`tests/network/`); and the
 private Tor network test (`tests/tor-network/`): a message each way over a
 Chutney network, a service published again from its key, a dial without
 SOCKS, a lost control connection, every node under `strace`. Covered
-now: T-SOCKS, T-CTRL, T-NET-1.
+now: T-SOCKS, T-CTRL, T-NET-1, and the private network test, which
+passed in the final verification of Phase 3.
 
 The rest need the core, Tor or storage, and are not written yet.
 
