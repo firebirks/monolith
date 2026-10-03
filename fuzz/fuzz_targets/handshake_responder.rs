@@ -63,6 +63,9 @@ fuzz_target!(|data: &[u8]| {
     genuine.extend_from_slice(&TRANSCRIPT.message_1);
     genuine.extend_from_slice(&TRANSCRIPT.message_3);
 
+    // Which genuine message had a byte changed on purpose. Every byte of
+    // both is authenticated, so that message must then be refused.
+    let (mut corrupted_1, mut corrupted_3) = (false, false);
     let stream = if mode % 2 == 0 {
         rest.to_vec()
     } else {
@@ -73,6 +76,11 @@ fuzz_target!(|data: &[u8]| {
         if *damage != 0 {
             let position = usize::from(u16::from_be_bytes([*high, *low])) % stream.len();
             stream[position] ^= damage;
+            if position < TRANSCRIPT.message_1.len() {
+                corrupted_1 = true;
+            } else {
+                corrupted_3 = true;
+            }
         }
         stream.extend_from_slice(tail);
         stream
@@ -90,6 +98,9 @@ fuzz_target!(|data: &[u8]| {
         assert!(!genuine_1);
         return;
     };
+    // A first message of another ephemeral key may be accepted; the
+    // genuine one with a byte changed may not.
+    assert!(!corrupted_1);
     if genuine_1 {
         // Bob's ephemeral key is fixed here, so the reply to the genuine
         // first message is the known answer.
@@ -106,6 +117,9 @@ fuzz_target!(|data: &[u8]| {
         assert!(!genuine);
         return;
     };
+    // The same for the third message: another initiator's may be
+    // accepted, the genuine one with a byte changed may not.
+    assert!(!corrupted_3);
     // Whoever it is, its card is valid, carries no capability and is not
     // Bob's identity.
     assert!(inbound.card().invitation().is_none());

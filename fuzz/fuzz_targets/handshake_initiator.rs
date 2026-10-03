@@ -35,6 +35,9 @@ fuzz_target!(|data: &[u8]| {
     };
     let piece = usize::from(*piece) + 1;
 
+    // Whether a byte of the genuine second message was changed on purpose.
+    // Every byte of it is authenticated, so it must then be refused.
+    let mut corrupted = false;
     let stream = if mode % 2 == 0 {
         rest.to_vec()
     } else {
@@ -45,6 +48,7 @@ fuzz_target!(|data: &[u8]| {
         if *damage != 0 {
             let position = usize::from(u16::from_be_bytes([*high, *low])) % stream.len();
             stream[position] ^= damage;
+            corrupted = true;
         }
         stream.extend_from_slice(tail);
         stream
@@ -67,6 +71,9 @@ fuzz_target!(|data: &[u8]| {
         assert!(!genuine);
         return;
     };
+    // A second message of another ephemeral key may be accepted; the
+    // genuine one with a byte changed may not.
+    assert!(!corrupted);
     // Whoever answered holds the key of the card that was dialed: the
     // session can only be one with Bob.
     assert_eq!(outbound.card(), &card(BOB));
