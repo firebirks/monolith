@@ -34,7 +34,8 @@
 //!
 //! A link that failed is over for good: after the end of the stream, a read
 //! or write error, a deadline, a withdrawal, a violation or a Close, every
-//! later call fails at once and nothing more is read or delivered.
+//! later call fails at once, without waiting for the stream again, and
+//! nothing more is read or delivered.
 
 use core::fmt;
 use core::future::{Future, poll_fn};
@@ -203,6 +204,8 @@ pub struct Link<S> {
     /// The unread part of `buffer` is `start..end`.
     start: usize,
     end: usize,
+    /// The link has ended: the stream was shut down, or given the chance.
+    finished: bool,
 }
 
 /// A link with what the session logic said when it was made.
@@ -405,6 +408,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             buffer: Box::new([0_u8; READ_CHUNK]),
             start: 0,
             end: 0,
+            finished: false,
         }
     }
 
@@ -434,10 +438,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     }
 
     /// The one way a link ends: the session is over, the slot goes back,
-    /// and the stream is shut down within `FRAME_WRITE_TIMEOUT`.
+    /// and the stream is shut down within `FRAME_WRITE_TIMEOUT`. It does
+    /// this once; afterwards it returns at once.
     async fn finish(&mut self) {
         self.session.stream_closed();
         self.unknown_slot = None;
+        if self.finished {
+            return;
+        }
+        self.finished = true;
         let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, self.stream.shutdown()).await;
     }
 
@@ -522,11 +531,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// that may not be sent now fails with the error of the session and
     /// changes nothing.
     pub async fn send(&mut self, message: &Message) -> Result<(), LinkError> {
-        if self.withdrawal.is_withdrawn() {
-            return Err(self.end_withdrawn().await);
-        }
         if self.session.is_over() {
             return Err(self.over());
+        }
+        if self.withdrawal.is_withdrawn() {
+            return Err(self.end_withdrawn().await);
         }
         let now = now();
         if self.deadline_passed(now) {
@@ -585,11 +594,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// down. Either way the slot for strangers is back.
     pub async fn receive(&mut self) -> Result<Received, LinkError> {
         loop {
-            if self.withdrawal.is_withdrawn() {
-                return Err(self.end_withdrawn().await);
-            }
             if self.session.is_over() {
                 return Err(self.over());
+            }
+            if self.withdrawal.is_withdrawn() {
+                return Err(self.end_withdrawn().await);
             }
             let now = now();
             if self.deadline_passed(now) {
@@ -654,7 +663,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     }
 
     /// Ends the session: writes the Close, if one is due, and shuts the
-    /// stream down, each within `FRAME_WRITE_TIMEOUT`.
+    /// stream down, each within `FRAME_WRITE_TIMEOUT`. On a link that is
+    /// over already it returns at once.
     pub async fn close(mut self) -> Result<(), LinkError> {
         let written = match self.session.close() {
             Some(frame) => {
@@ -1150,6 +1160,88 @@ mod tests {
         fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
             Poll::Ready(Ok(()))
         }
+    }
+
+    /// A stream that takes every write, fails every read if asked to and
+    /// otherwise never has anything to read, and whose shutdown never
+    /// completes.
+    struct StuckShutdown {
+        read_fails: bool,
+    }
+
+    impl AsyncRead for StuckShutdown {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            if self.read_fails {
+                Poll::Ready(Err(std::io::ErrorKind::ConnectionReset.into()))
+            } else {
+                Poll::Pending
+            }
+        }
+    }
+
+    impl AsyncWrite for StuckShutdown {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Ready(Ok(bytes.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Pending
+        }
+    }
+
+    #[test]
+    fn a_withdrawn_link_waits_for_its_stream_once() {
+        // The first call ends the link: it writes the Close and gives the
+        // shutdown FRAME_WRITE_TIMEOUT. Every later call fails at once.
+        run(async {
+            let (_, bob) = confirmed();
+            let stream = StuckShutdown { read_fails: false };
+            let mut link = Link::new(stream, bob, Withdrawal::new(), None);
+            link.withdrawal.withdraw();
+            let started = tokio::time::Instant::now();
+            assert_eq!(link.receive().await.err(), Some(LinkError::Withdrawn));
+            assert_eq!(started.elapsed(), FRAME_WRITE_TIMEOUT);
+            let started = tokio::time::Instant::now();
+            assert_eq!(link.receive().await.err(), Some(LinkError::Withdrawn));
+            assert_eq!(link.send(&chat()).await.err(), Some(LinkError::Withdrawn));
+            link.close().await.unwrap();
+            assert_eq!(started.elapsed(), core::time::Duration::ZERO);
+        });
+    }
+
+    #[test]
+    fn a_failed_link_waits_for_its_stream_once() {
+        run(async {
+            let (_, bob) = confirmed();
+            let stream = StuckShutdown { read_fails: true };
+            let mut link = Link::new(stream, bob, Withdrawal::new(), None);
+            let started = tokio::time::Instant::now();
+            assert_eq!(link.receive().await.err(), Some(LinkError::Stream));
+            assert_eq!(started.elapsed(), FRAME_WRITE_TIMEOUT);
+            let started = tokio::time::Instant::now();
+            assert_eq!(
+                link.receive().await.err(),
+                Some(LinkError::Session(SessionError::Closed))
+            );
+            assert_eq!(
+                link.send(&chat()).await.err(),
+                Some(LinkError::Session(SessionError::Closed))
+            );
+            link.close().await.unwrap();
+            assert_eq!(started.elapsed(), core::time::Duration::ZERO);
+        });
     }
 
     #[test]
