@@ -1137,5 +1137,72 @@ The mutation faults CR22 to CR38, with CR12, CR16, CR18 and CR23 moved
 and Q26 following the code, come in the commit after the last one above.
 A targeted run of the new, moved and affected faults, 74 of them, without
 the `monolith-tor` tests, caught all but S15 and S24, which are expected
-to survive. The commit that adds this
-table also brings `STATUS.md` and `mutation/README.md` up to date.
+to survive. The commit that adds this table also brings `STATUS.md` and
+`mutation/README.md` up to date.
+
+## 10. Final hardening
+
+On 2026-10-03 the owner accepted the integration hardening of section 9
+and asked for the last low-priority findings of two further static
+reviews to be checked and closed before the final verification. Section
+10.1 records the check of each against `94f5762`, before anything was
+changed.
+
+### 10.1 Verification of the reported issues
+
+1. Terminal link operations repeat the shutdown. Confirmed.
+   `Link::send` and `Link::receive` (`crates/monolith-core/src/link.rs`)
+   look at the withdrawal before they look at whether the session is
+   over. On a link that was withdrawn and has ended, every later call
+   goes through `end_withdrawn` again: `AuthenticatedSession::withdraw`
+   returns no frame, and `finish` shuts the stream down once more, which
+   can wait up to `FRAME_WRITE_TIMEOUT` each time. `close` after the end
+   does the same once. A link that ended otherwise fails at once through
+   `over`. No test uses a stream whose shutdown stays pending; the mock
+   and duplex streams shut down at once.
+
+2. Controlled corruption of the handshake is no longer asserted.
+   Confirmed. In the odd mode of `handshake_initiator` and
+   `handshake_responder` one byte of the genuine messages is XORed with a
+   value that is not zero, and the module documentation says that the
+   handshake must then fail. Since the transcript comparison was removed,
+   the targets assert only that a genuine message is not refused; a
+   corrupted message that was accepted would pass. Every byte of the
+   three messages is authenticated: the ephemeral keys are hashed into
+   the associated data, and the rest is under the AEAD.
+
+3. `CRYPTOGRAPHY.md` and ADR 0002 contradict F4 as implemented.
+   Confirmed. `CRYPTOGRAPHY.md` section 5.1, F4, and ADR 0002, F4, say
+   that a card older than the active card does not open a contact
+   session. Since `ebf5d07` an older card of the active key is
+   `CredentialChange::Superseded`: its holder is the contact and the card
+   is not taken (`PROTOCOL.md` sections 6.2 and 11.4).
+
+4. An outbound conflict is not reported by `dial`. Partially confirmed.
+   The admission function receives the result of `OutboundPeer::admit`,
+   so a function that looks at it sees `CredentialChange::Conflict`. But
+   when the gate of message 3 refuses the peer, `link::dial` drops the
+   admission and returns `ProtocolError::IdentityMismatch`, the error of
+   a failed handshake. A function that returns the result of
+   `OutboundPeer::admit` unchanged, as the tests and the development
+   command do, leaves no trace of the conflict. `answer` returns the
+   admission with the session in every case.
+
+The three accepted residuals of section 9.3 were checked as well:
+
+- Message 3 is prepared in the session crate. `link::dial` is the only
+  production caller of `HandshakeInitiator::read_message_2`; the
+  development command of the CLI dials through it. The documentation of
+  the session crate still lists the direct calls as the way to dial,
+  without saying that message 3 may only be written after the gate of
+  the core.
+- Import and admission. Admission and announcement never make a key
+  older than the announced successor active: they give `Stale`.
+  `Credentials::import` holds such a card as pending, which gives no
+  standing; it takes over only if the user then confirms exactly that
+  card (`Credentials::confirm`). No path lowers the epoch of the active
+  card: a promotion needs a card newer than the active one, and the
+  property test and the fuzz target `credential_sequence` assert it.
+- Withdrawal against write timeout. Either way `finish` runs, the
+  session is over and holds no key, the stream is shut down, and every
+  later call fails.
