@@ -26,7 +26,7 @@
 
 use core::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use tokio::sync::watch;
 
@@ -152,7 +152,11 @@ pub(crate) struct Write {
     pub(crate) snapshot: Snapshot,
     /// What the installation does when the write fails: it withdraws every
     /// session (fail closed). The job runs it itself, with no lock held,
-    /// whether or not a waiter is left to see the failure.
+    /// whether or not a waiter is left to see the failure. It holds the
+    /// installation weakly, as the job holds the vault's slot: once the job
+    /// has published a durable outcome it keeps nothing of the installation
+    /// alive, so closing the installation lets go of the vault and the lock
+    /// of its directory at once.
     pub(crate) failed: Box<dyn FnOnce() + Send>,
 }
 
@@ -197,8 +201,10 @@ impl fmt::Debug for Store {
 /// however it ends, even by unwinding or by being dropped unstarted at
 /// shutdown: the vault goes back into its slot first, and then the outcome
 /// is published, so a waiter that the outcome wakes finds the vault free.
+/// The slot is held weakly: if the store is gone when the write ends, the
+/// vault, and the lock of its directory, are dropped here.
 struct Job {
-    slot: Arc<Mutex<Slot>>,
+    slot: Weak<Mutex<Slot>>,
     durability: Arc<Durability>,
     vault: Option<Box<dyn Writer>>,
     outcome: Option<Result<u64, StorageError>>,
@@ -219,13 +225,20 @@ impl Job {
 
 impl Drop for Job {
     fn drop(&mut self) {
-        {
-            let mut slot = lock(&self.slot);
-            slot.vault = self.vault.take();
+        let vault = self.vault.take();
+        if let Some(slot) = self.slot.upgrade() {
+            let mut slot = lock(&slot);
+            slot.vault = vault;
             slot.writing = false;
         }
         match self.outcome.take() {
-            Some(Ok(covered)) => self.durability.mark_durable(covered),
+            Some(Ok(covered)) => {
+                // Nothing of the installation is held once the outcome is
+                // out: the waiter it wakes may close the installation and
+                // open the vault again at once.
+                drop(self.failed.take());
+                self.durability.mark_durable(covered);
+            }
             outcome => {
                 // An error, or a write that did not finish.
                 self.durability.mark_failed(outcome.and_then(Result::err));
@@ -288,7 +301,7 @@ impl Store {
                 } else if let Some(vault) = held.vault.take() {
                     held.writing = true;
                     Some(Job {
-                        slot: slot.clone(),
+                        slot: Arc::downgrade(slot),
                         durability: durability.clone(),
                         vault: Some(vault),
                         outcome: None,

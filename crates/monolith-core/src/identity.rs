@@ -879,7 +879,7 @@ impl Shared {
             self.store
                 .wait(&self.durability, generation, move || {
                     let reading = shared.clone();
-                    let failing = shared.clone();
+                    let failing = Arc::downgrade(&shared);
                     Write {
                         snapshot: Box::new(move || {
                             // The generation first: the state read after it
@@ -890,7 +890,11 @@ impl Shared {
                         }),
                         // Nothing can be made durable any more: every
                         // session is withdrawn, even if no waiter is left.
-                        failed: Box::new(move || failing.withdraw_all()),
+                        failed: Box::new(move || {
+                            if let Some(shared) = failing.upgrade() {
+                                shared.withdraw_all();
+                            }
+                        }),
                     }
                 })
                 .await

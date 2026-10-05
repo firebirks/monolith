@@ -156,6 +156,44 @@ fn a_restart_on_disk_reproduces_the_durable_state() {
     });
 }
 
+#[test]
+fn closing_an_installation_lets_go_of_its_directory_at_once() {
+    // A change is durable when it returns. Closing the installation right
+    // after it lets go of the vault and of the lock of its directory: the
+    // write that made it durable holds nothing of the installation once
+    // its outcome is out. That holds by construction (`persist::Job`); a
+    // write that kept a reference would show here only when its thread is
+    // slow to end, as it was under the load of the whole test binary.
+    run(async {
+        let path =
+            std::env::temp_dir().join(format!("monolith-store-close-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        let dir = monolith_storage::dir::DiskDir::open(&path, true).unwrap();
+        let installation =
+            Installation::create(Box::new(dir), &passphrase(), KdfParams::FLOOR).unwrap();
+        installation
+            .restore_identity(common::keys(1, 1, 1, place(1)), None)
+            .await
+            .unwrap();
+        drop(installation);
+        for round in 0..20 {
+            let dir = monolith_storage::dir::DiskDir::open(&path, false)
+                .unwrap_or_else(|error| panic!("round {round}: {error:?}"));
+            let (installation, _) = Installation::open(Box::new(dir), &passphrase()).unwrap();
+            let local = installation.identities()[0].clone();
+            let mode = if round % 2 == 0 {
+                RequestMode::Open
+            } else {
+                RequestMode::Invitation
+            };
+            local.set_request_mode(mode).await.unwrap();
+            drop(local);
+            drop(installation);
+        }
+        std::fs::remove_dir_all(&path).unwrap();
+    });
+}
+
 /// One durable transition, stopped at every step of its vault write under
 /// every crash outcome. A new process must find the state before or the
 /// state after, and nothing else.
