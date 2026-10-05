@@ -844,18 +844,29 @@ fn a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session() {
         while !dir.write_held() {
             tokio::time::sleep(core::time::Duration::from_millis(1)).await;
         }
-        let dialed = tokio::time::timeout(
-            core::time::Duration::from_millis(300),
-            connect(&alice, &mut bob),
-        )
-        .await;
-        assert!(dialed.is_err());
         let sessions = |node: &common::Node, peer: &common::Node| {
             node.identity
                 .contact(peer.identity.identity())
                 .unwrap()
                 .sessions
         };
+        // The dial runs until Alice's store has admitted Bob, and is then
+        // dropped: it waits for the held write, and nothing else.
+        let bob_id = *bob.identity.identity();
+        {
+            let mut dialing = core::pin::pin!(connect(&alice, &mut bob));
+            loop {
+                let ended = core::future::poll_fn(|cx| {
+                    core::task::Poll::Ready(dialing.as_mut().poll(cx).is_ready())
+                })
+                .await;
+                assert!(!ended, "the dial ended while the write was held");
+                tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+                if alice.identity.contact(&bob_id).unwrap().sessions == 1 {
+                    break;
+                }
+            }
+        }
         assert_eq!(sessions(&alice, &bob), 0);
         dir.release_writes();
         pending.await.unwrap().unwrap();
