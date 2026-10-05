@@ -137,8 +137,10 @@ def run_one(item, tree):
         with open(path, "w") as handle:
             handle.write(original)
     verdict, details = classify(code, output, timed_out)
-    seeds_only = verdict == "caught" and details and all(
-        "seeds" in name or name.startswith("(") for name in details
+    seeds_only = (
+        verdict == "caught"
+        and any("seeds" in name for name in details)
+        and all("seeds" in name or name.startswith("(") for name in details)
     )
     return {
         "id": item["id"],
