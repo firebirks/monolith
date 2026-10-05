@@ -1,9 +1,10 @@
 # Storage
 
-Status: provisional design. No storage code exists, and none is written in
-Phase 1. The vault structure (section 3) is proposed for Phase 4; its KDF
-defaults wait for measurements (section 3.3). The message store (section 5)
-is an open decision.
+Status: the vault (section 3) is implemented in Phase 4, in
+`monolith-storage`, with the record layout of section 3.4 and the crash
+tests of section 8. Its KDF defaults are provisional until the benchmark of
+section 3.3 has been run on every target. The message store (section 5) is
+an open decision.
 
 ## 1. What is stored, and where
 
@@ -78,9 +79,10 @@ section 1.1). Every stored record belongs to one of them:
   held by another local identity is refused at creation, import or
   restore (S39).
 
-Whether ephemeral and persistent identities can be mixed in one process,
-and so whether `StateMode` is per identity or per installation, is open
-item ST7.
+Ephemeral and persistent identities are not mixed in one process in
+version 1: `StateMode` belongs to the installation (ST7, decided in Phase
+4). A persistent installation keeps every identity it holds in its vault;
+an ephemeral one writes nothing.
 
 ## 2. Threat addressed
 
@@ -235,10 +237,35 @@ will never be the only one.
 ### 3.4 Payload
 
 A versioned sequence of typed records in the same fixed-layout style as the
-wire protocol: identity, endpoint, invitations, contacts, block list,
-declined list, settings, each set of them belonging to one local identity
-(section 1.1). The exact record layout is written down with the
-Phase 4 implementation and becomes part of this document.
+wire protocol, each set of them belonging to one local identity (section
+1.1). Version 1 (`monolith-storage`, `record.rs`): big-endian integers,
+a presence byte (0 or 1) before every optional field, and a 16-bit length
+before every field of variable size.
+
+    payload     u16 version (1), u32 records length, records, zero padding
+    records     u16 identity count, identity*
+    identity    u8 tag (1), identity seed [32], transport secret [32],
+                presence + Onion Service secret [64], card epoch u64,
+                endpoint [32], presence + rotation, request mode u8,
+                presence + local label, u8 invitation count, invitation*,
+                u16 contact count, contact*, u16 blocked count, key [32]*,
+                u16 declined count, key [32]* (oldest first)
+    rotation    new transport secret [32], successor epoch u64, switched u8
+    invitation  capability [16], presence + local label
+    contact     kind u8 (1 requested, 2 accepted), active card,
+                presence + authorized successor card, presence + pending
+                card, pending was imported u8, presence + retired key [32],
+                presence + capability [16], card confirmed for dialing,
+                verified u8, presence + alias, successor announced u8,
+                successor promoted u8
+    card        u16 length, the card as on the wire (section 11.1 of
+                PROTOCOL.md)
+    label       u16 length, display-name text (section 9 of PROTOCOL.md)
+
+Secrets are the bytes the keys were made from; the key types themselves
+cannot be exported. The local card is not stored: it is signed again
+from the seed, the transport key, the epoch and the endpoint when the
+vault is opened.
 
 Rules that are fixed now:
 
@@ -249,7 +276,16 @@ Rules that are fixed now:
 - A reader that meets a record type or payload version it does not know
   refuses to open the vault. It does not skip and continue.
 - The payload is bounded: the file is at most `MAX_VAULT_FILE_LEN`, and
-  every count in it is checked against the limits in `limits.rs`.
+  every count in it is checked against the limits in `limits.rs` before
+  anything is allocated for it.
+- Everything read is validated again: cards are decoded and their
+  signatures verified, credentials are rebuilt with `Credentials::restore`,
+  which refuses any state no transition could have produced, labels pass
+  the display-name rules, no remote identity has two records, secrets of
+  zero bytes are refused, and a rotation must move the epoch forward with
+  another key. Opening also refuses two identities that share a key
+  (S39). Padding after the records must be zero, so a payload has one
+  valid encoding.
 
 ### 3.5 Writing
 
@@ -394,22 +430,34 @@ must find:
 | Queue update | no message lost that was acknowledged to the user as queued, when the store is enabled |
 | File completion | final file complete, or absent |
 
-Each has a test that kills the write at every step (T-CRASH).
+Each has a test that kills the write at every step (T-CRASH): the vault's
+own tests stop a write and a creation at each step of `MemoryDir`
+(creating the file, writing each half, flushing it, renaming or linking,
+flushing the directory), under four outcomes of a crash (names that were
+not flushed kept or lost, contents that were not flushed lost or torn), and
+`tests/store.rs` in the core does the same for contact creation, card
+update, announced successor, promotion, block, deletion, invitation
+creation and revocation, the start of a rotation and identity creation. A
+new process finds the state before or the state after, never a lower
+epoch and never a retired key active again. Queue update and file
+completion come with the message store and file transfer.
 
 ## 9. Open items
 
 ST1. Message store choice (section 5).
 
-ST2. Locking mechanism. `std::fs::File::try_lock` needs Rust 1.89, above the
-     current minimum of 1.85. Either raise the minimum or use a small
-     dependency.
+ST2. Locking mechanism. Decided in Phase 4: an exclusive, non-blocking
+     `flock` on the `lock` file through `rustix`, which the operating
+     system releases when the process ends.
 
 ST3. Whether to keep one previous vault generation for recovery from
      logical corruption. It would keep deleted data around and enable
      rollback by accident. Currently not kept.
 
 ST4. Whether the ownership and permission checks in 3.7 can be done without
-     `unsafe` or a new dependency.
+     `unsafe` or a new dependency. Decided in Phase 4: with `rustix`
+     (`fstat`, `getuid`), without `unsafe` in Monolith; every file is
+     opened relative to the directory's descriptor with `O_NOFOLLOW`.
 
 ST5. Passphrase strength policy. Currently a non-empty passphrase and a
      warning for short ones.
@@ -420,7 +468,7 @@ ST6. Default Argon2id parameters. Provisional until the benchmark of
 ST7. With several local identities (section 1.1): whether `StateMode` and
      `HistoryPolicy` are chosen per identity or for the installation, and
      the record layout that scopes every record to its identity. Decided
-     with the vault in Phase 4.
+     in Phase 4: per installation; the layout is section 3.4.
 
 ## 10. Sources
 
