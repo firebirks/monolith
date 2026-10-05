@@ -169,6 +169,20 @@ again, from the key the caller holds, is the job of the supervisor in the
 core, with the backoff of `RESOURCE_LIMITS.md` section 7, not of the
 backend. `Detach` is never used.
 
+The supervisor exists since Phase 4 (`monolith_core::supervisor`), one per
+local identity. It publishes the service from the key the identity holds,
+runs its accept loop, reports the service unavailable when the loop ends
+because the service is gone, waits the next delay of the schedule, and
+publishes it again under the same name; the backend checks the ServiceID
+Tor returns against the expected key. A restart of Tor takes the same
+path: the control connection closes, and the next attempt that finds Tor
+again publishes the service. While Tor is unreachable, the attempts
+slow down as the schedule says; there is never an attempt without a
+delay, and nothing is tried outside Tor. An identity without a stored key
+is not published again. The private network test restarts Tor and checks
+that both services of a node come back under their names and that a
+contact completes Noise XK with them again.
+
 Shutdown: the handle's `close` sends `DEL_ONION` with a short deadline and
 then closes the control connection. Dropping the handle without `close`
 closes the connection, which removes the service as well.
@@ -177,7 +191,7 @@ closes the connection, which removes the service as well.
 
 | Endpoint | Key | After a control connection loss | After exit |
 | --- | --- | --- | --- |
-| Persistent | Created by Tor on first use, returned once, stored in the vault | Re-created from the vault | Same address at next start |
+| Persistent | Created by Tor on first use, returned once, stored in the vault before the identity is used (Phase 4) | Re-created from the vault | Same address at next start |
 | Ephemeral | Created by Tor, returned once, held in memory only | Re-created from memory | Gone |
 
 Tor generates the key in both cases. The format Tor uses for the secret key
@@ -211,9 +225,10 @@ publication does not touch another. An Onion Service key belongs to one
 local identity, and Tor refuses to publish a key it already holds.
 
 A stream reaches the listener of the service it was sent to, so the
-handle that accepted it says which local identity it addresses. The core
-runs one accept loop per service with the party and contact lookup of
-the identity that owns it. Nothing about this is visible to a peer.
+handle that accepted it says which local identity it addresses. The
+supervisor of each identity runs the accept loop of its service with that
+identity: its party, its contact store and its budgets. Nothing about
+this is visible to a peer.
 
 Platforms whose filter profile fixes the target port (Tails, and Whonix,
 section 7) give every service the same listener, and a stream would no
