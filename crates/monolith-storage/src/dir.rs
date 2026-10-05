@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 use rustix::fs::{AtFlags, FileType, FlockOperation, Mode, OFlags};
 
@@ -336,10 +336,50 @@ impl MemoryState {
 /// a rename, a link, a removal and a flush of the directory.
 /// [`Self::crash_at`] makes a given step fail, and every operation after
 /// it, as if the process had stopped there. [`Self::restart`] then gives
-/// the directory a new process finds, as [`CrashOutcome`] says. Clones
-/// share the same directory.
+/// the directory a new process finds, as [`CrashOutcome`] says.
+/// [`Self::hold_writes`] stops the next file write before its first step
+/// until [`Self::release_writes`], so that a test can look at what happens
+/// while a write is under way. Clones share the same directory.
 #[derive(Clone, Debug, Default)]
-pub struct MemoryDir(Arc<Mutex<MemoryState>>);
+pub struct MemoryDir {
+    state: Arc<Mutex<MemoryState>>,
+    hold: Arc<Hold>,
+}
+
+/// Writes held back by a test.
+#[derive(Debug, Default)]
+struct Hold {
+    state: Mutex<HoldState>,
+    changed: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct HoldState {
+    holding: bool,
+    waiting: bool,
+}
+
+impl Hold {
+    fn state(&self) -> MutexGuard<'_, HoldState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Waits while writes are held.
+    fn pass(&self) {
+        let mut state = self.state();
+        while state.holding {
+            state.waiting = true;
+            self.changed.notify_all();
+            state = self
+                .changed
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        state.waiting = false;
+    }
+}
 
 impl MemoryDir {
     /// An empty directory.
@@ -350,7 +390,7 @@ impl MemoryDir {
     fn state(&self) -> MutexGuard<'_, MemoryState> {
         // A test that panicked while holding the lock left a consistent
         // state behind: every change is made in one statement.
-        self.0
+        self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -369,6 +409,23 @@ impl MemoryDir {
     /// Returns true once the crash happened.
     pub fn crashed(&self) -> bool {
         self.state().crashed
+    }
+
+    /// Holds the next file write before its first step, until
+    /// [`Self::release_writes`].
+    pub fn hold_writes(&self) {
+        self.hold.state().holding = true;
+    }
+
+    /// Returns true while a write waits at the hold.
+    pub fn write_held(&self) -> bool {
+        self.hold.state().waiting
+    }
+
+    /// Lets writes go on.
+    pub fn release_writes(&self) {
+        self.hold.state().holding = false;
+        self.hold.changed.notify_all();
     }
 
     /// The directory as a new process finds it after a crash at this
@@ -400,14 +457,17 @@ impl MemoryDir {
                 }
             })
             .collect();
-        Self(Arc::new(Mutex::new(MemoryState {
-            nodes,
-            flushed_names: names.clone(),
-            names,
-            steps: 0,
-            crash_at: None,
-            crashed: false,
-        })))
+        Self {
+            state: Arc::new(Mutex::new(MemoryState {
+                nodes,
+                flushed_names: names.clone(),
+                names,
+                steps: 0,
+                crash_at: None,
+                crashed: false,
+            })),
+            hold: Arc::default(),
+        }
     }
 
     /// The names in the directory.
@@ -445,6 +505,7 @@ impl VaultDir for MemoryDir {
     }
 
     fn write_new(&self, name: &str, bytes: &[u8]) -> Result<(), StorageError> {
+        self.hold.pass();
         let mut state = self.state();
         if state.crashed {
             return Err(StorageError::Io);

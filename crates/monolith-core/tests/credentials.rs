@@ -737,3 +737,80 @@ fn a_rotation_switches_and_finishes_only_when_due() {
         let _ = (&mut bob, &mut carol);
     });
 }
+
+/// Lets held writes go on when dropped, also when an assertion fails, so
+/// that a failing test ends instead of waiting for a write it held.
+struct Released<'a>(&'a MemoryDir);
+
+impl Drop for Released<'_> {
+    fn drop(&mut self) {
+        self.0.release_writes();
+    }
+}
+
+#[test]
+fn the_new_key_reaches_no_peer_before_it_is_durable() {
+    // A step of a rotation is used towards a peer only once its write is
+    // done: the successor is announced only once it is in the vault, and
+    // the identity answers, dials and hands out its card with the new key
+    // only once the switch is. A crash in between leaves no contact with a
+    // key the vault does not hold. (The rotation as decided is what the
+    // local side reports meanwhile.)
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation = Installation::create(
+            Box::new(dir.clone()),
+            &Passphrase::new("test passphrase").unwrap(),
+            KdfParams::FLOOR,
+        )
+        .unwrap();
+        let alice = node_in(installation, &network, 1, 1, 1).await;
+        let mut bob = node(&network, 2).await;
+        befriend(&alice, &mut bob).await;
+        let (alice_link, _bob_link) = confirm_both(&alice, &mut bob).await;
+        let old_card = alice.card();
+        let held = || async {
+            while !dir.write_held() {
+                tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+            }
+        };
+
+        dir.hold_writes();
+        let _released = Released(&dir);
+        let identity = alice.identity.clone();
+        let begin = tokio::spawn(async move { identity.begin_rotation().await });
+        held().await;
+        assert!(alice.identity.successor_card().is_some());
+        assert_eq!(
+            alice.identity.announcement_for(alice_link.session_ref()),
+            None
+        );
+        dir.release_writes();
+        let successor = begin.await.unwrap().unwrap();
+        assert_eq!(
+            alice.identity.announcement_for(alice_link.session_ref()),
+            Some(successor.clone())
+        );
+        alice
+            .identity
+            .mark_announced(bob.identity.identity())
+            .await
+            .unwrap();
+
+        dir.hold_writes();
+        let identity = alice.identity.clone();
+        let switch = tokio::spawn(async move { identity.switch_rotation(false).await });
+        held().await;
+        assert_eq!(alice.card(), old_card);
+        assert_eq!(alice.identity.answering_party().card(), &old_card);
+        let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
+        assert_eq!(plan.local.card(), &old_card);
+        dir.release_writes();
+        assert!(switch.await.unwrap().unwrap());
+        assert_eq!(alice.card(), successor);
+        let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
+        assert_eq!(plan.local.card(), &successor);
+    });
+}
+

@@ -87,8 +87,28 @@ struct Rotation {
     transport: Zeroizing<[u8; 32]>,
     epoch: EndpointEpoch,
     party: Arc<LocalParty>,
+    /// The generation that makes the new key and its card durable. The
+    /// successor is announced only once it is: a crash must not lose a
+    /// successor a contact may already hold. `u64::MAX` while it is being
+    /// stamped; 0 for a rotation read from the vault.
+    begun: u64,
     /// The identity answers with the new key.
     switched: bool,
+    /// The generation that makes the switch durable. The new key is used
+    /// only once it is.
+    switched_at: u64,
+}
+
+impl Rotation {
+    /// The successor may be announced: it is durable.
+    const fn announced_from(&self, durable: u64) -> bool {
+        durable >= self.begun
+    }
+
+    /// The switch to the new key is made and durable.
+    const fn switched_by(&self, durable: u64) -> bool {
+        self.switched && durable >= self.switched_at
+    }
 }
 
 /// The secret material of a local identity and the parties made from it.
@@ -108,9 +128,10 @@ struct Keys {
 }
 
 impl Keys {
-    fn answering(&self) -> Arc<LocalParty> {
+    /// The party that answers, with `durable` the generation on disk.
+    fn answering(&self, durable: u64) -> Arc<LocalParty> {
         match &self.rotation {
-            Some(rotation) if rotation.switched => rotation.party.clone(),
+            Some(rotation) if rotation.switched_by(durable) => rotation.party.clone(),
             _ => self.party.clone(),
         }
     }
@@ -241,7 +262,7 @@ impl LocalIdentity {
     /// The card of the key the identity answers with: what the user hands
     /// to others, without a capability.
     pub fn card(&self) -> ContactCard {
-        lock(&self.keys).answering().card().clone()
+        self.answering_party().card().clone()
     }
 
     /// The endpoint of the identity: its Onion Service.
@@ -269,7 +290,18 @@ impl LocalIdentity {
 
     /// The party that answers inbound handshakes.
     pub fn answering_party(&self) -> Arc<LocalParty> {
-        lock(&self.keys).answering()
+        let durable = self.durability.durable();
+        lock(&self.keys).answering(durable)
+    }
+
+    /// Refuses a change of a deleted identity, or of an installation that
+    /// failed, before anything is changed.
+    fn check_open(&self) -> Result<(), StoreError> {
+        if self.is_deleted() || self.durability.is_failed() {
+            Err(StoreError::Failed)
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns true once the identity was deleted. A deleted identity
@@ -417,13 +449,14 @@ impl LocalIdentity {
         let credentials = view.credentials?;
         let dial = view.dial?;
         let cards = dialplan::plan(&credentials, &dial);
+        let durable = self.durability.durable();
         let keys = lock(&self.keys);
         // During a rotation, a contact that holds the new key as the
         // announced successor is dialed with it once the identity has
-        // switched; any other contact with the old key, on whose session
-        // the successor is announced.
+        // switched, durably; any other contact with the old key, on whose
+        // session the successor is announced.
         let local = match &keys.rotation {
-            Some(rotation) if rotation.switched && view.successor_announced => {
+            Some(rotation) if rotation.switched_by(durable) && view.successor_announced => {
                 rotation.party.clone()
             }
             _ => keys.party.clone(),
@@ -500,6 +533,7 @@ impl LocalIdentity {
     /// The user accepted the request of `identity`: it becomes an accepted
     /// contact with the card of the request. Durable when this returns.
     pub async fn accept_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
+        self.check_open()?;
         let request = lock(&self.requests)
             .take(identity)
             .ok_or(StoreError::NotFound)?;
@@ -509,6 +543,7 @@ impl LocalIdentity {
 
     /// The user declined the request of `identity`. Nothing is sent.
     pub async fn decline_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
+        self.check_open()?;
         lock(&self.requests)
             .take(identity)
             .ok_or(StoreError::NotFound)?;
@@ -518,6 +553,7 @@ impl LocalIdentity {
 
     /// The user blocked the sender of the request of `identity`.
     pub async fn block_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
+        self.check_open()?;
         lock(&self.requests)
             .take(identity)
             .ok_or(StoreError::NotFound)?;
@@ -533,6 +569,7 @@ impl LocalIdentity {
         &self,
         label: Option<DisplayName>,
     ) -> Result<(InvitationId, ContactCard), StoreError> {
+        self.check_open()?;
         let capability = InvitationCapability::from_bytes(*random::<INVITATION_CAPABILITY_LEN>()?);
         let card = self.card_with(Some(capability.clone()))?;
         let id = lock(&self.invitations).add(capability, label)?;
@@ -558,6 +595,7 @@ impl LocalIdentity {
     /// Revokes `id`: requests that carry it are dropped from now on.
     /// Accepted contacts, sessions and pending requests are not touched.
     pub async fn revoke_invitation(&self, id: InvitationId) -> Result<(), StoreError> {
+        self.check_open()?;
         lock(&self.invitations).revoke(id)?;
         let generation = self.durability.bump();
         self.commit(generation).await
@@ -567,6 +605,7 @@ impl LocalIdentity {
     /// separate action of `docs/PROTOCOL.md` section 12.3. Returns how many
     /// requests were discarded.
     pub async fn revoke_and_discard(&self, id: InvitationId) -> Result<usize, StoreError> {
+        self.check_open()?;
         lock(&self.invitations).revoke(id)?;
         let discarded = lock(&self.requests).discard_admitted_by(id);
         let generation = self.durability.bump();
@@ -576,6 +615,7 @@ impl LocalIdentity {
 
     /// Sets which requests from strangers are considered.
     pub async fn set_request_mode(&self, mode: RequestMode) -> Result<(), StoreError> {
+        self.check_open()?;
         lock(&self.settings).request_mode = mode;
         let generation = self.durability.bump();
         self.commit(generation).await
@@ -596,8 +636,9 @@ impl LocalIdentity {
         &self,
         capability: Option<InvitationCapability>,
     ) -> Result<ContactCard, StoreError> {
+        let durable = self.durability.durable();
         let keys = lock(&self.keys);
-        let party = keys.answering();
+        let party = keys.answering(durable);
         let card = party.card();
         ContactCard::sign(
             &IdentitySecretKey::from_seed(&keys.seed),
@@ -611,7 +652,10 @@ impl LocalIdentity {
 
     // --- Rotation -------------------------------------------------------
 
-    /// Where a local rotation stands.
+    /// Where a local rotation stands, as decided. What reaches a peer
+    /// follows a step only once it is durable: the announcement of the
+    /// successor ([`Self::announcement_for`]), and the key the identity
+    /// answers and dials with after the switch.
     pub fn rotation(&self) -> RotationState {
         match &lock(&self.keys).rotation {
             None => RotationState::None,
@@ -621,7 +665,7 @@ impl LocalIdentity {
     }
 
     /// The successor card of a rotation in progress: what is announced in
-    /// an EndpointUpdate on sessions of the old key.
+    /// an EndpointUpdate on sessions of the old key, once it is durable.
     pub fn successor_card(&self) -> Option<ContactCard> {
         lock(&self.keys)
             .rotation
@@ -635,6 +679,7 @@ impl LocalIdentity {
     /// loses a successor that was already announced. The identity goes on
     /// answering with the old key.
     pub async fn begin_rotation(&self) -> Result<ContactCard, StoreError> {
+        self.check_open()?;
         let transport = random::<32>()?;
         let card = {
             let mut keys = lock(&self.keys);
@@ -648,12 +693,17 @@ impl LocalIdentity {
                 transport,
                 epoch,
                 party,
+                begun: u64::MAX,
                 switched: false,
+                switched_at: u64::MAX,
             });
             card
         };
         self.contacts.clear_rotation_marks();
         let generation = self.durability.bump();
+        if let Some(rotation) = lock(&self.keys).rotation.as_mut() {
+            rotation.begun = generation;
+        }
         self.commit(generation).await?;
         Ok(card)
     }
@@ -665,10 +715,11 @@ impl LocalIdentity {
     /// steps 3 and 5). The caller sends it in an EndpointUpdate and then
     /// calls [`Self::mark_announced`].
     pub fn announcement_for(&self, session: SessionRef<'_>) -> Option<ContactCard> {
+        let durable = self.durability.durable();
         let successor = {
             let keys = lock(&self.keys);
             let rotation = keys.rotation.as_ref()?;
-            if keys.party.card() != session.local {
+            if keys.party.card() != session.local || !rotation.announced_from(durable) {
                 return None;
             }
             rotation.party.card().clone()
@@ -685,6 +736,7 @@ impl LocalIdentity {
     /// The successor was sent to `contact` on a confirmed session of the
     /// old key.
     pub async fn mark_announced(&self, contact: &IdentityPublicKey) -> Result<(), StoreError> {
+        self.check_open()?;
         let generation = self
             .contacts
             .set_rotation_marks(contact, Some(true), None)?;
@@ -696,18 +748,26 @@ impl LocalIdentity {
     /// was sent the successor, or when the user says so (`force`).
     /// Returns false if the switch is not due yet.
     pub async fn switch_rotation(&self, force: bool) -> Result<bool, StoreError> {
+        self.check_open()?;
         let due = force || self.every_accepted(|view| view.successor_announced);
         if !due {
             return Ok(false);
         }
-        {
+        let generation = {
             let mut keys = lock(&self.keys);
             let Some(rotation) = keys.rotation.as_mut() else {
                 return Err(StoreError::NotFound);
             };
-            rotation.switched = true;
-        }
-        let generation = self.durability.bump();
+            if !rotation.switched {
+                rotation.switched = true;
+                rotation.switched_at = u64::MAX;
+            }
+            let generation = self.durability.bump();
+            if rotation.switched_at == u64::MAX {
+                rotation.switched_at = generation;
+            }
+            generation
+        };
         self.commit(generation).await?;
         Ok(true)
     }
@@ -717,6 +777,7 @@ impl LocalIdentity {
     /// with the new key, or when the user says so (`force`). Returns false
     /// if it is not due yet.
     pub async fn finish_rotation(&self, force: bool) -> Result<bool, StoreError> {
+        self.check_open()?;
         let due = force || self.every_accepted(|view| view.successor_promoted);
         if !due {
             return Ok(false);
@@ -1003,7 +1064,10 @@ impl Installation {
                 .map_err(|_| InstallationError::Invalid)?,
                 transport: rotation.transport_secret,
                 epoch: rotation.epoch,
+                // Read from the vault: durable.
+                begun: 0,
                 switched: rotation.switched,
+                switched_at: 0,
             }),
             None => None,
         };
