@@ -212,9 +212,12 @@ Persistent state is written only at "applied".
   - a dial scheduler with at most `MAX_CONCURRENT_DIALS` dials;
   - Tor control connections: one held by each published service, which
     ends with it, and short ones for status queries;
-  - vault writes and KDF work run on the blocking pool; the task that
-    waits for a change to be durable writes the whole installation, and
-    tasks that wait at the same time find their change covered;
+  - vault writes and KDF work run on the blocking pool; a task that
+    waits for a change to be durable and finds no write under way starts
+    one, a job that writes the whole installation, as one cut through
+    every contact store, puts the vault back and publishes the outcome
+    however the task ends; tasks that wait at the same time find their
+    change covered;
   - one writer task per active file transfer.
 - Every channel is bounded, with its capacity in `limits.rs` (S12).
   Unbounded channel constructors are banned by lint.
