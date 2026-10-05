@@ -1344,7 +1344,11 @@ anything is announced; step 4 is due once every accepted contact was sent
 the successor, or when the user says so; the old key is dropped once
 every accepted contact confirmed a session made with the new key, or when
 the user says so. The switch therefore never leaves an accepted contact
-without the successor card unless the user forces it.
+without the successor card unless the user forces it. Each step reaches
+a peer only once it is stored: the successor is announced, and the new
+key answers, dials and is handed out, only after the write that holds the
+step, so that a crash never leaves a contact holding a key the identity
+lost.
 
 If both identities of a contact give up their old keys before the
 successor cards were exchanged, neither can reach the other: each dials a

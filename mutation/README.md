@@ -62,11 +62,11 @@ With Phase 4:
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
-| Phase 4 | 44 | 43 | CS28 |
+| Phase 4 | 53 | 52 | CS28 |
 
-259 faults, 249 to be caught, 10 expected to survive.
+268 faults, 258 to be caught, 10 expected to survive.
 
-The Phase 4 list, CS1 to CS44, covers the contact store and the vault:
+The Phase 4 list, CS1 to CS53, covers the contact store and the vault:
 
 - one decision about a card and no rollback: an older card of the active
   key that rolls the contact back, a stale card promoted, a conflicting
@@ -96,7 +96,15 @@ The Phase 4 list, CS1 to CS44, covers the contact store and the vault:
 - the vault: a write in place, a directory not flushed, a header not
   authenticated, KDF parameters outside the bounds, a passphrase not
   normalized, a directory others can reach, no single-instance lock,
-  padding that is not zero, a contact stored twice (CS35 to CS43).
+  padding that is not zero, a contact stored twice (CS35 to CS43);
+- the fixes of the review of the Phase 4 code (`docs/DESIGN_QUESTIONS.md`
+  section 11.4): a write whose waiter is cancelled loses the vault
+  (CS45), a deleted identity that is not closed, changes it in memory, or
+  is published again (CS46 to CS48), a successor announced or a new key
+  used before the step is durable (CS49, CS50), a snapshot without the
+  lock of the map and a decline that lets go of it between its slots
+  (CS51, CS52), an admission whose cancelled wait is never forgotten
+  (CS53).
 
 CS28 is expected to survive, below. CS17 and CS30 are caught by the
 timeout of the runner: the tests they break do not end. Without the
@@ -224,7 +232,9 @@ listener-error paths of the core were; all have tests since. In Phase 4
 the targeted run found three: a confirmation for an identity that is not
 a contact (CS12), a dial without a contact slot (CS17), and a stranger
 answered without a slot while evicted ones drain (Q30); all have tests
-since.
+since. Two fixes of the review have no fault: the flush of the parent of
+a new directory, which only a power loss would show, and the erasure of
+an outgrown encoder buffer, which no test can read without `unsafe`.
 
 ## Adding a fault
 
