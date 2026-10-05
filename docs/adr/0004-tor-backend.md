@@ -5,7 +5,9 @@ implements. The Tails checks in `PLATFORM_TAILS.md` section 3.4 gate Phase 6
 and any claim of Tails support, not the generic backend
 (`DESIGN_QUESTIONS.md` T3-1).
 Date: 2026-10-01; revised 2026-10-02 after the Phase 3 design review
-(`DESIGN_QUESTIONS.md` section 5).
+(`DESIGN_QUESTIONS.md` section 5). Phase 4 added the supervisor that
+publishes a lost service again (consequences below); the decision is
+unchanged.
 
 ## Context
 
@@ -97,6 +99,12 @@ to work there.
   once (`TOR_INTEGRATION.md` section 4.3). Where a platform profile fixes
   the target port, only one of them can receive streams; see the open
   questions.
+- Because a service ends with its control connection, the core publishes
+  it again: since Phase 4 a supervisor per local identity does so from
+  the key the identity holds, under the same name, after the delays of
+  the reconnect schedule, also after a restart of Tor
+  (`TOR_INTEGRATION.md` section 4). The backend still never claims a
+  lost service is there.
 
 ## Alternatives considered
 
@@ -115,8 +123,9 @@ to work there.
 
 ## Open questions
 
-- `MaxStreams` value, provisionally 8 (TOR_CONTROL_SURFACE.md C1), for
-  Phase 4.
+- `MaxStreams` value, provisionally 8 (TOR_CONTROL_SURFACE.md C1). Phase
+  4 did not review it; it is listed with the work before Phase 5
+  (`DESIGN_QUESTIONS.md` section 11.3).
 - Proof-of-work queue parameters (C2).
 - Behavior of `ADD_ONION` under `Sandbox 1` on Tails. This blocks Tails
   support, Phase 6 (PLATFORM_TAILS.md section 3.4), not the generic
