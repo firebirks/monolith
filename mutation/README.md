@@ -12,13 +12,15 @@ key kept.
 
 ## Files
 
-- `faults.py`: the lists `PHASE1`, `PHASE2` and `PHASE3`. An entry names the
+- `faults.py`: the lists `PHASE1`, `PHASE2`, `PHASE3` and `PHASE4`. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
 
 ## Running
 
+    python3 mutation/run.py all 3
+    python3 mutation/run.py phase4 3
     python3 mutation/run.py phase3 3
     python3 mutation/run.py phase2 3
     python3 mutation/run.py phase1 3
@@ -44,7 +46,8 @@ Outcomes:
 
 The results go to `mutation/results-<list>-<commit>.json`. The exit code
 is 0 if every fault had the outcome its entry expects, and 1 otherwise. A
-full run of both lists takes about an hour with three workers.
+full run of all four lists takes several hours with three workers; a
+fault caught only by the timeout takes the whole of it (20 minutes).
 
 When code moves, a pattern may no longer match. The runner then stops
 before testing and names the entry; update the pattern so that the fault
@@ -52,14 +55,59 @@ stays the same fault.
 
 ## Expected results
 
-With the credential binding review, the integration hardening and the
-final hardening of Phase 3:
+With Phase 4:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
-| Phase 3 | 74 | 71 | Q14, Q18, Q29 |
+| Phase 3 | 71 | 68 | Q14, Q18, Q29 |
+| Phase 4 | 44 | 44 | none |
+
+259 faults, 250 to be caught, 9 expected to survive.
+
+The Phase 4 list, CS1 to CS44, covers the contact store and the vault:
+
+- one decision about a card and no rollback: an older card of the active
+  key that rolls the contact back, a stale card promoted, a conflicting
+  card taken, the retired key accepted again, an import that judges a
+  card apart from an admission, a newer key without a successor called
+  stale, an import that makes a blocked identity a contact (CS1 to CS7);
+- the store: a block or a deletion that leaves sessions standing, a
+  session that no longer stands forgotten without being withdrawn, an
+  operation on a copy of the record outside its lock, a confirmation
+  without a contact, an import without a generation or returned before it
+  is durable (CS8 to CS14);
+- message 3: written before the admission is durable, without looking at
+  the withdrawal, or before a contact slot is taken, and a contact
+  session without a slot (CS15 to CS17, CS44);
+- invitations and requests: the bound of the active set, a capability
+  outside it, the quota per capability, revoking and discarding (CS18 to
+  CS21);
+- several identities: an isolation group shared between contacts, two
+  identities with one key (CS22, CS23);
+- strangers: the newest evicted instead of the oldest, a stranger that
+  has spoken evicted, draining links without a bound, one slot more, an
+  evicted stranger's message delivered (CS24 to CS28);
+- the supervisor and rotation: a new key on publishing again, attempts
+  without a delay, a switch or an end of rotation that is due at once,
+  the pending successor dialed, a confirmed card dialed whatever key it
+  states (CS29 to CS34);
+- the vault: a write in place, a directory not flushed, a header not
+  authenticated, KDF parameters outside the bounds, a passphrase not
+  normalized, a directory others can reach, no single-instance lock,
+  padding that is not zero, a contact stored twice (CS35 to CS43).
+
+None is expected to survive. CS17 is caught by the timeout: without the
+refusal a dial with no contact slot never returns.
+
+Phase 4 moved P1 to P3, H15, H16, Q25, Q26, Q30, CR1, CR2, CR9, CR18,
+CR19, CR24 and CR35 to the code they test now, and removed CR36, CR37 and
+CR38 from the Phase 3 list, which would be equivalent now: the admission
+a link returns and the session it admits come from one decision of the
+store, so reading one or the other is the same (CR36, CR37), and the
+store keeps the withdrawal of a link only once the admission succeeded,
+so ending it after a failed admission is a second line (CR38).
 
 The Phase 3 list covers the no-clearnet and Tor boundaries (onion address
 checks, SOCKS only, the onion name only, loopback endpoints and listener,
@@ -162,7 +210,11 @@ A survivor that is not in this list is a gap in the tests, or a check that
 does nothing. Either is fixed before a phase is called done; F9 was such a
 gap at the end of Phase 2, and in Phase 3 a handle that ignored control
 loss before `accept`, a handshake without its deadline, and the dial and
-listener-error paths of the core were; all have tests since.
+listener-error paths of the core were; all have tests since. In Phase 4
+the targeted run found three: a confirmation for an identity that is not
+a contact (CS12), a dial without a contact slot (CS17), and a stranger
+answered without a slot while evicted ones drain (Q30); all have tests
+since.
 
 ## Adding a fault
 
