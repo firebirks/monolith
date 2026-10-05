@@ -555,6 +555,11 @@ impl LocalIdentity {
         lock(&self.settings).request_mode
     }
 
+    /// The local label of the identity. It is never sent.
+    pub fn label(&self) -> Option<DisplayName> {
+        lock(&self.settings).label.clone()
+    }
+
     /// A card of the key the identity answers with, with `capability`.
     fn card_with(
         &self,
