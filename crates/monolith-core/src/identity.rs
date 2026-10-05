@@ -44,7 +44,7 @@ use zeroize::Zeroizing;
 use crate::contacts::{ContactStore, ContactView, ImportOutcome, StoreError};
 use crate::dialplan;
 use crate::link::Withdrawal;
-use crate::persist::{CommitError, Durability, Snapshot, Store};
+use crate::persist::{CommitError, Durability, Store, Write};
 use crate::requests::{Dropped, InvitationId, Invitations, PendingRequest, Requests};
 use crate::strangers::Strangers;
 
@@ -869,26 +869,36 @@ impl Shared {
             let shared = self.clone();
             self.store
                 .wait(&self.durability, generation, move || {
-                    let shared = shared.clone();
-                    let take: Snapshot = Box::new(move || {
-                        // The generation first: the state read after it
-                        // holds every change up to it.
-                        let covered = shared.durability.applied();
-                        let contents = shared.contents();
-                        Ok((covered, contents.encode()?))
-                    });
-                    take
+                    let reading = shared.clone();
+                    let failing = shared.clone();
+                    Write {
+                        snapshot: Box::new(move || {
+                            // The generation first: the state read after it
+                            // holds every change up to it.
+                            let covered = reading.durability.applied();
+                            let contents = reading.contents();
+                            Ok((covered, contents.encode()?))
+                        }),
+                        // Nothing can be made durable any more: every
+                        // session is withdrawn, even if no waiter is left.
+                        failed: Box::new(move || failing.withdraw_all()),
+                    }
                 })
                 .await
         };
         if result.is_err() {
             // Nothing can be made durable any more: every session is
             // withdrawn and every change refused (fail closed).
-            for identity in lock(&self.identities).iter() {
-                identity.contacts.withdraw_all();
-            }
+            self.withdraw_all();
         }
         result
+    }
+
+    /// Withdraws every session of every identity.
+    fn withdraw_all(&self) {
+        for identity in lock(&self.identities).iter() {
+            identity.contacts.withdraw_all();
+        }
     }
 
     fn contents(&self) -> Contents {

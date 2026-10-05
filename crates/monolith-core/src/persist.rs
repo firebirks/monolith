@@ -146,6 +146,16 @@ impl core::error::Error for CommitError {}
 pub(crate) type Snapshot =
     Box<dyn FnOnce() -> Result<(u64, zeroize::Zeroizing<Vec<u8>>), StorageError> + Send>;
 
+/// What a write of the installation needs from it.
+pub(crate) struct Write {
+    /// The state to write.
+    pub(crate) snapshot: Snapshot,
+    /// What the installation does when the write fails: it withdraws every
+    /// session (fail closed). The job runs it itself, with no lock held,
+    /// whether or not a waiter is left to see the failure.
+    pub(crate) failed: Box<dyn FnOnce() + Send>,
+}
+
 /// Writes the vault. One per installation with a vault.
 pub(crate) trait Writer: Send {
     /// Replaces the vault with `plaintext`. Runs on the blocking pool.
@@ -192,6 +202,7 @@ struct Job {
     durability: Arc<Durability>,
     vault: Option<Box<dyn Writer>>,
     outcome: Option<Result<u64, StorageError>>,
+    failed: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl Job {
@@ -215,9 +226,13 @@ impl Drop for Job {
         }
         match self.outcome.take() {
             Some(Ok(covered)) => self.durability.mark_durable(covered),
-            Some(Err(error)) => self.durability.mark_failed(Some(error)),
-            // It did not finish.
-            None => self.durability.mark_failed(None),
+            outcome => {
+                // An error, or a write that did not finish.
+                self.durability.mark_failed(outcome.and_then(Result::err));
+                if let Some(failed) = self.failed.take() {
+                    failed();
+                }
+            }
         }
     }
 }
@@ -232,17 +247,18 @@ impl Store {
     }
 
     /// Waits until `generation` is durable. With a vault, a wait that
-    /// finds no write under way starts one: `snapshot` encodes the state
-    /// of the installation and the generation it covers, and is called on
-    /// the blocking pool with no lock of the contact state held.
+    /// finds no write under way starts one: `write` gives the snapshot,
+    /// which encodes the state of the installation and the generation it
+    /// covers and is called on the blocking pool with no lock of the
+    /// contact state held, and what to do if the write fails.
     pub(crate) async fn wait<F>(
         &self,
         durability: &Arc<Durability>,
         generation: u64,
-        snapshot: F,
+        write: F,
     ) -> Result<(), CommitError>
     where
-        F: Fn() -> Snapshot,
+        F: Fn() -> Write,
     {
         let Self::Vault(slot) = self else {
             durability.mark_durable(durability.applied());
@@ -276,6 +292,7 @@ impl Store {
                         durability: durability.clone(),
                         vault: Some(vault),
                         outcome: None,
+                        failed: None,
                     })
                 } else {
                     // Without a write under way the vault is in its slot.
@@ -284,11 +301,12 @@ impl Store {
                     return Err(durability.failure());
                 }
             };
-            if let Some(job) = job {
-                let take = snapshot();
+            if let Some(mut job) = job {
+                let Write { snapshot, failed } = write();
+                job.failed = Some(failed);
                 // Not awaited: the job finishes on its own, and its
                 // outcome comes through `durable`.
-                drop(tokio::task::spawn_blocking(move || job.run(take)));
+                drop(tokio::task::spawn_blocking(move || job.run(snapshot)));
             }
             if durable.changed().await.is_err() {
                 return Err(CommitError::Failed);
@@ -343,12 +361,15 @@ mod tests {
         gate.1.notify_all();
     }
 
-    /// A snapshot of nothing, covering what is applied when it is taken.
-    fn snapshot(durability: &Arc<Durability>) -> impl Fn() -> Snapshot + use<> {
+    /// A write of nothing, covering what is applied when it is taken.
+    fn snapshot(durability: &Arc<Durability>) -> impl Fn() -> Write + use<> {
         let durability = durability.clone();
         move || {
             let durability = durability.clone();
-            Box::new(move || Ok((durability.applied(), Zeroizing::new(vec![0_u8]))))
+            Write {
+                snapshot: Box::new(move || Ok((durability.applied(), Zeroizing::new(vec![0_u8])))),
+                failed: Box::new(|| {}),
+            }
         }
     }
 

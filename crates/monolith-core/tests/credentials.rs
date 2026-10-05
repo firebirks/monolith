@@ -862,3 +862,48 @@ fn a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session() {
         assert_eq!(sessions(&alice, &bob), 0);
     });
 }
+
+#[test]
+fn a_failed_write_withdraws_every_session_even_when_nobody_waits() {
+    // The task that waited for a write is gone when the write fails. The
+    // installation fails closed all the same: the open session of a
+    // contact is withdrawn.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation = Installation::create(
+            Box::new(dir.clone()),
+            &Passphrase::new("test passphrase").unwrap(),
+            KdfParams::FLOOR,
+        )
+        .unwrap();
+        let alice = node_in(installation.clone(), &network, 1, 1, 1).await;
+        let mut bob = node(&network, 2).await;
+        befriend(&alice, &mut bob).await;
+        let (alice_link, _bob_link) = confirm_both(&alice, &mut bob).await;
+        dir.hold_writes();
+        let _released = Released(&dir);
+        let identity = alice.identity.clone();
+        let waiter = tokio::spawn(async move {
+            identity
+                .set_request_mode(monolith_protocol::contact::RequestMode::Open)
+                .await
+        });
+        while !dir.write_held() {
+            tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+        }
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        assert!(!alice_link.is_withdrawn());
+        dir.crash_at(dir.steps() + 1);
+        dir.release_writes();
+        let withdrawn = tokio::time::timeout(core::time::Duration::from_secs(10), async {
+            while !alice_link.is_withdrawn() {
+                tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+            }
+        })
+        .await;
+        assert!(withdrawn.is_ok());
+        assert!(installation.is_failed());
+    });
+}
