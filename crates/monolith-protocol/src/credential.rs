@@ -48,22 +48,86 @@ use monolith_identity::{IdentityPublicKey, TransportPublicKey};
 use crate::ProtocolError;
 use crate::card::{CardChange, ContactCard, InvitationCapability, evaluate_card};
 
+/// What a card is, compared with the credentials of its identity.
+///
+/// This is the classification of `docs/PROTOCOL.md` section 11.4. It does
+/// not depend on where the card came from: a card presented in a
+/// handshake, received in an EndpointUpdate, or imported by the user is
+/// the same card and gets the same relation. Where it came from decides
+/// only what is done about it ([`Source`], [`CredentialChange`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CardRelation {
+    /// The statement of the active card: same epoch, transport key and
+    /// endpoint set. The capability may differ.
+    Same,
+    /// An older card that states the active transport key.
+    OlderActiveKey,
+    /// A newer card that states the active transport key.
+    NewerActiveKey,
+    /// A card of the key of the authorized successor that is not older
+    /// than the announced one. `same` is true for the announced statement
+    /// itself.
+    Successor {
+        /// The card makes the statement of the announced successor.
+        same: bool,
+    },
+    /// A card of another key that is newer than the active card and than
+    /// the authorized successor, if there is one.
+    NewKey,
+    /// The card has the epoch of the active card or of the authorized
+    /// successor and states something else.
+    Conflict,
+    /// The card states the retired key, is a card of another key that is
+    /// not newer than the active card or than the authorized successor, or
+    /// a card of the key of the authorized successor older than the
+    /// announced one.
+    Stale,
+}
+
+/// Where a card comes from, which decides what may be done with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source<'a> {
+    /// A handshake proved that the peer holds the transport key of the
+    /// card: the card the peer presented in the third message, or the
+    /// card that was dialed.
+    Proven,
+    /// An EndpointUpdate carried the card on a session whose peer is the
+    /// given card, whose transport key the handshake proved.
+    Announced(&'a ContactCard),
+    /// The user imported the card by hand.
+    Imported(Holding),
+    /// The user confirmed the card shown as the pending successor.
+    Confirmed,
+}
+
+/// How the identity of an imported card is held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Holding {
+    /// The user imported a card of this identity and has not seen an
+    /// acceptance. An import is the user's choice of the card to use.
+    Requested,
+    /// An accepted contact. An import is never a key change.
+    Accepted,
+}
+
 /// What an event did to the credentials of a contact.
 ///
-/// [`Credentials::admit`] returns `Unchanged`, `Superseded`, `Advanced`,
-/// `Promoted`, `Pending`, `Conflict` or `Stale`. [`Credentials::announce`] returns
-/// `Unchanged`, `Advanced`, `Authorized`, `Conflict`, `Stale` or
-/// `NoContinuity`. The import and confirmation functions say what they
-/// return.
+/// The outcome for each [`CardRelation`] and [`Source`] is the table of
+/// [`Credentials::evaluate`]. [`Source::Proven`] gives `Unchanged`,
+/// `Superseded`, `Advanced`, `Promoted`, `Pending`, `Conflict` or `Stale`.
+/// [`Source::Announced`] gives `Unchanged`, `Superseded`, `Advanced`,
+/// `Authorized`, `Conflict`, `Stale` or `NoContinuity`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CredentialChange {
-    /// The card states what is already held. Nothing changes.
+    /// The card states what is already held. Nothing changes, but for an
+    /// import for a requested contact, which takes the capability of the
+    /// card.
     Unchanged,
     /// An older card that states the active transport key. The card is
-    /// superseded and changes nothing, but the key is the one that stands
-    /// for the contact, so its holder is the contact: a peer restored from
-    /// an old backup, or a dial of a card whose newer endpoints the user
-    /// has not confirmed yet. Only a handshake gives this result.
+    /// superseded and changes nothing. In a handshake the key is the one
+    /// that stands for the contact, so its holder is the contact: a peer
+    /// restored from an old backup, or a dial of a card whose newer
+    /// endpoints the user has not confirmed yet.
     Superseded,
     /// A newer card with the active transport key. It is now the active
     /// card. The transport credential is the same; the endpoints may have
@@ -83,18 +147,78 @@ pub enum CredentialChange {
     /// authenticated with it no longer stand for the contact.
     Promoted,
     /// The card has the epoch of the active card, or of the authorized
-    /// successor for its key, and states something else. The identity
-    /// signed two statements for one epoch. Nothing changes; the user is
-    /// told.
+    /// successor, and states something else. The identity signed two
+    /// statements for one epoch. Nothing changes; the user is told.
     Conflict,
-    /// The card is older than the active card, has another key than the
-    /// active one and is older than the authorized successor, or states the
-    /// retired key. Nothing changes. In a handshake, an older card of the
-    /// active key is `Superseded` instead.
+    /// The card is older than the active card with another key than the
+    /// active one, is not newer than the authorized successor, or states
+    /// the retired key. Nothing changes.
     Stale,
     /// An EndpointUpdate arrived on a session that was not authenticated
     /// with the active key. It proves no continuity. Nothing changes.
     NoContinuity,
+}
+
+/// The result of evaluating a card against the credentials of its
+/// identity: what the card is, what it does, and the credentials after it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Evaluation {
+    /// What the card is, whatever its source. `None` for an announcement
+    /// on a session without continuity, which is refused before the card
+    /// is looked at, and for a confirmation.
+    pub relation: Option<CardRelation>,
+    /// What the card does to the credentials.
+    pub change: CredentialChange,
+    /// The credentials after the event, if they change.
+    next: Option<Credentials>,
+    /// The transport key the event retires, if it promotes a successor.
+    retired: Option<TransportPublicKey>,
+}
+
+impl Evaluation {
+    /// Returns the credentials after the event, if they change.
+    pub const fn next(&self) -> Option<&Credentials> {
+        self.next.as_ref()
+    }
+
+    /// Returns true if the event changes the credentials.
+    pub const fn changes_state(&self) -> bool {
+        self.next.is_some()
+    }
+
+    /// Returns the transport key that the event retires: the active key
+    /// before a promotion.
+    pub const fn retires(&self) -> Option<&TransportPublicKey> {
+        self.retired.as_ref()
+    }
+
+    /// Returns true if sessions authenticated with the retired key lose
+    /// their standing and have to be withdrawn.
+    pub const fn withdraws_sessions(&self) -> bool {
+        self.retired.is_some()
+    }
+
+    /// Returns true if the event changes the active card: a newer card of
+    /// the active key, or a promoted successor. Where Monolith dials still
+    /// follows the card the user confirmed for dialing.
+    pub const fn updates_active_card(&self) -> bool {
+        matches!(
+            self.change,
+            CredentialChange::Advanced | CredentialChange::Promoted
+        )
+    }
+
+    /// Returns true if the card is held for the user to confirm: a newer
+    /// key without continuity.
+    pub const fn needs_confirmation(&self) -> bool {
+        matches!(self.change, CredentialChange::Pending)
+    }
+
+    /// Returns true if the identity signed two statements for one epoch.
+    /// That is reported to the user, and never to the peer.
+    pub const fn is_conflict(&self) -> bool {
+        matches!(self.change, CredentialChange::Conflict)
+    }
 }
 
 /// The transport credential of one contact.
@@ -104,6 +228,8 @@ pub enum CredentialChange {
 /// - Every card held is of the identity of the active card.
 /// - A successor has a greater epoch than the active card and another
 ///   transport key than the active one and the retired one.
+/// - The pending successor has a greater epoch than the authorized one,
+///   if there is one.
 /// - The authorized and the pending successor state different keys.
 /// - Only a held pending card can be marked as imported.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +267,46 @@ impl Credentials {
             retired: None,
             invitation,
         }
+    }
+
+    /// Rebuilds credentials that were stored, from their parts.
+    ///
+    /// Fails with [`ProtocolError::InvalidValue`] if the parts break an
+    /// invariant of this type, and with [`ProtocolError::IdentityMismatch`]
+    /// if a successor is of another identity. Stored credentials are
+    /// checked as strictly as the functions that made them, so that a
+    /// store that was damaged or written by a faulty version can never
+    /// hold a state that no transition could have produced.
+    pub fn restore(
+        active: ContactCard,
+        authorized: Option<ContactCard>,
+        pending: Option<ContactCard>,
+        pending_imported: bool,
+        retired: Option<TransportPublicKey>,
+        invitation: Option<InvitationCapability>,
+    ) -> Result<Self, ProtocolError> {
+        let credentials = Self {
+            active,
+            authorized,
+            pending,
+            pending_imported,
+            retired,
+            invitation,
+        };
+        for card in [&credentials.authorized, &credentials.pending]
+            .into_iter()
+            .flatten()
+        {
+            credentials.check_identity(card)?;
+        }
+        let mut pruned = credentials.clone();
+        pruned.prune();
+        if pruned != credentials
+            || credentials.retired.as_ref() == Some(credentials.active.transport())
+        {
+            return Err(ProtocolError::InvalidValue);
+        }
+        Ok(credentials)
     }
 
     /// Returns the identity.
@@ -218,245 +384,263 @@ impl Credentials {
         })
     }
 
-    /// A handshake proved that the peer holds the transport key of `card`:
-    /// the card the peer presented in the third message, or the card that
-    /// was dialed. Decides what that means for the contact and records it.
-    ///
-    /// - The active key with the active card: `Unchanged`.
-    /// - The active key with an older card: `Superseded`. The holder of the
-    ///   active key is the contact whichever older card of that key it
-    ///   shows; the card is not taken.
-    /// - The active key with a newer card: `Advanced`.
-    /// - The key of the authorized successor, with a card not older than
-    ///   the announced one: `Promoted`. The previous key is retired.
-    /// - Another key with a card newer than the active one and than the
-    ///   authorized successor: `Pending`. The active key is not touched, so
-    ///   whoever holds the identity key alone cannot take the contact over
-    ///   or lock the holder of the active key out.
-    /// - A card of another key older than the active card or than the
-    ///   authorized successor, a card that contradicts the active card or
-    ///   the authorized successor at its epoch, or the retired key: `Stale`
-    ///   or `Conflict`.
-    ///
-    /// A pending card the user imported is not replaced by a presented
-    /// one; the result is still `Pending`, and the card shown to the user
-    /// is [`Self::pending_successor`].
+    /// Classifies `card` against these credentials. This is the one place
+    /// that decides what a card is (`docs/PROTOCOL.md` section 11.4, rule
+    /// 1 to 5); every source of a card goes through it.
     ///
     /// Fails with [`ProtocolError::IdentityMismatch`] for a card of
     /// another identity.
-    pub fn admit(&mut self, card: &ContactCard) -> Result<CredentialChange, ProtocolError> {
+    pub fn relation(&self, card: &ContactCard) -> Result<CardRelation, ProtocolError> {
         self.check_identity(card)?;
         if self.is_retired(card) {
-            return Ok(CredentialChange::Stale);
+            return Ok(CardRelation::Stale);
         }
         match evaluate_card(&self.active, card)? {
-            CardChange::Unchanged => return Ok(CredentialChange::Unchanged),
-            CardChange::Conflict => return Ok(CredentialChange::Conflict),
+            CardChange::Unchanged => return Ok(CardRelation::Same),
+            CardChange::Conflict => return Ok(CardRelation::Conflict),
             CardChange::Stale if card.transport() == self.active.transport() => {
-                return Ok(CredentialChange::Superseded);
+                return Ok(CardRelation::OlderActiveKey);
             }
-            CardChange::Stale => return Ok(CredentialChange::Stale),
+            CardChange::Stale => return Ok(CardRelation::Stale),
             CardChange::Newer => {}
         }
         if self.contradicts_successor(card) {
-            return Ok(CredentialChange::Conflict);
+            return Ok(CardRelation::Conflict);
         }
         if card.transport() == self.active.transport() {
-            self.advance(card.clone());
-            return Ok(CredentialChange::Advanced);
+            return Ok(CardRelation::NewerActiveKey);
         }
-        let proven = match &self.authorized {
-            Some(successor) if card.transport() == successor.transport() => {
-                Some(evaluate_card(successor, card)?)
-            }
-            // Another key, older than the successor the identity announced
-            // through the active key: superseded, as for `announce`.
-            Some(successor) if !successor.epoch().is_superseded_by(card.epoch()) => {
-                return Ok(CredentialChange::Stale);
-            }
-            _ => None,
+        let Some(successor) = &self.authorized else {
+            return Ok(CardRelation::NewKey);
         };
-        if let Some(proven) = proven {
-            return Ok(match proven {
-                CardChange::Stale => CredentialChange::Stale,
-                CardChange::Conflict => CredentialChange::Conflict,
-                CardChange::Unchanged | CardChange::Newer => {
+        if card.transport() == successor.transport() {
+            return Ok(match evaluate_card(successor, card)? {
+                CardChange::Unchanged => CardRelation::Successor { same: true },
+                CardChange::Newer => CardRelation::Successor { same: false },
+                CardChange::Conflict => CardRelation::Conflict,
+                CardChange::Stale => CardRelation::Stale,
+            });
+        }
+        // Another key that is not newer than the successor the identity
+        // announced through the active key: the identity superseded it.
+        if successor.epoch().is_superseded_by(card.epoch()) {
+            Ok(CardRelation::NewKey)
+        } else {
+            Ok(CardRelation::Stale)
+        }
+    }
+
+    /// Decides what `card` from `source` does to these credentials,
+    /// without changing them. [`Self::apply`] makes the change.
+    ///
+    /// | Relation | Proven | Announced | Imported, accepted | Imported, requested |
+    /// | --- | --- | --- | --- | --- |
+    /// | `Same` | `Unchanged` | `Unchanged` | `Unchanged` | `Unchanged`, capability taken |
+    /// | `OlderActiveKey` | `Superseded` | `Superseded` | `Superseded` | `Superseded` |
+    /// | `NewerActiveKey` | `Advanced` | `Advanced` | `Advanced` | `Advanced`, capability taken |
+    /// | `Successor`, same | `Promoted` | `Unchanged` | `Unchanged` | `Promoted`, capability taken |
+    /// | `Successor`, newer | `Promoted` | `Authorized` | `Unchanged` | `Promoted`, capability taken |
+    /// | `NewKey` | `Pending` | `Authorized` | `Pending` | `Promoted`, capability taken |
+    /// | `Conflict` | `Conflict` | `Conflict` | `Conflict` | `Conflict` |
+    /// | `Stale` | `Stale` | `Stale` | `Stale` | `Stale` |
+    ///
+    /// An announcement on a session that was not made with the active key
+    /// is `NoContinuity` before the card is looked at. A confirmation
+    /// promotes the pending successor if `card` makes its statement, and
+    /// fails with [`ProtocolError::InvalidValue`] otherwise, so that a
+    /// pending card that changed after it was shown is never confirmed in
+    /// its place.
+    ///
+    /// A pending card the user imported is not replaced by a presented
+    /// one; the result is still `Pending`.
+    ///
+    /// Fails with [`ProtocolError::IdentityMismatch`] if `card`, or the
+    /// card of the session of an announcement, is of another identity.
+    pub fn evaluate(
+        &self,
+        card: &ContactCard,
+        source: Source<'_>,
+    ) -> Result<Evaluation, ProtocolError> {
+        let mut next = self.clone();
+        let (relation, change) = next.step(card, source)?;
+        let retired = (change == CredentialChange::Promoted).then(|| *self.active.transport());
+        let next = (next != *self).then_some(next);
+        Ok(Evaluation {
+            relation,
+            change,
+            next,
+            retired,
+        })
+    }
+
+    /// Evaluates `card` from `source` ([`Self::evaluate`]) and records the
+    /// change.
+    pub fn apply(
+        &mut self,
+        card: &ContactCard,
+        source: Source<'_>,
+    ) -> Result<CredentialChange, ProtocolError> {
+        let evaluation = self.evaluate(card, source)?;
+        if let Some(next) = evaluation.next {
+            *self = next;
+        }
+        Ok(evaluation.change)
+    }
+
+    /// The table of [`Self::evaluate`], applied to `self`.
+    fn step(
+        &mut self,
+        card: &ContactCard,
+        source: Source<'_>,
+    ) -> Result<(Option<CardRelation>, CredentialChange), ProtocolError> {
+        self.check_identity(card)?;
+        match source {
+            Source::Announced(session) => {
+                self.check_identity(session)?;
+                if session.transport() != self.active.transport() {
+                    return Ok((None, CredentialChange::NoContinuity));
+                }
+            }
+            Source::Confirmed => {
+                match &self.pending {
+                    Some(pending) if same_statement(pending, card) => {}
+                    _ => return Err(ProtocolError::InvalidValue),
+                }
+                self.promote(card.clone());
+                return Ok((None, CredentialChange::Promoted));
+            }
+            Source::Proven | Source::Imported(_) => {}
+        }
+        let relation = self.relation(card)?;
+        let requested = source == Source::Imported(Holding::Requested);
+        let change = match relation {
+            CardRelation::Conflict => CredentialChange::Conflict,
+            CardRelation::Stale => CredentialChange::Stale,
+            CardRelation::OlderActiveKey => CredentialChange::Superseded,
+            CardRelation::Same => {
+                if requested {
+                    // P10: the same statement with another capability.
+                    self.invitation = card.invitation().cloned();
+                }
+                CredentialChange::Unchanged
+            }
+            CardRelation::NewerActiveKey => {
+                if requested {
+                    self.invitation = card.invitation().cloned();
+                }
+                self.advance(card.clone());
+                CredentialChange::Advanced
+            }
+            CardRelation::Successor { same } => match source {
+                Source::Proven => {
                     self.promote(card.clone());
                     CredentialChange::Promoted
                 }
-            });
-        }
-        self.hold_pending(card.clone());
-        Ok(CredentialChange::Pending)
+                Source::Announced(_) if same => CredentialChange::Unchanged,
+                Source::Announced(_) => {
+                    self.authorize(card.clone());
+                    CredentialChange::Authorized
+                }
+                // That key takes over when its holder proves it.
+                Source::Imported(Holding::Accepted) => CredentialChange::Unchanged,
+                Source::Imported(Holding::Requested) => {
+                    self.invitation = card.invitation().cloned();
+                    self.promote(card.clone());
+                    CredentialChange::Promoted
+                }
+                Source::Confirmed => return Err(ProtocolError::InvalidValue),
+            },
+            CardRelation::NewKey => match source {
+                Source::Proven => {
+                    self.hold_pending(card.clone());
+                    CredentialChange::Pending
+                }
+                Source::Announced(_) => {
+                    self.authorize(card.clone());
+                    CredentialChange::Authorized
+                }
+                Source::Imported(Holding::Accepted) => {
+                    self.pending = Some(card.clone());
+                    self.pending_imported = true;
+                    self.prune();
+                    CredentialChange::Pending
+                }
+                Source::Imported(Holding::Requested) => {
+                    self.invitation = card.invitation().cloned();
+                    self.promote(card.clone());
+                    CredentialChange::Promoted
+                }
+                Source::Confirmed => return Err(ProtocolError::InvalidValue),
+            },
+        };
+        Ok((Some(relation), change))
+    }
+
+    /// A handshake proved that the peer holds the transport key of `card`:
+    /// the card the peer presented in the third message, or the card that
+    /// was dialed. [`Self::apply`] with [`Source::Proven`].
+    ///
+    /// The active key with an older card is `Superseded`: its holder is
+    /// the contact whichever older card of that key it shows, and the card
+    /// is not taken. A newer key without continuity is only `Pending`: the
+    /// active key is not touched, so whoever holds the identity key alone
+    /// cannot take the contact over or lock the holder of the active key
+    /// out.
+    pub fn admit(&mut self, card: &ContactCard) -> Result<CredentialChange, ProtocolError> {
+        self.apply(card, Source::Proven)
     }
 
     /// An EndpointUpdate with `card` arrived on a session whose peer is
-    /// `session`: the card of that session, whose transport key the
-    /// handshake proved.
-    ///
-    /// Only a session made with the active key carries continuity. On any
-    /// other the result is `NoContinuity` and nothing changes. On such a
-    /// session a newer card with the active key is `Advanced`, and a newer
-    /// card with another key becomes the authorized successor
-    /// (`Authorized`), replacing an older one. The active key stays active
-    /// until the successor is proven.
-    ///
-    /// Fails with [`ProtocolError::IdentityMismatch`] if `card` or
-    /// `session` is of another identity.
+    /// `session`. [`Self::apply`] with [`Source::Announced`]: only a
+    /// session made with the active key carries continuity, and a newer
+    /// card with another key becomes the authorized successor, replacing an
+    /// older one. The active key stays active until the successor is
+    /// proven.
     pub fn announce(
         &mut self,
         card: &ContactCard,
         session: &ContactCard,
     ) -> Result<CredentialChange, ProtocolError> {
-        self.check_identity(card)?;
-        self.check_identity(session)?;
-        if session.transport() != self.active.transport() {
-            return Ok(CredentialChange::NoContinuity);
-        }
-        if self.is_retired(card) {
-            return Ok(CredentialChange::Stale);
-        }
-        match evaluate_card(&self.active, card)? {
-            CardChange::Unchanged => return Ok(CredentialChange::Unchanged),
-            CardChange::Conflict => return Ok(CredentialChange::Conflict),
-            CardChange::Stale => return Ok(CredentialChange::Stale),
-            CardChange::Newer => {}
-        }
-        if self.contradicts_successor(card) {
-            return Ok(CredentialChange::Conflict);
-        }
-        if card.transport() == self.active.transport() {
-            self.advance(card.clone());
-            return Ok(CredentialChange::Advanced);
-        }
-        if let Some(successor) = &self.authorized {
-            if card.transport() == successor.transport() {
-                match evaluate_card(successor, card)? {
-                    CardChange::Unchanged => return Ok(CredentialChange::Unchanged),
-                    CardChange::Conflict => return Ok(CredentialChange::Conflict),
-                    CardChange::Stale => return Ok(CredentialChange::Stale),
-                    CardChange::Newer => {}
-                }
-            } else if !successor.epoch().is_superseded_by(card.epoch()) {
-                return Ok(CredentialChange::Stale);
-            }
-        }
-        self.authorized = Some(card.clone());
-        self.prune();
-        Ok(CredentialChange::Authorized)
+        self.apply(card, Source::Announced(session))
     }
 
-    /// The user confirmed the pending successor `card`: it takes over and
-    /// the previous key is retired (`Promoted`).
-    ///
-    /// `card` is the card the user was shown. Fails with
-    /// [`ProtocolError::InvalidValue`] if it is not the pending successor,
-    /// so that a pending card that changed after it was shown is never
-    /// confirmed in its place, and with
-    /// [`ProtocolError::IdentityMismatch`] for a card of another identity.
+    /// The user confirmed the pending successor `card`, the card the user
+    /// was shown. [`Self::apply`] with [`Source::Confirmed`].
     pub fn confirm(&mut self, card: &ContactCard) -> Result<CredentialChange, ProtocolError> {
-        self.check_identity(card)?;
-        match &self.pending {
-            Some(pending) if same_statement(pending, card) => {}
-            _ => return Err(ProtocolError::InvalidValue),
-        }
-        self.promote(card.clone());
-        Ok(CredentialChange::Promoted)
+        self.apply(card, Source::Confirmed)
     }
 
-    /// The user imported `card` by hand for an identity that is held as a
-    /// requested contact, not an accepted one.
-    ///
-    /// Nothing has been accepted yet, so the import is the user's choice
-    /// of the card to use. A card with the same statement and another
-    /// capability replaces the capability (`Unchanged`; the replacement of
-    /// `docs/DESIGN_QUESTIONS.md` P10). A newer card takes the place of
-    /// the active one with its capability: `Advanced` with the same key,
-    /// `Promoted` with another, which retires the previous key. An older
-    /// or contradicting card, or one with the retired key, changes nothing.
-    ///
-    /// Fails with [`ProtocolError::IdentityMismatch`] for a card of
-    /// another identity.
+    /// The user imported `card` by hand for an identity held as a
+    /// requested contact. [`Self::apply`] with
+    /// [`Source::Imported`]`(`[`Holding::Requested`]`)`: nothing has been
+    /// accepted yet, so a newer card is the user's choice of the card to
+    /// use and takes the place of the active one with its capability, and
+    /// the same statement with another capability replaces the capability
+    /// (P10).
     pub fn replace(&mut self, card: ContactCard) -> Result<CredentialChange, ProtocolError> {
-        self.check_identity(&card)?;
-        if self.is_retired(&card) {
-            return Ok(CredentialChange::Stale);
-        }
-        let change = match evaluate_card(&self.active, &card)? {
-            CardChange::Stale => return Ok(CredentialChange::Stale),
-            CardChange::Conflict => return Ok(CredentialChange::Conflict),
-            CardChange::Unchanged => {
-                self.invitation = card.invitation().cloned();
-                return Ok(CredentialChange::Unchanged);
-            }
-            CardChange::Newer if self.contradicts_successor(&card) => {
-                return Ok(CredentialChange::Conflict);
-            }
-            CardChange::Newer if card.transport() == self.active.transport() => {
-                CredentialChange::Advanced
-            }
-            CardChange::Newer => CredentialChange::Promoted,
-        };
-        self.invitation = card.invitation().cloned();
-        if change == CredentialChange::Promoted {
-            self.promote(card);
-        } else {
-            self.advance(card);
-        }
-        Ok(change)
+        self.apply(&card, Source::Imported(Holding::Requested))
     }
 
     /// The user imported `card` by hand for an accepted contact.
-    ///
-    /// An import is not a key change. A newer card with the active key is
-    /// `Advanced`: the endpoints it states are the user's choice of where
-    /// to connect. A newer card with another key is held as the pending
-    /// successor (`Pending`), in place of any pending card, whatever its
-    /// epoch: what the user brought in counts more than what a peer
-    /// presented, so a pending card from someone who copied the identity
-    /// key cannot keep the user's own card out. The key takes over only
-    /// through [`Self::confirm`], a separate decision about the key itself.
-    /// A card with the key of the authorized successor changes nothing:
-    /// that key takes over when it is proven. The capability of an accepted contact
-    /// is not used and does not change. An older or contradicting card, or
-    /// one with the retired key, changes nothing.
-    ///
-    /// Fails with [`ProtocolError::IdentityMismatch`] for a card of
-    /// another identity.
+    /// [`Self::apply`] with [`Source::Imported`]`(`[`Holding::Accepted`]`)`:
+    /// an import is not a key change. A newer key is held as the pending
+    /// successor in place of any pending card, and takes over only through
+    /// [`Self::confirm`], a separate decision about the key itself. The
+    /// capability of an accepted contact does not change.
     pub fn import(&mut self, card: ContactCard) -> Result<CredentialChange, ProtocolError> {
-        self.check_identity(&card)?;
-        if self.is_retired(&card) {
-            return Ok(CredentialChange::Stale);
-        }
-        match evaluate_card(&self.active, &card)? {
-            CardChange::Unchanged => return Ok(CredentialChange::Unchanged),
-            CardChange::Conflict => return Ok(CredentialChange::Conflict),
-            CardChange::Stale => return Ok(CredentialChange::Stale),
-            CardChange::Newer => {}
-        }
-        if self.contradicts_successor(&card) {
-            return Ok(CredentialChange::Conflict);
-        }
-        if card.transport() == self.active.transport() {
-            self.advance(card);
-            return Ok(CredentialChange::Advanced);
-        }
-        if self
-            .authorized
-            .as_ref()
-            .is_some_and(|successor| successor.transport() == card.transport())
-        {
-            return Ok(CredentialChange::Unchanged);
-        }
-        self.pending = Some(card);
-        self.pending_imported = true;
-        self.prune();
-        Ok(CredentialChange::Pending)
+        self.apply(&card, Source::Imported(Holding::Accepted))
     }
 
     /// A newer card with the active key becomes the active card.
     fn advance(&mut self, card: ContactCard) {
         self.active = card;
+        self.prune();
+    }
+
+    /// A newer card with another key, announced through the active key,
+    /// becomes the authorized successor.
+    fn authorize(&mut self, card: ContactCard) {
+        self.authorized = Some(card);
         self.prune();
     }
 
@@ -483,8 +667,10 @@ impl Credentials {
     }
 
     /// Drops successors that no longer satisfy the invariants: not newer
-    /// than the active card, stating the active or the retired key, or a
-    /// pending card for the key that is authorized.
+    /// than the active card, stating the active or the retired key, a
+    /// pending card for the key that is authorized, or a pending card that
+    /// is not newer than the authorized successor, which the identity
+    /// superseded through its active key.
     fn prune(&mut self) {
         let active = self.active.clone();
         let retired = self.retired;
@@ -496,12 +682,14 @@ impl Credentials {
         if !self.authorized.as_ref().is_some_and(valid) {
             self.authorized = None;
         }
-        let authorized = self.authorized.as_ref().map(|card| *card.transport());
-        if !self
-            .pending
-            .as_ref()
-            .is_some_and(|card| valid(card) && Some(*card.transport()) != authorized)
-        {
+        let authorized = self.authorized.clone();
+        if !self.pending.as_ref().is_some_and(|card| {
+            valid(card)
+                && authorized.as_ref().is_none_or(|successor| {
+                    successor.transport() != card.transport()
+                        && successor.epoch().is_superseded_by(card.epoch())
+                })
+        }) {
             self.pending = None;
         }
         self.pending_imported &= self.pending.is_some();
@@ -577,6 +765,7 @@ mod tests {
             credentials.pending_successor(),
         ) {
             assert_ne!(a.transport(), p.transport());
+            assert!(a.epoch() < p.epoch());
         }
         assert_ne!(Some(active.transport()), credentials.retired());
         assert!(!credentials.pending_was_imported() || credentials.pending_successor().is_some());
@@ -648,19 +837,24 @@ mod tests {
         );
         assert_eq!(credentials, before);
         assert!(credentials.authorizes(&alice(T1, 1)));
-        // An older card of another key is still stale, and an older card
-        // is not taken as an announcement or an import either.
+        // An older card of another key is still stale. An older card of
+        // the active key is the same card from every source, superseded,
+        // and is not taken as an announcement or an import either.
         assert_eq!(
             credentials.admit(&alice(T2, 2)),
             Ok(CredentialChange::Stale)
         );
         assert_eq!(
             credentials.announce(&alice(T1, 2), &alice(T1, 3)),
-            Ok(CredentialChange::Stale)
+            Ok(CredentialChange::Superseded)
         );
         assert_eq!(
             credentials.import(alice(T1, 2)),
-            Ok(CredentialChange::Stale)
+            Ok(CredentialChange::Superseded)
+        );
+        assert_eq!(
+            credentials.replace(alice(T1, 2)),
+            Ok(CredentialChange::Superseded)
         );
         assert_eq!(credentials, before);
     }
@@ -929,13 +1123,30 @@ mod tests {
             Ok(CredentialChange::NoContinuity)
         );
         assert!(credentials.authorized_successor().is_none());
-        // Through the active key the same card is authorized, and the
-        // pending card stays a separate candidate.
+        // Through the active key the same card is authorized. The pending
+        // card of epoch 2 is older than the successor the identity has now
+        // announced through its active key, so it is dropped: a key the
+        // identity superseded is stale from every source.
         assert_eq!(
             credentials.announce(&alice(T3, 3), &alice(T1, 1)),
             Ok(CredentialChange::Authorized)
         );
-        assert_eq!(credentials.pending_successor(), Some(&alice(T2, 2)));
+        assert!(credentials.pending_successor().is_none());
+        assert_eq!(
+            credentials.admit(&alice(T2, 2)),
+            Ok(CredentialChange::Stale)
+        );
+        // A pending card newer than the successor stays a separate
+        // candidate.
+        assert_eq!(
+            credentials.admit(&alice(T2, 3)),
+            Ok(CredentialChange::Conflict)
+        );
+        assert_eq!(
+            credentials.admit(&alice(4, 4)),
+            Ok(CredentialChange::Pending)
+        );
+        assert_eq!(credentials.pending_successor(), Some(&alice(4, 4)));
         // An announcement of the pending key through the active one
         // authorizes it, and it is no longer pending.
         assert_eq!(
@@ -1005,7 +1216,7 @@ mod tests {
         );
         assert_eq!(
             credentials.import(alice(T1, 1)),
-            Ok(CredentialChange::Stale)
+            Ok(CredentialChange::Superseded)
         );
         check(&credentials);
     }
@@ -1139,7 +1350,7 @@ mod tests {
         );
         assert_eq!(
             credentials.replace(signed(ALICE, T2, 2, 2, None)),
-            Ok(CredentialChange::Stale)
+            Ok(CredentialChange::Superseded)
         );
         assert_eq!(
             credentials.replace(signed(ALICE, T3, 3, 2, None)),
@@ -1296,6 +1507,542 @@ mod tests {
                 {
                     prop_assert_eq!(&credentials, &before);
                 }
+            }
+        }
+    }
+
+    /// The exhaustive table of [`Credentials::evaluate`], against a model
+    /// written from `docs/PROTOCOL.md` section 11.4 with plain numbers.
+    mod table {
+        use super::*;
+        use std::collections::HashMap;
+
+        /// A card of the model: transport key, epoch, endpoint.
+        type M = (u8, u64, u8);
+
+        /// The credentials of the model.
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct Model {
+            active: M,
+            authorized: Option<M>,
+            pending: Option<M>,
+            imported: bool,
+            retired: Option<u8>,
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        enum Src {
+            Proven,
+            AnnouncedActive,
+            AnnouncedOther,
+            ImportedRequested,
+            ImportedAccepted,
+            Confirmed,
+        }
+
+        const SOURCES: [Src; 6] = [
+            Src::Proven,
+            Src::AnnouncedActive,
+            Src::AnnouncedOther,
+            Src::ImportedRequested,
+            Src::ImportedAccepted,
+            Src::Confirmed,
+        ];
+
+        impl Model {
+            /// Rule 1 to 5 of section 11.4, as a receiver applies them
+            /// to a card of the identity.
+            fn relation(&self, c: M) -> CardRelation {
+                let (key, epoch, _) = c;
+                if self.retired == Some(key) {
+                    return CardRelation::Stale;
+                }
+                let (akey, aepoch, _) = self.active;
+                if epoch < aepoch {
+                    return if key == akey {
+                        CardRelation::OlderActiveKey
+                    } else {
+                        CardRelation::Stale
+                    };
+                }
+                if epoch == aepoch {
+                    return if c == self.active {
+                        CardRelation::Same
+                    } else {
+                        CardRelation::Conflict
+                    };
+                }
+                if let Some(a) = self.authorized {
+                    if epoch == a.1 && c != a {
+                        return CardRelation::Conflict;
+                    }
+                }
+                if key == akey {
+                    return CardRelation::NewerActiveKey;
+                }
+                match self.authorized {
+                    Some(a) if key == a.0 => {
+                        if epoch < a.1 {
+                            CardRelation::Stale
+                        } else {
+                            CardRelation::Successor { same: c == a }
+                        }
+                    }
+                    Some(a) if epoch <= a.1 => CardRelation::Stale,
+                    _ => CardRelation::NewKey,
+                }
+            }
+
+            fn valid_successor(&self, c: M) -> bool {
+                c.1 > self.active.1 && c.0 != self.active.0 && Some(c.0) != self.retired
+            }
+
+            fn prune(&mut self) {
+                if !self.authorized.is_some_and(|a| self.valid_successor(a)) {
+                    self.authorized = None;
+                }
+                let authorized = self.authorized;
+                if !self.pending.is_some_and(|p| {
+                    self.valid_successor(p) && authorized.is_none_or(|a| a.0 != p.0 && a.1 < p.1)
+                }) {
+                    self.pending = None;
+                }
+                self.imported &= self.pending.is_some();
+            }
+
+            fn promote(&mut self, c: M) {
+                self.retired = Some(self.active.0);
+                self.active = c;
+                self.authorized = None;
+                self.prune();
+            }
+
+            /// What the event does, and the model after it. `None` for an
+            /// event that fails.
+            fn step(&self, c: M, src: Src) -> Option<(CredentialChange, Model)> {
+                let mut next = self.clone();
+                if src == Src::AnnouncedOther {
+                    return Some((CredentialChange::NoContinuity, next));
+                }
+                if src == Src::Confirmed {
+                    if self.pending != Some(c) {
+                        return None;
+                    }
+                    next.promote(c);
+                    return Some((CredentialChange::Promoted, next));
+                }
+                let change = match self.relation(c) {
+                    CardRelation::Same => CredentialChange::Unchanged,
+                    CardRelation::OlderActiveKey => CredentialChange::Superseded,
+                    CardRelation::Conflict => CredentialChange::Conflict,
+                    CardRelation::Stale => CredentialChange::Stale,
+                    CardRelation::NewerActiveKey => {
+                        next.active = c;
+                        next.prune();
+                        CredentialChange::Advanced
+                    }
+                    CardRelation::Successor { same } => match src {
+                        Src::Proven | Src::ImportedRequested => {
+                            next.promote(c);
+                            CredentialChange::Promoted
+                        }
+                        Src::AnnouncedActive if !same => {
+                            next.authorized = Some(c);
+                            next.prune();
+                            CredentialChange::Authorized
+                        }
+                        _ => CredentialChange::Unchanged,
+                    },
+                    CardRelation::NewKey => match src {
+                        Src::Proven => {
+                            let keep = self.pending.is_some_and(|p| self.imported || p.1 >= c.1);
+                            if !keep {
+                                next.pending = Some(c);
+                                next.imported = false;
+                            }
+                            next.prune();
+                            CredentialChange::Pending
+                        }
+                        Src::AnnouncedActive => {
+                            next.authorized = Some(c);
+                            next.prune();
+                            CredentialChange::Authorized
+                        }
+                        Src::ImportedAccepted => {
+                            next.pending = Some(c);
+                            next.imported = true;
+                            next.prune();
+                            CredentialChange::Pending
+                        }
+                        _ => {
+                            next.promote(c);
+                            CredentialChange::Promoted
+                        }
+                    },
+                };
+                Some((change, next))
+            }
+        }
+
+        /// Every card of the universe, signed once.
+        struct Cards(HashMap<(M, Option<u8>), ContactCard>);
+
+        impl Cards {
+            fn get(&self, c: M, capability: Option<u8>) -> ContactCard {
+                self.0[&(c, capability)].clone()
+            }
+        }
+
+        const KEYS: [u8; 6] = [1, 2, 3, 4, 5, 6];
+
+        fn universe() -> Cards {
+            let mut cards = HashMap::new();
+            for key in KEYS {
+                for epoch in 1..=7 {
+                    for place in 1..=2 {
+                        for capability in [None, Some(9)] {
+                            cards.insert(
+                                ((key, epoch, place), capability),
+                                signed(ALICE, key, epoch, place, capability),
+                            );
+                        }
+                    }
+                }
+            }
+            Cards(cards)
+        }
+
+        fn credentials_of(cards: &Cards, model: &Model) -> Result<Credentials, ProtocolError> {
+            Credentials::restore(
+                cards.get(model.active, None),
+                model.authorized.map(|c| cards.get(c, None)),
+                model.pending.map(|c| cards.get(c, None)),
+                model.imported,
+                model.retired.map(transport),
+                None,
+            )
+        }
+
+        /// The key and the endpoint of the model for each key the cards of
+        /// the universe state. Computed once: deriving keys is slow in
+        /// unoptimized builds.
+        struct Names {
+            keys: HashMap<TransportPublicKey, u8>,
+            places: Vec<(EndpointSet, u8)>,
+        }
+
+        impl Names {
+            fn new() -> Self {
+                Self {
+                    keys: KEYS.into_iter().map(|key| (transport(key), key)).collect(),
+                    places: (1..=2)
+                        .map(|place| (EndpointSet::single(endpoint(place)), place))
+                        .collect(),
+                }
+            }
+
+            fn card(&self, card: &ContactCard) -> M {
+                let place = self
+                    .places
+                    .iter()
+                    .find(|(set, _)| set == card.endpoints())
+                    .unwrap()
+                    .1;
+                (self.keys[card.transport()], card.epoch().get(), place)
+            }
+
+            fn model(&self, credentials: &Credentials) -> Model {
+                Model {
+                    active: self.card(credentials.active()),
+                    authorized: credentials.authorized_successor().map(|c| self.card(c)),
+                    pending: credentials.pending_successor().map(|c| self.card(c)),
+                    imported: credentials.pending_was_imported(),
+                    retired: credentials.retired().map(|retired| self.keys[retired]),
+                }
+            }
+        }
+
+        /// Every state the model allows with the active card (1, 3, 1).
+        fn states() -> Vec<Model> {
+            let mut successors = vec![None];
+            for key in [2, 3, 4] {
+                for epoch in [4, 5, 6] {
+                    for place in [1, 2] {
+                        successors.push(Some((key, epoch, place)));
+                    }
+                }
+            }
+            let mut states = Vec::new();
+            for authorized in &successors {
+                for pending in &successors {
+                    for imported in [false, true] {
+                        for retired in [None, Some(4), Some(5)] {
+                            let model = Model {
+                                active: (1, 3, 1),
+                                authorized: *authorized,
+                                pending: *pending,
+                                imported,
+                                retired,
+                            };
+                            let mut pruned = model.clone();
+                            pruned.prune();
+                            if pruned == model {
+                                states.push(model);
+                            }
+                        }
+                    }
+                }
+            }
+            states
+        }
+
+        #[test]
+        fn restore_accepts_exactly_the_states_of_the_invariants() {
+            let cards = universe();
+            let names = Names::new();
+            let states = states();
+            assert!(states.len() > 300, "{}", states.len());
+            for model in &states {
+                let credentials = credentials_of(&cards, model).unwrap();
+                assert_eq!(&names.model(&credentials), model);
+                check(&credentials);
+            }
+            // States that break an invariant are refused.
+            let broken = [
+                Model {
+                    active: (1, 3, 1),
+                    authorized: Some((2, 3, 1)),
+                    pending: None,
+                    imported: false,
+                    retired: None,
+                },
+                Model {
+                    active: (1, 3, 1),
+                    authorized: Some((1, 4, 1)),
+                    pending: None,
+                    imported: false,
+                    retired: None,
+                },
+                Model {
+                    active: (1, 3, 1),
+                    authorized: Some((2, 5, 1)),
+                    pending: Some((3, 5, 1)),
+                    imported: false,
+                    retired: None,
+                },
+                Model {
+                    active: (1, 3, 1),
+                    authorized: Some((2, 5, 1)),
+                    pending: Some((2, 6, 1)),
+                    imported: false,
+                    retired: None,
+                },
+                Model {
+                    active: (1, 3, 1),
+                    authorized: None,
+                    pending: Some((4, 5, 1)),
+                    imported: false,
+                    retired: Some(4),
+                },
+                Model {
+                    active: (1, 3, 1),
+                    authorized: None,
+                    pending: None,
+                    imported: true,
+                    retired: None,
+                },
+                Model {
+                    active: (1, 3, 1),
+                    authorized: None,
+                    pending: None,
+                    imported: false,
+                    retired: Some(1),
+                },
+            ];
+            for model in broken {
+                assert_eq!(
+                    credentials_of(&cards, &model),
+                    Err(ProtocolError::InvalidValue),
+                    "{model:?}"
+                );
+            }
+            assert_eq!(
+                Credentials::restore(
+                    alice(1, 3),
+                    Some(signed(MALLORY, 2, 4, 1, None)),
+                    None,
+                    false,
+                    None,
+                    None
+                ),
+                Err(ProtocolError::IdentityMismatch)
+            );
+        }
+
+        #[test]
+        fn every_card_from_every_source_in_every_state() {
+            let cards = universe();
+            let names = Names::new();
+            let session_active = cards.get((1, 3, 1), None);
+            let session_other = cards.get((6, 3, 1), None);
+            let mut seen = HashMap::new();
+            for model in states() {
+                let credentials = credentials_of(&cards, &model).unwrap();
+                for (&(c, capability), card) in &cards.0 {
+                    for src in SOURCES {
+                        let source = match src {
+                            Src::Proven => Source::Proven,
+                            Src::AnnouncedActive => Source::Announced(&session_active),
+                            Src::AnnouncedOther => Source::Announced(&session_other),
+                            Src::ImportedRequested => Source::Imported(Holding::Requested),
+                            Src::ImportedAccepted => Source::Imported(Holding::Accepted),
+                            Src::Confirmed => Source::Confirmed,
+                        };
+                        let evaluation = credentials.evaluate(card, source);
+                        let expected = model.step(c, src);
+                        let Some((change, next_model)) = expected else {
+                            assert_eq!(evaluation, Err(ProtocolError::InvalidValue));
+                            continue;
+                        };
+                        let evaluation = evaluation.unwrap();
+                        assert_eq!(evaluation.change, change, "{model:?} {c:?} {src:?}");
+                        if !matches!(src, Src::AnnouncedOther | Src::Confirmed) {
+                            assert_eq!(evaluation.relation, Some(model.relation(c)));
+                        }
+                        let next = evaluation
+                            .next()
+                            .cloned()
+                            .unwrap_or_else(|| credentials.clone());
+                        assert_eq!(names.model(&next), next_model, "{model:?} {c:?} {src:?}");
+                        check(&next);
+                        // The capability a request carries changes only by
+                        // an import for a requested contact that takes the
+                        // card's statement.
+                        let takes_capability = src == Src::ImportedRequested
+                            && matches!(
+                                change,
+                                CredentialChange::Unchanged
+                                    | CredentialChange::Advanced
+                                    | CredentialChange::Promoted
+                            );
+                        let expected_invitation = if takes_capability {
+                            capability.map(|byte| InvitationCapability::from_bytes([byte; 16]))
+                        } else {
+                            None
+                        };
+                        assert_eq!(next.invitation(), expected_invitation.as_ref());
+                        // No rollback, from any source: the active epoch
+                        // never goes down, the retired key never comes
+                        // back, and the active key changes only by a
+                        // promotion that retires the previous one.
+                        assert!(next.active().epoch() >= credentials.active().epoch());
+                        if let Some(retired) = credentials.retired() {
+                            assert_ne!(next.active().transport(), retired);
+                        }
+                        let key_changed =
+                            next.active().transport() != credentials.active().transport();
+                        assert_eq!(key_changed, change == CredentialChange::Promoted);
+                        assert_eq!(evaluation.withdraws_sessions(), key_changed);
+                        if key_changed {
+                            assert_eq!(next.retired(), Some(credentials.active().transport()));
+                            assert_eq!(
+                                evaluation.retires(),
+                                Some(credentials.active().transport())
+                            );
+                            // Only a proven successor, a confirmed pending
+                            // card or the user's own card for a requested
+                            // contact takes over.
+                            let allowed = match src {
+                                Src::Proven => credentials
+                                    .authorized_successor()
+                                    .is_some_and(|a| a.transport() == next.active().transport()),
+                                Src::Confirmed => credentials
+                                    .pending_successor()
+                                    .is_some_and(|p| p.transport() == next.active().transport()),
+                                Src::ImportedRequested => true,
+                                _ => false,
+                            };
+                            assert!(allowed, "{model:?} {c:?} {src:?}");
+                        }
+                        // A card never promotes itself because it is newer.
+                        if src == Src::Proven && model.relation(c) == CardRelation::NewKey {
+                            assert!(!key_changed);
+                        }
+                        *seen.entry((src, change)).or_insert(0_u32) += 1;
+                        // Evaluating changes nothing; applying makes the
+                        // evaluated change.
+                        let mut applied = credentials.clone();
+                        assert_eq!(applied.apply(card, source), Ok(change));
+                        assert_eq!(applied, next);
+                    }
+                }
+            }
+            // Every outcome of the table occurred.
+            for (src, change) in [
+                (Src::Proven, CredentialChange::Unchanged),
+                (Src::Proven, CredentialChange::Superseded),
+                (Src::Proven, CredentialChange::Advanced),
+                (Src::Proven, CredentialChange::Promoted),
+                (Src::Proven, CredentialChange::Pending),
+                (Src::Proven, CredentialChange::Conflict),
+                (Src::Proven, CredentialChange::Stale),
+                (Src::AnnouncedActive, CredentialChange::Authorized),
+                (Src::AnnouncedActive, CredentialChange::Unchanged),
+                (Src::AnnouncedActive, CredentialChange::Superseded),
+                (Src::AnnouncedOther, CredentialChange::NoContinuity),
+                (Src::ImportedAccepted, CredentialChange::Pending),
+                (Src::ImportedAccepted, CredentialChange::Unchanged),
+                (Src::ImportedRequested, CredentialChange::Promoted),
+                (Src::Confirmed, CredentialChange::Promoted),
+            ] {
+                assert!(seen.contains_key(&(src, change)), "{src:?} {change:?}");
+            }
+        }
+
+        #[test]
+        fn a_card_of_another_identity_is_refused_from_every_source() {
+            let credentials = Credentials::new(alice(1, 3));
+            let session = alice(1, 3);
+            let foreign = signed(MALLORY, 1, 4, 1, None);
+            for source in [
+                Source::Proven,
+                Source::Announced(&session),
+                Source::Announced(&foreign),
+                Source::Imported(Holding::Requested),
+                Source::Imported(Holding::Accepted),
+                Source::Confirmed,
+            ] {
+                assert_eq!(
+                    credentials.evaluate(&foreign, source),
+                    Err(ProtocolError::IdentityMismatch)
+                );
+            }
+            // A session of another identity carries no announcement.
+            assert_eq!(
+                credentials.evaluate(&alice(2, 4), Source::Announced(&foreign)),
+                Err(ProtocolError::IdentityMismatch)
+            );
+        }
+
+        #[test]
+        fn the_same_card_has_the_same_relation_whatever_its_source() {
+            // The residual of Phase 3: a card of another key that is newer
+            // than the active card and older than the announced successor
+            // was pending when imported and stale when proven. It is stale
+            // now from every source, and nothing changes.
+            let mut credentials = Credentials::new(alice(1, 3));
+            credentials.announce(&alice(2, 6), &alice(1, 3)).unwrap();
+            let card = alice(3, 5);
+            for source in [
+                Source::Proven,
+                Source::Announced(&alice(1, 3)),
+                Source::Imported(Holding::Requested),
+                Source::Imported(Holding::Accepted),
+            ] {
+                let evaluation = credentials.evaluate(&card, source).unwrap();
+                assert_eq!(evaluation.relation, Some(CardRelation::Stale));
+                assert_eq!(evaluation.change, CredentialChange::Stale);
+                assert!(!evaluation.changes_state());
             }
         }
     }

@@ -34,6 +34,7 @@
 pub mod body;
 pub mod card;
 pub mod codec;
+pub mod contact;
 pub mod credential;
 pub mod duplicate;
 pub mod frame;
