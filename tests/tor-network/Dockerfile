@@ -6,7 +6,11 @@
 #     docker build -t monolith-tor-network tests/tor-network
 #     docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined \
 #         -v "$PWD:/src:ro" -v "$PWD/target:/target:ro" \
-#         monolith-tor-network /src/tests/tor-network/four-node.sh
+#         -e MONOLITH_BIN=/target/debug/monolith \
+#         -e MONOLITH_LIFECYCLE_BIN=/target/debug/deps/tor_network-<hash> \
+#         monolith-tor-network /src/tests/tor-network/two-node.sh
+#
+# README.md says how to build the two binaries.
 #
 # Test tooling installs and starts Tor here; Monolith never does.
 FROM debian:12
@@ -22,7 +26,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends tor \
  && rm -rf /var/lib/apt/lists/*
 
-# Chutney at the commit the Phase 3 test ran with.
+# Chutney at the commit the Phase 3 and 4 tests ran with.
 RUN git clone https://gitlab.torproject.org/tpo/core/chutney.git /opt/chutney \
  && git -C /opt/chutney checkout ae3a33c \
  && python3 -m venv /opt/chutney-venv \
