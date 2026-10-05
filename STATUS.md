@@ -88,6 +88,7 @@ Commits on the branch, oldest first:
 | `75b3a22` | A measurement of vault unlock time (`docs/STORAGE.md` 3.3). |
 | `49ed51d` | The vault format against an independent reader and writer, and a pinned test vector. |
 | `e35f7e9`, `3e5965b`, `c6bdd58`, `2c077e0` | Tests of what peers observe (T-ORACLE-6 and 7, T-CONFIRM-1, T-CONTACT-1 and 3, T-INJ), and of the gaps the targeted mutation run found. |
+| `d5f7721` to `a5383cb`, `6d26193` to `c42c698` | The fixes of the two reviews of the Phase 4 code (`docs/DESIGN_QUESTIONS.md` 11.4): the write job, which also fails closed on its own, the closing of a deleted identity, durable rotation steps, an end of rotation only after a durable switch, the snapshot as one cut, cancelled admissions forgotten, the flush of a new directory, the erasing encoder, and their mutation faults. |
 | `86c2b40` onwards, between the above | Documents. |
 
 Where things are:
@@ -129,6 +130,14 @@ None of this is the final verification; code changed after it.
   2026-10-05: clean, one duplicate pair in test builds only.
 - The KDF measurement on the development machine (`docs/STORAGE.md`
   section 3.3).
+- An independent review of the Phase 4 code, before the final
+  verification: no path gives a contact session or message 3 to a key or
+  a record that does not stand; eight findings on durability,
+  cancellation and the life of an identity, all fixed with tests and
+  mutation faults (`docs/DESIGN_QUESTIONS.md` section 11.4). A second
+  review of the fixes found two paths they had left open and two faults
+  that did not work; all fixed. The private network test passed every
+  step on `2deef1c`, with the first round of fixes.
 
 ## 5. What is left, in order
 
