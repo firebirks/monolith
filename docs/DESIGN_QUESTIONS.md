@@ -1375,12 +1375,15 @@ P4-4 Commit before use. A change is applied in memory under its lock and
     stamped with the next generation of the installation. Revocations
     act at once. Anything that grants (message 3, a returned link, the
     success of a user command) waits until its generation is durable;
-    with a vault the waiting task writes the whole installation on the
-    blocking pool, and later waiters find their generation covered. A
-    crash between the two loses the change and everything that depended
-    on it, none of which was used. A failed write marks the installation
-    failed: every session is withdrawn and every later change and
-    admission refused, until the process starts again.
+    with a vault a waiter that finds no write under way starts a job on
+    the blocking pool, which writes the whole installation, puts the vault
+    back and publishes the outcome, however the waiter ends, and later
+    waiters find their generation covered. The snapshot it writes is one
+    cut through every store. A crash between a change and its write
+    loses the change and everything that depended on it, none of which
+    was used. A failed write marks the installation failed: every session
+    is withdrawn and every later change and admission refused, until the
+    process starts again.
 
 P4-5 One rule for live sessions. After every change of a slot, each
     session admitted as the contact's whose card no longer stands for a
@@ -1434,6 +1437,9 @@ P4-10 Rotation (CR-1). One rotation at a time. Beginning one makes the
     every accepted contact confirmed a session made with the new key, or
     when the user says so. Until then contacts that were not sent the
     successor are dialed with the old key, which announces it to them.
+    Each step reaches peers only once it is durable: the successor is
+    announced, and the new key answers, dials and is handed out, from the
+    generation that wrote the step (section 11.4).
 
 P4-11 Dialing. The cards dialed for a contact are its authorized
     successor, if it states the endpoints the user confirmed, and then
@@ -1461,7 +1467,10 @@ P4-14 Several identities. `Installation::restore_identity` brings in an
     identity from its key material with the checks of S39, which also run
     when a vault is opened. The installation owns its identities: an
     identity whose installation is gone refuses every change and admits
-    nobody.
+    nobody. Deleting an identity closes it before it leaves the
+    installation: it refuses every change and admission, holds no Onion
+    Service key, and its accept loop and supervisor end and remove its
+    service (section 11.4).
 
 P4-15 Testing aids. `dev-node`, a node over a persistent vault driven by
     commands on standard input, is what the private network test drives;
