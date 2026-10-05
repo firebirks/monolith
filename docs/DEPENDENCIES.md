@@ -87,24 +87,29 @@ and prehashed signing).
 
 ## 3. Crates in use
 
-Production dependencies of `monolith-identity`, `monolith-protocol` and
-`monolith-session`.
+Production dependencies of the library crates and of the `monolith`
+binary. Phase 3 added `tokio` and `hmac` for the Tor adapter; Phase 4 added
+`argon2`, `hkdf`, `rustix` and `unicode-normalization` for the vault.
 
 ### Direct
 
 | Crate | Version | Licence | MSRV | Used for | Features |
 | --- | --- | --- | --- | --- | --- |
 | `ed25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | identity signatures, key validation | `fast`, `zeroize`; no default features |
-| `sha2` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | identity fingerprint | none; no default features |
+| `sha2` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | identity fingerprint; the hash of HKDF for the vault payload key | none; no default features |
 | `subtle` | 2.6.1 | BSD-3-Clause | not declared | constant-time comparison of invitation capabilities | no default features |
 | `snow` | 0.10.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the Noise state machine of the session handshake and transport | none; no default features |
 | `x25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | X25519 for the session handshake | `static_secrets`, `zeroize`; no default features |
-| `chacha20poly1305` | 0.11.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the session cipher | `zeroize`; no default features |
+| `chacha20poly1305` | 0.11.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the session cipher; XChaCha20-Poly1305 of the vault | `zeroize`; no default features |
 | `getrandom` | 0.3.4 | MIT OR Apache-2.0 | 1.63 | the random source of the operating system | none; no default features |
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type, and invitation capabilities | none; no default features |
 | `sha3` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | the checksum of an onion address | none; no default features |
 | `tokio` | 1.53.1 | MIT | 1.71 | the runtime of the Tor adapter: sockets, timeouts, channels | `io-util`, `net`, `sync`, `time`; no default features. Tests add `rt` and `test-util`. |
 | `hmac` | 0.13.0 | MIT OR Apache-2.0 | 1.85 | HMAC-SHA256 of SAFECOOKIE control authentication | none; no default features |
+| `argon2` | 0.6.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | Argon2id, the key-encryption key of the vault from the passphrase | `alloc`, `zeroize`; no default features |
+| `hkdf` | 0.13.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | HKDF-SHA256, the payload key of the vault from the vault key | none; no default features |
+| `rustix` | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | 1.65 | the vault directory: `openat` without following links, `fstat`, the user id, `flock`, `fsync` of the directory | `std`, `fs`, `process`; no default features |
+| `unicode-normalization` | 0.1.25, pinned exactly | MIT OR Apache-2.0 | 1.36 | NFC of the vault passphrase | none; no default features |
 
 `ed25519-dalek`
 
@@ -288,6 +293,50 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
   The Keccak permutation is in `keccak`, whose unsafe code is the ARMv8
   SHA3 instruction back end only; the portable permutation has none.
 
+`argon2`
+
+- Maintained by RustCrypto, the implementation of RFC 9106 in the same
+  family as the AEAD and hash crates already in use. Taken in the current
+  generation (section 2).
+- Enabled: `alloc` (the memory of the derivation is allocated on the
+  heap) and `zeroize` (that memory is cleared when the derivation ends).
+  Not enabled: the default `password-hash` feature and its string format,
+  `rand`, `simple`, `std`. `password-hash` and `phc` are listed in
+  `Cargo.lock` as optional dependencies of `argon2` and are not compiled.
+- Used only through `Argon2::new(Argon2id, V0x13, params)` and
+  `hash_password_into`, with parameters bounded before the call
+  (`STORAGE.md` section 3.3).
+- Advisories: none. Unsafe: 13 lines, in the SIMD block function, which
+  is selected at run time through `cpufeatures`.
+
+`hkdf`
+
+- Maintained by RustCrypto. Used once: extract with an empty salt and
+  expand with the label of `STORAGE.md` section 3.2, over `sha2`.
+- Advisories: none. Unsafe: none.
+
+`rustix`
+
+- Maintained by the Bytecode Alliance. A safe interface to the system
+  calls of the vault directory that the standard library does not offer
+  at the minimum Rust version without `unsafe` in Monolith: opening a file
+  relative to a directory handle with `O_NOFOLLOW`, `fstat` of a handle,
+  the user id for the owner check, `flock` for the single-instance lock,
+  and `fsync` of a directory. Monolith keeps `unsafe_code = "forbid"`.
+- Enabled: `std`, `fs`, `process` (for `getuid`). On Linux it uses its
+  raw system call back end (`linux-raw-sys`), not `libc`.
+- Advisories: none in the RustSec database. Unsafe: about 1650 lines,
+  as the crate exists to wrap system calls; the raw back end is its
+  largest part.
+
+`unicode-normalization`
+
+- Maintained by the unicode-rs project. Used for one thing: the passphrase
+  of a vault is normalized to NFC before Argon2id, so that one passphrase
+  typed on two systems opens the same vault. The protocol never
+  normalizes text (`PROTOCOL.md` section 9).
+- Advisories: none. Unsafe: 5 lines, in lookup tables.
+
 ### Transitive
 
 | Crate | Version | Licence | Through | Unsafe lines |
@@ -319,6 +368,12 @@ Production dependencies of `monolith-identity`, `monolith-protocol` and
 | `cmov` | 0.5.4 | Apache-2.0 OR MIT | `ctutils` | 25 |
 | `rand_core` | 0.10.1 | MIT OR Apache-2.0 | `x25519-dalek` | 0 |
 | `libc` | 0.2.189 | MIT OR Apache-2.0 | `getrandom`, `mio`, `socket2`, on Linux | bindings |
+| `blake2` | 0.11.0 | MIT OR Apache-2.0 | `argon2` | 1 |
+| `base64ct` | 1.8.3 | Apache-2.0 OR MIT | `argon2` | 5 |
+| `linux-raw-sys` | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | `rustix`, on Linux | bindings |
+| `bitflags` | 2.13.2 | MIT OR Apache-2.0 | `rustix` | 3 |
+| `errno` | 0.3.14 | MIT OR Apache-2.0 | `rustix` | 12 |
+| `tinyvec` | 1.13.3 | Zlib OR Apache-2.0 OR MIT | `unicode-normalization` | 5 |
 
 `curve25519-dalek` is taken as `ed25519-dalek` requires it, with the
 features `digest`, `precomputed-tables` and `zeroize`. Its
@@ -340,6 +395,12 @@ of authentication tags.
 
 `rand_core` is a crate of traits. It contains no generator, and Monolith
 uses none of it.
+
+`blake2` is the hash inside Argon2; RUSTSEC-2019-0019 (HMAC-BLAKE2 with
+long keys) was fixed in 0.8.1 and does not apply to 0.11.0. `base64ct` is the constant-time Base64
+of the password-hash string format, which Monolith does not use; `argon2`
+depends on it unconditionally. `linux-raw-sys` holds the generated
+constants and structures of the Linux system call interface for `rustix`.
 
 `snow` itself brings `subtle`, which was in the tree already, and
 `rustc_version` for its build script.
@@ -365,13 +426,13 @@ lock file and use `libfuzzer-sys`.
 
 ## 4. Checks
 
-Run on the dependency set above on 2026-10-02:
+Run on the dependency set above; the date is in each row.
 
 | Check | Result |
 | --- | --- |
-| `cargo audit` | no advisory applies; 60 crates in `Cargo.lock` |
-| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy |
-| `cargo tree -d` | one pair: `rand_core` 0.9.5 and 0.10.1, see below |
+| `cargo audit` | no advisory applies; 82 crates in `Cargo.lock` (2026-10-05, Phase 4) |
+| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy (2026-10-05) |
+| `cargo tree -d` | one pair: `rand_core` 0.9.5 and 0.10.1, see below (2026-10-05) |
 | Build and tests with Rust 1.85.1 | pass |
 | Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `snow`, `zeroize`, `proptest`) |
 
