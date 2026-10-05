@@ -211,6 +211,31 @@ impl Withdrawal {
     }
 }
 
+/// Ends the withdrawal of a link that is not made yet if the wait it
+/// guards never returns: a deadline or an aborted task that drops the
+/// future while the admission is made durable. The store then forgets the
+/// session it tracked. Disarmed once the wait returns; from there on the
+/// error paths end the withdrawal, and the link does when it is dropped.
+struct EndIfCancelled(Option<Withdrawal>);
+
+impl EndIfCancelled {
+    fn new(withdrawal: &Withdrawal) -> Self {
+        Self(Some(withdrawal.clone()))
+    }
+
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for EndIfCancelled {
+    fn drop(&mut self) {
+        if let Some(withdrawal) = self.0.take() {
+            withdrawal.end();
+        }
+    }
+}
+
 impl fmt::Debug for Withdrawal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Withdrawal")
@@ -364,7 +389,10 @@ where
             withdrawal.end();
             return Err(LinkError::Budget);
         };
-        if let Err(error) = identity.wait_durable(depends).await {
+        let cancelled = EndIfCancelled::new(&withdrawal);
+        let durable = identity.wait_durable(depends).await;
+        cancelled.disarm();
+        if let Err(error) = durable {
             withdrawal.end();
             return Err(LinkError::Storage(error));
         }
@@ -431,7 +459,10 @@ where
             };
             (Some(slot), None)
         };
-        if let Err(error) = identity.wait_durable(depends).await {
+        let cancelled = EndIfCancelled::new(&withdrawal);
+        let durable = identity.wait_durable(depends).await;
+        cancelled.disarm();
+        if let Err(error) = durable {
             withdrawal.end();
             return Err(LinkError::Storage(error));
         }

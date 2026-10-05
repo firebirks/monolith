@@ -814,3 +814,51 @@ fn the_new_key_reaches_no_peer_before_it_is_durable() {
     });
 }
 
+#[test]
+fn a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session() {
+    // The admission of Bob is tracked by Alice's store; the dial is then
+    // dropped (its deadline, an aborted task) while it waits for a write.
+    // The store forgets the session: nothing stays tracked for a link that
+    // was never made.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation = Installation::create(
+            Box::new(dir.clone()),
+            &Passphrase::new("test passphrase").unwrap(),
+            KdfParams::FLOOR,
+        )
+        .unwrap();
+        let alice = node_in(installation, &network, 1, 1, 1).await;
+        let mut bob = node(&network, 2).await;
+        befriend(&alice, &mut bob).await;
+        // A write is under way and held: whatever Alice decides now waits.
+        dir.hold_writes();
+        let _released = Released(&dir);
+        let identity = alice.identity.clone();
+        let pending = tokio::spawn(async move {
+            identity
+                .set_request_mode(monolith_protocol::contact::RequestMode::Open)
+                .await
+        });
+        while !dir.write_held() {
+            tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+        }
+        let dialed = tokio::time::timeout(
+            core::time::Duration::from_millis(300),
+            connect(&alice, &mut bob),
+        )
+        .await;
+        assert!(dialed.is_err());
+        let sessions = |node: &common::Node, peer: &common::Node| {
+            node.identity
+                .contact(peer.identity.identity())
+                .unwrap()
+                .sessions
+        };
+        assert_eq!(sessions(&alice, &bob), 0);
+        dir.release_writes();
+        pending.await.unwrap().unwrap();
+        assert_eq!(sessions(&alice, &bob), 0);
+    });
+}
