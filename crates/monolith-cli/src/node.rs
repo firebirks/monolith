@@ -30,9 +30,10 @@
 //! accept|decline <n> <peer>     answer a pending request
 //! show <n> <peer>               what is held about a peer
 //! requests <n>                  the pending requests
-//! send <n> <peer> <text>        send a chat message, dialing if needed
+//! send <n> <peer> <text>        send a chat message on the newest session,
+//!                               dialing if none is open
 //! dial <n> <peer> [text]        open a new session, and send the text
-//! close <n> <peer>              close the session with a peer
+//! close <n> <peer>              close the newest session with a peer
 //! rotate <n> begin|switch|finish|force-switch|force-finish
 //! quit                          remove the services and stop
 //! ```
@@ -44,6 +45,7 @@ use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -87,10 +89,18 @@ struct Node {
     installation: Installation,
     backend: SystemTorBackend,
     budgets: Budgets,
-    sessions: Mutex<HashMap<(IdentityPublicKey, IdentityPublicKey), mpsc::Sender<Outgoing>>>,
+    /// The open sessions of each local identity with each peer, newest
+    /// last; a contact may have two while one of the keys changes.
+    sessions: Mutex<HashMap<(IdentityPublicKey, IdentityPublicKey), Vec<OpenSession>>>,
+    serial: AtomicU64,
     shutdown: watch::Sender<bool>,
     supervisors: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     echo: bool,
+}
+
+struct OpenSession {
+    serial: u64,
+    sender: mpsc::Sender<Outgoing>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -194,6 +204,18 @@ impl Node {
         lock(&self.supervisors).push(task);
     }
 
+    /// The sender of the newest open session of `local` with `peer`.
+    fn newest_session(
+        &self,
+        local: &LocalIdentity,
+        peer: &IdentityPublicKey,
+    ) -> Option<mpsc::Sender<Outgoing>> {
+        lock(&self.sessions)
+            .get(&(*local.identity(), *peer))
+            .and_then(|open| open.last())
+            .map(|session| session.sender.clone())
+    }
+
     /// Runs one session until it ends, applying what arrives to the store
     /// of `local` and sending `queued` once it is confirmed.
     async fn run(
@@ -205,11 +227,24 @@ impl Node {
     ) {
         let peer = *established.link.session().peer();
         let (sender, outgoing) = mpsc::channel(SESSION_QUEUE);
-        lock(&self.sessions).insert((*local.identity(), peer), sender);
+        let key = (*local.identity(), peer);
+        let serial = self.serial.fetch_add(1, Ordering::Relaxed);
+        lock(&self.sessions)
+            .entry(key)
+            .or_default()
+            .push(OpenSession { serial, sender });
         let ended = self
             .session(index, &local, established, outgoing, &mut queued)
             .await;
-        lock(&self.sessions).remove(&(*local.identity(), peer));
+        {
+            let mut sessions = lock(&self.sessions);
+            if let Some(open) = sessions.get_mut(&key) {
+                open.retain(|session| session.serial != serial);
+                if open.is_empty() {
+                    sessions.remove(&key);
+                }
+            }
+        }
         say(&format!("ended {index} {} {ended}", short(&peer)));
     }
 
@@ -501,6 +536,7 @@ pub(crate) async fn run(
         backend: SystemTorBackend::new(config),
         budgets: Budgets::new(),
         sessions: Mutex::new(HashMap::new()),
+        serial: AtomicU64::new(0),
         shutdown,
         supervisors: Mutex::new(Vec::new()),
         echo,
@@ -525,7 +561,11 @@ pub(crate) async fn run(
     for supervisor in supervisors {
         let _ = supervisor.await;
     }
-    let sessions: Vec<_> = lock(&node.sessions).values().cloned().collect();
+    let sessions: Vec<_> = lock(&node.sessions)
+        .values()
+        .flatten()
+        .map(|session| session.sender.clone())
+        .collect();
     for session in sessions {
         let _ = session.send(Outgoing::Close).await;
     }
@@ -732,9 +772,7 @@ impl Node {
                 let (index, local) = self.identity(n)?;
                 let peer = self.peer(&local, peer)?;
                 let message = words.join(" ");
-                let session = lock(&self.sessions)
-                    .get(&(*local.identity(), peer))
-                    .cloned();
+                let session = self.newest_session(&local, &peer);
                 if let Some(session) = session {
                     if session.send(Outgoing::Chat(message.clone())).await.is_ok() {
                         return Ok(());
@@ -761,9 +799,7 @@ impl Node {
             ["close", n, peer] => {
                 let (_, local) = self.identity(n)?;
                 let peer = self.peer(&local, peer)?;
-                let session = lock(&self.sessions)
-                    .get(&(*local.identity(), peer))
-                    .cloned();
+                let session = self.newest_session(&local, &peer);
                 match session {
                     Some(session) => {
                         let _ = session.send(Outgoing::Close).await;
