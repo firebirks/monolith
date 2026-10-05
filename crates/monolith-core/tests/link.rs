@@ -629,3 +629,26 @@ fn a_dial_to_an_identity_without_a_record_sends_nothing_of_the_local_identity() 
         assert_eq!(answered.err(), Some(LinkError::Stream));
     });
 }
+
+#[test]
+fn a_contact_refused_for_the_contact_budget_leaves_no_session_behind() {
+    // Bob's process has no room for another contact session. Alice's dial
+    // is admitted as a contact's and then refused for the budget: the
+    // stream is closed, and the store forgets the session it had tracked.
+    run(async {
+        let network = MockNetwork::new();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        common::befriend(&alice, &mut bob).await;
+        bob.budgets = Budgets::with_limits(MAX_INBOUND_HANDSHAKES, 0, MAX_CONCURRENT_DIALS);
+        let (_, answered) = connect(&alice, &mut bob).await;
+        assert_eq!(answered.err(), Some(LinkError::Budget));
+        assert_eq!(
+            bob.identity
+                .contact(alice.identity.identity())
+                .unwrap()
+                .sessions,
+            0
+        );
+    });
+}

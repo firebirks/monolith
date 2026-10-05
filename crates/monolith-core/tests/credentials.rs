@@ -688,3 +688,52 @@ fn a_stranger_request_reaches_the_queue_and_nothing_durable() {
         );
     });
 }
+
+#[test]
+fn a_rotation_switches_and_finishes_only_when_due() {
+    // The policy of DESIGN_QUESTIONS.md section 11: the identity answers
+    // with the new key once every accepted contact was sent the successor,
+    // and drops the old key once every accepted contact confirmed a
+    // session with the new one, unless the user says so earlier.
+    run(async {
+        let network = MockNetwork::new();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        let mut carol = node(&network, 3).await;
+        befriend(&alice, &mut bob).await;
+        befriend(&alice, &mut carol).await;
+        let old_card = alice.card();
+        let successor = alice.identity.begin_rotation().await.unwrap();
+        // A second rotation cannot begin while one is in progress.
+        assert!(alice.identity.begin_rotation().await.is_err());
+        // Nobody was sent the successor: no switch, no finish.
+        assert!(!alice.identity.switch_rotation(false).await.unwrap());
+        assert!(!alice.identity.finish_rotation(false).await.unwrap());
+        assert_eq!(alice.card(), old_card);
+        // Bob only: still not due.
+        alice
+            .identity
+            .mark_announced(bob.identity.identity())
+            .await
+            .unwrap();
+        assert!(!alice.identity.switch_rotation(false).await.unwrap());
+        // Bob is dialed with the old key until the switch.
+        let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
+        assert_eq!(plan.local.card(), &old_card);
+        // Carol too: due.
+        alice
+            .identity
+            .mark_announced(carol.identity.identity())
+            .await
+            .unwrap();
+        assert!(alice.identity.switch_rotation(false).await.unwrap());
+        assert_eq!(alice.card(), successor);
+        // Nobody confirmed the new key yet: the old key stays.
+        assert!(!alice.identity.finish_rotation(false).await.unwrap());
+        // The user may end it anyway.
+        assert!(alice.identity.finish_rotation(true).await.unwrap());
+        assert_eq!(alice.identity.successor_card(), None);
+        assert_eq!(alice.card(), successor);
+        let _ = (&mut bob, &mut carol);
+    });
+}

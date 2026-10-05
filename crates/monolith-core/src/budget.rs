@@ -71,6 +71,22 @@ impl Budgets {
         }
     }
 
+    /// Process-wide budgets with lower limits than those of
+    /// `RESOURCE_LIMITS.md`: for a process that is meant to hold less, or
+    /// for a test that reaches a limit. Raising a limit above the
+    /// documented one is a reviewed change, not a call.
+    pub fn with_limits(handshakes: usize, contact_sessions: usize, dials: usize) -> Self {
+        Self {
+            handshakes: Arc::new(Semaphore::new(
+                handshakes.min(MAX_PROCESS_INBOUND_HANDSHAKES),
+            )),
+            contact_sessions: Arc::new(Semaphore::new(
+                contact_sessions.min(MAX_PROCESS_CONTACT_SESSIONS),
+            )),
+            dials: Arc::new(Semaphore::new(dials.min(MAX_CONCURRENT_DIALS))),
+        }
+    }
+
     /// A slot for an inbound handshake at `identity`, if both its budget
     /// and the process's have one.
     pub fn inbound_handshake(&self, identity: &LocalIdentity) -> Option<HandshakePermit> {
