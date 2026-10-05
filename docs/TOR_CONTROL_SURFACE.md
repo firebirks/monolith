@@ -98,15 +98,16 @@ Exactly two forms. They differ only in the key.
   platform forms.
 - The first form creates a key; Tor returns it once in
   `250-PrivateKey=ED25519-V3:<key>`. The caller decides whether it is kept
-  only in memory (ephemeral endpoint) or stored (persistent endpoint, from
-  Phase 4). Phase 3 never writes it to disk.
+  only in memory (ephemeral endpoint) or stored (persistent endpoint):
+  since Phase 4 an identity of a persistent installation keeps it in the
+  vault, and nothing else writes it to disk.
 - The second form publishes the service of a key the caller holds.
 - Common policy, the same in both forms:
   - `MaxStreams=8` with `Flags=MaxStreamsCloseCircuit`. The limit applies
     per rendezvous circuit, not to the service as a whole: a circuit that
     tries to open more streams is closed. It is defense in depth; the
     application budgets of `RESOURCE_LIMITS.md` decide what is accepted.
-    8 is provisional and reviewed in Phase 4.
+    8 is provisional; its review (C1) is still open after Phase 4.
   - `PoWDefensesEnabled=1`, with Tor's default queue parameters. Monolith
     requests the defense. It cannot tell whether the installed tor was
     built with the module that implements it, and does not claim that the
@@ -214,7 +215,8 @@ C1. `MaxStreams=8`. The specification does not say whether Tor counts
     streams open at the same time or every stream a rendezvous circuit has
     carried. One Monolith session uses one stream, so either reading leaves
     room for reconnects on one circuit, and a closed circuit only forces a
-    new one. Provisional; reviewed with the resource tuning of Phase 4.
+    new one. Provisional. Phase 4 did not review it; it is listed with the
+    work before Phase 5 (`DESIGN_QUESTIONS.md` section 11.3).
 
 C2. `PoWQueueRate` and `PoWQueueBurst` are left at Tor's defaults (250 and
     2500), which are sized for busy services. Lower values may suit a
