@@ -38,7 +38,7 @@ use monolith_storage::dir::VaultDir;
 use monolith_storage::record::{Contents, ONION_SECRET_LEN, StoredIdentity, StoredRotation};
 use monolith_storage::vault::{KdfParams, Passphrase, Recovery, Vault};
 use monolith_tor::{IsolationGroup, OnionServiceSecret, TorError};
-use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+use tokio::sync::{Mutex as AsyncMutex, Semaphore, watch};
 use zeroize::Zeroizing;
 
 use crate::contacts::{ContactStore, ContactView, ImportOutcome, StoreError};
@@ -197,6 +197,8 @@ pub struct LocalIdentity {
     isolation: Mutex<HashMap<IdentityPublicKey, IsolationGroup>>,
     shared: Weak<Shared>,
     durability: Arc<Durability>,
+    /// Turns true when the identity is deleted.
+    deleted: watch::Sender<bool>,
 }
 
 impl fmt::Debug for LocalIdentity {
@@ -227,6 +229,7 @@ impl LocalIdentity {
             isolation: Mutex::new(HashMap::new()),
             shared,
             durability,
+            deleted: watch::Sender::new(false),
         }
     }
 
@@ -247,8 +250,12 @@ impl LocalIdentity {
     }
 
     /// The secret of the Onion Service, to publish it again after Tor lost
-    /// it. `None` before Tor returned one.
+    /// it. `None` before Tor returned one, and once the identity was
+    /// deleted.
     pub fn onion_secret(&self) -> Option<OnionServiceSecret> {
+        if self.is_deleted() {
+            return None;
+        }
         lock(&self.keys)
             .onion
             .as_ref()
@@ -265,20 +272,44 @@ impl LocalIdentity {
         lock(&self.keys).answering()
     }
 
+    /// Returns true once the identity was deleted. A deleted identity
+    /// refuses every change and admits nobody, and its state is in no
+    /// vault.
+    pub fn is_deleted(&self) -> bool {
+        self.contacts.is_closed()
+    }
+
+    /// Follows the deletion of the identity, for its supervisor.
+    pub(crate) fn deletion(&self) -> watch::Receiver<bool> {
+        self.deleted.subscribe()
+    }
+
+    /// Closes the identity before it is removed from its installation.
+    fn close(&self) {
+        self.contacts.close();
+        self.deleted.send_replace(true);
+    }
+
     async fn commit(&self, generation: u64) -> Result<(), StoreError> {
-        let shared = self.shared.upgrade().ok_or(StoreError::Failed)?;
-        shared
-            .commit(generation)
+        self.wait_durable(generation)
             .await
-            .map_err(StoreError::Commit)?;
-        Ok(())
+            .map_err(StoreError::Commit)
     }
 
     /// Waits until the state a decision of this identity depended on is
-    /// durable. The link waits for it before it uses an admission.
+    /// durable. The link waits for it before it uses an admission. A
+    /// deleted identity has nothing durable: the wait fails if it was
+    /// deleted before it began or before it ended.
     pub(crate) async fn wait_durable(&self, generation: u64) -> Result<(), CommitError> {
+        if self.is_deleted() {
+            return Err(CommitError::Failed);
+        }
         let shared = self.shared.upgrade().ok_or(CommitError::Failed)?;
-        shared.commit(generation).await
+        shared.commit(generation).await?;
+        if self.is_deleted() {
+            return Err(CommitError::Failed);
+        }
+        Ok(())
     }
 
     pub(crate) fn admit_inbound(
@@ -1137,15 +1168,20 @@ impl Installation {
         identity: &IdentityPublicKey,
     ) -> Result<(), InstallationError> {
         let _change = self.shared.changes.lock().await;
-        let removed = {
+        {
             let mut identities = lock(&self.shared.identities);
             let position = identities
                 .iter()
                 .position(|held| held.identity() == identity)
                 .ok_or(InstallationError::Store(StoreError::NotFound))?;
-            identities.remove(position)
-        };
-        removed.contacts.withdraw_all();
+            // Closed before it leaves the installation, so that nothing it
+            // does from here on can be taken for durable by a write that no
+            // longer holds it.
+            if let Some(removed) = identities.get(position) {
+                removed.close();
+            }
+            identities.remove(position);
+        }
         let generation = self.shared.durability.bump();
         self.shared
             .commit(generation)

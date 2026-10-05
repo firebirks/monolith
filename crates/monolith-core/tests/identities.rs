@@ -16,6 +16,7 @@ use common::{
     Node, befriend, confirm_both, connect, dial_and_answer, keys, node, node_in, request, run,
     send_first, state,
 };
+use monolith_core::contacts::StoreError;
 use monolith_core::identity::{Installation, InstallationError};
 use monolith_core::link::LinkError;
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
@@ -265,6 +266,65 @@ fn t_mi_8_every_dial_names_its_identity() {
         let (dialed, answered) = dial_and_answer(&b, &card, &mut carol).await;
         assert!(matches!(dialed.err(), Some(LinkError::Refused(_))));
         assert!(answered.is_err());
+    });
+}
+
+#[test]
+fn a_deleted_identity_admits_nobody_and_changes_nothing() {
+    // B is deleted while Carol still holds it as a contact. B dials
+    // nobody and answers nobody, refuses every change, and nothing of it
+    // is in the vault: a deletion is not undone by a write that no longer
+    // holds the identity.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let (a, mut b) = two(&network, &installation).await;
+        let mut carol = node(&network, 3).await;
+        befriend(&carol, &mut b).await;
+        installation
+            .delete_identity(b.identity.identity())
+            .await
+            .unwrap();
+        assert!(b.identity.is_deleted());
+        assert!(b.identity.onion_secret().is_none());
+
+        // B dials Carol: no message 3, so Carol sees the stream end where
+        // it was due.
+        let (dialed, answered) = connect(&b, &mut carol).await;
+        assert!(dialed.is_err());
+        assert_eq!(answered.err(), Some(LinkError::Stream));
+        // Carol dials B: B admits nobody, and Carol's link ends.
+        let (dialed, answered) = connect(&carol, &mut b).await;
+        assert!(answered.is_err());
+        if let Ok(mut dialed) = dialed {
+            assert!(dialed.link.receive().await.is_err());
+        }
+
+        let other = node(&network, 4).await;
+        assert_eq!(
+            b.identity.create_invitation(None).await.err(),
+            Some(StoreError::Failed)
+        );
+        assert_eq!(
+            b.identity.import(&other.card()).await.err(),
+            Some(StoreError::Failed)
+        );
+        assert_eq!(
+            b.identity.block(other.identity.identity()).await.err(),
+            Some(StoreError::Failed)
+        );
+
+        let after = state(&installation);
+        assert_eq!(after.identities.len(), 1);
+        assert_eq!(&after.identities[0].identity, a.identity.identity());
+        drop((a, b, installation));
+        let reopened =
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase())
+                .unwrap()
+                .0;
+        assert_eq!(state(&reopened), after);
     });
 }
 

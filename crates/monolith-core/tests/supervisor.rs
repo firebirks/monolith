@@ -282,3 +282,56 @@ fn an_identity_without_a_key_is_not_published() {
         assert_eq!(network.dials(), 0);
     });
 }
+
+#[test]
+fn a_deleted_identity_is_taken_down_and_not_published_again() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let installation = Box::leak(Box::new(Installation::ephemeral()));
+        let keys = |seed: u8| IdentityKeys {
+            seed: Zeroizing::new([seed; 32]),
+            transport: Zeroizing::new([seed ^ 0xA5; 32]),
+            onion: Some(Zeroizing::new([seed; 64])),
+            epoch: EndpointEpoch::FIRST,
+            endpoint: endpoint(seed),
+        };
+        let bob = installation.restore_identity(keys(2), None).await.unwrap();
+        let alice = identity(1, true).await;
+        alice.import(&bob.card()).await.unwrap();
+        bob.import(&alice.card()).await.unwrap();
+
+        // While it serves: the supervisor ends and the service is removed.
+        let (_stop, shutdown) = watch::channel(false);
+        let (task, mut states) = supervised(network.backend(), bob.clone(), shutdown);
+        wait_for(&mut states, Publication::Available).await;
+        assert!(reach(&network, &alice, &bob).await);
+        installation.delete_identity(bob.identity()).await.unwrap();
+        assert_eq!(task.await.unwrap(), Publication::Stopped);
+        assert!(!network.is_published(&bob.endpoint()));
+        assert!(bob.onion_secret().is_none());
+
+        // A supervisor started for it later publishes nothing.
+        let (_stop, shutdown) = watch::channel(false);
+        let (task, _states) = supervised(network.backend(), bob.clone(), shutdown);
+        assert_eq!(task.await.unwrap(), Publication::Stopped);
+        assert!(!network.is_published(&bob.endpoint()));
+
+        // While it waits between attempts: it ends at once.
+        let carol = installation.restore_identity(keys(3), None).await.unwrap();
+        network.set_control_available(false);
+        let (_stop, shutdown) = watch::channel(false);
+        let (task, mut states) = supervised(network.backend(), carol.clone(), shutdown);
+        wait_for(
+            &mut states,
+            Publication::Unavailable(TorError::ControlUnavailable),
+        )
+        .await;
+        let asked = tokio::time::Instant::now();
+        installation
+            .delete_identity(carol.identity())
+            .await
+            .unwrap();
+        assert_eq!(task.await.unwrap(), Publication::Stopped);
+        assert!(asked.elapsed() < Duration::from_secs(1));
+    });
+}

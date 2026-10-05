@@ -39,6 +39,7 @@
 
 use core::fmt;
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use monolith_identity::IdentityPublicKey;
@@ -268,6 +269,8 @@ pub(crate) struct ContactStore {
     slots: Mutex<HashMap<IdentityPublicKey, Arc<Slot>>>,
     counts: Mutex<Counts>,
     durability: Arc<Durability>,
+    /// The local identity was deleted: the store refuses everything.
+    closed: AtomicBool,
 }
 
 impl fmt::Debug for ContactStore {
@@ -283,6 +286,7 @@ impl ContactStore {
             slots: Mutex::new(HashMap::new()),
             counts: Mutex::new(Counts::default()),
             durability,
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -341,11 +345,27 @@ impl ContactStore {
     }
 
     fn check_failed(&self) -> Result<(), StoreError> {
-        if self.durability.is_failed() {
+        if self.durability.is_failed() || self.is_closed() {
             Err(StoreError::Failed)
         } else {
             Ok(())
         }
+    }
+
+    /// Returns true once the local identity was deleted.
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Closes the store of a local identity that is being deleted: from
+    /// now on it refuses every operation and admission, and every session
+    /// it admitted as a contact's is withdrawn. The flag is set before the
+    /// sessions are withdrawn, so an operation that passed its check
+    /// earlier and admits afterwards is refused when it waits for
+    /// durability (`LocalIdentity::wait_durable`).
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        self.withdraw_all();
     }
 
     /// Runs `operation` on the entry of `identity` under its lock. Without

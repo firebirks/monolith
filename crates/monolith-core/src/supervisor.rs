@@ -18,7 +18,7 @@
 //!   once a publication stayed up for a minute. There is no loop without
 //!   a delay;
 //! - shutdown ends the loop at once, wherever it is, and removes the
-//!   service.
+//!   service, and so does the deletion of the identity.
 //!
 //! The supervisor reaches Tor only through the backend, which fails
 //! closed: it never falls back to a direct connection, a resolver or
@@ -152,18 +152,37 @@ async fn unless_stopped<T>(
     .await
 }
 
-/// Sleeps for `delay` unless shutdown is requested first. Returns true if
-/// it was, or if the shutdown sender is gone.
-async fn sleep_or_stop(delay: Duration, shutdown: &mut watch::Receiver<bool>) -> bool {
+/// Sleeps for `delay` unless shutdown is requested or the identity is
+/// deleted first. Returns true if either happened, or if the shutdown
+/// sender is gone.
+async fn sleep_or_stop(
+    delay: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    identity: &LocalIdentity,
+) -> bool {
     let Some(deadline) = tokio::time::Instant::now().checked_add(delay) else {
         return true;
     };
+    let mut deletion = identity.deletion();
     loop {
-        if *shutdown.borrow_and_update() {
+        if *shutdown.borrow_and_update() || identity.is_deleted() {
             return true;
         }
-        match unless_stopped(tokio::time::sleep_until(deadline), shutdown).await {
-            Waited::Done(()) => return *shutdown.borrow(),
+        let sleep = async {
+            let mut deleted = core::pin::pin!(deletion.wait_for(|deleted| *deleted));
+            let mut sleep = core::pin::pin!(tokio::time::sleep_until(deadline));
+            core::future::poll_fn(|cx| {
+                if deleted.as_mut().poll(cx).is_ready() {
+                    return core::task::Poll::Ready(false);
+                }
+                sleep.as_mut().poll(cx).map(|()| true)
+            })
+            .await
+        };
+        match unless_stopped(sleep, shutdown).await {
+            Waited::Done(slept) => {
+                return !slept || *shutdown.borrow() || identity.is_deleted();
+            }
             Waited::Changed => {}
             Waited::Gone => return true,
         }
@@ -190,7 +209,8 @@ where
 {
     let mut backoff = Backoff::new();
     loop {
-        if *shutdown.borrow_and_update() {
+        // A deleted identity is not published again.
+        if *shutdown.borrow_and_update() || identity.is_deleted() {
             break;
         }
         let Some(secret) = identity.onion_secret() else {
@@ -234,7 +254,7 @@ where
             Err(error) => error,
         };
         state.send_replace(Publication::Unavailable(failure));
-        if sleep_or_stop(backoff.delay(jitter()), &mut shutdown).await {
+        if sleep_or_stop(backoff.delay(jitter()), &mut shutdown, identity).await {
             break;
         }
     }

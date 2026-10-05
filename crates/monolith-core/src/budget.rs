@@ -154,8 +154,12 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     let mut tasks = JoinSet::new();
+    // A deleted identity answers nobody: the loop ends as at shutdown, and
+    // its service is removed.
+    let mut deletion = identity.deletion();
+    let mut deleted = core::pin::pin!(deletion.wait_for(|deleted| *deleted));
     let end = loop {
-        if *shutdown.borrow() {
+        if *shutdown.borrow() || identity.is_deleted() {
             break ServeEnd::Shutdown;
         }
         // Finished handlers are collected here, so the set holds only the
@@ -166,6 +170,9 @@ where
             let mut accept = core::pin::pin!(service.accept());
             let mut changed = core::pin::pin!(shutdown.changed());
             core::future::poll_fn(|cx| {
+                if deleted.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(Some(Err(None)));
+                }
                 if let Poll::Ready(result) = accept.as_mut().poll(cx) {
                     return Poll::Ready(Some(result.map_err(Some)));
                 }
@@ -179,8 +186,8 @@ where
         match next {
             // The shutdown value changed; it is read at the top.
             None => continue,
-            // The shutdown sender is gone: nobody can stop this loop any
-            // more, so it stops now.
+            // The identity was deleted, or the shutdown sender is gone:
+            // nobody can stop this loop any more, so it stops now.
             Some(Err(None)) => break ServeEnd::Shutdown,
             // A listener error such as too many open files passes; the
             // service is still published, so the loop waits and goes on.
