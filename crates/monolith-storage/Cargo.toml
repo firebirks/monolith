@@ -21,6 +21,7 @@ zeroize = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 proptest.workspace = true
+zeroize.workspace = true
 
 [lints]
 workspace = true

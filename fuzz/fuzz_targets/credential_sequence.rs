@@ -2,7 +2,10 @@
 //! announcements, confirmations and imports keeps the invariants, never
 //! moves the active epoch back, and changes the active transport key only
 //! by promoting a proven authorized successor, by confirming the pending
-//! one, or by a replacement for a contact that has not accepted.
+//! one, or by a replacement for a contact that has not accepted. Before
+//! each event, the card is classified the same way whatever its source,
+//! and evaluating it from any source changes nothing until it is applied;
+//! every state reached is one `Credentials::restore` accepts.
 //!
 //! Every event is three bytes. The first selects the event, its value
 //! modulo 5: an admission (0), an announcement (1), a confirmation (2), an
@@ -22,7 +25,7 @@ use std::sync::LazyLock;
 use libfuzzer_sys::fuzz_target;
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey, TransportPublicKey};
 use monolith_protocol::card::{ContactCard, EndpointSet};
-use monolith_protocol::credential::{CredentialChange, Credentials};
+use monolith_protocol::credential::{CredentialChange, Credentials, Holding, Source};
 use monolith_protocol::session::PeerRecord;
 
 const IDENTITY: [u8; 32] = [0x10; 32];
@@ -105,9 +108,42 @@ fn check(credentials: &Credentials) {
         credentials.pending_successor(),
     ) {
         assert_ne!(authorized.transport(), pending.transport());
+        assert!(authorized.epoch() < pending.epoch());
     }
     assert_ne!(Some(active.transport()), credentials.retired());
     assert!(credentials.authorizes(active));
+    // A state the vault can hold and give back.
+    assert_eq!(
+        Credentials::restore(
+            active.clone(),
+            credentials.authorized_successor().cloned(),
+            credentials.pending_successor().cloned(),
+            credentials.pending_was_imported(),
+            credentials.retired().copied(),
+            credentials.invitation().cloned(),
+        )
+        .as_ref(),
+        Ok(credentials)
+    );
+}
+
+/// The card is the same card from every source: one relation, and an
+/// evaluation that changes nothing by itself.
+fn one_relation(credentials: &Credentials, card: &ContactCard) {
+    let relation = credentials.relation(card).unwrap();
+    let session = credentials.active().clone();
+    for source in [
+        Source::Proven,
+        Source::Announced(&session),
+        Source::Imported(Holding::Requested),
+        Source::Imported(Holding::Accepted),
+    ] {
+        let evaluation = credentials.evaluate(card, source).unwrap();
+        assert_eq!(evaluation.relation, Some(relation));
+        if let Some(next) = evaluation.next() {
+            assert!(next.active().epoch() >= credentials.active().epoch());
+        }
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
@@ -120,6 +156,8 @@ fuzz_target!(|data: &[u8]| {
             usize::from((key_byte >> 2) & 1),
         );
         let before = credentials.clone();
+        one_relation(&before, presented);
+        assert!(credentials == before);
         let operation = selector % 5;
         let change = match operation {
             0 => {

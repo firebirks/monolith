@@ -14,6 +14,10 @@ monolith-identity = { path = "../crates/monolith-identity" }
 monolith-protocol = { path = "../crates/monolith-protocol" }
 monolith-session = { path = "../crates/monolith-session" }
 monolith-tor = { path = "../crates/monolith-tor" }
+monolith-storage = { path = "../crates/monolith-storage" }
+monolith-core = { path = "../crates/monolith-core" }
+tokio = { version = "1.53.1", default-features = false, features = ["rt"] }
+zeroize = { version = "1.9.0", default-features = false }
 
 # This project is not a member of the main workspace. It needs a nightly
 # toolchain and has its own lock file.
@@ -122,6 +126,20 @@ bench = false
 [[bin]]
 name = "socks_reply"
 path = "fuzz_targets/socks_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vault_payload"
+path = "fuzz_targets/vault_payload.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "contact_store"
+path = "fuzz_targets/contact_store.rs"
 test = false
 doc = false
 bench = false
