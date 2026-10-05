@@ -92,6 +92,48 @@ pub fn party(seed: u8, transport: u8, epoch: u64, endpoint: OnionServiceKey) -> 
     .unwrap()
 }
 
+/// The fixed endpoint number `seed`, for nodes whose cards have to be the
+/// same in two runs.
+pub fn fixed_endpoint(seed: u8) -> OnionServiceKey {
+    OnionServiceKey::from_bytes(
+        IdentitySecretKey::from_seed(&[seed.wrapping_add(150); 32])
+            .public_key()
+            .as_bytes(),
+    )
+    .unwrap()
+}
+
+/// A node as [`node_in`], published at the fixed endpoint `endpoint`, so
+/// that its cards are the same in every run on a fresh network.
+pub async fn node_fixed(
+    installation: Installation,
+    network: &MockNetwork,
+    seed: u8,
+    transport: u8,
+    epoch: u64,
+    endpoint: OnionServiceKey,
+) -> Node {
+    let tor = network.backend();
+    let service = tor
+        .publish_onion(KeySource::Existing {
+            secret: monolith_tor::OnionServiceSecret::from_bytes(&[seed; 64]),
+            expected: endpoint,
+        })
+        .await
+        .unwrap();
+    let identity = installation
+        .restore_identity(keys(seed, transport, epoch, endpoint), None)
+        .await
+        .unwrap();
+    Node {
+        installation,
+        identity,
+        tor,
+        service,
+        budgets: Budgets::new(),
+    }
+}
+
 /// An endpoint that is not the service of any node.
 pub fn elsewhere() -> OnionServiceKey {
     OnionServiceKey::from_bytes(
