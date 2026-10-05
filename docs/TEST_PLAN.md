@@ -50,8 +50,11 @@ contact store (`tests/store.rs`: restart, a crash at every step of every
 critical change, races), admission and retirement through the store
 (`tests/credentials.rs`), invitations (`tests/invitations.rs`), several
 identities (`tests/identities.rs`), the publication supervisor
-(`tests/supervisor.rs`), what peers observe (`tests/observability.rs`)
-and a source scan (`tests/structure.rs`); two more fuzz targets
+(`tests/supervisor.rs`), what peers observe (`tests/observability.rs`),
+a source scan (`tests/structure.rs`), the write job of the vault
+(`persist::tests`: a cancelled wait, a failed write, many waiters on many
+threads) and snapshots taken while operations run at the bounds
+(`contacts::tests`); two more fuzz targets
 (`vault_payload`, `contact_store`); the Phase 4 mutation list; and the
 private Tor network test extended to nodes over a vault. Covered now:
 T-INV-1 to 11, T-MI-1 to 9, T-CRASH for the vault and the contact store,
