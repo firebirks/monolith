@@ -45,7 +45,8 @@ its standard input:
     contacted.
 11. Every node run is checked: loopback and Unix sockets only, no DNS.
 
-And again Phase 3:
+And again Phase 3, as the last step because it ends Tor B (it was step 3
+of Phase 3, hence the gap in the numbers):
 
 12. Tor B goes away while B waits for a stream: B reports the control
     connection lost and fails.
