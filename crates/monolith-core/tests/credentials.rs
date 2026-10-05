@@ -907,3 +907,40 @@ fn a_failed_write_withdraws_every_session_even_when_nobody_waits() {
         assert!(installation.is_failed());
     });
 }
+
+#[test]
+fn a_rotation_ends_only_after_a_durable_switch() {
+    // Ending a rotation makes the new key the only one; it is used only
+    // once the switch is durable, even when the user forces the end.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation = Installation::create(
+            Box::new(dir.clone()),
+            &Passphrase::new("test passphrase").unwrap(),
+            KdfParams::FLOOR,
+        )
+        .unwrap();
+        let alice = node_in(installation, &network, 1, 1, 1).await;
+        let old_card = alice.card();
+        let successor = alice.identity.begin_rotation().await.unwrap();
+        // Not switched: not due, forced or not.
+        assert!(!alice.identity.finish_rotation(true).await.unwrap());
+        assert_eq!(alice.card(), old_card);
+
+        dir.hold_writes();
+        let _released = Released(&dir);
+        let identity = alice.identity.clone();
+        let switch = tokio::spawn(async move { identity.switch_rotation(true).await });
+        while !dir.write_held() {
+            tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+        }
+        // Switched in memory, not yet durable: still not due.
+        assert!(!alice.identity.finish_rotation(true).await.unwrap());
+        assert_eq!(alice.card(), old_card);
+        dir.release_writes();
+        assert!(switch.await.unwrap().unwrap());
+        assert!(alice.identity.finish_rotation(true).await.unwrap());
+        assert_eq!(alice.card(), successor);
+    });
+}

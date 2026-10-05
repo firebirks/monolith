@@ -702,7 +702,10 @@ impl LocalIdentity {
         self.contacts.clear_rotation_marks();
         let generation = self.durability.bump();
         if let Some(rotation) = lock(&self.keys).rotation.as_mut() {
-            rotation.begun = generation;
+            // Only the rotation this call made, which is still unstamped.
+            if rotation.begun == u64::MAX {
+                rotation.begun = generation;
+            }
         }
         self.commit(generation).await?;
         Ok(card)
@@ -774,16 +777,22 @@ impl LocalIdentity {
 
     /// Ends the rotation (step 5): the old key is dropped and the new one
     /// is the only one. Due once every accepted contact confirmed a session
-    /// with the new key, or when the user says so (`force`). Returns false
-    /// if it is not due yet.
+    /// with the new key, or when the user says so (`force`), and in any case
+    /// only after a switch that is durable: the new key is then in use and
+    /// stored, so ending the rotation hands out nothing the vault could
+    /// lose. Returns false if it is not due yet.
     pub async fn finish_rotation(&self, force: bool) -> Result<bool, StoreError> {
         self.check_open()?;
         let due = force || self.every_accepted(|view| view.successor_promoted);
-        if !due {
-            return Ok(false);
-        }
+        let durable = self.durability.durable();
         {
             let mut keys = lock(&self.keys);
+            let Some(rotation) = keys.rotation.as_ref() else {
+                return Err(StoreError::NotFound);
+            };
+            if !due || !rotation.switched_by(durable) {
+                return Ok(false);
+            }
             let Some(rotation) = keys.rotation.take() else {
                 return Err(StoreError::NotFound);
             };
