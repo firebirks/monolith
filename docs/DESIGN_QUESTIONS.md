@@ -1519,3 +1519,14 @@ two faults that did not work, all fixed:
 
 The cancellation test of `0088cf4` now cancels the dial only once the
 admission waits for the write (`20d3f35`).
+
+The baseline of the mutation runner then found one more, under the load
+of a whole test binary: the write job held the vault's slot, and since
+`6d26193` the installation, until it ended, a moment after it had woken
+the waiter, so an installation closed and opened again at once could
+find the lock of its directory held. The job now holds both weakly and
+lets go of everything before it publishes a durable outcome (`9c5ce64`).
+That holds by construction; `tests/store.rs`
+(`closing_an_installation_lets_go_of_its_directory_at_once`) exercises
+it, and showed the old code failing in one run of five of the store
+tests and the new one in none.
