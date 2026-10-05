@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the mutation suite. See README.md in this directory.
 
-Usage: python3 mutation/run.py <phase1|phase2|phase3|all> <workers> [fault id ...]
+Usage: python3 mutation/run.py <phase1|phase2|phase3|phase4|all> <workers> [fault id ...]
 
 Each fault of faults.py is applied to a copy of the committed HEAD, one at
 a time; the tests of the affected crates run; the file is restored. The
@@ -203,7 +203,8 @@ def run_main():
         "phase1": faults.PHASE1,
         "phase2": faults.PHASE2,
         "phase3": faults.PHASE3,
-    }.get(phase, faults.PHASE1 + faults.PHASE2 + faults.PHASE3)
+        "phase4": faults.PHASE4,
+    }.get(phase, faults.PHASE1 + faults.PHASE2 + faults.PHASE3 + faults.PHASE4)
     if only:
         selected = [item for item in selected if item["id"] in only]
     commit = subprocess.run(
