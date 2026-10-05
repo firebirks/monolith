@@ -1502,7 +1502,20 @@ verified and fixed with a test and a mutation fault:
 | A waiter could miss an outcome and sleep until an unrelated write. | The same job; a wait looks at the outcome before the state, and the vault is back before the outcome is published. | `d5f7721` | `persist::tests::many_waiters_on_many_threads_all_finish` |
 | A deleted identity went on admitting peers, writing message 3 and answering at its service, and its commits succeeded though no write held it. | Deletion closes the identity before it leaves the installation: no operation, no admission, no wait for durability, no Onion Service key; its accept loop and supervisor end and remove the service. Identity-level changes are refused before they are made. | `091c922`, `192b9f6` | `tests/identities.rs`, `tests/supervisor.rs`, CS46 to CS48 |
 | The successor of a rotation could be announced, and after the switch the new key used, before the step was durable; a crash then left a contact with a key the vault did not hold, and the next rotation became a conflict at that contact. | Each step carries the generation that makes it durable and reaches peers only from then on (P4-10). | `192b9f6` | `tests/credentials.rs`, CS49, CS50 |
-| A snapshot of the store read the slots one at a time and could see more declined identities or contacts than their bounds; the write then failed the installation. | The snapshot holds the lock of the map while it reads every slot; declining holds it across its two slots. | `5d13a57` | `contacts::tests`, CS51, CS52 |
+| A snapshot of the store read the slots one at a time and could see more declined identities or contacts than their bounds; the write then failed the installation. | The snapshot holds the lock of the map while it reads every slot; declining holds it across its two slots. | `5d13a57` | `contacts::tests`, CS51 |
 | A dial or an answer cancelled while its admission was made durable left the session tracked by the store. | The withdrawal ends if that wait is cancelled. | `0088cf4` | `tests/credentials.rs`, CS53 |
-| The parent of a newly created vault directory was not flushed. | It is. | `42de59e` | none: a power loss is not modelled |
+| The parent of a newly created vault directory was not flushed. | It is, on every open that may create the directory, so a retry after a failed flush flushes it too. | `42de59e`, `2fa98e5` | none: a power loss is not modelled |
 | The encoder left copies of what it encoded, keys of a vault record among them, in buffers it freed when it grew. | Growth moves the bytes and erases the old buffer; a writer erases what it holds when dropped. Best effort, as `CRYPTOGRAPHY.md` section 8 says. | `8875647` | `codec::tests`; not observable without `unsafe` |
+
+A second review, of these fixes, found two paths they had left open and
+two faults that did not work, all fixed:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| Ending a rotation made the new key the only one at once, also while the write of the beginning or of the switch was pending, so a card the vault could lose was handed out. | The end is due only after a switch that is durable, even when forced; a beginning stamps only the rotation it made. | `e430064` | `tests/credentials.rs`, CS54 |
+| The withdrawal that makes a failed installation fail closed ran only in a task waiting for the failed write; when every such task was cancelled, sessions went on. | The write job runs the withdrawal itself when it fails. | `6d26193` | `tests/credentials.rs`, CS55 |
+| CS49 and CS50 did not compile. | Rewritten. | `c42c698` | |
+| CS52, a decline that lets go of the map between its two slots, was caught only some of the time. | Dropped: the window is a few instructions, and a fault caught at random gates nothing. The snapshot side of the same cut is CS51. | `c42c698` | |
+
+The cancellation test of `0088cf4` now cancels the dial only once the
+admission waits for the write (`20d3f35`).
