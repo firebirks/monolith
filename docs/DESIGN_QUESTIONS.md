@@ -234,8 +234,8 @@ Nothing below is settled. Each is described in the document named.
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
-| ST1, ST3, ST5, ST6 | Message store, previous generation, passphrase policy, Argon2id defaults (benchmark on two of four targets) | STORAGE.md 9 |
-| T3-7 | Phase 3: the two-node test on a private Tor network runs in a Linux container with Tor 0.4.9.13 and Chutney; it is settled by the run on the commit of the final verification | tests/tor-network/README.md |
+| ST1, ST3, ST5, ST6 | Message store, previous generation, passphrase policy, Argon2id defaults (measured on the development machine only; the four targets of STORAGE.md 3.3 remain) | STORAGE.md 9 |
+| T3-7 | The two-node test on a private Tor network runs in a Linux container with Tor 0.4.9.13 and Chutney, with the steps of Phase 3 and 4; for each phase it is settled by the run on the commit of its final verification | tests/tor-network/README.md |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Security contact address and key | SECURITY.md |
