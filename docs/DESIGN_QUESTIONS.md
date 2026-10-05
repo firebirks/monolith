@@ -1479,3 +1479,21 @@ and the message store (ST1), and the command and event interface of
 section 4 for a front end. The review of `MaxStreams` (C1, T3-6) and the
 KDF benchmark on the four targets of `STORAGE.md` section 3.3 are also
 still open.
+
+### 11.4 The review of the Phase 4 code
+
+An independent review of the Phase 4 code, before its final
+verification, found no path that gives a contact session or message 3 to
+a key or a record that does not stand. It found the following, each
+verified and fixed with a test and a mutation fault:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| A waiter for durability that was cancelled (a deadline, an aborted accept loop) dropped the vault and the lock of its directory, and the installation was not marked failed; later waits failed while changes were still made in memory. | A job on the blocking pool takes the vault, writes, puts it back and publishes the outcome itself, however the waiter ends. | `d5f7721` | `persist::tests`, CS45 |
+| A waiter could miss an outcome and sleep until an unrelated write. | The same job; a wait looks at the outcome before the state, and the vault is back before the outcome is published. | `d5f7721` | `persist::tests::many_waiters_on_many_threads_all_finish` |
+| A deleted identity went on admitting peers, writing message 3 and answering at its service, and its commits succeeded though no write held it. | Deletion closes the identity before it leaves the installation: no operation, no admission, no wait for durability, no Onion Service key; its accept loop and supervisor end and remove the service. Identity-level changes are refused before they are made. | `091c922`, `192b9f6` | `tests/identities.rs`, `tests/supervisor.rs`, CS46 to CS48 |
+| The successor of a rotation could be announced, and after the switch the new key used, before the step was durable; a crash then left a contact with a key the vault did not hold, and the next rotation became a conflict at that contact. | Each step carries the generation that makes it durable and reaches peers only from then on (P4-10). | `192b9f6` | `tests/credentials.rs`, CS49, CS50 |
+| A snapshot of the store read the slots one at a time and could see more declined identities or contacts than their bounds; the write then failed the installation. | The snapshot holds the lock of the map while it reads every slot; declining holds it across its two slots. | `5d13a57` | `contacts::tests`, CS51, CS52 |
+| A dial or an answer cancelled while its admission was made durable left the session tracked by the store. | The withdrawal ends if that wait is cancelled. | `0088cf4` | `tests/credentials.rs`, CS53 |
+| The parent of a newly created vault directory was not flushed. | It is. | `42de59e` | none: a power loss is not modelled |
+| The encoder left copies of what it encoded, keys of a vault record among them, in buffers it freed when it grew. | Growth moves the bytes and erases the old buffer; a writer erases what it holds when dropped. Best effort, as `CRYPTOGRAPHY.md` section 8 says. | `8875647` | `codec::tests`; not observable without `unsafe` |
