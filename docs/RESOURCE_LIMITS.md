@@ -169,7 +169,7 @@ written, within `FRAME_WRITE_TIMEOUT`.
 | `MAX_DECLINED_IDENTITIES` | 1024 | Oldest dropped when full. |
 | `MAX_PENDING_CONTACT_REQUESTS` | 32 | One per identity. |
 | `MAX_PENDING_REQUESTS_PER_INVITATION` | 8 | Per capability, or for requests without one. |
-| `MAX_ACTIVE_INVITATIONS` | 16 | Size of the active set (PROTOCOL.md 12.3). Provisional, see below. |
+| `MAX_ACTIVE_INVITATIONS` | 16 | Size of the active set (PROTOCOL.md 12.3). Kept in Phase 4, see below. |
 | `MAX_UI_EVENTS` | 256 | Coalesced, see section 8. |
 | `MAX_PENDING_FILE_OFFERS_PER_CONTACT` | 4 | |
 | `MAX_PENDING_FILE_OFFERS` | 16 | |
@@ -186,8 +186,9 @@ Tor applies one limit of its own in front of these: `MaxStreams=8` with
 counts streams on one rendezvous circuit, not streams to the service as a
 whole, and a circuit that goes over it is closed. It is defense in depth
 only; the budgets above decide what Monolith accepts. The value is
-provisional and is reviewed in Phase 4 with the real connection model and
-measurements (`DESIGN_QUESTIONS.md` T3-6).
+provisional; its review with the real connection model and measurements
+(`DESIGN_QUESTIONS.md` T3-6, C1) is still open after Phase 4, which did not
+change it.
 
 When the handshake budget is full, the oldest unauthenticated stream is
 closed to make room for a new one. A flood therefore churns the 16 slots
@@ -198,17 +199,26 @@ two contacts can still reach each other as long as one of the two Onion
 Services is reachable.
 
 When the budget for strangers is full and another one authenticates, the
-oldest that has not yet sent its message is closed. Until the application
-core of Phase 4, which sees every link, `link::answer` closes the newcomer
-instead, without sending anything. The deadlines of section 4 bound how
-long a slot is held: `UNKNOWN_FIRST_MESSAGE_TIMEOUT` for a stranger that
-sends nothing, and for one that does, until its first message and the
-Close after it, written within `FRAME_WRITE_TIMEOUT`.
+oldest that has not yet sent its message is closed with a Close, and the
+newcomer takes its slot (`crate::strangers` in the core, since Phase 4). A
+stranger that has sent its message is not evicted: its message and the
+eviction race on one state, and whichever comes first decides, so an
+evicted stranger's message is never delivered. If every held slot belongs
+to a stranger that has spoken, the newcomer is closed without anything
+sent. Evicted links that have not ended yet are bounded by the same
+number, so at most twice the budget exist at any moment; when that bound
+is reached the newcomer is closed as well. A contact is never in this
+budget and never evicted for a stranger. The deadlines of section 4 bound
+how long a slot is held: `UNKNOWN_FIRST_MESSAGE_TIMEOUT` for a stranger
+that sends nothing, and for one that does, until its first message and
+the Close after it, written within `FRAME_WRITE_TIMEOUT`.
 
 When the contact session budget is full, no further contact session is
-accepted or dialed until one ends. With more than 256 contacts online at the
-same time, some stay unreachable. The value is a starting point to be
-measured, not a claim that 256 is enough for 1000 contacts.
+accepted or dialed until one ends: an inbound contact is closed after its
+admission, and a dial ends before message 3 is written. With more than 256
+contacts online at the same time, some stay unreachable. The value is a
+starting point to be measured, not a claim that 256 is enough for 1000
+contacts.
 
 When the pending-request queue is full, new requests are dropped and the user
 is told once that the queue is full. Existing entries are not evicted; an
@@ -233,9 +243,11 @@ The active set of invitation capabilities is bounded by
 compared with every member, so the bound is also the work per request:
 16 comparisons of 16 bytes. The set itself takes 256 bytes plus the local
 labels. When it is full, a new capability can be created only after one
-is revoked; nothing is revoked automatically. 16 is the value of Phase 0.
-It has not been checked against how many cards users keep in circulation,
-and is confirmed or changed with the contact store in Phase 4.
+is revoked; nothing is revoked automatically. 16 is the value of Phase 0,
+kept in Phase 4 (`DESIGN_QUESTIONS.md` P4-12): it bounds the work per
+request and the size of the vault, and the contact store gave no reason
+to change it. It has not been checked against how many cards users keep
+in circulation.
 
 ### 5.1 Several local identities
 
@@ -263,10 +275,40 @@ one identity, above the requests of one peer.
 - Per contact: the limits that are per contact today stay per pair of
   local and remote identity.
 
-No values are chosen here. Phase 4 sets them with the contact store and
-the resource tuning, and section 11 is then extended from one identity to
-the number of identities a process allows. Phase 3 has one set of
-`Budgets` per process; nothing in it prevents a set per identity.
+The values of Phase 4 (`DESIGN_QUESTIONS.md` P4-7), provisional like the
+others:
+
+| Constant | Value | Level |
+| --- | --- | --- |
+| `MAX_LOCAL_IDENTITIES` | 8 | process |
+| `MAX_INBOUND_HANDSHAKES` | 16 | identity |
+| `MAX_PROCESS_INBOUND_HANDSHAKES` | 32 | process |
+| `MAX_UNKNOWN_SESSIONS` | 4 | identity |
+| `MAX_CONTACT_SESSIONS` | 256 | identity |
+| `MAX_PROCESS_CONTACT_SESSIONS` | 512 | process |
+| `MAX_CONCURRENT_DIALS` | 4 | process |
+| `MAX_PENDING_CONTACT_REQUESTS`, `MAX_PENDING_REQUESTS_PER_INVITATION` | 32, 8 | identity |
+| `MAX_ACTIVE_INVITATIONS` | 16 | identity |
+| `MAX_CONTACTS`, `MAX_BLOCKED_IDENTITIES`, `MAX_DECLINED_IDENTITIES` | as above | identity |
+
+An inbound handshake takes a slot of its identity and one of the process,
+and so does a contact session; `Budgets` holds the process ceilings and
+each `LocalIdentity` its own. The budget for strangers, the request queue
+and the active set exist per identity only. A process ceiling binds only
+when several identities are busy at once; when it does, the refusal is
+shared by all of them, which is the residual of `THREAT_MODEL.md`
+adversary S.
+
+What section 11 becomes with 8 identities: contact sessions are bounded by
+the process ceiling, 512 sessions or about 64 MiB of buffers; handshakes
+by 32; strangers by 4 per identity with as many evicted ones still
+draining, 64 links in all; pending requests by 256 in all; each identity
+has its control connection and listener. The contact lists are per
+identity, so 8 identities may hold 8000 contacts, and the duplicate
+windows of section 11, which the session manager will keep per contact,
+could then reach about 125 MiB. A process-wide ceiling on contacts, or on
+the windows, is not set yet; it comes with the session manager
+(`DESIGN_QUESTIONS.md` section 11.3).
 
 ## 6. Rates (local)
 
@@ -318,6 +360,13 @@ buffer.
 Delay sequence before jitter: 10 s, 20 s, 40 s, ... capped at 30 min. Each
 delay is multiplied by a uniform random factor in [0.5, 1.5]. The delay is
 reset after a session has stayed authenticated for 60 s.
+
+Since Phase 4 the publication supervisor uses the same schedule to publish
+the service of an identity again after Tor lost it: the first attempt
+follows the loss after the first delay, each failure doubles it, and the
+delay is reset once a publication stayed up for `RECONNECT_RESET_AFTER`.
+There is no attempt without a delay. The dial scheduler that applies the
+schedule to contacts is not implemented yet.
 
 With 1000 offline contacts at the cap, a dial comes due about every 1.8 s
 on average. Only 4 run at once. A dial that is due waits for a free slot in
@@ -536,10 +585,13 @@ never takes a slot for strangers: a dial sends message 3, and makes a
 session, only to a peer that stands for a contact (`PROTOCOL.md` section
 4.4).
 An accept loop survives listener errors such as too many open files: it
-pauses for `ACCEPT_BACKOFF` and goes on while the service is published. The policies that need contacts and
-rates (closing the oldest handshake, closing the oldest silent stranger
-for a new one, the rate buckets of section 6, the contact session budget)
-come with the application core of Phase 4. The
+pauses for `ACCEPT_BACKOFF` and goes on while the service is published.
+Phase 4 adds the policies that need contacts: closing the oldest silent
+stranger for a new one and the contact session budget, per identity and
+for the process. Closing the oldest handshake for a new one and the rate
+buckets of section 6 are not implemented yet: a stream that finds the
+handshake budget full is closed and the accept loop pauses for
+`ACCEPT_BACKOFF`. The
 session layer enforces what belongs to one stream: the message sizes, the
 handshake timeout, the frame ceiling of the state, and the session limits
 of section 3.
