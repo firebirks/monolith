@@ -691,8 +691,24 @@ impl ContactStore {
     /// oldest entry is dropped.
     pub(crate) fn decline(&self, identity: &IdentityPublicKey) -> Result<u64, StoreError> {
         self.check_failed()?;
-        let dropped = self.with_entry(identity, true, |entry| {
-            let entry = entry.ok_or(StoreError::NotFound)?;
+        // Two slots change, the new entry and the oldest one it pushes out,
+        // in one step under the lock of the map, which a snapshot holds
+        // while it reads every slot: no snapshot sees one change without
+        // the other. The slots are locked one after the other.
+        let mut slots = lock(&self.slots);
+        let slot = match slots.get(identity) {
+            Some(slot) => slot.clone(),
+            None => {
+                let slot = Arc::new(Slot(Mutex::new(Entry {
+                    record: Record::None,
+                    sessions: Vec::new(),
+                })));
+                slots.insert(*identity, slot.clone());
+                slot
+            }
+        };
+        let dropped = {
+            let mut entry = lock(&slot.0);
             if entry.record != Record::None {
                 return Err(StoreError::NotFound);
             }
@@ -705,20 +721,22 @@ impl ContactStore {
             };
             drop(counts);
             entry.record = Record::Declined;
-            self.durability.bump();
-            Ok(dropped)
-        })?;
+            dropped
+        };
         if let Some(oldest) = dropped {
-            // Another slot: taken after the first was let go.
-            self.with_entry(&oldest, false, |entry| {
-                if let Some(entry) = entry {
-                    if entry.record == Record::Declined {
-                        entry.record = Record::None;
-                        self.durability.bump();
+            if let Some(old) = slots.get(&oldest).cloned() {
+                let mut entry = lock(&old.0);
+                if entry.record == Record::Declined {
+                    entry.record = Record::None;
+                    if entry.sessions.is_empty() {
+                        drop(entry);
+                        slots.remove(&oldest);
                     }
                 }
-            });
+            }
         }
+        self.durability.bump();
+        drop(slots);
         Ok(self.depends())
     }
 
@@ -952,14 +970,18 @@ impl ContactStore {
         Vec<IdentityPublicKey>,
         Vec<IdentityPublicKey>,
     ) {
-        let slots: Vec<(IdentityPublicKey, Arc<Slot>)> = lock(&self.slots)
-            .iter()
-            .map(|(identity, slot)| (*identity, slot.clone()))
-            .collect();
+        // One cut through the store: the lock of the map is held while
+        // every slot is read. An operation that holds a slot when the
+        // snapshot begins ends before that slot is read, and one that comes
+        // later waits for the map, so every limit that holds after each
+        // operation holds in the snapshot too. Operations that change two
+        // slots hold the map throughout (`Self::decline`).
+        let slots = lock(&self.slots);
         let mut contacts = Vec::new();
         let mut blocked = Vec::new();
         let mut declined = Vec::new();
-        for (identity, slot) in slots {
+        for (identity, slot) in slots.iter() {
+            let identity = *identity;
             let entry = lock(&slot.0);
             match &entry.record {
                 Record::Contact(contact) => contacts.push(StoredContact {
@@ -978,8 +1000,14 @@ impl ContactStore {
         }
         // Declined in the order of the list; what the list holds and what
         // the slots say agree, since both change in one step.
-        let order = lock(&self.counts).declined.clone();
-        declined.sort_by_key(|identity| order.iter().position(|held| held == identity));
+        let order: HashMap<IdentityPublicKey, usize> = lock(&self.counts)
+            .declined
+            .iter()
+            .enumerate()
+            .map(|(position, identity)| (*identity, position))
+            .collect();
+        drop(slots);
+        declined.sort_by_key(|identity| order.get(identity).copied().unwrap_or(usize::MAX));
         contacts.sort_by(|a, b| {
             a.credentials
                 .identity()
@@ -988,5 +1016,165 @@ impl ContactStore {
         });
         blocked.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         (contacts, blocked, declined)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::arithmetic_side_effects,
+        clippy::indexing_slicing,
+        clippy::cast_possible_truncation
+    )]
+
+    use std::sync::atomic::AtomicUsize;
+    use std::time::{Duration, Instant};
+
+    use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
+    use monolith_protocol::card::EndpointSet;
+    use monolith_session::{LocalParty, TransportSecretKey};
+
+    use super::*;
+
+    fn seed(n: u32, salt: u8) -> [u8; 32] {
+        let mut seed = [salt; 32];
+        seed[..4].copy_from_slice(&n.to_be_bytes());
+        seed
+    }
+
+    fn id(n: u32) -> IdentityPublicKey {
+        IdentitySecretKey::from_seed(&seed(n, 1)).public_key()
+    }
+
+    fn card(n: u32) -> ContactCard {
+        let endpoint = OnionServiceKey::from_bytes(
+            IdentitySecretKey::from_seed(&seed(n, 2))
+                .public_key()
+                .as_bytes(),
+        )
+        .unwrap();
+        LocalParty::issue(
+            &IdentitySecretKey::from_seed(&seed(n, 1)),
+            TransportSecretKey::from_bytes(&seed(n, 3)).unwrap(),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(endpoint),
+        )
+        .unwrap()
+        .card()
+        .clone()
+    }
+
+    /// The fewest and the most of something a snapshot held.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Range {
+        fewest: usize,
+        most: usize,
+    }
+
+    impl Range {
+        const fn new() -> Self {
+            Self {
+                fewest: usize::MAX,
+                most: 0,
+            }
+        }
+
+        fn add(&mut self, count: usize) {
+            self.fewest = self.fewest.min(count);
+            self.most = self.most.max(count);
+        }
+    }
+
+    /// Runs `round` until `snapshots` snapshots were taken meanwhile on
+    /// another thread, or 20 seconds passed, and returns how many contacts
+    /// and declined identities they held.
+    fn race(
+        store: &Arc<ContactStore>,
+        snapshots: usize,
+        mut round: impl FnMut(u32),
+    ) -> (Range, Range) {
+        let stop = Arc::new(AtomicBool::new(false));
+        let taken = Arc::new(AtomicUsize::new(0));
+        let reader = {
+            let (store, stop, taken) = (store.clone(), stop.clone(), taken.clone());
+            std::thread::spawn(move || {
+                let (mut contacts, mut declined) = (Range::new(), Range::new());
+                while !stop.load(Ordering::SeqCst) {
+                    let (held, _, refused) = store.snapshot();
+                    contacts.add(held.len());
+                    declined.add(refused.len());
+                    taken.fetch_add(1, Ordering::SeqCst);
+                }
+                (contacts, declined)
+            })
+        };
+        let started = Instant::now();
+        let mut n = 0;
+        while taken.load(Ordering::SeqCst) < snapshots
+            && started.elapsed() < Duration::from_secs(20)
+        {
+            round(n);
+            n += 1;
+        }
+        stop.store(true, Ordering::SeqCst);
+        reader.join().unwrap()
+    }
+
+    #[test]
+    fn a_snapshot_is_one_cut_through_the_store() {
+        // Operations that keep the lists at their bounds run on one thread
+        // while snapshots are taken on another. A snapshot sees every
+        // operation whole, so it never holds more contacts or declined
+        // identities than the bounds, which the vault refuses to read.
+        let store = Arc::new(ContactStore::new(id(0), Durability::new()));
+        let cards: Vec<ContactCard> = (1..=MAX_CONTACTS as u32 + 1).map(card).collect();
+        for card in &cards[..MAX_CONTACTS] {
+            store.import(card).unwrap();
+        }
+        let spare = MAX_CONTACTS;
+        store.decline(cards[spare].identity()).unwrap();
+        // A contact goes and a declined identity, which has a slot already,
+        // becomes one, then the one that went is declined: two identities
+        // take turns, and the contacts stay at the bound.
+        let mut out = spare;
+        let (contacts, _) = race(&store, 25, |n| {
+            let going = (n as usize) % MAX_CONTACTS;
+            let going = if going == out {
+                (going + 1) % MAX_CONTACTS
+            } else {
+                going
+            };
+            store.delete(cards[going].identity()).unwrap();
+            store.import(&cards[out]).unwrap();
+            store.decline(cards[going].identity()).unwrap();
+            out = going;
+        });
+
+        // Every snapshot is a state between two operations: all contacts,
+        // or all but the one between its deletion and the import.
+        assert_eq!(
+            contacts,
+            Range {
+                fewest: MAX_CONTACTS - 1,
+                most: MAX_CONTACTS
+            }
+        );
+
+        // A full declined list: each decline pushes the oldest out.
+        let store = Arc::new(ContactStore::new(id(0), Durability::new()));
+        for n in 0..MAX_DECLINED_IDENTITIES as u32 {
+            store.decline(&id(10_000 + n)).unwrap();
+        }
+        let (_, declined) = race(&store, 3000, |n| {
+            store.decline(&id(100_000 + n)).unwrap();
+        });
+        assert_eq!(
+            declined,
+            Range {
+                fewest: MAX_DECLINED_IDENTITIES,
+                most: MAX_DECLINED_IDENTITIES
+            }
+        );
     }
 }
