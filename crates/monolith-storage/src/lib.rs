@@ -5,7 +5,22 @@
 //! handed to it by `monolith-core`. It never interprets peer input and never
 //! changes protocol state on its own.
 //!
-//! Phase 0 defines the policy types only. No file format is implemented yet.
+//! - [`vault`]: the vault file of `docs/STORAGE.md` section 3: Argon2id,
+//!   a wrapped random vault key, XChaCha20-Poly1305 over the payload with
+//!   the whole header as associated data, and the atomic replace.
+//! - [`record`]: what the payload holds, one set of records per local
+//!   identity.
+//! - [`dir`]: the directory of a vault, on disk with its lock and its
+//!   permission checks, or in memory with a model of what a crash leaves.
+//!
+//! This is the only crate that writes files.
+
+// Tests build their own inputs and do arithmetic and indexing on them.
+#![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
+
+pub mod dir;
+pub mod record;
+pub mod vault;
 
 use core::fmt;
 
@@ -52,14 +67,34 @@ pub enum StorageError {
     /// The passphrase is wrong or the vault was modified. The two cases are
     /// deliberately indistinguishable.
     AuthenticationFailed,
-    /// The vault header is malformed or outside the accepted parameter range.
+    /// The vault header is malformed or outside the accepted parameter range,
+    /// or the payload does not validate.
     BadFormat,
-    /// The vault was written by a newer format version.
+    /// The vault was written by a newer format or payload version.
     UnsupportedVersion,
     /// The operating system reported an I/O failure.
     Io,
     /// The operation is not available in the current state mode.
     NotAvailable,
+    /// A vault, or a file that is about to be created, already exists.
+    Exists,
+    /// The data directory or a vault file is a symbolic link, belongs to
+    /// another user, or is accessible to others (`docs/STORAGE.md` section
+    /// 3.7).
+    Permissions,
+    /// The vault does not authenticate, and a complete `vault.new` next to
+    /// it does. Nothing was changed; the user decides.
+    RecoveryNeeded,
+    /// A file or a count is larger than its limit.
+    TooLarge,
+    /// The passphrase is empty or too long.
+    BadPassphrase,
+    /// The key derivation failed.
+    Kdf,
+    /// The random source of the operating system failed.
+    Randomness,
+    /// An internal step failed that does not depend on the stored data.
+    Internal,
 }
 
 impl fmt::Display for StorageError {
@@ -72,6 +107,14 @@ impl fmt::Display for StorageError {
             Self::UnsupportedVersion => "unsupported vault version",
             Self::Io => "I/O error",
             Self::NotAvailable => "not available in this storage mode",
+            Self::Exists => "vault already exists",
+            Self::Permissions => "data directory or vault is not private to this user",
+            Self::RecoveryNeeded => "vault damaged; a newer copy needs confirmation",
+            Self::TooLarge => "vault too large",
+            Self::BadPassphrase => "passphrase empty or too long",
+            Self::Kdf => "key derivation failed",
+            Self::Randomness => "random source failed",
+            Self::Internal => "internal storage error",
         })
     }
 }

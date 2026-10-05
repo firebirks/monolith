@@ -61,6 +61,22 @@ impl RecordKind {
     }
 }
 
+/// Which contact requests from peers that are not contacts are considered
+/// (`docs/PROTOCOL.md` section 12). The mode belongs to a local identity,
+/// not to a card, because a request does not say which card it came from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RequestMode {
+    /// A request is considered only with a capability of the active set.
+    /// The default.
+    #[default]
+    Invitation,
+    /// A request is considered with or without a capability; one that
+    /// carries a capability outside the active set is dropped.
+    Open,
+    /// No request is considered.
+    Closed,
+}
+
 /// Why a card is looked at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Context<'a> {

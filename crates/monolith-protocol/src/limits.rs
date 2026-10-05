@@ -341,8 +341,14 @@ pub const MAX_PENDING_CONTACT_REQUESTS: usize = 32;
 /// invitation capability, or with none.
 pub const MAX_PENDING_REQUESTS_PER_INVITATION: usize = 8;
 
-/// Invitation capabilities valid at the same time.
+/// Invitation capabilities valid at the same time, per local identity.
+/// When the set is full, creating another fails; none is revoked or
+/// evicted automatically (`docs/PROTOCOL.md` section 12.3).
 pub const MAX_ACTIVE_INVITATIONS: usize = 16;
+
+/// Local identities one installation, and so one process, may hold
+/// (`docs/RESOURCE_LIMITS.md` section 5.1).
+pub const MAX_LOCAL_IDENTITIES: usize = 8;
 
 /// Events queued for the user interface.
 pub const MAX_UI_EVENTS: usize = 256;

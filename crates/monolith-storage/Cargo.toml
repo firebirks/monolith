@@ -9,6 +9,18 @@ license.workspace = true
 
 [dependencies]
 monolith-identity.workspace = true
+monolith-protocol.workspace = true
+argon2.workspace = true
+chacha20poly1305.workspace = true
+getrandom.workspace = true
+hkdf.workspace = true
+rustix.workspace = true
+sha2.workspace = true
+unicode-normalization.workspace = true
+zeroize = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

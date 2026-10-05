@@ -56,6 +56,18 @@ zeroize = { version = "1.9.0", default-features = false }
 tokio = { version = "1.53.1", default-features = false }
 hmac = { version = "0.13.0", default-features = false }
 
+# The vault. argon2 derives the key-encryption key from the passphrase,
+# hkdf the payload key from the vault key; the AEAD is chacha20poly1305
+# above. rustix takes the single-instance lock and reads the user id for
+# the ownership check, which the standard library of the minimum Rust
+# version cannot do without unsafe code. See docs/adr/0005-storage-encryption.md.
+argon2 = { version = "=0.6.0", default-features = false, features = ["alloc", "zeroize"] }
+hkdf = { version = "=0.13.0", default-features = false }
+rustix = { version = "1.1.5", default-features = false, features = ["std", "fs", "process"] }
+# NFC for the vault passphrase only; the protocol never normalizes
+# (docs/PROTOCOL.md section 9).
+unicode-normalization = { version = "=0.1.25", default-features = false }
+
 # Development only.
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 
@@ -87,6 +99,15 @@ cast_sign_loss = "deny"
 dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
+
+# Argon2 at the parameters the vault accepts takes seconds without
+# optimization. Test builds optimize it, so that the tests that open a
+# vault run in reasonable time; nothing else changes.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
 
 [profile.release]
 # Integer overflow is a bug in every Monolith crate. Trap it instead of
