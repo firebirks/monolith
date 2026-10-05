@@ -9,11 +9,14 @@ Status: early development. There is no working messenger in this repository
 yet. The protocol core (encoding, contact cards, session state logic) and
 the session layer (the handshake and the encrypted frames) are implemented
 as libraries that do no I/O. The integration with a Tor the system runs is
-implemented and waits for its final verification: a SOCKS5 client, a
-control client for status and for publishing an Onion Service, sessions
-over Tor streams with their budgets and deadlines, and development commands
-in the command-line binary. The contact store, storage, the user interface
-and the Tails and Whonix integration are designs and are not implemented.
+implemented: a SOCKS5 client, a control client for status and for
+publishing an Onion Service, sessions over Tor streams with their budgets
+and deadlines. Phase 4, waiting for its final verification, adds the
+contact store of each local identity, the encrypted vault that keeps it,
+invitations, several local identities, the publication supervisor and the
+rotation of a transport key, with a development node in the command-line
+binary. The session manager, the message queue, the user interface and
+the Tails and Whonix integration are designs and are not implemented.
 `STATUS.md` records what is implemented and what has been verified. Nothing
 here has been audited. Do not rely on it for anything.
 
@@ -88,16 +91,18 @@ Checks run in CI:
     crates/monolith-session    handshake and encrypted session
     crates/monolith-tor        Tor backend: SOCKS5 client, control client,
                                Onion Service publication, mock backend
-    crates/monolith-storage    storage policy types (no implementation)
-    crates/monolith-core       sessions over Tor streams, connection
-                               budgets
+    crates/monolith-storage    the vault: format, records, atomic replace
+    crates/monolith-core       the contact store, local identities,
+                               sessions over Tor streams, budgets, the
+                               publication supervisor
     crates/monolith-cli        the monolith binary: Tor status, doctor,
-                               development chat between two nodes
+                               development chat and a development node
     crates/monolith-desktop    desktop front end (placeholder)
     integrations/tails         Tails control port profile (draft)
     integrations/whonix        Whonix profile and firewall rule (draft)
     fuzz/                      fuzz targets for the protocol core, the
-                               session layer and the Tor replies
+                               session layer, the Tor replies, the vault
+                               and the contact store
     tests/network              fail-closed network test (Linux)
     tests/tor-network          two-node test over a private Tor network
     docs/                      specifications and decision records
