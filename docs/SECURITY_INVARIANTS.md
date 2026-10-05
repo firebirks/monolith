@@ -264,8 +264,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   continuity or the user, the exhaustive table), `tests::contacts`,
   `tests::credentials`, `tests/store.rs` in the core
   (`promoting_a_successor_is_atomic`, `an_announced_successor_is_atomic`),
-  `tests/credentials.rs` (`the_new_key_reaches_no_peer_before_it_is_durable`),
-  mutation faults CR1 to CR9, CS1 to CS6, CS49 and CS50.
+  `tests/credentials.rs` (`the_new_key_reaches_no_peer_before_it_is_durable`,
+  `a_rotation_ends_only_after_a_durable_switch`), mutation faults CR1 to
+  CR9, CS1 to CS6, CS49, CS50 and CS54.
 
 ### S49. A session of a retired transport key delivers nothing after the retirement
 
@@ -802,7 +803,8 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   publishes its outcome however the waiting task ends, so a cancelled
   wait loses neither the vault nor the lock of its directory, and the
   snapshot it writes is one cut through every contact store, never an
-  operation half done.
+  operation half done. When the write fails, the job itself withdraws
+  every session, whether or not a waiter is left.
 - Tests: T-CRASH (`vault::tests`: a write or a creation stopped at every
   step leaves the old or the new vault, with every combination of what a
   crash keeps; `tests/store.rs`: every critical change stopped at every
@@ -810,7 +812,9 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   (`a_restart_reproduces_the_durable_state_exactly`), `persist::tests`
   (a cancelled wait, a failed write, many waiters on many threads),
   `contacts::tests` (snapshots taken while operations run at the bounds),
-  mutation faults CS13 to CS15, CS35, CS36, CS45, CS51 and CS52.
+  `tests/credentials.rs`
+  (`a_failed_write_withdraws_every_session_even_when_nobody_waits`),
+  mutation faults CS13 to CS15, CS35, CS36, CS45, CS51 and CS55.
 
 ### S32. No hidden network traffic
 
