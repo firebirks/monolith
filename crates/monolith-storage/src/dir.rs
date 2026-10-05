@@ -129,6 +129,19 @@ impl DiskDir {
             Ok(dir) => dir,
             Err(rustix::io::Errno::NOENT) if create => {
                 rustix::fs::mkdir(path, Mode::from_raw_mode(DIR_MODE)).map_err(io)?;
+                // The new name is durable only once its parent is flushed;
+                // a vault created in it is reported durable.
+                let parent = match path.parent() {
+                    Some(parent) if !parent.as_os_str().is_empty() => parent,
+                    _ => Path::new("."),
+                };
+                let parent = rustix::fs::open(
+                    parent,
+                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )
+                .map_err(io)?;
+                rustix::fs::fsync(&parent).map_err(io)?;
                 rustix::fs::open(path, flags, Mode::empty()).map_err(io)?
             }
             Err(rustix::io::Errno::NOENT) => return Err(StorageError::NotFound),
