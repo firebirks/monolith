@@ -924,7 +924,7 @@ impl Installation {
         let plaintext = Contents::default().encode()?;
         let vault = Vault::create(dir, passphrase, params, &plaintext)?;
         Ok(Self::with_store(
-            Store::Vault(AsyncMutex::new(Some(Box::new(vault)))),
+            Store::vault(Box::new(vault)),
             Mode::Persistent,
         ))
     }
@@ -936,10 +936,7 @@ impl Installation {
     ) -> Result<(Self, Recovery), InstallationError> {
         let (vault, plaintext, recovery) = Vault::open(dir, passphrase)?;
         let contents = Contents::decode(&plaintext)?;
-        let installation = Self::with_store(
-            Store::Vault(AsyncMutex::new(Some(Box::new(vault)))),
-            Mode::Persistent,
-        );
+        let installation = Self::with_store(Store::vault(Box::new(vault)), Mode::Persistent);
         {
             let mut identities = lock(&installation.shared.identities);
             for stored in contents.identities {
