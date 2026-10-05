@@ -1,8 +1,12 @@
 # ADR 0005: Storage encryption
 
-Status: provisional. The vault structure is proposed; its KDF parameters are
-not frozen and wait for measurements; the message store is open.
-Date: 2026-10-01
+Status: the vault is decided and implemented in `monolith-storage` (Phase
+4, waiting for its final verification); its default KDF parameters are
+provisional until measured on the four targets; the message store is
+open.
+Date: 2026-10-01. Amended 2026-10-05 by Phase 4: the vault implemented,
+the payload layout written down (`STORAGE.md` section 3.4), ST2, ST4 and
+ST7 decided (`DESIGN_QUESTIONS.md` P4-6).
 
 ## Context
 
@@ -33,8 +37,20 @@ A single file, rewritten whole and replaced atomically, in the format of
 
 This is a container of Monolith's own definition. It was chosen over
 existing formats because none fits (STORAGE.md 3.1), and it is kept to the
-most ordinary possible use of two standard primitives. It needs review, and
-test vectors are part of Phase 4.
+most ordinary possible use of two standard primitives. It needs review.
+Its test vector is a file built from fixed inputs by a writer written from
+`STORAGE.md` section 3.2 alone, which the vault must open and whose SHA-256
+is pinned; a reader written the same way opens what the vault writes
+(`crates/monolith-storage/tests/vault_format.rs`).
+
+As implemented in Phase 4: one vault per persistent installation holds
+every local identity (ST7); the directory is locked with an exclusive
+`flock`, and its owner and permissions are checked before anything is read
+(ST2, ST4), through `rustix` without `unsafe`; a write is a complete new
+file, flushed, renamed over the vault and the directory flushed; a
+creation is made under another name and linked into place, so a crash
+never leaves a vault that is half created. The crash behavior is tested
+against a model of what a crash keeps after each step (`MemoryDir`).
 
 A passphrase is mandatory for a persistent vault in version 1.
 
@@ -43,7 +59,9 @@ A passphrase is mandatory for a persistent vault in version 1.
 Not decided. Recommended candidate: SQLCipher through `rusqlite`, linked to
 the system library on Debian-based targets, opened with a raw key derived
 from the vault key. Alternatives and their costs are in `STORAGE.md`
-section 5. The decision is taken at the start of Phase 4.
+section 5. Phase 4 did not take the decision: its brief was the contact
+store, and the message store comes with the outbound queue
+(`DESIGN_QUESTIONS.md` section 11.3, ST1).
 
 History is off by default on every platform, so the store is not needed for
 a working messenger.
@@ -62,7 +80,7 @@ The two kinds of data have different needs.
 | --- | --- | --- |
 | `argon2` | 0.6.0 (2026-08) | RustCrypto. No advisories. |
 | `chacha20poly1305` | 0.11.0 (2026-06) | RustCrypto. The AEAD crates were audited by NCC Group in 2019; that covers old code. No advisories. |
-| `hkdf` | RustCrypto | |
+| `hkdf` | 0.13.0 | RustCrypto. No advisories. |
 | `zeroize` | 1.9.0 | |
 | `rusqlite` | 0.40.2 | Needs Rust 1.88, above the current minimum. An older release or a higher minimum would be required. |
 | SQLCipher | 4.6.1 in Debian 13; 4.19.0 upstream | BSD-style licence with an attribution requirement. |
@@ -77,8 +95,8 @@ generation (`chacha20poly1305` 0.10, `sha2` 0.10); that conflict is ADR
 
 - The vault can be unlocked anywhere with the passphrase alone.
 - Changing the passphrase does not re-key the message store.
-- Unlock costs time and memory once per start. How much is not measured
-  yet.
+- Unlock costs time and memory once per start. How much is measured on
+  the development machine only (`STORAGE.md` section 3.3).
 - Rollback of the vault file by someone with write access is not
   detectable.
 - Monolith owns a small file format and its migration path.
@@ -96,7 +114,8 @@ generation (`chacha20poly1305` 0.10, `sha2` 0.10); that conflict is ADR
 
 ## Open questions
 
-STORAGE.md section 9 (ST1 to ST6).
+STORAGE.md section 9: ST1, ST3, ST5 and ST6 are open; ST2, ST4 and ST7 are
+decided.
 
 ## Sources
 
