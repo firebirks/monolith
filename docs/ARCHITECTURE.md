@@ -1,9 +1,10 @@
 # Architecture
 
-Status: Phase 3, waiting for its final verification. The protocol core,
-the session layer and the integration with a Tor the system runs are
-implemented; the contact store, storage and the interface are still
-design. `STATUS.md` records what is implemented and verified. This
+Status: Phase 4, waiting for its final verification. The protocol core,
+the session layer, the integration with a Tor the system runs, the
+contact store, the vault and the publication supervisor are implemented;
+the session manager, the message queue and store, and the interface are
+still design. `STATUS.md` records what is implemented and verified. This
 document describes the structure the phases build.
 
 ## 1. Shape
@@ -20,15 +21,21 @@ layer.
          v     |      v      v
      session   |   storage   tor (TorBackend trait)
          |     |      |        |
-         v     v      |        +-- SystemTorBackend
-        protocol      |        +-- MockTorBackend
-            |         |        +-- (future) ArtiBackend
-            v         |
-         identity <---+
+         v     v      v        +-- SystemTorBackend
+        protocol <----+        +-- MockTorBackend
+            |                  +-- (future) ArtiBackend
+            v
+         identity
 
 Dependencies point downwards only. Since Phase 3 `monolith-core` puts the
 streams of the Tor backend under the sessions of `monolith-session`
-(`link`) and holds the connection budgets (`budget`).
+(`link`) and holds the connection budgets (`budget`). Since Phase 4 it
+holds the contact store of each local identity (`contacts`, `identity`),
+the durability of its changes (`persist`), invitations and requests
+(`requests`), the budget for strangers (`strangers`), the dial plan
+(`dialplan`) and the publication supervisor (`supervisor`);
+`monolith-storage` holds the vault and its records, built from the typed
+values of `monolith-protocol`.
 
 | Crate | Owns | Must not |
 | --- | --- | --- |
@@ -36,7 +43,7 @@ streams of the Tor backend under the sessions of `monolith-session`
 | `monolith-protocol` | limits, frame and message encoding, contact cards, the credentials of a contact, the session state machine | do cryptography other than verifying a card; open sockets, touch files, know which Tor is used |
 | `monolith-session` | the handshake, the encrypted session, the transport secret key, every call to the Noise library, the random source | open sockets, touch files, read a clock, know about contacts beyond the record it is handed |
 | `monolith-tor` | the `TorBackend` trait and its implementations: SOCKS5 client, control client, listener | know about identities' meaning, messages or contacts |
-| `monolith-storage` | the vault, the message store, transfer files | change contact or session state on its own, interpret peer input |
+| `monolith-storage` | the vault and its records, the message store, transfer files | change contact or session state on its own, interpret peer input |
 | `monolith-core` | contacts, sessions, queues, policy, budgets, the command and event interface | contain UI code, socket code or file formats |
 | `monolith-cli` | argument parsing, terminal output | contain protocol logic |
 | `monolith-desktop` | windows and widgets | contain protocol logic |
@@ -107,15 +114,17 @@ others exist (S44); the protocol is unchanged by it (PROTOCOL.md section
 1). What can still link identities that run together is in
 `THREAT_MODEL.md` adversary S.
 
-State in Phase 3: no code holds a local identity as global state. `link`
-takes the party, an admission function and the isolation group as
-arguments, `serve` runs one service, the Tor backend holds several
-publications at once and keeps no identity state, and `Budgets` is a
-value, not a singleton. `dev-chat` makes one identity per run as a test
-aid. The contact store and the vault of Phase 4 are built with
-identity-scoped records from the start, even if the first interface
-offers one identity; which phase offers several in the interface is not
-decided.
+State in Phase 4: an `Installation` holds the local identities of one
+data directory, up to `MAX_LOCAL_IDENTITIES`, and where their state goes:
+nowhere in ephemeral mode, or one vault. Each `LocalIdentity` is the
+context above: its keys and parties, its contact store, its active set and
+pending requests, its budgets, its isolation groups, one per contact. `link`
+takes the identity a link is for; `serve` and the supervisor run the
+service of one identity. No code holds a local identity as global state,
+which a source scan checks (`tests/structure.rs` in the core). Two
+identities never share a key (S39), checked at creation, restore and
+when a vault is opened. Which phase offers several identities in the
+interface is not decided.
 
 ### 1.2 Admission and credentials
 
@@ -123,71 +132,52 @@ Which transport key stands for a contact is held in its `Credentials`
 (`monolith-protocol`, PROTOCOL.md section 11.4): the active card, an
 authorized and a pending successor, the retired key. Authentication says
 who the peer is; the credentials say whether that peer is the contact on
-this session.
+this session. The contact store of each local identity holds them, with
+the kind of record of the identity, the card the user confirmed for
+dialing, and the sessions admitted as the contact's.
 
-- Admission is one step. `link::dial` and `link::answer` call the
-  admission function when the peer is authenticated, after the Tor stream
-  and the handshake messages that authenticate it. The function looks up
-  the record of the identity as it is then, admits the authenticated peer
-  with the record borrowed mutably, so that the standing and the change
-  of the credentials are one call, and keeps the `Withdrawal` of the link
-  with the session. Nothing between the lookup and the end of the step
-  waits.
-- A dial calls the admission function before it writes message 3, and
-  writes it only if the peer may learn the local identity
-  (`Admission::may_learn_local_identity`, read from the standing of the
-  session the function returned), racing the write against the
-  withdrawal; so an outbound session is always a contact's. The slot for
-  strangers of an inbound session also follows the standing of the
-  session.
-- A link ends at the deadlines of its session and on every failure, by
-  one path that also gives back its slot for strangers; a link that is
-  over refuses every later call (`RESOURCE_LIMITS.md` section 4). A
-  message that ends the session, the first one of a stranger or a Close,
-  ends the link before it is returned.
-- Retirement withdraws. When a successor is promoted, by an admission or
-  by the user's confirmation, every session that was admitted as a
-  contact's and whose card no longer states the active key
-  (`Credentials::authorizes`) is withdrawn before anything else is done
-  with the contact, the duplicate rule included. The store keeps the
-  withdrawal of contact sessions only: a session admitted with another
-  standing is left on the path of a stranger, because ending it early
-  would show the peer that it is held as a contact. Deleting or blocking
-  the record of an identity withdraws its sessions in the same way, so a
-  dial whose contact is deleted or blocked after the admission writes no
-  message 3, or stops writing it.
+- One decision about a card. `contact::decide` takes the kind of record,
+  the credentials, a card and why it is looked at (an inbound or outbound
+  handshake, an announcement, an import, a confirmation), and returns
+  what the card is, the standing of a session, and the credentials after
+  it. The relation of a card to the credentials does not depend on where
+  it came from (`Credentials::relation`). Admission, import,
+  announcement and confirmation all go through it.
+- One lock per contact. Every operation on a remote identity takes the
+  lock of its slot in the store, works on memory and lets go; nothing
+  waits while a lock is held. An admission looks the record up, decides,
+  records the change and keeps the `Withdrawal` of the link in that one
+  step. Operations on different contacts do not wait for each other.
+- Message 3 only after the admission. `link::dial` admits the responder
+  through the store after message 2. The session crate makes message 3
+  only for a standing that may learn the local identity
+  (`OutboundPeer::admit`); the dial waits until the state that admission
+  depended on is durable and writes it unless the session was withdrawn,
+  racing the write against the withdrawal. So an outbound session is
+  always a contact's. The slot of an inbound session follows its
+  standing: a contact takes one of the contact session budgets, any other
+  peer one of the budget for strangers, which may evict the oldest silent
+  stranger.
+- One rule for live sessions. After every change of a contact, every
+  session admitted as its contact's that no longer stands for it is
+  withdrawn in the same step: a retired key, a block, a deletion. The
+  link then delivers nothing more and ends with a Close. Sessions
+  admitted with another standing are left on the path of a stranger,
+  because ending them early would show the peer that it is held as a
+  contact. Links that ended are forgotten.
 - Applying is checked again. A message a link has returned was decided
-  when it was taken; what it would change in the contact state, a
-  `MarkAccepted`, a request, an EndpointUpdate, is applied under the
-  lock of that state and only while the session still stands for the
-  contact (`Credentials::authorizes` for its card, or the link not
-  withdrawn). `Credentials::announce` makes this check itself.
-- The admission function runs inside the handshake deadline and must not
-  block or wait: it takes the lock, works on memory and lets go. No lock
-  of the contact state is held across the `await` of `dial`.
-- Phase 3 holds no contact state. It provides the credential type, the
-  admission entry points, the withdrawal and the duplicate rule with
-  credential standing, and tests them with a minimal store.
+  when it was taken; what it changes in the store (`MarkAccepted`, an
+  EndpointUpdate, a contact request of a stranger) is applied by
+  `LocalIdentity::apply` under the lock of the contact and only while the
+  session still stands for it.
+- Durable before used. A change is made in memory and stamped with a
+  generation; a revocation acts at once, and anything that grants (message
+  3, a returned link, the success of a user command) waits until its
+  generation is in the vault (`persist`). A failed write fails the
+  installation closed.
 
-What the contact store of Phase 4 has to add: one lock, or one
-transaction, per contact around lookup, admission and keeping the
-withdrawal; withdrawal of the sessions of a retired key inside the same
-step as the promotion, and of every session of an identity whose record
-is deleted or blocked inside that step; the confirmation and import actions of the
-interface on top of `Credentials::confirm`, `import` and `replace`;
-persisting the credentials atomically with the rest of the contact record
-(S31), either inside the step or before its result is used, so that a
-crash cannot bring a retired key back; forgetting the withdrawals of links
-that ended (`Withdrawal::is_ended`), including those `answer` refused for
-lack of a slot after the admission had run; the timing of a rotation and
-of the switch to the new key; the dial card the user confirmed, kept
-apart from the credentials; and one evaluation of a card for the import
-by the user and for the admission of a peer. Today
-`Credentials::import` holds a card of another key that is older than an
-announced successor as pending, while admission and announcement call it
-stale. Both give no standing, neither lowers the epoch of the active
-card, and the pending card takes over only if the user confirms exactly
-that card; the store has to bring the two under one rule.
+Admission runs inside the handshake deadline; the wait for durability is
+inside it as well.
 
 ## 2. Processing order for peer input
 
@@ -211,6 +201,10 @@ Persistent state is written only at "applied".
 
 - One Tokio runtime. The core's tasks:
   - a supervisor that owns all other tasks;
+  - one publication supervisor per local identity, which publishes its
+    service from the stored key, runs its accept loop, and publishes it
+    again after Tor lost it, with the delays of the reconnect schedule
+    (`RESOURCE_LIMITS.md` section 7);
   - one task per session (handshake, then frame loop);
   - one accept loop per published service, which owns the handshake tasks
     it starts in a `JoinSet`, at most `MAX_INBOUND_HANDSHAKES` of them, and
@@ -218,7 +212,9 @@ Persistent state is written only at "applied".
   - a dial scheduler with at most `MAX_CONCURRENT_DIALS` dials;
   - Tor control connections: one held by each published service, which
     ends with it, and short ones for status queries;
-  - one storage task; vault writes and KDF work run on the blocking pool;
+  - vault writes and KDF work run on the blocking pool; the task that
+    waits for a change to be durable writes the whole installation, and
+    tasks that wait at the same time find their change covered;
   - one writer task per active file transfer.
 - Every channel is bounded, with its capacity in `limits.rs` (S12).
   Unbounded channel constructors are banned by lint.
@@ -312,8 +308,10 @@ argument; none of them picks one silently.
 Phase 3 implements `tor status` and `doctor`, with the options `--socks`,
 `--control` and `--control-auth`, and the development command
 `dev-chat serve` and `dev-chat dial` for the two-node test on a private Tor
-network (identities and services in memory only). The other commands
-report that they are not implemented yet.
+network (identities and services in memory only). Phase 4 adds the
+development command `dev-node`, a node over a persistent vault driven by
+commands on standard input, which the private network test drives. The
+other commands report that they are not implemented yet.
 
 `monolith doctor` checks and reports, without revealing secrets or
 addresses: SOCKS reachability; control access and which authentication the
@@ -437,7 +435,7 @@ the platform's packaging.
 | 1 | Protocol core without cryptography or Tor: framing, encoding, identity types, contact cards, state machine; unit, property and fuzz tests. |
 | 2 | Cryptographic session: Noise XK handshake, the contact card as certificate of the transport key, encrypted frames, session limits, test vectors, hostile-handshake tests. |
 | 3 | System Tor: SOCKS5, control client, mock backend, two-node CLI chat. |
-| 4 | Contacts and queue: acceptance, pinning, vault, duplicate resolution, reconnect scheduling. |
+| 4 | Contact store and persistence: acceptance, pinning, one decision about a card, per-contact serialization, retirement of live sessions, the vault, invitations, several identities, the budget for strangers, the publication supervisor, rotation and dialing. Duplicate resolution, the reconnect scheduler and the message queue follow before Phase 5 (`DESIGN_QUESTIONS.md` section 11.3). |
 | 5 | File transfer. |
 | 6 | Tails. |
 | 7 | Whonix. |
