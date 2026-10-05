@@ -17,6 +17,7 @@ pub mod link;
 pub mod persist;
 pub mod requests;
 pub mod strangers;
+pub mod supervisor;
 
 /// State of the Tor connection as shown to the user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
