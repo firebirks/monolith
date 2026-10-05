@@ -300,14 +300,16 @@ binary. Phase 3 added `tokio` and `hmac` for the Tor adapter; Phase 4 added
   generation (section 2).
 - Enabled: `alloc` (the memory of the derivation is allocated on the
   heap) and `zeroize` (that memory is cleared when the derivation ends).
-  Not enabled: the default `password-hash` feature and its string format,
-  `rand`, `simple`, `std`. `password-hash` and `phc` are listed in
-  `Cargo.lock` as optional dependencies of `argon2` and are not compiled.
+  Not enabled: the defaults `password-hash` (the PHC string format) and
+  `getrandom`, and `kdf`, `parallel`, `rand_core`. `password-hash` and
+  `phc` are listed in `Cargo.lock` as optional dependencies of `argon2`
+  and are not compiled.
 - Used only through `Argon2::new(Argon2id, V0x13, params)` and
   `hash_password_into`, with parameters bounded before the call
   (`STORAGE.md` section 3.3).
-- Advisories: none. Unsafe: 13 lines, in the SIMD block function, which
-  is selected at run time through `cpufeatures`.
+- Advisories: none. Unsafe: 13 lines, in the AVX2 block function, which
+  is selected at run time through `cpufeatures`, and in the allocation of
+  the zeroed block memory.
 
 `hkdf`
 
