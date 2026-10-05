@@ -62,9 +62,9 @@ With Phase 4:
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
-| Phase 4 | 44 | 44 | none |
+| Phase 4 | 44 | 43 | CS28 |
 
-259 faults, 250 to be caught, 9 expected to survive.
+259 faults, 249 to be caught, 10 expected to survive.
 
 The Phase 4 list, CS1 to CS44, covers the contact store and the vault:
 
@@ -98,7 +98,8 @@ The Phase 4 list, CS1 to CS44, covers the contact store and the vault:
   normalized, a directory others can reach, no single-instance lock,
   padding that is not zero, a contact stored twice (CS35 to CS43).
 
-None is expected to survive. CS17 is caught by the timeout: without the
+CS28 is expected to survive, below. CS17 and CS30 are caught by the
+timeout of the runner: the tests they break do not end. Without the
 refusal a dial with no contact slot never returns.
 
 Phase 4 moved P1 to P3, H15, H16, Q25, Q26, Q30, CR1, CR2, CR9, CR18,
@@ -175,7 +176,7 @@ and `request_sent` in `may_send` (S13, S14), the invitation comparison
 that drops the keys (S20 to S25), the all-zero secret key (K1) and
 `OutboundPeer::admit` with its record (H15, H16).
 
-Why the six survive:
+Why these survive:
 
 - B3, equivalent. The card inside a ContactRequest or EndpointUpdate is
   taken with the length of a card without capability, 171 bytes. A card
@@ -205,6 +206,15 @@ Why the six survive:
 - Q29, unreachable. `Endpoint` is opaque and only its validating
   constructors make one; the second check in the connection code cannot be
   reached from a test.
+- CS28, needs two threads. A stranger's first message and its eviction
+  race on one state, and each side decides with a compare-and-swap. A
+  link also looks for the eviction at the top of every turn of its loop
+  and while it waits for the peer, so on one thread nothing can evict
+  between that look and the swap of the first message, and ignoring the
+  result of the swap changes nothing a test of the link can arrange. The
+  swap decides when the eviction runs on another thread, as it can on a
+  runtime with several. `strangers::tests` races the two swaps on threads
+  and checks that exactly one wins.
 
 A survivor that is not in this list is a gap in the tests, or a check that
 does nothing. Either is fixed before a phase is called done; F9 was such a

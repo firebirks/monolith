@@ -822,7 +822,12 @@ PHASE4 = [
            "        if slots.held.len() > self.capacity {")),
     fault("CS28", CORE + "link.rs", "an evicted stranger's first message is still delivered",
           ("                            if self\n                                .unknown_slot\n                                .as_ref()\n                                .is_some_and(|slot| !slot.state().heard())\n                            {\n                                return Err(self.end_evicted().await);\n                            }\n",
-           "                            if let Some(slot) = self.unknown_slot.as_ref() {\n                                let _ = slot.state().heard();\n                            }\n")),
+           "                            if let Some(slot) = self.unknown_slot.as_ref() {\n                                let _ = slot.state().heard();\n                            }\n"),
+          expect="survives: needs two threads. A link looks for an eviction at the top of"
+                 " every turn of its loop and while it waits, and on one thread nothing can"
+                 " evict between that look and the compare-and-swap of the first message;"
+                 " the swap decides only when the eviction runs on another thread."
+                 " strangers::tests races the two swaps on threads"),
     # The supervisor.
     fault("CS29", CORE + "supervisor.rs", "the service is published again under a new key",
           ("        let key = KeySource::Existing {\n            secret,\n            expected: identity.endpoint(),\n        };",
