@@ -13,10 +13,13 @@ monolith-protocol.workspace = true
 monolith-session.workspace = true
 monolith-storage.workspace = true
 monolith-tor.workspace = true
+getrandom.workspace = true
 tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
+zeroize = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["io-util", "rt", "sync", "test-util", "time"] }
+zeroize.workspace = true
 
 [lints]
 workspace = true

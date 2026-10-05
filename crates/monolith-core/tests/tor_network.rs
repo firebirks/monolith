@@ -23,14 +23,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use monolith_core::budget::Budgets;
+use monolith_core::identity::{IdentityKeys, Installation, LocalIdentity};
 use monolith_core::link::{Established, Link, LinkError, answer, dial};
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::{Message, MessageId};
-use monolith_protocol::card::EndpointSet;
-use monolith_protocol::credential::Credentials;
-use monolith_protocol::session::{Action, PeerRecord};
+use monolith_protocol::session::Action;
 use monolith_protocol::text::ChatText;
-use monolith_session::{LocalParty, TransportSecretKey};
 use monolith_tor::{
     ControlAuth, Endpoint, KeySource, OnionService, PublishedOnionService, SystemTorBackend,
     SystemTorConfig, TorBackend,
@@ -65,15 +63,22 @@ fn config(side: &str) -> SystemTorConfig {
     }
 }
 
-/// A party of identity `seed` whose card names `endpoint`.
-fn party(seed: u8, endpoint: OnionServiceKey) -> LocalParty {
-    LocalParty::issue(
-        &IdentitySecretKey::from_seed(&[seed; 32]),
-        TransportSecretKey::from_bytes(&[seed.wrapping_add(0x40); 32]).unwrap(),
-        EndpointEpoch::FIRST,
-        EndpointSet::single(endpoint),
-    )
-    .unwrap()
+/// The identity of `seed`, reachable at `endpoint`, in an ephemeral
+/// installation of its own.
+async fn identity(seed: u8, endpoint: OnionServiceKey) -> std::sync::Arc<LocalIdentity> {
+    Installation::ephemeral()
+        .restore_identity(
+            IdentityKeys {
+                seed: zeroize::Zeroizing::new([seed; 32]),
+                transport: zeroize::Zeroizing::new([seed.wrapping_add(0x40); 32]),
+                onion: None,
+                epoch: EndpointEpoch::FIRST,
+                endpoint,
+            },
+            None,
+        )
+        .await
+        .unwrap()
 }
 
 fn chat(text: &str) -> Message {
@@ -83,9 +88,12 @@ fn chat(text: &str) -> Message {
     }
 }
 
-/// Sends ContactAccept if the session logic asks for it, and waits for
-/// the peer's, which confirms the session.
-async fn confirm<S: AsyncRead + AsyncWrite + Unpin>(established: &mut Established<S>) {
+/// Sends what the session logic asks for first, applies what arrives,
+/// and waits for the peer's ContactAccept, which confirms the session.
+async fn confirm<S: AsyncRead + AsyncWrite + Unpin>(
+    established: &mut Established<S>,
+    identity: &LocalIdentity,
+) {
     if established.first.contains(&Action::SendContactAccept) {
         established
             .link
@@ -93,8 +101,28 @@ async fn confirm<S: AsyncRead + AsyncWrite + Unpin>(established: &mut Establishe
             .await
             .unwrap();
     }
+    if established.first.contains(&Action::SendContactRequest) {
+        let request = Message::ContactRequest(Box::new(monolith_protocol::body::ContactRequest {
+            card: identity.card(),
+            invitation: None,
+            display_name: monolith_protocol::text::DisplayName::new("").unwrap(),
+            introduction: monolith_protocol::text::IntroductionText::new("").unwrap(),
+        }));
+        established.link.send(&request).await.unwrap();
+    }
     loop {
         let received = established.link.receive().await.unwrap();
+        identity
+            .apply(established.link.session_ref(), &received)
+            .await
+            .unwrap();
+        if received.actions.contains(&Action::SendContactAccept) {
+            established
+                .link
+                .send(&Message::ContactAccept)
+                .await
+                .unwrap();
+        }
         if received.actions.contains(&Action::Confirmed) {
             return;
         }
@@ -115,28 +143,15 @@ async fn next_chat<S: AsyncRead + AsyncWrite + Unpin>(link: &mut Link<S>) -> Str
 /// it does until the descriptor of the service is in the directories.
 async fn exchange(
     alice_tor: &SystemTorBackend,
-    alice: &LocalParty,
+    alice: &LocalIdentity,
     service: &mut PublishedOnionService,
-    bob: &LocalParty,
+    bob: &LocalIdentity,
 ) {
     let budgets = Budgets::new();
     for attempt in 1..=ATTEMPTS {
-        let isolation = alice_tor.isolation_group().unwrap();
         let alice_side = async {
-            let mut established = dial(
-                alice_tor,
-                &budgets,
-                alice,
-                bob.card(),
-                &isolation,
-                |peer, _| {
-                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                        bob.card().clone(),
-                    )))
-                },
-            )
-            .await?;
-            confirm(&mut established).await;
+            let mut established = dial(alice_tor, &budgets, alice, &bob.card()).await?;
+            confirm(&mut established, alice).await;
             established.link.send(&chat("hello")).await.unwrap();
             let reply = next_chat(&mut established.link).await;
             established.link.close().await.unwrap();
@@ -144,14 +159,8 @@ async fn exchange(
         };
         let bob_side = async {
             let stream = service.accept().await.unwrap();
-            let mut established = answer(stream, &budgets, bob, |peer, _| {
-                peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                    alice.card().clone(),
-                )))
-            })
-            .await
-            .unwrap();
-            confirm(&mut established).await;
+            let mut established = answer(stream, &budgets, bob).await.unwrap();
+            confirm(&mut established, bob).await;
             let hello = next_chat(&mut established.link).await;
             established.link.send(&chat("hello back")).await.unwrap();
             hello
@@ -202,13 +211,18 @@ fn a_service_published_again_from_its_key_is_reached_again() {
         assert!(service.is_published());
         let name = *service.service_key();
         let secret = service.take_generated_secret().unwrap();
-        let bob = party(2, name);
+        let bob = identity(2, name).await;
         // Alice only dials; her card names an endpoint nobody publishes.
         let elsewhere = IdentitySecretKey::from_seed(&[0x66; 32]).public_key();
-        let alice = party(
+        let alice = identity(
             1,
             OnionServiceKey::from_bytes(elsewhere.as_bytes()).unwrap(),
-        );
+        )
+        .await;
+        // Each imported the other's card; the first session makes them
+        // accepted contacts.
+        alice.import(&bob.card()).await.unwrap();
+        bob.import(&alice.card()).await.unwrap();
         exchange(&alice_tor, &alice, &mut service, &bob).await;
 
         // The control connection that published the service goes away,
@@ -233,20 +247,7 @@ fn a_service_published_again_from_its_key_is_reached_again() {
         let mut gone = config("A");
         gone.socks = Endpoint::parse(&std::env::var("MONOLITH_TOR_CLOSED_SOCKS").unwrap()).unwrap();
         let without_socks = SystemTorBackend::new(gone);
-        let isolation = without_socks.isolation_group().unwrap();
-        let failed = dial(
-            &without_socks,
-            &Budgets::new(),
-            &alice,
-            bob.card(),
-            &isolation,
-            |peer, _| {
-                peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                    bob.card().clone(),
-                )))
-            },
-        )
-        .await;
+        let failed = dial(&without_socks, &Budgets::new(), &alice, &bob.card()).await;
         assert!(matches!(failed.err(), Some(LinkError::Tor(_))));
         println!("Without SOCKS the dial failed.");
     });

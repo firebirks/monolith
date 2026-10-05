@@ -1,4 +1,5 @@
-//! Tor streams carrying the Phase 2 session, on the in-memory Tor.
+//! Tor streams carrying the Phase 2 session, on the in-memory Tor, with
+//! the contact store of each local identity deciding every admission.
 
 // Test code builds its own inputs.
 #![allow(
@@ -9,183 +10,96 @@
     clippy::arithmetic_side_effects
 )]
 
-use core::future::Future;
+mod common;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use common::{
+    both, chat, confirm_both, connect, dial_and_answer, node, request, run, run_paused, send_first,
+};
 use monolith_core::budget::{Budgets, ServeEnd, serve};
+use monolith_core::identity::Installation;
 use monolith_core::link::{LinkError, answer, dial};
-use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
+use monolith_identity::{EndpointEpoch, IdentitySecretKey};
 use monolith_protocol::SessionState;
-use monolith_protocol::body::{Message, MessageId};
+use monolith_protocol::body::Message;
 use monolith_protocol::card::{ContactCard, EndpointSet};
-use monolith_protocol::credential::Credentials;
-use monolith_protocol::limits::MAX_INBOUND_HANDSHAKES;
-use monolith_protocol::session::{Action, PeerRecord, Standing};
-use monolith_protocol::text::ChatText;
-use monolith_session::{LocalParty, SessionError, TransportSecretKey};
-use monolith_tor::{KeySource, MockNetwork, OnionService, TorBackend, TorError};
+use monolith_protocol::limits::{
+    MAX_CONCURRENT_DIALS, MAX_INBOUND_HANDSHAKES, MAX_UNKNOWN_SESSIONS,
+};
+use monolith_protocol::session::{Action, Standing};
+use monolith_tor::{MockNetwork, OnionService, TorBackend, TorError};
 use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
-
-fn run<F: Future>(future: F) -> F::Output {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(future)
-}
-
-/// A party whose card names `endpoint`.
-fn party(seed: u8, endpoint: OnionServiceKey) -> LocalParty {
-    let identity = IdentitySecretKey::from_seed(&[seed; 32]);
-    let transport = TransportSecretKey::generate().unwrap();
-    LocalParty::issue(
-        &identity,
-        transport,
-        EndpointEpoch::FIRST,
-        EndpointSet::single(endpoint),
-    )
-    .unwrap()
-}
-
-/// Budgets of their own for one call, for tests that do not exercise them.
-fn fresh() -> &'static Budgets {
-    Box::leak(Box::new(Budgets::new()))
-}
-
-fn chat(text: &str) -> Message {
-    Message::ChatMessage {
-        id: MessageId::from_bytes([1; 16]),
-        text: ChatText::new(text).unwrap(),
-    }
-}
 
 #[test]
 fn a_tor_stream_carries_an_authenticated_exchange_both_ways() {
     run(async {
         let network = MockNetwork::new();
-        let (alice_tor, bob_tor) = (network.backend(), network.backend());
-        let mut bob_service = bob_tor.publish_onion(KeySource::Generate).await.unwrap();
-        let alice_service = alice_tor.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = party(2, *bob_service.service_key());
-        let alice = party(1, *alice_service.service_key());
-        let (alice_card, bob_card) = (alice.card().clone(), bob.card().clone());
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        alice.identity.import(&bob.card()).await.unwrap();
+        bob.identity.import(&alice.card()).await.unwrap();
 
-        let isolation = alice_tor.isolation_group().unwrap();
-        let bob_side = async {
-            let stream = bob_service.accept().await.unwrap();
-            answer(stream, fresh(), &bob, |peer, _| {
-                peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                    alice_card.clone(),
-                )))
-            })
-            .await
-            .unwrap()
-        };
-        let alice_side = dial(
-            &alice_tor,
-            fresh(),
-            &alice,
-            &bob_card,
-            &isolation,
-            |peer, _| {
-                peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                    bob_card.clone(),
-                )))
-            },
-        );
-        let (alice_end, bob_end) = futures_join(alice_side, bob_side).await;
-        let (mut alice_link, mut bob_link) = (alice_end.unwrap(), bob_end);
-        assert_eq!(alice_link.first, vec![Action::SendContactAccept]);
-        assert_eq!(bob_link.first, vec![Action::SendContactAccept]);
-        assert_eq!(bob_link.link.session().peer(), alice_card.identity());
-
-        alice_link.link.send(&Message::ContactAccept).await.unwrap();
-        bob_link.link.send(&Message::ContactAccept).await.unwrap();
+        // Both asked: the first session makes both accepted and confirms.
+        let (mut alice_link, mut bob_link) = confirm_both(&alice, &mut bob).await;
+        assert_eq!(bob_link.session().peer(), alice.identity.identity());
         assert_eq!(
-            bob_link.link.receive().await.unwrap().actions,
-            vec![Action::Confirmed]
-        );
-        assert_eq!(
-            alice_link.link.receive().await.unwrap().actions,
-            vec![Action::Confirmed]
+            alice
+                .identity
+                .contact(bob.identity.identity())
+                .unwrap()
+                .kind,
+            monolith_protocol::contact::RecordKind::Accepted
         );
 
-        alice_link.link.send(&chat("hello over Tor")).await.unwrap();
-        let received = bob_link.link.receive().await.unwrap();
+        alice_link.send(&chat("hello over Tor")).await.unwrap();
+        let received = bob_link.receive().await.unwrap();
         assert_eq!(received.message, chat("hello over Tor"));
         assert_eq!(received.actions, vec![Action::Deliver]);
-        bob_link.link.send(&chat("hello back")).await.unwrap();
+        bob_link.send(&chat("hello back")).await.unwrap();
         assert_eq!(
-            alice_link.link.receive().await.unwrap().message,
+            alice_link.receive().await.unwrap().message,
             chat("hello back")
         );
 
-        alice_link.link.close().await.unwrap();
-        let closed = bob_link.link.receive().await.unwrap();
+        alice_link.close().await.unwrap();
+        let closed = bob_link.receive().await.unwrap();
         assert_eq!(closed.message, Message::Close);
-        assert_eq!(bob_link.link.session().state(), SessionState::Closed);
-    });
-}
+        assert_eq!(bob_link.session().state(), SessionState::Closed);
 
-/// Runs two futures to completion on the current task.
-async fn futures_join<A: Future, B: Future>(a: A, b: B) -> (A::Output, B::Output) {
-    let mut a = core::pin::pin!(a);
-    let mut b = core::pin::pin!(b);
-    let (mut out_a, mut out_b) = (None, None);
-    core::future::poll_fn(|cx| {
-        if out_a.is_none() {
-            if let core::task::Poll::Ready(value) = a.as_mut().poll(cx) {
-                out_a = Some(value);
-            }
-        }
-        if out_b.is_none() {
-            if let core::task::Poll::Ready(value) = b.as_mut().poll(cx) {
-                out_b = Some(value);
-            }
-        }
-        if out_a.is_some() && out_b.is_some() {
-            core::task::Poll::Ready(())
-        } else {
-            core::task::Poll::Pending
-        }
-    })
-    .await;
-    (out_a.unwrap(), out_b.unwrap())
+        // The next session starts accepted on both sides.
+        let (alice_end, bob_end) = connect(&alice, &mut bob).await;
+        assert_eq!(alice_end.unwrap().first, vec![Action::SendContactAccept]);
+        assert_eq!(bob_end.unwrap().first, vec![Action::SendContactAccept]);
+    });
 }
 
 #[test]
 fn reaching_the_onion_service_does_not_authenticate_another_identity() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut bob_service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = party(2, *bob_service.service_key());
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
         // A card of another identity that names Bob's endpoint: Tor reaches
         // Bob, the handshake does not accept the identity.
-        let mallory = party(3, *bob_service.service_key());
-        let alice = party(1, *bob_service.service_key());
-        let isolation = backend.isolation_group().unwrap();
-        let bob_side = async {
-            let stream = bob_service.accept().await.unwrap();
-            answer(stream, fresh(), &bob, |peer, _| {
-                peer.admit(PeerRecord::None)
-            })
-            .await
-        };
-        let alice_side = dial(
-            &backend,
-            fresh(),
-            &alice,
-            mallory.card(),
-            &isolation,
-            |peer, _| peer.admit(PeerRecord::None),
-        );
-        let (alice_result, bob_result) = futures_join(alice_side, bob_side).await;
+        let mallory_at_bob = ContactCard::sign(
+            &IdentitySecretKey::from_seed(&[3; 32]),
+            *bob.card().transport(),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(bob.identity.endpoint()),
+            None,
+        )
+        .unwrap();
+        alice.identity.import(&mallory_at_bob).await.unwrap();
+        let (alice_result, bob_result) = dial_and_answer(&alice, &mallory_at_bob, &mut bob).await;
         assert!(alice_result.is_err());
-        assert!(matches!(bob_result, Err(LinkError::Session(_))));
+        assert!(matches!(
+            bob_result,
+            Err(LinkError::Session(_) | LinkError::Stream)
+        ));
     });
 }
 
@@ -193,50 +107,28 @@ fn reaching_the_onion_service_does_not_authenticate_another_identity() {
 fn a_stranger_through_a_valid_tor_stream_gets_only_a_close() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut bob_service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let alice_service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = party(2, *bob_service.service_key());
-        let alice = party(1, *alice_service.service_key());
-        let bob_card = bob.card().clone();
-        let isolation = backend.isolation_group().unwrap();
-        let bob_side = async {
-            let stream = bob_service.accept().await.unwrap();
-            answer(stream, fresh(), &bob, |peer, _| {
-                peer.admit(PeerRecord::None)
-            })
-            .await
-            .unwrap()
-        };
-        let alice_side = dial(
-            &backend,
-            fresh(),
-            &alice,
-            &bob_card,
-            &isolation,
-            |peer, _| {
-                peer.admit(PeerRecord::Requested(&mut Credentials::new(
-                    bob_card.clone(),
-                )))
-            },
-        );
-        let (alice_end, mut bob_end) = futures_join(alice_side, bob_side).await;
-        let mut alice_end = alice_end.unwrap();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        alice.identity.import(&bob.card()).await.unwrap();
+        let (alice_end, bob_end) = connect(&alice, &mut bob).await;
+        let (mut alice_end, mut bob_end) = (alice_end.unwrap(), bob_end.unwrap());
         assert_eq!(bob_end.admission.standing, Standing::None);
         assert!(bob_end.first.is_empty());
+        assert!(bob_end.link.holds_unknown_slot());
         assert_eq!(alice_end.first, vec![Action::SendContactRequest]);
-        let request = Message::ContactRequest(Box::new(monolith_protocol::body::ContactRequest {
-            card: alice.card().clone(),
-            invitation: None,
-            display_name: monolith_protocol::text::DisplayName::new("Alice").unwrap(),
-            introduction: monolith_protocol::text::IntroductionText::new("hi").unwrap(),
-        }));
-        alice_end.link.send(&request).await.unwrap();
+        alice_end
+            .link
+            .send(&request(&alice.card(), None))
+            .await
+            .unwrap();
         let received = bob_end.link.receive().await.unwrap();
         assert_eq!(
             received.actions,
             vec![Action::SendClose, Action::ConsiderRequest]
         );
+        // The Close went out and the slot is back before the message is
+        // returned.
+        assert!(!bob_end.link.holds_unknown_slot());
         // A chat message cannot even be sent before confirmation.
         assert!(alice_end.link.send(&chat("x")).await.is_err());
     });
@@ -246,22 +138,12 @@ fn a_stranger_through_a_valid_tor_stream_gets_only_a_close() {
 fn without_socks_or_a_service_a_dial_fails_and_tries_nothing_else() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = party(2, *service.service_key());
-        let alice = party(1, *service.service_key());
-        let isolation = backend.isolation_group().unwrap();
+        let alice = node(&network, 1).await;
+        let bob = node(&network, 2).await;
+        alice.identity.import(&bob.card()).await.unwrap();
 
         network.set_socks_available(false);
-        let result = dial(
-            &backend,
-            fresh(),
-            &alice,
-            bob.card(),
-            &isolation,
-            |peer, _| peer.admit(PeerRecord::None),
-        )
-        .await;
+        let result = dial(&alice.tor, &alice.budgets, &alice.identity, &bob.card()).await;
         assert_eq!(
             result.err(),
             Some(LinkError::Tor(TorError::SocksUnavailable))
@@ -269,16 +151,8 @@ fn without_socks_or_a_service_a_dial_fails_and_tries_nothing_else() {
         assert_eq!(network.dials(), 0);
 
         network.set_socks_available(true);
-        network.lose_service(service.service_key());
-        let result = dial(
-            &backend,
-            fresh(),
-            &alice,
-            bob.card(),
-            &isolation,
-            |peer, _| peer.admit(PeerRecord::None),
-        )
-        .await;
+        network.lose_service(&bob.identity.endpoint());
+        let result = dial(&alice.tor, &alice.budgets, &alice.identity, &bob.card()).await;
         assert_eq!(
             result.err(),
             Some(LinkError::Tor(TorError::OnionUnreachable))
@@ -291,39 +165,45 @@ fn without_socks_or_a_service_a_dial_fails_and_tries_nothing_else() {
 fn the_accept_loop_bounds_handshakes_owns_its_tasks_and_ends_with_the_service() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let key = *service.service_key();
+        let mut bob = node(&network, 2).await;
+        let key = bob.identity.endpoint();
         let budgets = Budgets::new();
         let (stop, shutdown) = watch::channel(false);
         let running = Arc::new(AtomicUsize::new(0));
         let counter = running.clone();
+        let identity = bob.identity.clone();
 
         // Handlers that hold their permit until they are aborted.
         let serving = async {
-            serve(&mut service, &budgets, shutdown, move |stream, permit| {
-                let counter = counter.clone();
-                async move {
-                    let _stream = stream;
-                    struct Guard(Arc<AtomicUsize>);
-                    impl Drop for Guard {
-                        fn drop(&mut self) {
-                            self.0.fetch_sub(1, Ordering::SeqCst);
+            serve(
+                &mut bob.service,
+                &budgets,
+                &identity,
+                shutdown,
+                move |stream, permit| {
+                    let counter = counter.clone();
+                    async move {
+                        let _stream = stream;
+                        struct Guard(Arc<AtomicUsize>);
+                        impl Drop for Guard {
+                            fn drop(&mut self) {
+                                self.0.fetch_sub(1, Ordering::SeqCst);
+                            }
                         }
+                        counter.fetch_add(1, Ordering::SeqCst);
+                        let _guard = Guard(counter);
+                        let _permit = permit;
+                        core::future::pending::<()>().await;
                     }
-                    counter.fetch_add(1, Ordering::SeqCst);
-                    let _guard = Guard(counter);
-                    let _permit = permit;
-                    core::future::pending::<()>().await;
-                }
-            })
+                },
+            )
             .await
         };
         let flooding = async {
-            let isolation = backend.isolation_group().unwrap();
+            let isolation = bob.tor.isolation_group().unwrap();
             let mut streams = Vec::new();
             for _ in 0..MAX_INBOUND_HANDSHAKES + 4 {
-                streams.push(backend.connect_onion(&key, &isolation).await.unwrap());
+                streams.push(bob.tor.connect_onion(&key, &isolation).await.unwrap());
                 // Let the loop take it, as a real listener would.
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
@@ -343,16 +223,18 @@ fn the_accept_loop_bounds_handshakes_owns_its_tasks_and_ends_with_the_service() 
             assert_eq!(refused, 4);
             assert_eq!(held.len(), MAX_INBOUND_HANDSHAKES);
             assert_eq!(running.load(Ordering::SeqCst), MAX_INBOUND_HANDSHAKES);
-            assert_eq!(budgets.free_inbound_handshakes(), 0);
             stop.send(true).unwrap();
             held
         };
-        let (end, _held) = futures_join(serving, flooding).await;
+        let (end, _held) = both(serving, flooding).await;
         assert_eq!(end, ServeEnd::Shutdown);
-        // Every handler was aborted and gave its permit back.
+        // Every handler was aborted and gave its permits back.
         assert_eq!(running.load(Ordering::SeqCst), 0);
-        assert_eq!(budgets.free_inbound_handshakes(), MAX_INBOUND_HANDSHAKES);
-        drop(service);
+        assert_eq!(
+            budgets.free_inbound_handshakes(),
+            monolith_protocol::limits::MAX_PROCESS_INBOUND_HANDSHAKES
+        );
+        drop(bob);
         assert!(!network.is_published(&key));
     });
 }
@@ -361,21 +243,28 @@ fn the_accept_loop_bounds_handshakes_owns_its_tasks_and_ends_with_the_service() 
 fn losing_tor_ends_the_accept_loop_and_the_publication() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let key = *service.service_key();
-        let budgets = Budgets::new();
+        let mut bob = node(&network, 2).await;
+        let key = bob.identity.endpoint();
+        let identity = bob.identity.clone();
         let (_stop, shutdown) = watch::channel(false);
         let losing = async {
             tokio::time::sleep(Duration::from_millis(20)).await;
             network.lose_service(&key);
         };
-        let serving = serve(&mut service, &budgets, shutdown, |_stream, _permit| async {
-        });
-        let (end, ()) = futures_join(serving, losing).await;
+        let serving = serve(
+            &mut bob.service,
+            &bob.budgets,
+            &identity,
+            shutdown,
+            |_, _| async {},
+        );
+        let (end, ()) = both(serving, losing).await;
         assert_eq!(end, ServeEnd::Service(TorError::ControlLost));
-        assert!(!service.is_published());
-        assert_eq!(service.accept().await.err(), Some(TorError::ControlLost));
+        assert!(!bob.service.is_published());
+        assert_eq!(
+            bob.service.accept().await.err(),
+            Some(TorError::ControlLost)
+        );
     });
 }
 
@@ -383,15 +272,19 @@ fn losing_tor_ends_the_accept_loop_and_the_publication() {
 fn a_dropped_shutdown_sender_stops_the_loop() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let budgets = Budgets::new();
+        let mut bob = node(&network, 2).await;
+        let identity = bob.identity.clone();
         let (stop, shutdown) = watch::channel(false);
         drop(stop);
         let end = tokio::time::timeout(
             Duration::from_secs(5),
-            serve(&mut service, &budgets, shutdown, |_stream, _permit| async {
-            }),
+            serve(
+                &mut bob.service,
+                &bob.budgets,
+                &identity,
+                shutdown,
+                |_, _| async {},
+            ),
         )
         .await
         .unwrap();
@@ -403,55 +296,43 @@ fn a_dropped_shutdown_sender_stops_the_loop() {
 fn several_peers_handshake_at_the_same_time() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = Arc::new(party(2, *service.service_key()));
-        let bob_card = bob.card().clone();
-        let budgets = Budgets::new();
+        let mut bob = node(&network, 2).await;
+        let bob_card = bob.card();
+        let identity = bob.identity.clone();
+        let budgets = bob.budgets.clone();
         let (stop, shutdown) = watch::channel(false);
         let authenticated = Arc::new(AtomicUsize::new(0));
         let count = authenticated.clone();
-        let responder = bob.clone();
-        let serving = serve(&mut service, &budgets, shutdown, move |stream, permit| {
-            let responder = responder.clone();
-            let count = count.clone();
-            async move {
-                if answer(stream, fresh(), &responder, |peer, _| {
-                    peer.admit(PeerRecord::None)
-                })
-                .await
-                .is_ok()
-                {
-                    count.fetch_add(1, Ordering::SeqCst);
+        let responder = identity.clone();
+        let serving = serve(
+            &mut bob.service,
+            &budgets,
+            &identity,
+            shutdown,
+            move |stream, permit| {
+                let responder = responder.clone();
+                let count = count.clone();
+                let budgets = Budgets::new();
+                async move {
+                    if answer(stream, &budgets, &responder).await.is_ok() {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    }
+                    drop(permit);
                 }
-                drop(permit);
-            }
-        });
+            },
+        );
         let dialing = async {
-            let mut dials = Vec::new();
-            for seed in 10..18_u8 {
-                let backend = &backend;
-                let bob_card = &bob_card;
-                dials.push(async move {
-                    let alice = party(
-                        seed,
-                        OnionServiceKey::from_bytes(
-                            IdentitySecretKey::from_seed(&[seed.wrapping_add(100); 32])
-                                .public_key()
-                                .as_bytes(),
-                        )
-                        .unwrap(),
-                    );
-                    let isolation = backend.isolation_group().unwrap();
-                    dial(backend, fresh(), &alice, bob_card, &isolation, |peer, _| {
-                        let mut held = Credentials::new(peer.card().clone());
-                        peer.admit(PeerRecord::Requested(&mut held))
-                    })
-                    .await
-                    .map(|_| ())
-                });
+            let mut nodes = Vec::new();
+            for seed in 10..14_u8 {
+                let peer = node(&network, seed).await;
+                peer.identity.import(&bob_card).await.unwrap();
+                nodes.push(peer);
             }
             let mut ok = 0;
+            let dials: Vec<_> = nodes
+                .iter()
+                .map(|peer| dial(&peer.tor, &peer.budgets, &peer.identity, &bob_card))
+                .collect();
             for dial in dials {
                 if dial.await.is_ok() {
                     ok += 1;
@@ -461,63 +342,43 @@ fn several_peers_handshake_at_the_same_time() {
             stop.send(true).unwrap();
             ok
         };
-        let (end, ok) = futures_join(serving, dialing).await;
+        let (end, ok) = both(serving, dialing).await;
         assert_eq!(end, ServeEnd::Shutdown);
-        assert_eq!(ok, 8);
-        assert_eq!(authenticated.load(Ordering::SeqCst), 8);
+        assert_eq!(ok, 4);
+        assert_eq!(authenticated.load(Ordering::SeqCst), 4);
     });
 }
 
 #[test]
 fn local_identities_are_reached_through_their_own_services() {
-    // One process and one Tor backend can serve several local identities.
-    // Each identity has its own service and answers the streams of that
-    // service with its own party and its own contact lookup; a stream is
-    // never answered by another local identity. Each identity dials with
-    // isolation groups of its own, also towards the same remote contact.
+    // One process and one Tor backend serve two local identities of one
+    // installation. Each answers the streams of its own service with its
+    // own party and its own contact store; a stream is never answered by
+    // the other. Each dials with isolation groups of its own, also towards
+    // the same remote contact (T-MI-5, T-MI-6, T-MI-8).
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let carol_tor = network.backend();
-        let mut service_a = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let mut service_b = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let mut service_carol = carol_tor.publish_onion(KeySource::Generate).await.unwrap();
-        let a = party(1, *service_a.service_key());
-        let b = party(2, *service_b.service_key());
-        let carol = party(3, *service_carol.service_key());
-        let carol_card = carol.card().clone();
+        let installation = Installation::ephemeral();
+        let mut a = common::node_in(installation.clone(), &network, 1, 1, 1).await;
+        let mut b = common::node_in(installation.clone(), &network, 2, 2, 1).await;
+        assert_eq!(installation.identities().len(), 2);
+        let mut carol = node(&network, 3).await;
+        carol.identity.import(&a.card()).await.unwrap();
+        carol.identity.import(&b.card()).await.unwrap();
+        a.identity.import(&carol.card()).await.unwrap();
+        b.identity.import(&carol.card()).await.unwrap();
 
-        // Carol reaches each local identity at its own service.
-        for (service, local) in [(&mut service_a, &a), (&mut service_b, &b)] {
-            let isolation = carol_tor.isolation_group().unwrap();
-            let answering = async {
-                let stream = service.accept().await.unwrap();
-                answer(stream, fresh(), local, |peer, _| {
-                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                        carol_card.clone(),
-                    )))
-                })
-                .await
-                .unwrap()
-            };
-            let dialing = dial(
-                &carol_tor,
-                fresh(),
-                &carol,
-                local.card(),
-                &isolation,
-                |peer, _| {
-                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                        local.card().clone(),
-                    )))
-                },
-            );
-            let (dialed, answered) = futures_join(dialing, answering).await;
+        // Carol reaches each local identity at its own service, and each
+        // decides with its own record of her.
+        for local in [&mut a, &mut b] {
+            let (dialed, answered) = connect(&carol, local).await;
             assert_eq!(
                 dialed.unwrap().link.session().peer(),
-                local.card().identity()
+                local.identity.identity()
             );
-            assert_eq!(answered.link.session().peer(), carol_card.identity());
+            let answered = answered.unwrap();
+            assert_eq!(answered.link.session().peer(), carol.identity.identity());
+            assert_eq!(answered.admission.standing, Standing::Requested);
         }
 
         // A card of A that names the service of B reaches B, and B does
@@ -525,255 +386,158 @@ fn local_identities_are_reached_through_their_own_services() {
         let a_at_b = ContactCard::sign(
             &IdentitySecretKey::from_seed(&[1; 32]),
             *a.card().transport(),
-            EndpointEpoch::FIRST,
-            EndpointSet::single(*service_b.service_key()),
+            EndpointEpoch::new(2).unwrap(),
+            EndpointSet::single(b.identity.endpoint()),
             None,
         )
         .unwrap();
-        let isolation = carol_tor.isolation_group().unwrap();
-        let answering = async {
-            let stream = service_b.accept().await.unwrap();
-            answer(stream, fresh(), &b, |peer, _| peer.admit(PeerRecord::None)).await
-        };
-        let dialing = dial(
-            &carol_tor,
-            fresh(),
-            &carol,
-            &a_at_b,
-            &isolation,
-            |peer, _| peer.admit(PeerRecord::None),
-        );
-        let (dialed, answered) = futures_join(dialing, answering).await;
+        let (dialed, answered) = dial_and_answer(&carol, &a_at_b, &mut b).await;
         assert!(dialed.is_err());
-        assert!(matches!(answered, Err(LinkError::Session(_))));
+        assert!(answered.is_err());
 
-        // A and B both dial Carol, each with a group of its own.
-        let mut groups = Vec::new();
+        // A and B both dial Carol, each with a group of its own, kept per
+        // pair of local identity and contact.
         for local in [&a, &b] {
-            let isolation = backend.isolation_group().unwrap();
-            let answering = async {
-                let stream = service_carol.accept().await.unwrap();
-                answer(stream, fresh(), &carol, |peer, _| {
-                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                        local.card().clone(),
-                    )))
-                })
-                .await
-                .unwrap()
-            };
-            let dialing = dial(
-                &backend,
-                fresh(),
-                local,
-                &carol_card,
-                &isolation,
-                |peer, _| {
-                    peer.admit(PeerRecord::Accepted(&mut Credentials::new(
-                        carol_card.clone(),
-                    )))
-                },
+            let (dialed, answered) = connect(local, &mut carol).await;
+            assert_eq!(
+                dialed.unwrap().link.session().peer(),
+                carol.identity.identity()
             );
-            let (dialed, answered) = futures_join(dialing, answering).await;
-            assert_eq!(dialed.unwrap().link.session().peer(), carol_card.identity());
-            assert_eq!(answered.link.session().peer(), local.card().identity());
-            groups.push(isolation);
+            assert_eq!(
+                answered.unwrap().link.session().peer(),
+                local.identity.identity()
+            );
         }
-        assert!(!groups[0].same_as(&groups[1]));
+        let group_a = a.identity.isolation(carol.identity.identity()).unwrap();
+        let group_b = b.identity.isolation(carol.identity.identity()).unwrap();
+        assert!(!group_a.same_as(&group_b));
+        assert!(group_a.same_as(&a.identity.isolation(carol.identity.identity()).unwrap()));
+        let group_a_other = a.identity.isolation(b.identity.identity()).unwrap();
+        assert!(!group_a.same_as(&group_a_other));
     });
 }
 
 #[test]
 fn a_silent_peer_is_dropped_after_the_handshake_timeout() {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .start_paused(true)
-        .build()
-        .unwrap()
-        .block_on(async {
-            let network = MockNetwork::new();
-            let backend = network.backend();
-            let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-            let bob = party(2, *service.service_key());
-            let isolation = backend.isolation_group().unwrap();
-            // Connects and then sends nothing at all.
-            let _silent = backend
-                .connect_onion(service.service_key(), &isolation)
-                .await
-                .unwrap();
-            let stream = service.accept().await.unwrap();
-            let started = tokio::time::Instant::now();
-            let result = answer(stream, fresh(), &bob, |peer, _| {
-                peer.admit(PeerRecord::None)
-            })
-            .await;
-            assert_eq!(result.err(), Some(LinkError::TimedOut));
-            let timeout = monolith_protocol::limits::HANDSHAKE_TIMEOUT;
-            assert!(started.elapsed() >= timeout);
-            assert!(started.elapsed() <= timeout + Duration::from_secs(1));
-        });
+    run_paused(async {
+        let network = MockNetwork::new();
+        let mut bob = node(&network, 2).await;
+        let isolation = bob.tor.isolation_group().unwrap();
+        // Connects and then sends nothing at all.
+        let _silent = bob
+            .tor
+            .connect_onion(&bob.identity.endpoint(), &isolation)
+            .await
+            .unwrap();
+        let stream = bob.service.accept().await.unwrap();
+        let started = tokio::time::Instant::now();
+        let result = answer(stream, &bob.budgets, &bob.identity).await;
+        assert_eq!(result.err(), Some(LinkError::TimedOut));
+        let timeout = monolith_protocol::limits::HANDSHAKE_TIMEOUT;
+        assert!(started.elapsed() >= timeout);
+        assert!(started.elapsed() <= timeout + Duration::from_secs(1));
+    });
 }
 
 #[test]
-fn strangers_beyond_the_unknown_session_budget_are_closed() {
+fn a_full_stranger_budget_evicts_the_oldest_silent_stranger() {
+    // WP7. Bob holds no record of anybody. Strangers dial him and stay
+    // silent; when the budget is full, the oldest silent one is closed
+    // with a Close and the newcomer gets its slot, in the order the slots
+    // were taken. A stranger whose message has been taken is not silent;
+    // that race is decided on one state (`strangers::tests`).
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = party(2, *service.service_key());
-        let bob_card = bob.card().clone();
-        let budgets = Budgets::new();
-        let mut held = Vec::new();
-        for seed in
-            20..20 + u8::try_from(monolith_protocol::limits::MAX_UNKNOWN_SESSIONS).unwrap() + 1
-        {
-            let stranger = party(
-                seed,
-                OnionServiceKey::from_bytes(
-                    IdentitySecretKey::from_seed(&[seed.wrapping_add(100); 32])
-                        .public_key()
-                        .as_bytes(),
-                )
-                .unwrap(),
-            );
-            let isolation = backend.isolation_group().unwrap();
-            let bob_side = async {
-                let stream = service.accept().await.unwrap();
-                answer(stream, &budgets, &bob, |peer, _| {
-                    peer.admit(PeerRecord::None)
-                })
-                .await
-            };
-            let stranger_side = dial(
-                &backend,
-                fresh(),
-                &stranger,
-                &bob_card,
-                &isolation,
-                |peer, _| {
-                    // A stranger that dials asks to become a contact.
-                    let mut held = Credentials::new(peer.card().clone());
-                    peer.admit(PeerRecord::Requested(&mut held))
-                },
-            );
-            let (_, answered) = futures_join(stranger_side, bob_side).await;
-            if usize::from(seed - 20) < monolith_protocol::limits::MAX_UNKNOWN_SESSIONS {
-                let established = answered.unwrap();
-                assert!(established.link.holds_unknown_slot());
-                held.push(established);
-            } else {
-                assert_eq!(answered.err(), Some(LinkError::Budget));
-            }
+        let mut bob = node(&network, 2).await;
+        let bob_card = bob.card();
+        let mut strangers = Vec::new();
+        for seed in 20..20 + u8::try_from(MAX_UNKNOWN_SESSIONS).unwrap() + 2 {
+            let stranger = node(&network, seed).await;
+            stranger.identity.import(&bob_card).await.unwrap();
+            strangers.push(stranger);
         }
-        // A slot comes back when its session goes.
-        held.pop();
-        let isolation = backend.isolation_group().unwrap();
-        let late = party(99, *service.service_key());
-        let bob_side = async {
-            let stream = service.accept().await.unwrap();
-            answer(stream, &budgets, &bob, |peer, _| {
-                peer.admit(PeerRecord::None)
-            })
+        let mut held = Vec::new();
+        for stranger in strangers.iter().take(MAX_UNKNOWN_SESSIONS) {
+            let (dialed, answered) = dial_and_answer(stranger, &bob_card, &mut bob).await;
+            held.push((dialed.unwrap(), answered.unwrap()));
+        }
+        assert_eq!(bob.identity.strangers().free(), 0);
+        // Two newcomers evict the two oldest, in order.
+        let mut newcomers = Vec::new();
+        for (index, stranger) in strangers.iter().skip(MAX_UNKNOWN_SESSIONS).enumerate() {
+            let (_, answered) = dial_and_answer(stranger, &bob_card, &mut bob).await;
+            let newcomer = answered.unwrap();
+            assert!(newcomer.link.holds_unknown_slot());
+            newcomers.push(newcomer);
+            let (dialed, answered) = &mut held[index];
+            assert_eq!(
+                answered.link.receive().await.err(),
+                Some(LinkError::Evicted)
+            );
+            // The evicted stranger sees an ordinary Close.
+            assert_eq!(dialed.link.receive().await.unwrap().message, Message::Close);
+            assert_eq!(bob.identity.strangers().held(), MAX_UNKNOWN_SESSIONS);
+        }
+        // The younger ones are untouched and still answered as usual.
+        let (dialed, answered) = &mut held[2];
+        dialed
+            .link
+            .send(&request(&strangers[2].card(), None))
             .await
-        };
-        let late_side = dial(
-            &backend,
-            fresh(),
-            &late,
-            &bob_card,
-            &isolation,
-            |peer, _| {
-                // A stranger that dials asks to become a contact.
-                let mut held = Credentials::new(peer.card().clone());
-                peer.admit(PeerRecord::Requested(&mut held))
-            },
-        );
-        let (_, answered) = futures_join(late_side, bob_side).await;
-        assert!(answered.is_ok());
+            .unwrap();
+        let received = answered.link.receive().await.unwrap();
+        assert!(received.actions.contains(&Action::ConsiderRequest));
+        assert_eq!(bob.identity.strangers().held(), MAX_UNKNOWN_SESSIONS - 1);
     });
 }
 
 #[test]
-fn a_stranger_takes_a_slot_whatever_the_admission_returned_says() {
-    // Bob admits a stranger and returns an admission that says the peer
-    // is accepted. The slot follows the standing of the session.
+fn a_contact_is_never_evicted_for_a_stranger() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = party(2, *service.service_key());
-        let bob_card = bob.card().clone();
-        let budgets = Budgets::new();
-        let stranger = party(30, *service.service_key());
-        let isolation = backend.isolation_group().unwrap();
-        let bob_side = async {
-            let stream = service.accept().await.unwrap();
-            answer(stream, &budgets, &bob, |peer, _| {
-                let (session, mut admission, first) = peer.admit(PeerRecord::None)?;
-                admission.standing = Standing::Accepted;
-                Ok((session, admission, first))
-            })
-            .await
-        };
-        let stranger_side = dial(
-            &backend,
-            fresh(),
-            &stranger,
-            &bob_card,
-            &isolation,
-            |peer, _| {
-                let mut held = Credentials::new(peer.card().clone());
-                peer.admit(PeerRecord::Requested(&mut held))
-            },
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        common::befriend(&alice, &mut bob).await;
+        let (alice_end, bob_end) = connect(&alice, &mut bob).await;
+        let (mut alice_end, mut bob_end) = (alice_end.unwrap(), bob_end.unwrap());
+        assert!(bob_end.link.holds_contact_slot());
+        assert!(!bob_end.link.holds_unknown_slot());
+        // Strangers fill and churn the budget.
+        let bob_card = bob.card();
+        let mut kept = Vec::new();
+        for seed in 40..40 + u8::try_from(MAX_UNKNOWN_SESSIONS).unwrap() * 3 {
+            let stranger = node(&network, seed).await;
+            stranger.identity.import(&bob_card).await.unwrap();
+            kept.push(dial_and_answer(&stranger, &bob_card, &mut bob).await);
+            kept.push((Err(LinkError::Budget), Err(LinkError::Budget)));
+            assert!(bob.identity.strangers().held() <= MAX_UNKNOWN_SESSIONS);
+            assert!(bob.identity.strangers().draining() <= MAX_UNKNOWN_SESSIONS);
+        }
+        // The contact session still works.
+        send_first(&mut alice_end, &alice.identity).await;
+        send_first(&mut bob_end, &bob.identity).await;
+        assert!(
+            bob_end
+                .link
+                .receive()
+                .await
+                .unwrap()
+                .actions
+                .contains(&Action::Confirmed)
         );
-        let (_, answered) = futures_join(stranger_side, bob_side).await;
-        let established = answered.unwrap();
-        assert!(established.link.holds_unknown_slot());
+        assert!(
+            alice_end
+                .link
+                .receive()
+                .await
+                .unwrap()
+                .actions
+                .contains(&Action::Confirmed)
+        );
+        alice_end.link.send(&chat("still here")).await.unwrap();
         assert_eq!(
-            budgets.free_unknown_sessions(),
-            monolith_protocol::limits::MAX_UNKNOWN_SESSIONS - 1
-        );
-    });
-}
-
-#[test]
-fn an_answer_whose_admission_fails_ends_its_withdrawal() {
-    run(async {
-        let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let bob = party(2, *service.service_key());
-        let bob_card = bob.card().clone();
-        let budgets = Budgets::new();
-        let stranger = party(31, *service.service_key());
-        let isolation = backend.isolation_group().unwrap();
-        let kept = std::sync::Mutex::new(None);
-        let bob_side = async {
-            let stream = service.accept().await.unwrap();
-            answer(stream, &budgets, &bob, |_, withdrawal| {
-                *kept.lock().unwrap() = Some(withdrawal.clone());
-                Err(SessionError::Protocol(
-                    monolith_protocol::ProtocolError::IdentityMismatch,
-                ))
-            })
-            .await
-        };
-        let stranger_side = dial(
-            &backend,
-            fresh(),
-            &stranger,
-            &bob_card,
-            &isolation,
-            |peer, _| {
-                let mut held = Credentials::new(peer.card().clone());
-                peer.admit(PeerRecord::Requested(&mut held))
-            },
-        );
-        let (_, answered) = futures_join(stranger_side, bob_side).await;
-        assert!(answered.is_err());
-        assert!(kept.lock().unwrap().as_ref().unwrap().is_ended());
-        assert_eq!(
-            budgets.free_unknown_sessions(),
-            monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
+            bob_end.link.receive().await.unwrap().message,
+            chat("still here")
         );
     });
 }
@@ -782,27 +546,33 @@ fn an_answer_whose_admission_fails_ends_its_withdrawal() {
 fn listener_errors_do_not_end_the_accept_loop() {
     run(async {
         let network = MockNetwork::new();
-        let backend = network.backend();
-        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
-        let key = *service.service_key();
+        let mut bob = node(&network, 2).await;
+        let key = bob.identity.endpoint();
         network.fail_accepts(&key, 3);
-        let budgets = Budgets::new();
+        let identity = bob.identity.clone();
         let (stop, shutdown) = watch::channel(false);
         let accepted = Arc::new(AtomicUsize::new(0));
         let count = accepted.clone();
-        let serving = serve(&mut service, &budgets, shutdown, move |_stream, _permit| {
-            count.fetch_add(1, Ordering::SeqCst);
-            async {}
-        });
+        let tor = network.backend();
+        let serving = serve(
+            &mut bob.service,
+            &bob.budgets,
+            &identity,
+            shutdown,
+            move |_, _| {
+                count.fetch_add(1, Ordering::SeqCst);
+                async {}
+            },
+        );
         let dialing = async {
-            let isolation = backend.isolation_group().unwrap();
+            let isolation = tor.isolation_group().unwrap();
             // Three errors, each followed by ACCEPT_BACKOFF, then a stream.
             tokio::time::sleep(Duration::from_millis(100)).await;
-            let _stream = backend.connect_onion(&key, &isolation).await.unwrap();
+            let _stream = tor.connect_onion(&key, &isolation).await.unwrap();
             tokio::time::sleep(Duration::from_millis(1500)).await;
             stop.send(true).unwrap();
         };
-        let (end, ()) = futures_join(serving, dialing).await;
+        let (end, ()) = both(serving, dialing).await;
         assert_eq!(end, ServeEnd::Shutdown);
         assert_eq!(accepted.load(Ordering::SeqCst), 1);
     });
@@ -810,49 +580,52 @@ fn listener_errors_do_not_end_the_accept_loop() {
 
 #[test]
 fn dials_beyond_the_dial_budget_wait_for_a_slot() {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .start_paused(true)
-        .build()
-        .unwrap()
-        .block_on(async {
-            let network = MockNetwork::new();
-            let backend = network.backend();
-            // A service that never answers: each dial holds its slot until
-            // the handshake deadline.
-            let service = backend.publish_onion(KeySource::Generate).await.unwrap();
-            let card = party(2, *service.service_key()).card().clone();
-            let budgets = Budgets::new();
-            let mut tasks = tokio::task::JoinSet::new();
-            for seed in 30..30 + 5_u8 {
-                let backend = network.backend();
-                let budgets = budgets.clone();
-                let card = card.clone();
-                let local = party(seed, *service.service_key());
-                tasks.spawn(async move {
-                    let isolation = backend.isolation_group().unwrap();
-                    dial(&backend, &budgets, &local, &card, &isolation, |peer, _| {
-                        peer.admit(PeerRecord::None)
-                    })
-                    .await
-                    .err()
-                });
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            assert_eq!(
-                network.dials(),
-                monolith_protocol::limits::MAX_CONCURRENT_DIALS
-            );
-            // When the first four give up at the handshake deadline, the
-            // fifth gets its slot.
-            tokio::time::sleep(monolith_protocol::limits::HANDSHAKE_TIMEOUT).await;
-            assert_eq!(
-                network.dials(),
-                monolith_protocol::limits::MAX_CONCURRENT_DIALS + 1
-            );
-            while let Some(result) = tasks.join_next().await {
-                assert_eq!(result.unwrap(), Some(LinkError::TimedOut));
-            }
-            drop(service);
-        });
+    run_paused(async {
+        let network = MockNetwork::new();
+        // A service that never answers: each dial holds its slot until
+        // the handshake deadline.
+        let bob = node(&network, 2).await;
+        let card = bob.card();
+        let budgets = Budgets::new();
+        let mut tasks = tokio::task::JoinSet::new();
+        for seed in 30..30 + 5_u8 {
+            let peer = node(&network, seed).await;
+            peer.identity.import(&card).await.unwrap();
+            let budgets = budgets.clone();
+            let card = card.clone();
+            tasks
+                .spawn(async move { dial(&peer.tor, &budgets, &peer.identity, &card).await.err() });
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(network.dials(), MAX_CONCURRENT_DIALS);
+        // When the first four give up at the handshake deadline, the
+        // fifth gets its slot.
+        tokio::time::sleep(monolith_protocol::limits::HANDSHAKE_TIMEOUT).await;
+        assert_eq!(network.dials(), MAX_CONCURRENT_DIALS + 1);
+        while let Some(result) = tasks.join_next().await {
+            assert_eq!(result.unwrap(), Some(LinkError::TimedOut));
+        }
+        drop(bob);
+    });
+}
+
+#[test]
+fn a_dial_to_an_identity_without_a_record_sends_nothing_of_the_local_identity() {
+    run(async {
+        let network = MockNetwork::new();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        // Alice holds no record of Bob: the dial is refused after message
+        // 2, and Bob never gets message 3.
+        let card = bob.card();
+        let (dialed, answered) = dial_and_answer(&alice, &card, &mut bob).await;
+        assert_eq!(
+            dialed.err(),
+            Some(LinkError::Refused(monolith_protocol::session::Admission {
+                standing: Standing::None,
+                change: None
+            }))
+        );
+        assert_eq!(answered.err(), Some(LinkError::Stream));
+    });
 }

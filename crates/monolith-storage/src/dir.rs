@@ -56,6 +56,32 @@ pub trait VaultDir {
     fn sync(&self) -> Result<(), StorageError>;
 }
 
+impl<T: VaultDir + ?Sized> VaultDir for Box<T> {
+    fn read(&self, name: &str, max: u64) -> Result<Option<Vec<u8>>, StorageError> {
+        (**self).read(name, max)
+    }
+
+    fn write_new(&self, name: &str, bytes: &[u8]) -> Result<(), StorageError> {
+        (**self).write_new(name, bytes)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        (**self).rename(from, to)
+    }
+
+    fn link(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        (**self).link(from, to)
+    }
+
+    fn remove(&self, name: &str) -> Result<(), StorageError> {
+        (**self).remove(name)
+    }
+
+    fn sync(&self) -> Result<(), StorageError> {
+        (**self).sync()
+    }
+}
+
 fn io(_: rustix::io::Errno) -> StorageError {
     StorageError::Io
 }

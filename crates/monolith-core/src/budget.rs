@@ -1,36 +1,42 @@
 //! Bounds on what the network can make Monolith hold at once.
 //!
-//! Inbound streams that have not authenticated yet are limited to
-//! `MAX_INBOUND_HANDSHAKES`, authenticated peers that are not contacts to
-//! `MAX_UNKNOWN_SESSIONS`, and outbound dials, each of which includes a
-//! SOCKS negotiation, to `MAX_CONCURRENT_DIALS`. Every limit is a semaphore
-//! with a fixed number of permits; a stream that finds no permit is closed
-//! at once, and the accept loop pauses for `ACCEPT_BACKOFF` so that a flood
-//! does not keep it spinning. Every task the accept loop starts is owned by
-//! it and ends with it.
-//!
-//! The policies of `RESOURCE_LIMITS.md` section 5 that need contacts and
-//! rates (closing the oldest handshake, the rate buckets, the contact
-//! session budget) come with the application core of Phase 4.
+//! Budgets come in the three levels of `RESOURCE_LIMITS.md` section 5.1.
+//! Per local identity, so that load on one identity is not visible through
+//! another: inbound streams that have not authenticated yet
+//! (`MAX_INBOUND_HANDSHAKES`), authenticated peers that are not contacts
+//! (`MAX_UNKNOWN_SESSIONS`, with the eviction of `crate::strangers`), and
+//! sessions with contacts (`MAX_CONTACT_SESSIONS`); they live in the
+//! context of the identity. Process-wide, as ceilings that bind only when
+//! the process as a whole is under pressure: inbound handshakes of all
+//! identities together (`MAX_PROCESS_INBOUND_HANDSHAKES`), contact sessions
+//! of all identities together (`MAX_PROCESS_CONTACT_SESSIONS`), and
+//! outbound dials, each of which includes a SOCKS negotiation
+//! (`MAX_CONCURRENT_DIALS`); they are [`Budgets`]. Every limit is a fixed
+//! number of permits; a stream that finds none is closed at once, and the
+//! accept loop pauses for `ACCEPT_BACKOFF` so that a flood does not keep
+//! it spinning. Every task the accept loop starts is owned by it and ends
+//! with it.
 
 use core::future::Future;
 use core::task::Poll;
 use std::sync::Arc;
 
 use monolith_protocol::limits::{
-    ACCEPT_BACKOFF, MAX_CONCURRENT_DIALS, MAX_INBOUND_HANDSHAKES, MAX_UNKNOWN_SESSIONS,
+    ACCEPT_BACKOFF, MAX_CONCURRENT_DIALS, MAX_PROCESS_CONTACT_SESSIONS,
+    MAX_PROCESS_INBOUND_HANDSHAKES,
 };
 use monolith_tor::{OnionService, TorError};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinSet;
 
-/// A set of connection budgets. Nothing ties a set to the process: Phase
-/// 3 uses one, and several local identities will each need a set of their
-/// own below process-wide limits (`RESOURCE_LIMITS.md` section 5.1).
+use crate::identity::LocalIdentity;
+
+/// The process-wide budgets. One value per process, passed by reference;
+/// the budgets of each identity are in its context.
 #[derive(Clone, Debug)]
 pub struct Budgets {
     handshakes: Arc<Semaphore>,
-    unknown: Arc<Semaphore>,
+    contact_sessions: Arc<Semaphore>,
     dials: Arc<Semaphore>,
 }
 
@@ -40,25 +46,51 @@ impl Default for Budgets {
     }
 }
 
+/// The two permits an inbound handshake holds: its identity's and the
+/// process's.
+#[derive(Debug)]
+pub struct HandshakePermit {
+    _identity: OwnedSemaphorePermit,
+    _process: OwnedSemaphorePermit,
+}
+
+/// The two permits a contact session holds.
+#[derive(Debug)]
+pub struct ContactPermit {
+    _identity: OwnedSemaphorePermit,
+    _process: OwnedSemaphorePermit,
+}
+
 impl Budgets {
     /// Budgets with the limits of `RESOURCE_LIMITS.md`.
     pub fn new() -> Self {
         Self {
-            handshakes: Arc::new(Semaphore::new(MAX_INBOUND_HANDSHAKES)),
-            unknown: Arc::new(Semaphore::new(MAX_UNKNOWN_SESSIONS)),
+            handshakes: Arc::new(Semaphore::new(MAX_PROCESS_INBOUND_HANDSHAKES)),
+            contact_sessions: Arc::new(Semaphore::new(MAX_PROCESS_CONTACT_SESSIONS)),
             dials: Arc::new(Semaphore::new(MAX_CONCURRENT_DIALS)),
         }
     }
 
-    /// A slot for an inbound handshake, if one is free.
-    pub fn inbound_handshake(&self) -> Option<OwnedSemaphorePermit> {
-        self.handshakes.clone().try_acquire_owned().ok()
+    /// A slot for an inbound handshake at `identity`, if both its budget
+    /// and the process's have one.
+    pub fn inbound_handshake(&self, identity: &LocalIdentity) -> Option<HandshakePermit> {
+        let identity = identity.handshakes.clone().try_acquire_owned().ok()?;
+        let process = self.handshakes.clone().try_acquire_owned().ok()?;
+        Some(HandshakePermit {
+            _identity: identity,
+            _process: process,
+        })
     }
 
-    /// A slot for an authenticated peer that is not a contact, if one is
-    /// free.
-    pub fn unknown_session(&self) -> Option<OwnedSemaphorePermit> {
-        self.unknown.clone().try_acquire_owned().ok()
+    /// A slot for a contact session of `identity`, if both budgets have
+    /// one.
+    pub fn contact_session(&self, identity: &LocalIdentity) -> Option<ContactPermit> {
+        let identity = identity.contact_sessions.clone().try_acquire_owned().ok()?;
+        let process = self.contact_sessions.clone().try_acquire_owned().ok()?;
+        Some(ContactPermit {
+            _identity: identity,
+            _process: process,
+        })
     }
 
     /// A slot for an outbound dial. Waits for one; dials are made by the
@@ -67,14 +99,14 @@ impl Budgets {
         self.dials.clone().acquire_owned().await.ok()
     }
 
-    /// Free inbound handshake slots.
+    /// Free inbound handshake slots of the process.
     pub fn free_inbound_handshakes(&self) -> usize {
         self.handshakes.available_permits()
     }
 
-    /// Free slots for peers that are not contacts.
-    pub fn free_unknown_sessions(&self) -> usize {
-        self.unknown.available_permits()
+    /// Free contact session slots of the process.
+    pub fn free_contact_sessions(&self) -> usize {
+        self.contact_sessions.available_permits()
     }
 }
 
@@ -87,20 +119,22 @@ pub enum ServeEnd {
     Service(TorError),
 }
 
-/// Accepts streams from `service` until `shutdown` turns true or the
-/// service is gone, and runs `handler` on each in a task owned by this
-/// loop, with an inbound handshake permit. A stream that finds no permit
-/// is closed without a task. When the loop ends, every task it started is
-/// aborted and awaited, so none outlives it.
+/// Accepts streams from `service`, the Onion Service of `identity`, until
+/// `shutdown` turns true or the service is gone, and runs `handler` on each
+/// in a task owned by this loop, with an inbound handshake permit of that
+/// identity and of the process. A stream that finds no permit is closed
+/// without a task. When the loop ends, every task it started is aborted
+/// and awaited, so none outlives it.
 pub async fn serve<V, F, Fut>(
     service: &mut V,
     budgets: &Budgets,
+    identity: &LocalIdentity,
     mut shutdown: watch::Receiver<bool>,
     mut handler: F,
 ) -> ServeEnd
 where
     V: OnionService,
-    F: FnMut(V::Stream, OwnedSemaphorePermit) -> Fut,
+    F: FnMut(V::Stream, HandshakePermit) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
     let mut tasks = JoinSet::new();
@@ -138,7 +172,7 @@ where
                 tokio::time::sleep(ACCEPT_BACKOFF).await;
             }
             Some(Err(Some(error))) => break ServeEnd::Service(error),
-            Some(Ok(stream)) => match budgets.inbound_handshake() {
+            Some(Ok(stream)) => match budgets.inbound_handshake(identity) {
                 Some(permit) => {
                     tasks.spawn(handler(stream, permit));
                 }

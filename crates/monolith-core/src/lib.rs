@@ -10,7 +10,13 @@
 //! command and event types follow with the features that need them.
 
 pub mod budget;
+pub mod contacts;
+pub mod dialplan;
+pub mod identity;
 pub mod link;
+pub mod persist;
+pub mod requests;
+pub mod strangers;
 
 /// State of the Tor connection as shown to the user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

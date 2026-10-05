@@ -254,6 +254,13 @@ impl AuthenticatedSession {
         &self.peer
     }
 
+    /// Returns the local card the session was made with: the card of the
+    /// local party that answered or dialed. During a change of the local
+    /// transport key it says which of the two keys the session uses.
+    pub const fn local_card(&self) -> &ContactCard {
+        &self.local_card
+    }
+
     /// Returns which side opened the session.
     pub const fn initiator(&self) -> Initiator {
         self.logic.initiator()

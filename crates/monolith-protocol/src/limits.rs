@@ -322,7 +322,17 @@ pub const MAX_UNKNOWN_SESSIONS: usize = 4;
 /// together, confirmed or not.
 pub const MAX_CONTACT_SESSIONS: usize = 256;
 
-/// Outbound connection attempts in progress at the same time.
+/// Inbound streams that have not completed authentication, of all local
+/// identities of the process together. A ceiling above the budget of one
+/// identity, provisional (`docs/RESOURCE_LIMITS.md` section 5.1).
+pub const MAX_PROCESS_INBOUND_HANDSHAKES: usize = 32;
+
+/// Sessions with contacts of all local identities of the process
+/// together. A ceiling above the budget of one identity, provisional.
+pub const MAX_PROCESS_CONTACT_SESSIONS: usize = 512;
+
+/// Outbound connection attempts in progress at the same time, for the
+/// whole process.
 pub const MAX_CONCURRENT_DIALS: usize = 4;
 
 /// Accepted contacts.

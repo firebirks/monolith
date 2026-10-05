@@ -8,18 +8,26 @@
 //! What a peer may do afterwards is decided by its record, as before.
 //!
 //! The record is read when the handshake is over and not earlier. `dial`
-//! and `answer` take an admission function, which they call once, when
-//! the peer is authenticated: the dial budget, the Tor stream and the
-//! handshake messages that authenticate it are behind it. The function
-//! receives the authenticated peer and makes the session from the contact
-//! state as it is at that moment, in one synchronous step. Nothing a dial
-//! captured before it started can decide the standing of the peer.
+//! and `answer` take the local identity the link is for, and admit the
+//! peer through its contact store once, when the peer is authenticated:
+//! the dial budget, the Tor stream and the handshake messages that
+//! authenticate it are behind it. The admission makes the session from
+//! the contact state as it is at that moment, in one synchronous step
+//! under the lock of that contact. Nothing a dial captured before it
+//! started can decide the standing of the peer, and no other function
+//! decides it: there is no way to hand `dial` an admission of one's own.
+//!
+//! Message 3 carries the local identity. The session crate makes it only
+//! when the admission lets the responder learn the local identity; `dial`
+//! waits until the state that admission depended on is durable, and then
+//! writes it unless the session was withdrawn in the meantime. A crash
+//! before that point loses the admission and sends nothing.
 //!
 //! A session can lose its standing later: when a successor of the
-//! transport key it was authenticated with takes over. The admission
-//! function is given the [`Withdrawal`] of the link, keeps it with the
-//! session in the same step, and the contact state uses it when the key
-//! is retired. From then on the link delivers nothing and ends with a
+//! transport key it was authenticated with takes over, or the contact is
+//! blocked or deleted. The store keeps the [`Withdrawal`] of the link with
+//! the session in the admission step, and uses it when the session no
+//! longer stands. From then on the link delivers nothing and ends with a
 //! Close.
 //!
 //! Every step is bounded: the handshake by `HANDSHAKE_TIMEOUT`, each frame
@@ -53,14 +61,17 @@ use monolith_protocol::limits::{
     HANDSHAKE_TIMEOUT,
 };
 use monolith_protocol::session::{Action, Admission};
-use tokio::sync::{Notify, OwnedSemaphorePermit};
+use tokio::sync::Notify;
 
-use crate::budget::Budgets;
+use crate::budget::{Budgets, ContactPermit};
+use crate::identity::{LocalIdentity, SessionRef};
+use crate::persist::CommitError;
+use crate::strangers::StrangerSlot;
 use monolith_session::{
-    Admitted, AuthenticatedSession, Expiry, HandshakeInitiator, HandshakeResponder, InboundPeer,
-    LocalParty, MessageBuffer, OutboundAdmission, OutboundPeer, Received, SessionError,
+    AuthenticatedSession, Expiry, HandshakeInitiator, HandshakeResponder, MessageBuffer,
+    OutboundAdmission, Received, SessionError,
 };
-use monolith_tor::{IsolationGroup, TorBackend, TorError};
+use monolith_tor::{TorBackend, TorError};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Size of the read buffer of a link.
@@ -81,9 +92,16 @@ pub enum LinkError {
     TimedOut,
     /// The contact card names no endpoint that can be dialed.
     NoEndpoint,
-    /// The peer is not a contact and the budget for such sessions is full.
+    /// The peer is not a contact and the budget for such sessions is full,
+    /// or the peer is a contact and the budget for contact sessions is.
     /// The stream was closed without a reply.
     Budget,
+    /// The peer was a stranger that had not sent its first message, and
+    /// its slot went to a newer stranger. The link ended with a Close.
+    Evicted,
+    /// The admission could not be made durable, so it was not used. The
+    /// installation refuses everything until the process starts again.
+    Storage(CommitError),
     /// The session was withdrawn: the transport key it was authenticated
     /// with is no longer the active one of the peer.
     Withdrawn,
@@ -106,6 +124,8 @@ impl fmt::Display for LinkError {
             Self::NoEndpoint => f.write_str("no endpoint to dial"),
             Self::Budget => f.write_str("session budget full"),
             Self::Withdrawn => f.write_str("session withdrawn"),
+            Self::Evicted => f.write_str("stranger evicted for a newer one"),
+            Self::Storage(error) => write!(f, "{error}"),
             Self::Refused(_) => f.write_str("peer may not learn the local identity"),
         }
     }
@@ -127,12 +147,12 @@ fn now() -> Instant {
 
 /// The power to withdraw one link from outside the task that runs it.
 ///
-/// The admission function of [`dial`] and [`answer`] receives it and keeps
-/// it with the session, in the same step in which it decides the session.
-/// It is handed out nowhere else, so it cannot be kept later, outside that
-/// step. When the transport key the session was authenticated with is
-/// retired, or the record of the peer's identity is deleted or blocked,
-/// the contact state calls [`Self::withdraw`]. The link then delivers
+/// The contact store receives it in the admission of [`dial`] and
+/// [`answer`] and keeps it with the session, in the same step in which it
+/// decides the session. It is handed out nowhere else, so it cannot be
+/// kept later, outside that step. When the transport key the session was
+/// authenticated with is retired, or the record of the peer's identity is
+/// deleted or blocked, the store calls [`Self::withdraw`]. The link then delivers
 /// nothing more: a frame still in its buffer is dropped, a link that
 /// waits for the peer wakes up, a write in progress ends, and the link
 /// ends. A withdrawal seen before a send or a receive starts is ended with
@@ -206,8 +226,11 @@ pub struct Link<S> {
     session: AuthenticatedSession,
     withdrawal: Withdrawal,
     /// For a peer that is not a contact: its slot in the budget of
-    /// `MAX_UNKNOWN_SESSIONS`, held until the session is over.
-    unknown_slot: Option<OwnedSemaphorePermit>,
+    /// `MAX_UNKNOWN_SESSIONS` of the local identity, held until the session
+    /// is over.
+    unknown_slot: Option<StrangerSlot>,
+    /// For a contact: its slot in the contact session budgets.
+    contact_slot: Option<ContactPermit>,
     buffer: Box<[u8; READ_CHUNK]>,
     /// The unread part of `buffer` is `start..end`.
     start: usize,
@@ -264,80 +287,88 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
     }
 }
 
-/// Dials the first endpoint of `card` through `backend` and runs the
-/// initiator's handshake. `isolation` is that contact's isolation group. A
+/// Dials `card`, a card of a contact of `identity`, through `backend`, and
+/// runs the initiator's handshake with the party of `identity` that
+/// dials that contact, in the isolation group of the pair (S42, S45). A
 /// dial waits for a slot in the budget of `MAX_CONCURRENT_DIALS` and holds
 /// it through the SOCKS negotiation and the handshake.
 ///
-/// `admit` is called once, when message 2 has authenticated the responder
-/// and before message 3, which carries the local identity and card, is
-/// written. It looks up what the local side holds about the identity of
-/// `card` as it is then, admits the peer with [`OutboundPeer::admit`],
-/// keeps the [`Withdrawal`] with the session, and returns what
-/// `admit` returned, all in one step on the contact state. The record is
-/// never taken before the dial.
+/// When message 2 has authenticated the responder, the contact store of
+/// `identity` admits it against the record of its identity as it is then,
+/// and keeps the [`Withdrawal`] of the link with the session in the same
+/// step. The record is never read before.
 ///
-/// Message 3 is written only if the peer may learn the local identity
-/// ([`Admission::may_learn_local_identity`], read from the standing of the
-/// session `admit` returned): its key stands for a contact the local side
-/// holds as requested or accepted. Otherwise, for a key that was retired
-/// or is pending, a key older than the announced successor, a
-/// contradicting card, or an identity that was deleted, declined or
-/// blocked during the dial, the dial fails with [`LinkError::Refused`],
-/// which carries the admission, nothing more is sent and no session is
-/// made (`docs/PROTOCOL.md` section 4.4). The withdrawal is
-/// looked at before the write starts and while it is pending; a
-/// withdrawal ends the dial with [`LinkError::Withdrawn`]. Bytes the
-/// stream accepted before that cannot be called back. If `admit` fails,
-/// the [`Withdrawal`] it was given reports [`Withdrawal::is_ended`].
-///
-/// `admit` runs inside the handshake deadline and must not block: it takes
-/// the lock of the contact state, does its work and lets go. The caller
-/// must not hold that lock, or a reference into the contact state, across
-/// the `await` of `dial`; the function is where the state is read.
-pub async fn dial<B, F>(
+/// Message 3 exists only if the responder may learn the local identity:
+/// its key stands for a contact the identity holds as requested or
+/// accepted. Otherwise, for a key that was retired or is pending, a key
+/// older than the announced successor, a contradicting card, or an
+/// identity that was deleted, declined or blocked during the dial, the
+/// dial fails with [`LinkError::Refused`], which carries the admission,
+/// nothing more is sent and no session is made (`docs/PROTOCOL.md`
+/// section 4.4). Before message 3 is written, the state the admission
+/// depended on is made durable ([`LinkError::Storage`] if it cannot be),
+/// and a slot of the contact session budgets is taken
+/// ([`LinkError::Budget`] if none is free). The withdrawal is looked at
+/// before the write starts and while it is pending; a withdrawal ends the
+/// dial with [`LinkError::Withdrawn`]. Bytes the stream accepted before
+/// that cannot be called back.
+pub async fn dial<B>(
     backend: &B,
     budgets: &Budgets,
-    local: &LocalParty,
+    identity: &LocalIdentity,
     card: &ContactCard,
-    isolation: &IsolationGroup,
-    admit: F,
 ) -> Result<Established<B::Stream>, LinkError>
 where
     B: TorBackend,
-    F: FnOnce(OutboundPeer, &Withdrawal) -> Result<OutboundAdmission, SessionError>,
 {
+    let contact = *card.identity();
+    let local = identity
+        .dial_plan(&contact)
+        .map_or_else(|| identity.answering_party(), |plan| plan.local);
+    let isolation = identity.isolation(&contact).map_err(LinkError::Tor)?;
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     let endpoint = *card.endpoints().first();
     let mut stream = backend
-        .connect_onion(&endpoint, isolation)
+        .connect_onion(&endpoint, &isolation)
         .await
         .map_err(LinkError::Tor)?;
     tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
-        let (initiator, message_1) = HandshakeInitiator::start(local, card, now())?;
+        let (initiator, message_1) = HandshakeInitiator::start(&local, card, now())?;
         write_all(&mut stream, &message_1).await?;
         let message_2 = read_message::<_, HANDSHAKE_MSG2_LEN>(&mut stream).await?;
         let outbound = initiator.read_message_2(&message_2, now())?;
         // The responder is authenticated. The admission decides whether
         // message 3, which carries the local identity, is made at all.
         let withdrawal = Withdrawal::new();
-        let (session, admission, first, message_3) = match admit(outbound, &withdrawal) {
-            Ok(OutboundAdmission::Granted {
-                session,
-                admission,
-                first,
-                message_3,
-            }) => (session, admission, first, message_3),
-            Ok(OutboundAdmission::Refused(admission)) => {
-                withdrawal.end();
-                return Err(LinkError::Refused(admission));
-            }
-            Err(error) => {
-                withdrawal.end();
-                return Err(error.into());
-            }
+        let (session, admission, first, message_3, depends) =
+            match identity.admit_outbound(outbound, &withdrawal) {
+                Ok((
+                    OutboundAdmission::Granted {
+                        session,
+                        admission,
+                        first,
+                        message_3,
+                    },
+                    depends,
+                )) => (session, admission, first, message_3, depends),
+                Ok((OutboundAdmission::Refused(admission), _)) => {
+                    withdrawal.end();
+                    return Err(LinkError::Refused(admission));
+                }
+                Err(error) => {
+                    withdrawal.end();
+                    return Err(error.into());
+                }
+            };
+        let Some(contact_slot) = budgets.contact_session(identity) else {
+            withdrawal.end();
+            return Err(LinkError::Budget);
         };
-        let mut link = Link::new(stream, session, withdrawal, None);
+        if let Err(error) = identity.wait_durable(depends).await {
+            withdrawal.end();
+            return Err(LinkError::Storage(error));
+        }
+        let mut link = Link::new(stream, session, withdrawal, None, Some(contact_slot));
         link.write_unless_withdrawn(message_3.as_bytes()).await?;
         Ok(Established {
             link,
@@ -349,52 +380,63 @@ where
     .map_err(|_| LinkError::TimedOut)?
 }
 
-/// Runs the responder's handshake on an inbound stream. `admit` is called
-/// once the handshake has authenticated the card the initiator presented,
-/// with nothing left to wait for; it looks up the record of that identity
-/// as it is then, admits the peer with [`InboundPeer::admit`], keeps the
-/// [`Withdrawal`] with the session, and returns what `admit` returned, in
-/// one step. A peer that is not a contact needs a slot in the budget of
-/// `MAX_UNKNOWN_SESSIONS`; without one the stream is closed and nothing is
-/// sent. The caller holds the inbound handshake slot from the accept loop
-/// until this returns. `admit` is held to the same rules as for [`dial`].
+/// Runs the responder's handshake on an inbound stream of the Onion
+/// Service of `identity`, with the party that identity answers with. Once
+/// the handshake has authenticated the card the initiator presented, with
+/// nothing left to wait for, the contact store of `identity` admits it
+/// against the record of its identity as it is then and keeps the
+/// [`Withdrawal`] with the session, in one step. The caller holds the
+/// inbound handshake slot from the accept loop until this returns.
 ///
-/// The budget is applied after the admission, to the standing it decided
-/// (`docs/PROTOCOL.md` section 6.2). When it refuses the peer, `admit` has
-/// run and what it recorded stands, a pending successor included; the link
-/// is never made and its [`Withdrawal`] reports [`Withdrawal::is_ended`].
-pub async fn answer<S, F>(
+/// The budgets are applied after the admission, to the standing it decided
+/// (`docs/PROTOCOL.md` section 6.2): a contact takes a slot of the contact
+/// session budgets, any other peer a slot for strangers, which may evict
+/// the oldest silent stranger (`crate::strangers`). Without a slot the
+/// stream is closed and nothing is sent; what the admission recorded
+/// stands, a pending successor included, and the link's [`Withdrawal`]
+/// reports [`Withdrawal::is_ended`]. The established link is returned only
+/// once the state the admission depended on is durable.
+pub async fn answer<S>(
     mut stream: S,
     budgets: &Budgets,
-    local: &LocalParty,
-    admit: F,
+    identity: &LocalIdentity,
 ) -> Result<Established<S>, LinkError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    F: FnOnce(InboundPeer, &Withdrawal) -> Result<Admitted, SessionError>,
 {
+    let local = identity.answering_party();
     tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
-        let responder = HandshakeResponder::new(local, now())?;
+        let responder = HandshakeResponder::new(&local, now())?;
         let message_1 = read_message::<_, HANDSHAKE_MSG1_LEN>(&mut stream).await?;
         let (waiting, message_2) = responder.read_message_1(&message_1, now())?;
         write_all(&mut stream, &message_2).await?;
         let message_3 = read_message::<_, HANDSHAKE_MSG3_LEN>(&mut stream).await?;
         let inbound = waiting.read_message_3(&message_3, now())?;
-        // The last wait is behind. From here to the session nothing waits.
+        // The last wait for the peer is behind. From here to the session
+        // nothing waits for it.
         let withdrawal = Withdrawal::new();
-        let (session, admission, first) =
-            admit(inbound, &withdrawal).inspect_err(|_| withdrawal.end())?;
-        let unknown_slot = if session.standing().is_contact_record() {
-            None
-        } else {
-            let Some(slot) = budgets.unknown_session() else {
+        let ((session, admission, first), depends) = identity
+            .admit_inbound(inbound, &withdrawal)
+            .inspect_err(|_| withdrawal.end())?;
+        let (unknown_slot, contact_slot) = if session.standing().is_contact_record() {
+            let Some(slot) = budgets.contact_session(identity) else {
                 withdrawal.end();
                 return Err(LinkError::Budget);
             };
-            Some(slot)
+            (None, Some(slot))
+        } else {
+            let Some(slot) = identity.strangers.take() else {
+                withdrawal.end();
+                return Err(LinkError::Budget);
+            };
+            (Some(slot), None)
         };
+        if let Err(error) = identity.wait_durable(depends).await {
+            withdrawal.end();
+            return Err(LinkError::Storage(error));
+        }
         Ok(Established {
-            link: Link::new(stream, session, withdrawal, unknown_slot),
+            link: Link::new(stream, session, withdrawal, unknown_slot, contact_slot),
             admission,
             first,
         })
@@ -406,6 +448,7 @@ where
 /// What ended a wait for the peer.
 enum Wake {
     Withdrawn,
+    Evicted,
     Deadline,
     Read(std::io::Result<usize>),
 }
@@ -415,13 +458,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         stream: S,
         session: AuthenticatedSession,
         withdrawal: Withdrawal,
-        unknown_slot: Option<OwnedSemaphorePermit>,
+        unknown_slot: Option<StrangerSlot>,
+        contact_slot: Option<ContactPermit>,
     ) -> Self {
         Self {
             stream,
             session,
             withdrawal,
             unknown_slot,
+            contact_slot,
             buffer: Box::new([0_u8; READ_CHUNK]),
             start: 0,
             end: 0,
@@ -454,12 +499,35 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         self.unknown_slot.is_some()
     }
 
+    /// Returns true while the link holds a slot of the contact session
+    /// budgets. It gives the slot back when the session is over.
+    pub const fn holds_contact_slot(&self) -> bool {
+        self.contact_slot.is_some()
+    }
+
+    /// What the contact store needs to apply a message this link returned:
+    /// the card of the peer, the local card, the withdrawal.
+    pub fn session_ref(&self) -> SessionRef<'_> {
+        SessionRef {
+            peer: self.session.peer_card(),
+            local: self.session.local_card(),
+            withdrawal: &self.withdrawal,
+        }
+    }
+
+    fn evicted(&self) -> bool {
+        self.unknown_slot
+            .as_ref()
+            .is_some_and(|slot| slot.state().is_evicted())
+    }
+
     /// The one way a link ends: the session is over, the slot goes back,
     /// and the stream is shut down within `FRAME_WRITE_TIMEOUT`. It does
     /// this once; afterwards it returns at once.
     async fn finish(&mut self) {
         self.session.stream_closed();
         self.unknown_slot = None;
+        self.contact_slot = None;
         if self.finished {
             return;
         }
@@ -470,6 +538,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// The error of a call on a link that is over.
     fn over(&mut self) -> LinkError {
         self.unknown_slot = None;
+        self.contact_slot = None;
         if self.withdrawal.is_withdrawn() {
             LinkError::Withdrawn
         } else {
@@ -527,6 +596,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         }
         self.finish().await;
         LinkError::Withdrawn
+    }
+
+    /// Ends the session of a stranger that was evicted for a newer one:
+    /// with the Close a stranger gets when its time is up, written within
+    /// `FRAME_WRITE_TIMEOUT`.
+    async fn end_evicted(&mut self) -> LinkError {
+        if let Some(frame) = self.session.close() {
+            let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
+                .await;
+        }
+        self.finish().await;
+        LinkError::Evicted
     }
 
     /// Ends a session whose deadline passed: with its Close, if the
@@ -617,6 +698,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             if self.withdrawal.is_withdrawn() {
                 return Err(self.end_withdrawn().await);
             }
+            if self.evicted() {
+                return Err(self.end_evicted().await);
+            }
             let now = now();
             if self.deadline_passed(now) {
                 return Err(self.end_expired(now).await);
@@ -630,6 +714,16 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
                     Ok((used, received)) => {
                         self.start = self.start.saturating_add(used).min(self.end);
                         if let Some(received) = received {
+                            // A stranger's first message and its eviction
+                            // race on one state; an evicted stranger's
+                            // message is not delivered.
+                            if self
+                                .unknown_slot
+                                .as_ref()
+                                .is_some_and(|slot| !slot.state().heard())
+                            {
+                                return Err(self.end_evicted().await);
+                            }
                             self.complete_end().await;
                             return Ok(received);
                         }
@@ -646,6 +740,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             let deadline = self.session.deadline().map(tokio::time::Instant::from_std);
             let wake = {
                 let mut withdrawn = pin!(self.withdrawal.0.wake.notified());
+                let stranger = self.unknown_slot.as_ref().map(|slot| slot.state().clone());
+                let mut evicted = pin!(async {
+                    match stranger {
+                        Some(state) => state.evicted().await,
+                        None => core::future::pending::<()>().await,
+                    }
+                });
                 let mut timer = pin!(async {
                     match deadline {
                         Some(deadline) => tokio::time::sleep_until(deadline).await,
@@ -657,6 +758,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
                     if withdrawn.as_mut().poll(cx).is_ready() {
                         return Poll::Ready(Wake::Withdrawn);
                     }
+                    if evicted.as_mut().poll(cx).is_ready() {
+                        return Poll::Ready(Wake::Evicted);
+                    }
                     if timer.as_mut().poll(cx).is_ready() {
                         return Poll::Ready(Wake::Deadline);
                     }
@@ -666,6 +770,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             };
             match wake {
                 Wake::Withdrawn => return Err(self.end_withdrawn().await),
+                Wake::Evicted => return Err(self.end_evicted().await),
                 Wake::Deadline => return Err(self.end_expired(self::now()).await),
                 Wake::Read(Ok(0) | Err(_)) => {
                     self.finish().await;
@@ -721,7 +826,7 @@ mod tests {
     use monolith_protocol::card::EndpointSet;
     use monolith_protocol::credential::Credentials;
     use monolith_protocol::session::PeerRecord;
-    use monolith_session::TransportSecretKey;
+    use monolith_session::{LocalParty, TransportSecretKey};
     use tokio::io::ReadBuf;
 
     use super::*;
@@ -847,7 +952,7 @@ mod tests {
         run(async {
             let (session, _, message_3) = sessions();
             let (stream, taken) = stalling(usize::MAX);
-            let mut link = Link::new(stream, session, Withdrawal::new(), None);
+            let mut link = Link::new(stream, session, Withdrawal::new(), None, None);
             link.withdrawal.withdraw();
             assert_eq!(
                 link.write_unless_withdrawn(&message_3).await,
@@ -869,7 +974,7 @@ mod tests {
         run(async {
             let (session, _, message_3) = sessions();
             let (stream, taken) = stalling(100);
-            let mut link = Link::new(stream, session, Withdrawal::new(), None);
+            let mut link = Link::new(stream, session, Withdrawal::new(), None, None);
             let withdrawal = link.withdrawal.clone();
             let mut written = None;
             let mut retired = false;
@@ -989,7 +1094,7 @@ mod tests {
             let (mut alice, bob) = confirmed();
             let frame = alice.send(&chat(), now()).unwrap();
             let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
-            let mut link = Link::new(bob_end, bob, Withdrawal::new(), None);
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), None, None);
             let started = tokio::time::Instant::now();
             let peer = async {
                 for byte in &frame {
@@ -1025,11 +1130,12 @@ mod tests {
     #[test]
     fn a_stranger_that_sends_nothing_is_closed_and_frees_its_slot() {
         run(async {
-            let budgets = Budgets::new();
+            let strangers =
+                crate::strangers::Strangers::new(monolith_protocol::limits::MAX_UNKNOWN_SESSIONS);
             let (mut alice, bob) = unconfirmed(BobHolds::Nothing);
             let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
-            let slot = budgets.unknown_session();
-            let mut link = Link::new(bob_end, bob, Withdrawal::new(), slot);
+            let slot = strangers.take();
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), slot, None);
             assert!(link.holds_unknown_slot());
             let started = tokio::time::Instant::now();
             assert_eq!(link.receive().await.err(), Some(LinkError::TimedOut));
@@ -1039,7 +1145,7 @@ mod tests {
             );
             assert_over(&link);
             assert_eq!(
-                budgets.free_unknown_sessions(),
+                strangers.free(),
                 monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
             );
             // The stranger sees an ordinary Close.
@@ -1066,19 +1172,20 @@ mod tests {
         // Close the session decided already written, and the slot is back
         // at once, whether or not the caller closes the link.
         run(async {
-            let budgets = Budgets::new();
+            let strangers =
+                crate::strangers::Strangers::new(monolith_protocol::limits::MAX_UNKNOWN_SESSIONS);
             let (mut alice, bob) = unconfirmed(BobHolds::Nothing);
             let frame = alice.send(&request(), now()).unwrap();
             let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
             peer_end.write_all(&frame).await.unwrap();
-            let mut link = Link::new(bob_end, bob, Withdrawal::new(), budgets.unknown_session());
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), strangers.take(), None);
             let started = tokio::time::Instant::now();
             let received = link.receive().await.unwrap();
             assert!(received.actions.contains(&Action::SendClose));
             assert_eq!(started.elapsed(), core::time::Duration::ZERO);
             assert_over(&link);
             assert_eq!(
-                budgets.free_unknown_sessions(),
+                strangers.free(),
                 monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
             );
             let mut bytes = Vec::new();
@@ -1097,17 +1204,18 @@ mod tests {
     #[test]
     fn a_close_from_the_peer_ends_the_link_and_frees_its_slot() {
         run(async {
-            let budgets = Budgets::new();
+            let strangers =
+                crate::strangers::Strangers::new(monolith_protocol::limits::MAX_UNKNOWN_SESSIONS);
             let (mut alice, bob) = confirmed();
             let close = alice.close().unwrap();
             let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
             peer_end.write_all(&close).await.unwrap();
-            let mut link = Link::new(bob_end, bob, Withdrawal::new(), budgets.unknown_session());
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), strangers.take(), None);
             let received = link.receive().await.unwrap();
             assert_eq!(received.message, Message::Close);
             assert_over(&link);
             assert_eq!(
-                budgets.free_unknown_sessions(),
+                strangers.free(),
                 monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
             );
             // The stream was shut down.
@@ -1125,7 +1233,7 @@ mod tests {
         run(async {
             let (_, bob) = confirmed();
             let (stream, taken) = stalling(10);
-            let mut link = Link::new(stream, bob, Withdrawal::new(), None);
+            let mut link = Link::new(stream, bob, Withdrawal::new(), None, None);
             let withdrawal = link.withdrawal.clone();
             let started = tokio::time::Instant::now();
             let sent = alongside(link.send(&chat()), async {
@@ -1150,7 +1258,7 @@ mod tests {
             let frame = alice.send(&request(), now()).unwrap();
             let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
             peer_end.write_all(&frame).await.unwrap();
-            let mut link = Link::new(bob_end, bob, Withdrawal::new(), None);
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), None, None);
             let started = tokio::time::Instant::now();
             let received = link.receive().await.unwrap();
             assert!(matches!(received.message, Message::ContactRequest(_)));
@@ -1240,7 +1348,7 @@ mod tests {
         run(async {
             let (_, bob) = confirmed();
             let stream = StuckShutdown { read_fails: false };
-            let mut link = Link::new(stream, bob, Withdrawal::new(), None);
+            let mut link = Link::new(stream, bob, Withdrawal::new(), None, None);
             link.withdrawal.withdraw();
             let started = tokio::time::Instant::now();
             assert_eq!(link.receive().await.err(), Some(LinkError::Withdrawn));
@@ -1258,7 +1366,7 @@ mod tests {
         run(async {
             let (_, bob) = confirmed();
             let stream = StuckShutdown { read_fails: true };
-            let mut link = Link::new(stream, bob, Withdrawal::new(), None);
+            let mut link = Link::new(stream, bob, Withdrawal::new(), None, None);
             let started = tokio::time::Instant::now();
             assert_eq!(link.receive().await.err(), Some(LinkError::Stream));
             assert_eq!(started.elapsed(), FRAME_WRITE_TIMEOUT);
@@ -1280,12 +1388,13 @@ mod tests {
     fn a_read_error_ends_the_link() {
         run(async {
             let (_, bob) = confirmed();
-            let budgets = Budgets::new();
-            let mut link = Link::new(Broken, bob, Withdrawal::new(), budgets.unknown_session());
+            let strangers =
+                crate::strangers::Strangers::new(monolith_protocol::limits::MAX_UNKNOWN_SESSIONS);
+            let mut link = Link::new(Broken, bob, Withdrawal::new(), strangers.take(), None);
             assert_eq!(link.receive().await.err(), Some(LinkError::Stream));
             assert_over(&link);
             assert_eq!(
-                budgets.free_unknown_sessions(),
+                strangers.free(),
                 monolith_protocol::limits::MAX_UNKNOWN_SESSIONS
             );
             assert_eq!(
@@ -1303,7 +1412,7 @@ mod tests {
     fn a_write_error_ends_the_link() {
         run(async {
             let (bob, _) = confirmed();
-            let mut link = Link::new(Broken, bob, Withdrawal::new(), None);
+            let mut link = Link::new(Broken, bob, Withdrawal::new(), None, None);
             assert_eq!(link.send(&chat()).await.err(), Some(LinkError::Stream));
             assert_over(&link);
             assert_eq!(
