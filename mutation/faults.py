@@ -879,8 +879,8 @@ PHASE4 = [
            "            seen.insert(*contact.credentials.identity());\n")),
     # The fixes of the review of Phase 4.
     fault("CS45", CORE + "persist.rs", "a write whose waiter is cancelled loses the vault",
-          ("            slot.vault = self.vault.take();",
-           "            drop(self.vault.take());")),
+          ("            slot.vault = vault;",
+           "            drop(vault);")),
     fault("CS46", CORE + "identity.rs", "a deleted identity is not closed",
           ("            removed.close();",
            "            let _ = removed;")),
