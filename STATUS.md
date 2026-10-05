@@ -81,12 +81,14 @@ Commits on the branch, oldest first:
 | `69ab17c`, `d68bba3` | `monolith-core`: the contact store, local identities and the installation, durability, requests and invitations, the budget for strangers, the dial plan; every link admitted through the store. |
 | `ca41199`, `ba5b263` | The publication supervisor. |
 | `06439ff` to `99b667a` | Tests: restart, a crash at every step, races, invitations (T-INV), several identities (T-MI), the contact budget, rotation; a fix found by fuzzing (`1897a71`); fuzz targets `vault_payload` and `contact_store`. |
-| `b687c03`, `31b5a5e` | `dev-node`, a development node over a persistent vault. |
-| `91ccaae` | The private Tor network test extended to the contact store. |
-| `5706c1d` | Mutation faults carried over to the Phase 4 code, and the Phase 4 list. |
+| `b687c03`, `31b5a5e`, `404c4a1` | `dev-node`, a development node over a persistent vault, and two fixes found by the private network test. |
+| `91ccaae`, `cea6d38`, `e78b0f8`, `b463500` | The private Tor network test extended to the contact store; Tor stopped reliably. |
+| `5706c1d`, `b3bcaa2`, `12e801c` | Mutation faults carried over to the Phase 4 code, the Phase 4 list, CS44, and CS28 expected to survive. |
 | `69687f6` | A source scan for the message 3 path and for global state. |
 | `75b3a22` | A measurement of vault unlock time (`docs/STORAGE.md` 3.3). |
-| `86c2b40` onwards | Documents. |
+| `49ed51d` | The vault format against an independent reader and writer, and a pinned test vector. |
+| `e35f7e9`, `3e5965b`, `c6bdd58`, `2c077e0` | Tests of what peers observe (T-ORACLE-6 and 7, T-CONFIRM-1, T-CONTACT-1 and 3, T-INJ), and of the gaps the targeted mutation run found. |
+| `86c2b40` onwards, between the above | Documents. |
 
 Where things are:
 
@@ -113,11 +115,20 @@ None of this is the final verification; code changed after it.
   after each code commit.
 - Fuzz runs of 60 seconds of `credential_sequence`, `vault_payload` and
   `contact_store`; one finding, fixed in `1897a71`.
-- A targeted mutation run of the Phase 4 faults and of the faults
-  carried over.
+- A targeted mutation run of the 43 Phase 4 faults of then and the 15
+  faults carried over, on `5706c1d`: 54 caught, 4 survived. Q30, CS12 and
+  CS17 were gaps in the tests and have tests since (`c6bdd58`,
+  `2c077e0`), checked against their faults; CS28 needs two threads and is
+  expected to survive (`mutation/README.md`).
 - Development runs of the private Tor network test in a Linux container
-  (`tests/tor-network/Dockerfile`, Tor 0.4.9.13, Chutney `ae3a33c`). One
-  of them found the `dev-node` fault fixed in `31b5a5e`.
+  (`tests/tor-network/Dockerfile`, Tor 0.4.9.13, Chutney `ae3a33c`). They
+  found the two `dev-node` faults fixed in `31b5a5e` and `404c4a1`, and
+  that Tor with `Sandbox 1` can ignore SIGTERM, which the test handles
+  since `cea6d38`. The run on `cea6d38` passed every step.
+- `cargo deny check`, `cargo audit` (82 crates) and `cargo tree -d` on
+  2026-10-05: clean, one duplicate pair in test builds only.
+- The KDF measurement on the development machine (`docs/STORAGE.md`
+  section 3.3).
 
 ## 5. What is left, in order
 
