@@ -252,7 +252,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
   every entry point applies one table (`Credentials::evaluate`), so an
   import and an admission cannot judge one card two ways, and the store
   applies the change under the lock of the contact and makes it durable
-  before anything that depends on it is used.
+  before anything that depends on it is used. On the side that rotates,
+  the successor is announced, and the new key answers, dials and is
+  handed out, only once that step is in the vault, so a crash never
+  leaves a contact with a key the identity no longer holds.
 - Residual: a holder of the identity key and the active transport key can
   produce continuity and is indistinguishable from the identity
   (`THREAT_MODEL.md` adversary Q).
@@ -261,7 +264,8 @@ Test area names refer to `docs/TEST_PLAN.md`.
   continuity or the user, the exhaustive table), `tests::contacts`,
   `tests::credentials`, `tests/store.rs` in the core
   (`promoting_a_successor_is_atomic`, `an_announced_successor_is_atomic`),
-  mutation faults CR1 to CR9, CS1 to CS6.
+  `tests/credentials.rs` (`the_new_key_reaches_no_peer_before_it_is_durable`),
+  mutation faults CR1 to CR9, CS1 to CS6, CS49 and CS50.
 
 ### S49. A session of a retired transport key delivers nothing after the retirement
 
@@ -287,7 +291,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   slot of that contact, and after every change of the slot withdraws
   each one that no longer stands, in the same step: a promotion, a
   block, a deletion, a confirmation, any later transition. A failed
-  write of the vault withdraws every session of the installation.
+  write of the vault withdraws every session of the installation. A
+  dial or an answer that is cancelled while its admission is made
+  durable ends its withdrawal, so the store does not keep the session.
 - Residual: a message the link returned before the withdrawal is the
   caller's to judge: what it would change in the contact state is
   applied by `LocalIdentity::apply` under the lock of the contact and only
@@ -302,8 +308,9 @@ Test area names refer to `docs/TEST_PLAN.md`.
   `a_failed_installation_admits_nobody`), `tests/store.rs`
   (`a_block_that_races_an_admission_leaves_no_contact_session_standing`),
   the unit tests of `link` (a withdrawal during a pending send), the
-  private network test (steps 6 to 8), mutation faults CR10 to CR17,
-  CR34, CS8 to CS10.
+  private network test (steps 6 to 8), `tests/credentials.rs`
+  (`a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session`),
+  mutation faults CR10 to CR17, CR34, CS8 to CS10 and CS53.
 
 ### S50. A session is admitted against the contact state of that moment
 
@@ -453,9 +460,16 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   explicit choice. Each `LocalIdentity` has its own contact store, and
   every operation is a method of one identity; `link::answer` and
   `link::dial` take the identity a link is for. The vault holds the
-  records of each identity apart.
+  records of each identity apart. Deleting an identity closes it before
+  it leaves the installation: it refuses every change and admission, its
+  waits for durability fail, it holds no Onion Service key, and its accept
+  loop and supervisor end and remove its service; nothing it held is
+  written again.
 - Tests: T-MI-2 and T-MI-3 (`tests/identities.rs`), the private network
-  test (step 8: two identities of one node hold one peer differently).
+  test (step 8: two identities of one node hold one peer differently),
+  `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity
+  admits nobody, changes nothing, and is taken down), mutation faults
+  CS46 to CS48.
 
 ### S41. An invitation capability admits requests only to the identity that issued it
 
@@ -784,12 +798,19 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   the change (message 3, a returned link, the success of a user command)
   waits until that generation is in the vault, and a failed write fails
   the installation closed. A crash loses only changes nothing has used.
+  The write is a job on the blocking pool that puts the vault back and
+  publishes its outcome however the waiting task ends, so a cancelled
+  wait loses neither the vault nor the lock of its directory, and the
+  snapshot it writes is one cut through every contact store, never an
+  operation half done.
 - Tests: T-CRASH (`vault::tests`: a write or a creation stopped at every
   step leaves the old or the new vault, with every combination of what a
   crash keeps; `tests/store.rs`: every critical change stopped at every
   step of its write), `tests/store.rs`
-  (`a_restart_reproduces_the_durable_state_exactly`), mutation faults
-  CS13 to CS15, CS35 and CS36.
+  (`a_restart_reproduces_the_durable_state_exactly`), `persist::tests`
+  (a cancelled wait, a failed write, many waiters on many threads),
+  `contacts::tests` (snapshots taken while operations run at the bounds),
+  mutation faults CS13 to CS15, CS35, CS36, CS45, CS51 and CS52.
 
 ### S32. No hidden network traffic
 

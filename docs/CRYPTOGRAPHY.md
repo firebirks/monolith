@@ -509,7 +509,9 @@ does not reveal past sessions: after message 3 the keys depend on an
 exchange between two ephemeral keys.
 
 Erasure: Monolith's own types for private keys and for invitation
-capabilities zeroize on drop. So do the objects
+capabilities zeroize on drop. The encoder of messages and vault records
+erases a buffer it outgrows and what it holds when it is dropped, and
+the plaintext of a vault is held in buffers that clear themselves. So do the objects
 of the resolver that hold a key for `snow`: the copy of the transport
 private key, the ephemeral private key and the cipher keys are held in
 types that clear their memory when they are dropped (ADR 0002, F-R1). The
