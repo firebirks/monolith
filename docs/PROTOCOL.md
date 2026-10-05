@@ -7,8 +7,8 @@ with a transport key that the identity certifies in the contact card.
 Sections 3, 4, 5, 6.1 to 6.3 and 7.1 specify it, section 11 gives the
 contact card with the transport key, and `monolith-session` implements it.
 The credential rules of section 11.4 are implemented in the `credential`
-module of `monolith-protocol`; the contact store that keeps them comes
-with Phase 4.
+and `contact` modules of `monolith-protocol`, and the contact store of
+`monolith-core` keeps them (Phase 4).
 
 This document defines the intended behavior and was written before the
 code. A disagreement between it and the implementation is a bug to be
@@ -1432,8 +1432,8 @@ If no message arrives within `UNKNOWN_FIRST_MESSAGE_TIMEOUT` of the
 handshake, the session is closed with Close, as after a first message.
 When `MAX_UNKNOWN_SESSIONS` such sessions exist and another peer
 authenticates, the oldest one that has not yet sent its message is closed
-to make room (`RESOURCE_LIMITS.md` section 5 says what the implementation
-does before the application core of Phase 4).
+to make room (`RESOURCE_LIMITS.md` section 5; implemented since Phase 4).
+If none has stayed silent, the new peer is closed without a reply.
 
 The quota per capability keeps one capability, leaked or published, from
 filling the whole queue: requests that carry it occupy at most
@@ -1686,7 +1686,7 @@ never look at a capability.
 
 Requests that are already in the queue passed admission before the
 revocation. Revoking does not remove them; they stay until the user
-accepts, declines or blocks them. Phase 4 may offer, as a separate local
+accepts, declines or blocks them. Phase 4 offers, as a separate local
 action, to revoke a capability and discard the pending requests that it
 admitted. For that a pending request may record locally which capability
 admitted it, preferably as a reference to the entry in the active set
@@ -2056,7 +2056,7 @@ P10. Closed. Which capability a request carries when the user holds
     several cards of one identity. A card imported by hand that differs
     from the held card only in its capability replaces it, for a peer that
     is not an accepted contact (section 12.2). Decided 2026-10-02; the
-    contact store implements it in Phase 4.
+    contact store implements it since Phase 4.
 
 P11. Closed. Requests in the queue when the capability that admitted them
     is revoked. They stay; revocation decides about new requests only. A

@@ -402,9 +402,11 @@ targets, opened with
     store_key = HKDF-SHA256(vault_key, info = "MONOLITH-MESSAGE-STORE-V1")
 
 passed as a raw key so that SQLCipher's own passphrase KDF is not used. All
-statements are parameterized. The decision is not final; it is revisited at
-the start of Phase 4 with the dependency review in ADR 0005. Because history
-is off by default, the choice does not block earlier phases.
+statements are parameterized. The decision is not final; it is taken with
+the outbound queue and the message store, which follow Phase 4 (ST1,
+`DESIGN_QUESTIONS.md` section 11.3), with the dependency review in ADR
+0005. Because history is off by default, the choice does not block earlier
+phases.
 
 ## 6. Deleting
 

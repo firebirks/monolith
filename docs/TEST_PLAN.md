@@ -635,8 +635,12 @@ Run against a real session over `MockTorBackend`:
 - an identity mismatch on an outbound session.
 
 The handshake and frame cases of this list are covered without a network
-in the session layer (section 3a). The cases that need the core's budgets
-and queues come with Phase 4.
+in the session layer (section 3a). Of the cases that need the core,
+Phase 4 covers the flood of contact requests from many identities
+(T-CONTACT-1, T-INV-4 and 5), strangers that stall after authentication
+(the budget for strangers and its eviction, `tests/link.rs`) and a stale
+endpoint epoch (`tests/credentials.rs`); the cases that need the message
+queue and file transfer come with them.
 
 Each case asserts the outcome (session closed or input ignored), that no
 event reached the front end unless specified, and that budgets held.
