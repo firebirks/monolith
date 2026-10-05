@@ -783,6 +783,10 @@ PHASE4 = [
           ("/// What ended a wait for the peer.",
            "fn unreachable_slot() -> ContactPermit {\n    loop {\n        std::thread::park();\n    }\n}\n\n/// What ended a wait for the peer."),
           group="dial"),
+    fault("CS44", CORE + "link.rs", "message 3 is written before a contact slot is taken",
+          ("        let Some(contact_slot) = budgets.contact_session(identity) else {\n            withdrawal.end();\n            return Err(LinkError::Budget);\n        };\n        if let Err(error) = identity.wait_durable(depends).await {\n            withdrawal.end();\n            return Err(LinkError::Storage(error));\n        }\n        let mut link = Link::new(stream, session, withdrawal, None, Some(contact_slot));\n        link.write_unless_withdrawn(message_3.as_bytes()).await?;",
+           "        if let Err(error) = identity.wait_durable(depends).await {\n            withdrawal.end();\n            return Err(LinkError::Storage(error));\n        }\n        let mut link = Link::new(stream, session, withdrawal, None, None);\n        link.write_unless_withdrawn(message_3.as_bytes()).await?;\n        let Some(contact_slot) = budgets.contact_session(identity) else {\n            link.withdrawal.end();\n            return Err(LinkError::Budget);\n        };\n        link.contact_slot = Some(contact_slot);"),
+          group="dial"),
     # Invitations and requests.
     fault("CS18", CORE + "requests.rs", "the active set takes one capability more than its bound",
           ("        if self.members.len() >= MAX_ACTIVE_INVITATIONS {",
