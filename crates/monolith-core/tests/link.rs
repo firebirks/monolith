@@ -652,3 +652,73 @@ fn a_contact_refused_for_the_contact_budget_leaves_no_session_behind() {
         );
     });
 }
+
+#[test]
+fn a_dial_without_a_contact_slot_writes_no_message_3() {
+    // Alice's process has no room for another contact session. Her dial
+    // authenticates Bob and is admitted as a contact's, and is then refused
+    // for the budget: message 3, which carries her identity, is never
+    // written, so Bob sees the stream end where it was due, and neither
+    // store keeps a session.
+    run(async {
+        let network = MockNetwork::new();
+        let mut alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        common::befriend(&alice, &mut bob).await;
+        alice.budgets = Budgets::with_limits(MAX_INBOUND_HANDSHAKES, 0, MAX_CONCURRENT_DIALS);
+        let (dialed, answered) = connect(&alice, &mut bob).await;
+        assert_eq!(dialed.err(), Some(LinkError::Budget));
+        assert_eq!(answered.err(), Some(LinkError::Stream));
+        let held = |node: &common::Node, peer: &common::Node| {
+            node.identity
+                .contact(peer.identity.identity())
+                .unwrap()
+                .sessions
+        };
+        assert_eq!(held(&alice, &bob), 0);
+        assert_eq!(held(&bob, &alice), 0);
+    });
+}
+
+#[test]
+fn a_stranger_finds_no_slot_while_evicted_strangers_drain() {
+    // Twice the budget of strangers dial Bob and stay silent: the second
+    // half evicts the first, whose links have not ended, as nobody has
+    // polled them. Evicted links that have not ended count against the
+    // same bound, so the next stranger is closed without a reply. Once an
+    // evicted link ends, a newcomer gets in again.
+    run(async {
+        let network = MockNetwork::new();
+        let mut bob = node(&network, 2).await;
+        let bob_card = bob.card();
+        let budget = u8::try_from(MAX_UNKNOWN_SESSIONS).unwrap();
+        let mut ends = Vec::new();
+        for seed in 60..60 + 2 * budget {
+            let stranger = node(&network, seed).await;
+            stranger.identity.import(&bob_card).await.unwrap();
+            let (dialed, answered) = dial_and_answer(&stranger, &bob_card, &mut bob).await;
+            ends.push((dialed.unwrap(), answered.unwrap()));
+        }
+        assert_eq!(bob.identity.strangers().held(), MAX_UNKNOWN_SESSIONS);
+        assert_eq!(bob.identity.strangers().draining(), MAX_UNKNOWN_SESSIONS);
+
+        let late = node(&network, 90).await;
+        late.identity.import(&bob_card).await.unwrap();
+        let (dialed, answered) = dial_and_answer(&late, &bob_card, &mut bob).await;
+        assert_eq!(answered.err(), Some(LinkError::Budget));
+        assert!(dialed.unwrap().link.receive().await.is_err());
+        assert_eq!(bob.identity.strangers().held(), MAX_UNKNOWN_SESSIONS);
+
+        let (_, evicted) = &mut ends[0];
+        assert_eq!(evicted.link.receive().await.err(), Some(LinkError::Evicted));
+        drop(ends.remove(0));
+        assert_eq!(
+            bob.identity.strangers().draining(),
+            MAX_UNKNOWN_SESSIONS - 1
+        );
+        let again = node(&network, 91).await;
+        again.identity.import(&bob_card).await.unwrap();
+        let (_, answered) = dial_and_answer(&again, &bob_card, &mut bob).await;
+        assert!(answered.unwrap().link.holds_unknown_slot());
+    });
+}
