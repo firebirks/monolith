@@ -946,8 +946,15 @@ fn a_rotation_ends_only_after_a_durable_switch() {
         while !dir.write_held() {
             tokio::time::sleep(core::time::Duration::from_millis(1)).await;
         }
-        // Switched in memory, not yet durable: still not due.
-        assert!(!alice.identity.finish_rotation(true).await.unwrap());
+        // Switched in memory, not yet durable: still not due. (A finish
+        // that went ahead would wait for the held write: the deadline ends
+        // the test then instead of letting it hang.)
+        let finished = tokio::time::timeout(
+            core::time::Duration::from_secs(10),
+            alice.identity.finish_rotation(true),
+        )
+        .await;
+        assert!(matches!(finished, Ok(Ok(false))), "{finished:?}");
         assert_eq!(alice.card(), old_card);
         dir.release_writes();
         assert!(switch.await.unwrap().unwrap());

@@ -283,6 +283,15 @@ fn an_identity_without_a_key_is_not_published() {
     });
 }
 
+/// How a supervisor ended, within an hour of paused time: one that does
+/// not end fails the test instead of letting it hang.
+async fn ended(task: tokio::task::JoinHandle<Publication>) -> Publication {
+    tokio::time::timeout(Duration::from_secs(3600), task)
+        .await
+        .expect("the supervisor did not end")
+        .unwrap()
+}
+
 #[test]
 fn a_deleted_identity_is_taken_down_and_not_published_again() {
     run_paused(async {
@@ -306,14 +315,14 @@ fn a_deleted_identity_is_taken_down_and_not_published_again() {
         wait_for(&mut states, Publication::Available).await;
         assert!(reach(&network, &alice, &bob).await);
         installation.delete_identity(bob.identity()).await.unwrap();
-        assert_eq!(task.await.unwrap(), Publication::Stopped);
+        assert_eq!(ended(task).await, Publication::Stopped);
         assert!(!network.is_published(&bob.endpoint()));
         assert!(bob.onion_secret().is_none());
 
         // A supervisor started for it later publishes nothing.
         let (_stop, shutdown) = watch::channel(false);
         let (task, _states) = supervised(network.backend(), bob.clone(), shutdown);
-        assert_eq!(task.await.unwrap(), Publication::Stopped);
+        assert_eq!(ended(task).await, Publication::Stopped);
         assert!(!network.is_published(&bob.endpoint()));
 
         // While it waits between attempts: it ends at once.
@@ -331,7 +340,7 @@ fn a_deleted_identity_is_taken_down_and_not_published_again() {
             .delete_identity(carol.identity())
             .await
             .unwrap();
-        assert_eq!(task.await.unwrap(), Publication::Stopped);
+        assert_eq!(ended(task).await, Publication::Stopped);
         assert!(asked.elapsed() < Duration::from_secs(1));
     });
 }
