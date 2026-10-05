@@ -190,9 +190,14 @@ What is fixed regardless of the final numbers:
   so a vault stays decryptable when the default changes later.
 - Defaults only move up. A vault created with weaker parameters keeps
   working and is re-wrapped with the current default the next time its
-  passphrase is changed.
+  passphrase is changed. (Phase 4: `Vault::change_passphrase` takes the
+  parameters to wrap with; the installation offers no passphrase change
+  yet, so the upgrade comes with the interface.)
 - Monolith runs one key derivation at a time. A second unlock attempt waits
   for the first, so concurrent attempts cannot multiply the memory use.
+  (Phase 4: the lock of the vault directory refuses a second open of the
+  same vault while one holds it, in this process or another; the
+  derivations of different vaults in one process are not serialized yet.)
 
 #### Benchmark required before the default is frozen
 
@@ -219,8 +224,28 @@ is not traded away for convenience: the answer to a slow unlock on a small
 machine is a documented choice for that machine, not a lower default for
 everyone.
 
-Results: not measured yet. The final default is recorded here together
-with the measurements that justify it.
+Results so far, with the implementation of Phase 4
+(`crates/monolith-storage/tests/kdf_benchmark.rs`, built with
+optimization, ten unlocks per setting), 2026-10-05:
+
+| Machine | Setting | Median | Worst | Peak resident |
+| --- | --- | --- | --- | --- |
+| Desktop, Intel Core i5-11400, 12 threads, 32 GB, Debian 12 | 64 MiB, 3, 4 (floor) | 118 ms | 159 ms | 65 MiB |
+| same | 256 MiB, 3, 4 (proposed default) | 464 ms | 522 ms | 257 MiB |
+| same | 256 MiB, 3, 2 | 390 ms | 456 ms | 257 MiB |
+| same, in a container limited to 2 CPUs and 2 GB | 64 MiB, 3, 4 | 92 ms | 95 ms | 65 MiB |
+| same | 256 MiB, 3, 4 | 391 ms | 444 ms | 257 MiB |
+| same, limited to 1 CPU and 1 GB | 64 MiB, 3, 4 | 97 ms | 112 ms | 65 MiB |
+| same | 256 MiB, 3, 4 | 382 ms | 410 ms | 257 MiB |
+
+The `argon2` crate is used without its `parallel` feature, so the lanes
+are computed one after another on one thread: the number of lanes changes
+little, and a limit on processors does not slow an unlock down. A
+container limit does not model a slower processor or the memory pressure
+of a small virtual machine; the four targets above remain to be measured,
+and the default stays provisional until they are (ST6). On the desktop
+the proposed default costs half a second and 257 MiB once per start, and
+no run came near the memory limit of the container.
 
 Accepted when reading a header (`limits.rs`): memory from 64 MiB to 1 GiB,
 iterations from 3 to 16, parallelism from 1 to 8. Values outside are
@@ -463,7 +488,8 @@ ST5. Passphrase strength policy. Currently a non-empty passphrase and a
      warning for short ones.
 
 ST6. Default Argon2id parameters. Provisional until the benchmark of
-     section 3.3 has been run.
+     section 3.3 has been run on the four targets; Phase 4 measured the
+     development machine only.
 
 ST7. With several local identities (section 1.1): whether `StateMode` and
      `HistoryPolicy` are chosen per identity or for the installation, and
