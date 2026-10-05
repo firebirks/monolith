@@ -1202,13 +1202,14 @@ A valid signature by the identity shows that the identity issued a card.
 It is necessary for a card to count, and it is not sufficient to replace
 the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
 
-1. Rollback. A card older than the active card, a card with the epoch of
-   the active card or of the authorized successor that states something
-   else, a card of the authorized key older than the announced one, and a
-   card that states the retired key change nothing. They open no contact
-   session, except an older card of the active key presented in a
-   handshake: its holder holds the key that stands for the contact and is
-   the contact, and the card is not taken.
+1. Rollback. A card older than the active card, a card of another key
+   that is not newer than the authorized successor, a card with the epoch
+   of the active card or of the authorized successor that states
+   something else, a card of the authorized key older than the announced
+   one, and a card that states the retired key change nothing, whatever
+   path they took. They open no contact session, except an older card of
+   the active key presented in a handshake: its holder holds the key that
+   stands for the contact and is the contact, and the card is not taken.
 2. Endpoints. A newer card with the active key becomes the active card at
    once, from any source: presented by the key holder in a handshake,
    received in an EndpointUpdate on a session of the active key, or
@@ -1220,9 +1221,10 @@ the active key. The rules, rule F4 of `CRYPTOGRAPHY.md` section 5.2:
 4. Promotion. When a handshake proves the key of the authorized successor,
    with a card not older than the announced one, the successor becomes the
    active card and the previous key is retired.
-5. No continuity. A newer card with another key that is presented in a
-   handshake without an announcement, or imported by hand for an accepted
-   contact, becomes the pending successor. An imported card replaces the
+5. No continuity. A card with another key, newer than the active card
+   and than the authorized successor if there is one, that is presented
+   in a handshake without an announcement, or imported by hand for an
+   accepted contact, becomes the pending successor. An imported card replaces the
    pending one whatever its epoch; a presented card replaces it only with
    a greater epoch and never replaces a card the user imported. So a card
    planted by whoever copied the identity key can neither keep out nor
@@ -1253,16 +1255,26 @@ contact.
 
 The state is bounded: one active card, one authorized and one pending
 successor, one retired key per contact. A newer announcement replaces the
-authorized successor; a pending card is replaced as rule 5 says.
-Promotion clears the authorized successor and drops a pending card that is
-not newer than the new active card. An authorized successor does not
+authorized successor and drops a pending card that is not newer than it; a
+pending card is replaced as rule 5 says. Promotion clears the authorized
+successor and drops a pending card that is not newer than the new active
+card. A key dropped that way cannot be confirmed into place.
+
+Every rule of this section is applied by one decision, whatever path the
+card took: a handshake in either direction, an EndpointUpdate, an import,
+a confirmation. Its outcome depends only on how the card relates to the
+credentials (the same statement, an older or newer card of the active
+key, the authorized successor's key, a new key, a conflict, stale) and
+on that path, never on two separate checks that could disagree. An authorized successor does not
 expire: whoever holds its key can make it the active one at any time
 until a newer announcement replaces it, so an identity protects a new key
 from the moment it announces it.
 
 Dialing. A receiver dials a card that states the active key. While it
-holds an authorized successor it dials that card first and the active one
-if the successor does not answer; a successor that does not answer is not
+holds an authorized successor that states the endpoint set the user
+confirmed, it dials that card first and the active one if the successor
+does not answer. A pending successor and the retired key are never
+dialed; a successor that does not answer is not
 reported as an identity mismatch, because the identity may not use it yet.
 A handshake in which the successor answers promotes it as in rule 4. A
 newer active card with another endpoint set takes effect for dialing when
@@ -1324,9 +1336,15 @@ the old key active and the new one authorized until it promotes it. After
 a promotion only the new key stands for the identity at that contact. A
 responder of version 1 answers with one key at a time (section 17, P8):
 from step 4 on, a contact that never received the successor card cannot
-dial the identity, which reaches it with the old key as in step 5. When
-to drop the old key is local policy; its timing is set with the contact
-store in Phase 4.
+dial the identity, which reaches it with the old key as in step 5.
+
+The timing Monolith uses (`DESIGN_QUESTIONS.md` P4-10): one change of key
+at a time; step 1 stores the new key and the successor card before
+anything is announced; step 4 is due once every accepted contact was sent
+the successor, or when the user says so; the old key is dropped once
+every accepted contact confirmed a session made with the new key, or when
+the user says so. The switch therefore never leaves an accepted contact
+without the successor card unless the user forces it.
 
 If both identities of a contact give up their old keys before the
 successor cards were exchanged, neither can reach the other: each dials a
@@ -1498,9 +1516,14 @@ What a peer can still learn, by design:
 - A peer that was a contact and no longer gets ContactAccept knows that it
   is not confirmed. It cannot tell deletion from blocking, from a restored
   backup, or from the other side having lost its data.
-- When the budget for strangers is exhausted, the first five rows are closed
-  right after authentication while the last three are not. This separates
-  the same two groups that the messages already separate.
+- When the budget for strangers is full, the oldest peer of the first five
+  rows that has not sent its message yet is closed to make room for a new
+  one, and the new one is closed right after authentication only if no
+  such peer is left. The last three rows are never closed for that. This
+  separates the same two groups that the messages already separate. An
+  evicted peer sees a Close as in its row, possibly before
+  `UNKNOWN_FIRST_MESSAGE_TIMEOUT`, which tells it that the budget was
+  under pressure and nothing about its record.
 
 Timing is not part of this guarantee. The same steps are taken for the rows
 that must look alike, but Monolith does not promise equal response times,
