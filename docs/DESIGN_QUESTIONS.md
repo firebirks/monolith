@@ -225,18 +225,16 @@ Nothing below is settled. Each is described in the document named.
 | P5 | Keep profile text in version 1 | PROTOCOL.md 17 |
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
 | P8 | A responder that answers two transport keys at once during a rotation (the bounded overlap itself is decided) | PROTOCOL.md 17 |
-| CR-1 | Timing of a rotation: when the identity switches to the new key, and how long the old one is kept | DESIGN_QUESTIONS.md 8.2 |
 | CR-2 | A recipient-bound card format for per-contact endpoints | DESIGN_QUESTIONS.md 8.2 |
 | CR-3 | A bound on how far an epoch may jump in one card | DESIGN_QUESTIONS.md 8.2 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
-| - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
-| MI-1 to MI-4 | Several local identities: a target port per identity on Tails and Whonix, budget values and the number of identities, mixed storage modes, the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
+| MI-1, MI-4 | Several local identities: a target port per identity on Tails and Whonix, and the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
-| ST1 to ST7 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending), storage mode per identity | STORAGE.md 9 |
+| ST1, ST3, ST5, ST6 | Message store, previous generation, passphrase policy, Argon2id defaults (benchmark on two of four targets) | STORAGE.md 9 |
 | T3-7 | Phase 3: the two-node test on a private Tor network runs in a Linux container with Tor 0.4.9.13 and Chutney; it is settled by the run on the commit of the final verification | tests/tor-network/README.md |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
@@ -619,10 +617,12 @@ MI-1. The Tails and Whonix profiles fix the target port at 29170, so all
       at a time receives streams on those platforms. Phases 6 and 7.
 
 MI-2. The values of the per-identity and process-wide budgets, and the
-      number of local identities one process may hold. Phase 4.
+      number of local identities one process may hold. Decided in Phase
+      4: section 11, P4-7.
 
 MI-3. Whether ephemeral and persistent identities can be mixed in one
-      process (`STORAGE.md` ST7). Phase 4.
+      process (`STORAGE.md` ST7). Decided in Phase 4: section 11, P4-6;
+      not in version 1.
 
 MI-4. Which phase offers several identities in the interface. Not
       decided; Phase 4 builds identity-scoped storage either way.
@@ -782,7 +782,8 @@ C-E (rotation). The identity keeps the old key while it rotates: it
     time. Simultaneous rotation completes as long as both old keys answer
     until the successors were exchanged; if both disappear first, nothing
     is taken over and the recovery is an out-of-band card the user
-    confirms. When to switch (CR-1) is set with the contact store.
+    confirms. When to switch (CR-1) is set with the contact store:
+    section 11, P4-10.
 
 C-F (per-contact endpoints). Withdrawn from `PROTOCOL.md` 11.4 and ADR
     0001. Version 1 cards are bearer statements under one epoch per
@@ -1281,3 +1282,200 @@ On `phase-3-system-tor`, after `6bd9074`, oldest first:
 The commit that adds this table also brings `STATUS.md`, `fuzz/README.md`
 and `docs/TEST_PLAN.md` up to date. It is the last commit before the
 final verification.
+
+## 11. Phase 4: the contact store
+
+Phase 4 began on 2026-10-05 from `2f27dcb`, the commit of the final
+verification of Phase 3, on the branch `phase-4-contact-store`. Its brief:
+one durable, transactional and authoritative contact subsystem, one
+answer to what a card means whatever path it took, per-contact
+serialization, retirement of live sessions, message 3 behind the
+authoritative admission, invitations and several identities through the
+store, the budget for strangers, the publication supervisor, and the
+rotation and dialing policy. No change of Noise XK or of the wire format.
+
+### 11.1 What Phase 3 left, and what became of it
+
+- Import and admission judged a card of another key that is newer than
+  the active card and older than the announced successor differently:
+  pending when imported, stale when proven. Resolved by 11.2, P4-1.
+- `HandshakeInitiator::read_message_2` returned message 3 before any
+  admission; only `link::dial` enforced the gate. Resolved by P4-2.
+- A withdrawal that coincides with a write timeout may be reported as
+  `TimedOut`. Kept, and tested in the store era: whichever is reported,
+  the link is over and every later call fails at once
+  (`link::tests`).
+- What `ARCHITECTURE.md` section 1.2 said the store had to add:
+
+  | Item | Where |
+  | --- | --- |
+  | one lock, or one transaction, per contact around lookup, admission and keeping the withdrawal | P4-3 |
+  | withdrawal of the sessions of a retired key in the step of the promotion, and of an identity whose record is deleted or blocked | P4-5 |
+  | the confirmation and import actions on top of `Credentials` | P4-1, P4-3 |
+  | persisting the credentials atomically, before the result is used | P4-4, P4-6 |
+  | forgetting the withdrawals of links that ended, also those `answer` refused after the admission | P4-5 |
+  | the timing of a rotation and of the switch to the new key | P4-10 |
+  | the dial card the user confirmed, apart from the credentials | P4-11 |
+  | one evaluation of a card for the import and the admission | P4-1 |
+
+### 11.2 Decisions
+
+P4-1 One evaluation of a card. `Credentials::relation` classifies a card
+    against the credentials the same way whatever its source: the same
+    statement, an older card of the active key, a newer card of the
+    active key, the authorized successor's key, a new key, a conflict,
+    stale. `Credentials::evaluate` applies one table from relation and
+    source to an outcome and the credentials after it; `apply` makes the
+    change. `contact::decide` adds the kind of record and the standing of
+    a session, and is the only interpreter of a card of a known identity:
+    `PeerRecord::admit` and `import`, and every operation of the contact
+    store, call it. The old entry points (`admit`, `announce`, `confirm`,
+    `import`, `replace`) delegate to the table. Where Phase 3 judged one
+    card two ways, the conservative reading was taken: a card of another
+    key that is not newer than the authorized successor is stale from
+    every source, so an import no longer holds it as pending; a pending
+    card that a later announcement through the active key supersedes is
+    dropped; an older card of the active key is `Superseded` from every
+    source and changes nothing. A key the identity superseded through
+    its active key cannot be confirmed into place. Tests: the exhaustive
+    table of `credential::tests::table` against a model written from
+    `PROTOCOL.md` section 11.4, every record kind in every context
+    (`contact::tests`), fuzz target `credential_sequence`.
+
+P4-2 Message 3 in the admission. `read_message_2` returns the
+    authenticated responder and keeps the handshake state;
+    `OutboundPeer::admit` makes message 3 only for a standing that may
+    learn the local identity and returns it with the session, and for any
+    other returns the admission alone, so no message 3 exists for a peer
+    that may not have it. `link::dial` takes the local identity, not an
+    admission function: the store admits under the lock of the contact,
+    the dial waits until the state the admission depended on is durable,
+    and writes message 3 unless the session was withdrawn meanwhile. The
+    wire bytes and the known-answer vectors are unchanged. A source scan
+    (`tests/structure.rs` in the core) checks that only the store admits
+    an outbound peer and that `link::dial` writes the message 3 of a
+    granted admission once.
+
+P4-3 The contact store. One store per local identity; one slot per
+    remote identity, with its own lock, holding its record (declined,
+    blocked, requested or accepted), for a contact the credentials, the
+    card confirmed for dialing, the verification mark, the alias and the
+    rotation marks, and the sessions admitted as the contact's. Every
+    operation on one identity takes its lock, works on memory and lets
+    go: they happen in the order they took it. The map lock is taken
+    before a slot's and never while one is held; an identity without a
+    slot is decided on under the map lock. No lock is held across an
+    `await`. Operations on different contacts do not wait for each other.
+    Tests: concurrent operations give the results and the state of one
+    of their serial orders (`tests/store.rs`), different contacts lose
+    nothing, a block that races an admission leaves no contact session
+    standing.
+
+P4-4 Commit before use. A change is applied in memory under its lock and
+    stamped with the next generation of the installation. Revocations
+    act at once. Anything that grants (message 3, a returned link, the
+    success of a user command) waits until its generation is durable;
+    with a vault the waiting task writes the whole installation on the
+    blocking pool, and later waiters find their generation covered. A
+    crash between the two loses the change and everything that depended
+    on it, none of which was used. A failed write marks the installation
+    failed: every session is withdrawn and every later change and
+    admission refused, until the process starts again.
+
+P4-5 One rule for live sessions. After every change of a slot, each
+    session admitted as the contact's whose card no longer stands for a
+    requested or accepted contact is withdrawn in the same step, and the
+    links that ended are forgotten. That covers a promotion that retires
+    a key, a block, a deletion, a confirmation of a pending key, and any
+    later transition. Sessions admitted with another standing stay on the
+    path of a stranger. Sessions do not survive a restart, so a restart
+    cannot bring back a privilege the store revoked.
+
+P4-6 The vault. Implemented as `STORAGE.md` section 3 specifies, with the
+    payload layout of section 3.4 now written down. Decided with it: the
+    lock of ST2 is an exclusive `flock` through `rustix`, which also
+    gives the owner and permission checks of ST4 without `unsafe`; ST7
+    and MI-3, `StateMode` is per installation in version 1: one vault
+    holds every identity of a persistent installation, and an ephemeral
+    installation holds only ephemeral ones. `MemoryDir` models what a
+    crash leaves after each step of a write. New dependencies: `argon2`
+    0.6.0, `hkdf` 0.13.0, `rustix` 1.1.5, `unicode-normalization`
+    0.1.25 (`DEPENDENCIES.md`).
+
+P4-7 Budgets of several identities (MI-2). Per identity: 16 inbound
+    handshakes, 4 strangers, 256 contact sessions. Per process: 32
+    inbound handshakes, 512 contact sessions, 4 dials, 8 local
+    identities. Provisional, like the other values of
+    `RESOURCE_LIMITS.md` section 5.
+
+P4-8 Strangers. When the budget for strangers of an identity is full, the
+    oldest silent stranger is evicted with a Close and the newcomer takes
+    its slot; a stranger that has spoken is never evicted; evicted links
+    that have not ended are bounded by the same number, so at most twice
+    the budget exist at any moment. A contact is never in this budget.
+    Definitions in `crate::strangers`.
+
+P4-9 The supervisor. One per identity: publishes the service from the key
+    the identity holds, runs its accept loop, reports it unavailable when
+    Tor loses it, and publishes it again under the same name, after the
+    reconnect delays of `RESOURCE_LIMITS.md` section 7. An identity
+    without a stored key is not published again (`Publication::NoKey`).
+    Shutdown ends it at once.
+
+P4-10 Rotation (CR-1). One rotation at a time. Beginning one makes the
+    new key and the successor card at the next epoch and stores both
+    before anything is announced; the identity goes on answering with the
+    old key. The successor is announced in an EndpointUpdate on every
+    confirmed session made with the old key with an accepted contact that
+    was not sent it yet. The switch, from which the identity answers with
+    the new key and dials with it every contact that was sent the
+    successor, is due once every accepted contact was sent it, or when
+    the user says so. The rotation ends, and the old key is dropped, once
+    every accepted contact confirmed a session made with the new key, or
+    when the user says so. Until then contacts that were not sent the
+    successor are dialed with the old key, which announces it to them.
+
+P4-11 Dialing. The cards dialed for a contact are its authorized
+    successor, if it states the endpoints the user confirmed, and then
+    the active key at those endpoints: the active card if it states them,
+    the confirmed card if it states the active key. A pending successor
+    and the retired key are never dialed, and a promotion that changed
+    the endpoints leaves the contact undialed until the user confirms the
+    new card. Importing a card that changes the active card, and
+    confirming a pending card, confirm it for dialing.
+
+P4-12 Invitations. `MAX_ACTIVE_INVITATIONS` stays 16. A capability is
+    durable before the card that carries it is returned; revocation is
+    durable; revoking and discarding removes exactly the pending requests
+    that capability admitted. Version 1 has no expiry and no use counter
+    (`PROTOCOL.md` section 12.2), so redemption is a request that enters
+    the queue, which lives in memory, and acceptance is the durable
+    creation of a contact.
+
+P4-13 Records. An import of a blocked identity is refused until the user
+    unblocks it; an import of a declined identity makes it a requested
+    contact and removes it from the declined list. A confirmation is for
+    a contact only.
+
+P4-14 Several identities. `Installation::restore_identity` brings in an
+    identity from its key material with the checks of S39, which also run
+    when a vault is opened. The installation owns its identities: an
+    identity whose installation is gone refuses every change and admits
+    nobody.
+
+P4-15 Testing aids. `dev-node`, a node over a persistent vault driven by
+    commands on standard input, is what the private network test drives;
+    it is not the product's interface. `Budgets::with_limits` lowers the
+    process budgets.
+
+### 11.3 Not part of Phase 4
+
+The brief of Phase 4 is the contact store, persistence, lifecycle and
+credential convergence. The rest of the "contacts and queue" line of
+`ARCHITECTURE.md` section 12 is not in it and is listed as work before
+Phase 5 in `STATUS.md`: the session manager that runs the duplicate rule
+and the per-contact rates, the reconnect scheduler, the outbound queue
+and the message store (ST1), and the command and event interface of
+section 4 for a front end. The review of `MaxStreams` (C1, T3-6) and the
+KDF benchmark on the four targets of `STORAGE.md` section 3.3 are also
+still open.
