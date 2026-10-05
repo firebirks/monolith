@@ -115,6 +115,28 @@ traced() {
     return "$status"
 }
 
+# Ends the Tor process recorded in `$1/pid` and waits until it is gone.
+# Tor 0.4.9.13 with `Sandbox 1`, which Chutney sets, can run with signals
+# blocked in its main thread, SIGTERM among them, depending on the run; a
+# Tor that has not ended 10 seconds after SIGTERM is killed.
+stop_tor() {
+    local pid i
+    pid=$(cat "$1/pid")
+    kill "$pid" 2>/dev/null || true
+    for ((i = 0; i < 20; i++)); do
+        if [ ! -e "/proc/$pid" ] || [ "$(awk '{ print $3 }' "/proc/$pid/stat")" = Z ]; then
+            return 0
+        fi
+        if [ "$i" = 10 ]; then
+            echo "     (Tor did not end on SIGTERM; killed)"
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+        sleep 1
+    done
+    echo "FAIL Tor $pid did not end"
+    exit 1
+}
+
 closed_port() {
     python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
 }
@@ -231,6 +253,16 @@ expect() {
         sleep 1
     done
     echo "FAIL $name: fewer than $n lines matching '$pattern' after ${timeout}s"
+    # What every node process was doing: state, CPU time and wait channel
+    # of each thread, twice, two seconds apart.
+    for p in $(pgrep -f " dev-node " || true); do
+        for round in 1 2; do
+            for t in /proc/"$p"/task/*; do
+                echo "     pid $p thread ${t##*/}: $(cut -d' ' -f3,14,15 "$t/stat") $(cat "$t/wchan")"
+            done
+            [ "$round" = 2 ] || sleep 2
+        done
+    done
     tail -40 "$work/$name.out"
     exit 1
 }
@@ -416,13 +448,9 @@ tell a send 0 "$id_b" hello
 expect a "^message 0 $id_b \"hello back\"$" 7 400
 before_b=$(count b '^published 0$')
 before_b1=$(count b '^published 1$')
-kill "$(cat "$b/pid")"
+stop_tor "$b"
 expect b '^unavailable 0 ' 1 60
 expect b '^unavailable 1 ' 1 60
-for _ in $(seq 30); do
-    kill -0 "$(cat "$b/pid")" 2>/dev/null || break
-    sleep 1
-done
 tor -f "$b/torrc" >"$work/tor-b-restarted.log" 2>&1 &
 tor_b_pid=$!
 # Test tooling restarted it; Chutney stops it, and step 12 ends it, by
@@ -433,7 +461,9 @@ expect b '^published 1$' $((before_b1 + 1)) 300
 tell b card 0
 expect b '^card 0 ' 3 10
 test "$(last b '^card 0 ' | cut -d' ' -f3)" = "$card_b"
-expect a "^ended 0 $id_b " 8 120
+# A's session ended with the stream, when its Tor learned that the circuit
+# is gone, or at the latest at the idle deadline of the session.
+expect a "^ended 0 $id_b " 8 300
 tell a send 0 "$id_b" hello
 expect a "^confirmed 0 $id_b " 8 600
 expect a "^message 0 $id_b \"hello back\"$" 8 120
@@ -477,7 +507,7 @@ for _ in $(seq 120); do
 done
 test -s "$work/b2.card"
 sleep 2
-kill "$(cat "$b/pid")"
+stop_tor "$b"
 wait "$serve" || status=$?
 cat "$work/b2.out"
 test "$status" != 0
