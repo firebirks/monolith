@@ -16,10 +16,11 @@ monolith-core.workspace = true
 monolith-identity.workspace = true
 monolith-protocol.workspace = true
 monolith-session.workspace = true
+monolith-storage.workspace = true
 monolith-tor.workspace = true
 getrandom.workspace = true
 zeroize.workspace = true
-tokio = { workspace = true, features = ["io-util", "rt", "time"] }
+tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
 
 [lints]
 workspace = true

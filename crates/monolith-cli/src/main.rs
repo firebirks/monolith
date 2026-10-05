@@ -13,6 +13,7 @@
 compile_error!("monolith must not be built with --cfg fuzzing");
 
 mod dev;
+mod node;
 
 use std::process::ExitCode;
 
@@ -37,9 +38,13 @@ Commands:
   version                Show version information
   help                   Show this text
 
-Development, Phase 3 two-node test (identities in memory only):
+Development, two-node test (identities in memory only):
   dev-chat serve <own card file> <peer card file>
   dev-chat dial <own card file> <peer card file> <message>
+
+Development node over a persistent vault, driven by commands on standard
+input (see the source of node.rs for the commands):
+  dev-node <data dir> <passphrase file> [--kdf-floor] [--echo]
 
 Options (Tor endpoints, never anything but loopback or a local socket):
   --socks <endpoint>          default 127.0.0.1:9050
@@ -85,6 +90,19 @@ fn main() -> ExitCode {
         ["doctor"] => block_on(doctor(config)),
         ["dev-chat", "serve", own, peer] => block_on(dev::serve(config, own, peer)),
         ["dev-chat", "dial", own, peer, message] => block_on(dev::dial(config, own, peer, message)),
+        ["dev-node", data_dir, passphrase_file, flags @ ..]
+            if flags
+                .iter()
+                .all(|flag| matches!(*flag, "--kdf-floor" | "--echo")) =>
+        {
+            block_on(node::run(
+                config,
+                std::path::PathBuf::from(data_dir),
+                std::path::PathBuf::from(passphrase_file),
+                flags.contains(&"--kdf-floor"),
+                flags.contains(&"--echo"),
+            ))
+        }
         ["status"]
         | ["identity", "show" | "fingerprint"]
         | ["contact-card", "show"]

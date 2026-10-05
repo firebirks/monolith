@@ -45,26 +45,29 @@ fn fail(what: &str) -> ExitCode {
 }
 
 /// Publishes an ephemeral service and makes the identity it belongs to,
-/// in an ephemeral installation. The keys are generated from the
-/// operating system's random source and kept in memory only.
+/// in an ephemeral installation, which is returned with it: the
+/// installation owns the identity, and the identity refuses every change
+/// once it is gone. The keys are generated from the operating system's
+/// random source and kept in memory only.
 async fn setup(
     backend: &SystemTorBackend,
     own_card: &str,
-) -> Result<(PublishedOnionService, Arc<LocalIdentity>), ExitCode> {
+) -> Result<(PublishedOnionService, Installation, Arc<LocalIdentity>), ExitCode> {
     let mut service = backend
         .publish_onion(KeySource::Generate)
         .await
         .map_err(|error| fail(&format!("cannot publish: {error}")))?;
     // The key is ephemeral: it is dropped, and erased, right away.
     drop(service.take_generated_secret());
-    let local = Installation::ephemeral()
+    let installation = Installation::ephemeral();
+    let local = installation
         .create_identity(*service.service_key(), None, None)
         .await
         .map_err(|_| fail("cannot make an identity"))?;
     std::fs::write(own_card, local.card().to_text())
         .map_err(|_| fail("cannot write the own card file"))?;
     println!("Published; own card written.");
-    Ok((service, local))
+    Ok((service, installation, local))
 }
 
 async fn wait_for_card(path: &str) -> Result<ContactCard, ExitCode> {
@@ -139,7 +142,7 @@ async fn next_chat<S: AsyncRead + AsyncWrite + Unpin>(
 /// The side that publishes and waits for the other to dial.
 pub(crate) async fn serve(config: SystemTorConfig, own_card: &str, peer_card: &str) -> ExitCode {
     let backend = SystemTorBackend::new(config);
-    let (mut service, local) = match setup(&backend, own_card).await {
+    let (mut service, _installation, local) = match setup(&backend, own_card).await {
         Ok(setup) => setup,
         Err(code) => return code,
     };
@@ -185,7 +188,7 @@ pub(crate) async fn dial(
     message: &str,
 ) -> ExitCode {
     let backend = SystemTorBackend::new(config);
-    let (service, local) = match setup(&backend, own_card).await {
+    let (service, _installation, local) = match setup(&backend, own_card).await {
         Ok(setup) => setup,
         Err(code) => return code,
     };

@@ -179,6 +179,11 @@ impl fmt::Debug for DialPlan {
 }
 
 /// One local identity.
+///
+/// Its [`Installation`] owns it. Once the installation is dropped, the
+/// identity refuses every change and admits nobody
+/// ([`StoreError::Failed`]): what it decides could no longer be made
+/// durable. Keep the installation for as long as the identity is used.
 pub struct LocalIdentity {
     identity: IdentityPublicKey,
     keys: Mutex<Keys>,
@@ -615,6 +620,30 @@ impl LocalIdentity {
         let generation = self.durability.bump();
         self.commit(generation).await?;
         Ok(card)
+    }
+
+    /// The successor card to announce on the confirmed session `session`,
+    /// if one is due there: a rotation is in progress, the session was made
+    /// with the old key, it still stands for the contact, and the contact
+    /// was not sent the successor yet (`docs/PROTOCOL.md` section 11.4,
+    /// steps 3 and 5). The caller sends it in an EndpointUpdate and then
+    /// calls [`Self::mark_announced`].
+    pub fn announcement_for(&self, session: SessionRef<'_>) -> Option<ContactCard> {
+        let successor = {
+            let keys = lock(&self.keys);
+            let rotation = keys.rotation.as_ref()?;
+            if keys.party.card() != session.local {
+                return None;
+            }
+            rotation.party.card().clone()
+        };
+        let view = self.contacts.view(session.peer.identity())?;
+        (view.kind == RecordKind::Accepted
+            && !view.successor_announced
+            && self
+                .contacts
+                .session_stands(session.peer, session.withdrawal))
+        .then_some(successor)
     }
 
     /// The successor was sent to `contact` on a confirmed session of the

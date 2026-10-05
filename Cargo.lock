@@ -310,6 +310,7 @@ dependencies = [
  "monolith-identity",
  "monolith-protocol",
  "monolith-session",
+ "monolith-storage",
  "monolith-tor",
  "tokio",
  "zeroize",
