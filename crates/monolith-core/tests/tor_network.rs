@@ -64,9 +64,11 @@ fn config(side: &str) -> SystemTorConfig {
 }
 
 /// The identity of `seed`, reachable at `endpoint`, in an ephemeral
-/// installation of its own.
+/// installation of its own, which is kept for the rest of the test: an
+/// identity whose installation is gone refuses every change.
 async fn identity(seed: u8, endpoint: OnionServiceKey) -> std::sync::Arc<LocalIdentity> {
-    Installation::ephemeral()
+    let installation = Box::leak(Box::new(Installation::ephemeral()));
+    installation
         .restore_identity(
             IdentityKeys {
                 seed: zeroize::Zeroizing::new([seed; 32]),
