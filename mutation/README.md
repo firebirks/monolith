@@ -110,8 +110,8 @@ the vault:
   was dropped: its window is a few instructions, and the snapshot test
   caught it only some of the time.
 
-CS28 is expected to survive, below. CS17, CS30 and CS46 are caught by
-the timeout of the runner: the tests they break do not end. Without the
+CS28 is expected to survive, below. CS17 and CS30 are caught by the
+timeout of the runner: the tests they break do not end. Without the
 refusal a dial with no contact slot never returns.
 
 Phase 4 moved P1 to P3, H15, H16, Q25, Q26, Q30, CR1, CR2, CR9, CR18,
