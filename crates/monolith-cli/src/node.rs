@@ -418,9 +418,11 @@ impl Node {
                         return;
                     }
                     // A service Tor cannot reach yet, or a dial that timed
-                    // out on the way: tried again, through Tor only.
+                    // out on the way, in Tor or in the handshake: tried
+                    // again, through Tor only.
                     Err(
-                        error @ (LinkError::Tor(TorError::OnionUnreachable) | LinkError::TimedOut),
+                        error @ (LinkError::Tor(TorError::OnionUnreachable | TorError::TimedOut)
+                        | LinkError::TimedOut),
                     ) => {
                         last = error.to_string();
                     }
