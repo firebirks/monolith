@@ -6,7 +6,10 @@ crypto resolver of Monolith's own over the current RustCrypto and dalek
 crates.
 Date: 2026-10-01. Amended 2026-10-02 by the credential binding review:
 rules F2 and F4 and the change of transport key (`DESIGN_QUESTIONS.md`
-section 8). The construction is unchanged.
+section 8). Amended 2026-10-05 by Phase 4: F4 is applied by one decision
+whatever path a card took, and the initiator's third message is made only
+in the admission of the responder (`DESIGN_QUESTIONS.md` P4-1, P4-2). The
+construction, the wire format and the test vectors are unchanged.
 
 ## Context
 
@@ -309,6 +312,20 @@ F4. Successor credentials and rollback. The local side holds, per
     used against contacts that promoted its successor, and keeps a copied
     identity key alone from taking a contact over.
 
+    Since Phase 4 one decision applies F4 to every card of a known
+    identity, from a handshake in either direction, an announcement, an
+    import or a confirmation (`contact::decide` over
+    `Credentials::relation`): a card of another key that is not newer than
+    the authorized successor is stale from every source, where Phase 3 had
+    an import hold it pending. The contact store makes the decision under
+    the lock of the contact, keeps the result durable before it is used,
+    and keeps the credentials, the retired key included, across restarts.
+    On the initiator's side, `read_message_2` returns the authenticated
+    responder (`OutboundPeer`), and `OutboundPeer::admit` makes the third
+    message, which carries the initiator's card, only for a standing that
+    may learn the local identity; for any other there is no third message
+    to send.
+
 F5. An X25519 key that is not canonically encoded or is of small order is
     invalid, as a transport key and as an ephemeral key, and a
     Diffie-Hellman result of all zeros ends the handshake. The Noise
@@ -542,7 +559,8 @@ No Monolith peer has been deployed, so nothing on any network is affected.
 - F-R4. No revocation of a transport key. Rotation retires a key at each
   contact that promotes the successor, and nowhere else.
 - F-R5. A stale card presented to a responder that never saw a newer one
-  is accepted. Same root as F-R4.
+  is accepted. Same root as F-R4. Since Phase 4 a responder that saw a
+  newer one keeps it across restarts, in the vault.
 - F-R6. A session is not bound to the onion address that was dialed
   (`PROTOCOL.md` open question P2).
 
