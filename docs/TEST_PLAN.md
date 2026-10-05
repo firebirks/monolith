@@ -1,7 +1,7 @@
 # Test plan
 
-Status: the protocol core and the session layer have tests; everything
-else is a plan.
+Status: the protocol core, the session layer, the Tor adapter and the
+contact store with its vault have tests; everything else is a plan.
 
 What exists after Phase 1: unit tests in `monolith-identity` and
 `monolith-protocol` for keys, signatures, fingerprints, base32, the field
@@ -38,7 +38,30 @@ Chutney network, a service published again from its key, a dial without
 SOCKS, a lost control connection, every node under `strace`. Covered
 now: T-SOCKS, T-CTRL, T-NET-1.
 
-The rest need the core, Tor or storage, and are not written yet.
+What Phase 4 added, which waits for its final verification: in
+`monolith-protocol`, the exhaustive table of the credential decision
+against a model written from PROTOCOL.md section 11.4
+(`credential::tests::table`) and the decision about a card for every kind
+of record and every context (`contact::tests`); in `monolith-storage`,
+the vault with its format checked against an independent reader and
+writer and a pinned test vector (`tests/vault_format.rs`), a crash model
+of the directory, and the payload records; in `monolith-core`, the
+contact store (`tests/store.rs`: restart, a crash at every step of every
+critical change, races), admission and retirement through the store
+(`tests/credentials.rs`), invitations (`tests/invitations.rs`), several
+identities (`tests/identities.rs`), the publication supervisor
+(`tests/supervisor.rs`), what peers observe (`tests/observability.rs`)
+and a source scan (`tests/structure.rs`); two more fuzz targets
+(`vault_payload`, `contact_store`); the Phase 4 mutation list; and the
+private Tor network test extended to nodes over a vault. Covered now:
+T-INV-1 to 11, T-MI-1 to 9, T-CRASH for the vault and the contact store,
+T-CONTACT-1 and 3, T-CONTACT-2 between two stores (`common::befriend`:
+both import the other's card, one session makes both accepted), T-ID-2
+and 3, T-CONFIRM-1, T-ORACLE-6, the later
+sessions of T-ORACLE-7, T-INJ for the text the vault stores, and T-BLOCK.
+
+The rest need the session manager, the message queue, file transfer or a
+user interface, and are not written yet.
 
 ## 1. Principles
 
@@ -180,10 +203,11 @@ Blocking (T-BLOCK)
 Invitations (T-INV)
 
 PROTOCOL.md sections 12.2 and 12.3. The active set and revocation are part
-of the contact store, so these tests are mandatory in Phase 4 and run
-against it; only the card part of T-INV-1 exists today (`card::tests`:
-cards that differ only in their capability are each valid, have their own
-signature and do not conflict).
+of the contact store, and these tests run against it on the in-memory Tor
+(`tests/invitations.rs` in the core, one test per item or pair of items);
+the card part of T-INV-1 is also in `card::tests` (cards that differ only
+in their capability are each valid, have their own signature and do not
+conflict), and T-INV-8 and T-INV-11 also in the private network test.
 
 1. One identity with cards that carry capabilities A and B: both cards are
    valid, both capabilities are in the active set, and a request with
@@ -217,13 +241,14 @@ signature and do not conflict).
 
 Local identities (T-MI)
 
-`ARCHITECTURE.md` section 1.1, invariants S39 to S46. Mandatory in the
-phase that lets a process hold several identities; the parts that need
-the contact store and the vault come with them in Phase 4. Covered
-structurally today: two publications coexist on one backend and a stream
-reaches only its own (`tests/system.rs`), and each of two local
-identities answers at its own service and dials the same contact with
-its own isolation group (`tests/link.rs`).
+`ARCHITECTURE.md` section 1.1, invariants S39 to S46. Since Phase 4 an
+installation holds several identities, and these tests run against it:
+`tests/identities.rs` in the core (T-MI-1 to 4, 7 to 9),
+`tests/link.rs` (T-MI-5 and 6: each of two local identities answers at
+its own service and dials the same contact with its own isolation
+group), `tests/system.rs` in the Tor crate (two publications coexist on
+one backend and a stream reaches only its own), and the private network
+test (two identities of one node).
 
 1. An identity whose identity, transport or Onion Service key equals one
    of another local identity is refused at creation, import and restore.
@@ -644,9 +669,9 @@ peer and when it closes.
 | T-ORACLE-3 | No message type and no field carries a rejection reason; Close has an empty body; there is no "blocked", "former contact" or "not in contact list" response | message registry, Phase 1 |
 | T-ORACLE-4 | A protocol violation from any class ends the session with nothing emitted. Includes a ContactRequest with the card of another identity | session logic, Phase 1 |
 | T-ORACLE-5 | Profile, EndpointUpdate and application messages are never emitted before confirmation, for any class | session logic, Phase 1 |
-| T-ORACLE-6 | With the budget for strangers exhausted, the four non-contact classes are treated identically | core, Phase 4 |
-| T-ORACLE-7 | Blocking or deleting an accepted contact during a session: the peer sees Close, then the behavior of the no-record class | first half in the session logic, Phase 1; the later sessions in core, Phase 4 |
-| T-ORACLE-8 | On the wire: frame counts and byte counts are equal across the non-contact classes. Response times are recorded and compared only for gross differences | bytes: session layer, Phase 2, where everything one side writes is identical for no record, declined, blocked, and a contact with a stale or conflicting card; over the mock transport and with times: integration, Phase 4 |
+| T-ORACLE-6 | With the budget for strangers exhausted, the non-contact classes are treated identically | core, Phase 4 (`tests/observability.rs`: no record, blocked, declined, deleted, a stale card and a pending key each evict the oldest silent stranger and see the same) |
+| T-ORACLE-7 | Blocking or deleting an accepted contact during a session: the peer sees Close, then the behavior of the no-record class | first half in the session logic, Phase 1; the later sessions in core, Phase 4 (`tests/observability.rs`) |
+| T-ORACLE-8 | On the wire: frame counts and byte counts are equal across the non-contact classes. Response times are recorded and compared only for gross differences | bytes: session layer, Phase 2, where everything one side writes is identical for no record, declined, blocked, and a contact with a stale or conflicting card; through the store over the mock transport, the same messages for every class (T-ORACLE-6 and 7), Phase 4; times: not measured yet |
 
 The handshake is the same for every class by construction: the responder's
 handshake functions take no record of the peer, and the record is first
@@ -787,6 +812,19 @@ update, queue update, file completion. After restart: no partial contact,
 no epoch lower than before, no new identity where one existed, the vault
 opens.
 
+Since Phase 4 the layer is `MemoryDir` in the storage crate: it counts the
+steps of the directory, stops at any of them, and on restart keeps or
+drops what was not flushed and keeps or tears what was written but not
+flushed, in every combination. Covered: the vault's own write and
+creation at every step (`vault::tests`), and, through the contact store
+(`tests/store.rs`), creating an identity with its Onion Service key,
+creating a contact, updating a card, promoting a successor, an announced
+successor, blocking, deleting, creating and revoking an invitation and
+beginning a rotation, each stopped at every step: afterwards the vault
+opens and holds the state before or after the change, never a mixture,
+and never a state something was granted on that is lost. Queue updates
+and file completion come with the message queue and file transfer.
+
 ## 14. CI
 
 On every change:
@@ -821,7 +859,7 @@ results are in `mutation/`; see `mutation/README.md`.
 | 1 | T-FRAME, T-FIELD, T-CARD, T-TEXT, T-FILE-NAME, T-PROTO-STATE, T-ORACLE-1 to 5 pass; property tests in place; fuzz targets for every decoder run clean for a fixed budget |
 | 2 | handshake test vectors committed and reproduced; T-HS, T-HS-PIN, T-BIND, T-STALE, T-FRAME-AUTH and T-LIMIT pass; no mutation of an authentication check survives; fuzz targets for the handshake and for encrypted frames run clean for a fixed budget |
 | 3 | T-SOCKS, T-CTRL, T-CRED, T-LIFE pass; T-NET-1 passes; two-node chat over a private Tor network |
-| 4 | T-CONTACT, T-ID, T-DUP, T-CONFIRM, T-ORACLE-6 to 8, T-CRASH, T-INJ pass |
+| 4 | T-CONTACT, T-ID, T-DUP, T-CONFIRM, T-ORACLE-6 to 8, T-CRASH, T-INJ pass. As Phase 4 was briefed (the contact store, persistence, lifecycle and credential convergence; `DESIGN_QUESTIONS.md` section 11), it adds T-INV, T-MI, the private network test over vaults and the mutation list of Phase 4, and leaves to the session manager and the queue before Phase 5: T-DUP-4 to 6, T-CONFIRM-1 timing, T-ORACLE-8 times, T-INJ for history and files, and T-CRASH for queue updates and file completion |
 | 5 | T-FILE passes; transfer fuzzing clean |
 | 6, 7 | platform matrix passes on the current release |
 | 9 | T-RES passes with measurements recorded |
