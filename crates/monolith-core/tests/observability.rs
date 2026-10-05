@@ -21,6 +21,7 @@ mod common;
 use common::{
     Node, befriend, both, confirm_both, dial_and_answer, node, node_in, node_with, run, send_first,
 };
+use monolith_core::contacts::StoreError;
 use monolith_core::identity::Installation;
 use monolith_core::link::{Established, LinkError};
 use monolith_core::requests::Dropped;
@@ -506,5 +507,54 @@ fn t_inj_text_the_vault_stores_comes_back_byte_for_byte() {
             let invitations: Vec<_> = local.invitations().into_iter().map(|(_, l)| l).collect();
             assert_eq!(invitations, vec![Some(label)]);
         }
+    });
+}
+
+#[test]
+fn a_confirmation_is_for_a_contact_only() {
+    // A blocked, a declined and an unknown identity have no pending key to
+    // confirm and no card to dial: both confirmations find nothing, and
+    // nothing changes.
+    run(async {
+        let network = MockNetwork::new();
+        let mut bob = node(&network, 2).await;
+        let card = bob.card();
+        let blocked = node(&network, 3).await;
+        bob.identity
+            .block(blocked.identity.identity())
+            .await
+            .unwrap();
+        let declined = node(&network, 4).await;
+        bob.identity
+            .set_request_mode(RequestMode::Open)
+            .await
+            .unwrap();
+        assert_eq!(ask(&declined, &mut bob, &card).await.1, Some(Ok(())));
+        bob.identity
+            .decline_request(declined.identity.identity())
+            .await
+            .unwrap();
+        let unknown = node(&network, 5).await;
+        let state = common::state(&bob.installation);
+        for peer in [&blocked, &declined, &unknown] {
+            let peers = peer.card();
+            assert_eq!(
+                bob.identity.confirm_pending(&peers).await.err(),
+                Some(StoreError::NotFound)
+            );
+            assert_eq!(
+                bob.identity.confirm_dial(&peers).await.err(),
+                Some(StoreError::NotFound)
+            );
+        }
+        assert_eq!(common::state(&bob.installation), state);
+        assert_eq!(
+            bob.identity.kind(blocked.identity.identity()),
+            RecordKind::Blocked
+        );
+        assert_eq!(
+            bob.identity.kind(declined.identity.identity()),
+            RecordKind::Declined
+        );
     });
 }
