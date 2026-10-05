@@ -96,7 +96,8 @@ impl Backoff {
                     / 100,
             );
         base.checked_mul(percent)
-            .map_or(RECONNECT_DELAY_MAX, |scaled| scaled / 100)
+            .and_then(|scaled| scaled.checked_div(100))
+            .unwrap_or(RECONNECT_DELAY_MAX)
     }
 
     /// Starts over: a publication stayed up long enough.
@@ -216,7 +217,7 @@ where
                     budgets,
                     identity,
                     shutdown.clone(),
-                    |stream, permit| handler(stream, permit),
+                    &mut handler,
                 )
                 .await;
                 if started.elapsed() >= RECONNECT_RESET_AFTER {
