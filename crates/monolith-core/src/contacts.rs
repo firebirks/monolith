@@ -550,6 +550,10 @@ impl ContactStore {
         self.check_failed()?;
         self.with_entry(card.identity(), false, |entry| {
             let entry = entry.ok_or(StoreError::NotFound)?;
+            // Only a contact has a pending successor to confirm.
+            if !entry.record.kind().is_contact() {
+                return Err(StoreError::NotFound);
+            }
             let decision = contact::decide(
                 entry.record.kind(),
                 entry.record.credentials(),

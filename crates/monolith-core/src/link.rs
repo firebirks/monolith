@@ -1425,4 +1425,39 @@ mod tests {
             );
         });
     }
+
+    #[test]
+    fn a_withdrawal_at_the_moment_a_write_times_out_leaves_the_link_terminal() {
+        // The stream takes nothing. The key is retired exactly when the
+        // write deadline passes. Either outcome may be reported, and the
+        // link is over either way: nothing is delivered or sent afterwards.
+        for retire_after in [
+            FRAME_WRITE_TIMEOUT - core::time::Duration::from_millis(1),
+            FRAME_WRITE_TIMEOUT,
+            FRAME_WRITE_TIMEOUT + core::time::Duration::from_millis(1),
+        ] {
+            run(async {
+                let (_, bob) = confirmed();
+                let (stream, taken) = stalling(0);
+                let mut link = Link::new(stream, bob, Withdrawal::new(), None, None);
+                let withdrawal = link.withdrawal.clone();
+                let sent = alongside(link.send(&chat()), async move {
+                    tokio::time::sleep(retire_after).await;
+                    withdrawal.withdraw();
+                })
+                .await;
+                assert!(
+                    matches!(sent, Err(LinkError::TimedOut | LinkError::Withdrawn)),
+                    "{sent:?}"
+                );
+                assert!(taken.lock().unwrap().is_empty());
+                assert_over(&link);
+                let started = tokio::time::Instant::now();
+                assert!(link.send(&chat()).await.is_err());
+                assert!(link.receive().await.is_err());
+                link.close().await.unwrap();
+                assert_eq!(started.elapsed(), core::time::Duration::ZERO);
+            });
+        }
+    }
 }
