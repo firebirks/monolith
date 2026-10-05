@@ -9,11 +9,14 @@ use core::future::Future;
 use std::sync::Arc;
 
 use monolith_core::budget::Budgets;
-use monolith_core::identity::{IdentityKeys, Installation, LocalIdentity};
+use monolith_core::contacts::ContactView;
+use monolith_core::identity::{IdentityKeys, Installation, LocalIdentity, RotationState};
 use monolith_core::link::{Established, Link, LinkError, answer, dial};
+use monolith_identity::IdentityPublicKey;
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::{ContactRequest, Message, MessageId};
 use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
+use monolith_protocol::contact::RequestMode;
 use monolith_protocol::session::Action;
 use monolith_protocol::text::{ChatText, DisplayName, IntroductionText};
 use monolith_session::{LocalParty, TransportSecretKey};
@@ -244,8 +247,13 @@ pub async fn send_first(end: &mut Established<DuplexStream>, identity: &LocalIde
         match action {
             Action::SendContactAccept => end.link.send(&Message::ContactAccept).await.unwrap(),
             Action::SendContactRequest => {
+                // A request carries the capability of the card held of
+                // the peer, and no other.
                 let card = identity.card();
-                let invitation = None;
+                let invitation = identity
+                    .contact(end.link.session().peer())
+                    .and_then(|view| view.credentials)
+                    .and_then(|held| held.invitation().cloned());
                 end.link.send(&request(&card, invitation)).await.unwrap();
             }
             _ => {}
@@ -306,4 +314,66 @@ pub async fn befriend(a: &Node, b: &mut Node) {
     let (a_link, mut b_link) = confirm_both(a, b).await;
     a_link.close().await.unwrap();
     let _ = b_link.receive().await;
+}
+
+/// Everything durable an installation holds, as its public interface
+/// shows it. Session counts are left out: sessions do not survive a
+/// restart.
+#[derive(Debug, PartialEq, Eq)]
+pub struct State {
+    pub identities: Vec<IdentityState>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct IdentityState {
+    pub identity: IdentityPublicKey,
+    pub card: ContactCard,
+    pub endpoint: OnionServiceKey,
+    pub rotation: RotationState,
+    pub successor: Option<ContactCard>,
+    pub request_mode: RequestMode,
+    pub invitations: Vec<(Option<DisplayName>, Vec<u8>)>,
+    pub known: Vec<(IdentityPublicKey, ContactView)>,
+    pub has_onion_secret: bool,
+}
+
+pub fn state(installation: &Installation) -> State {
+    let mut identities: Vec<IdentityState> = installation
+        .identities()
+        .iter()
+        .map(|identity| {
+            let mut invitations: Vec<(Option<DisplayName>, Vec<u8>)> = identity
+                .invitations()
+                .into_iter()
+                .map(|(invitation, label)| {
+                    (
+                        label,
+                        identity.invitation_card(invitation).unwrap().encode(),
+                    )
+                })
+                .collect();
+            invitations.sort_by(|a, b| a.1.cmp(&b.1));
+            IdentityState {
+                identity: *identity.identity(),
+                card: identity.card(),
+                endpoint: identity.endpoint(),
+                rotation: identity.rotation(),
+                successor: identity.successor_card(),
+                request_mode: identity.request_mode(),
+                invitations,
+                known: identity
+                    .known()
+                    .into_iter()
+                    .map(|remote| {
+                        let mut view = identity.contact(&remote).unwrap();
+                        view.sessions = 0;
+                        (remote, view)
+                    })
+                    .collect(),
+                has_onion_secret: identity.onion_secret().is_some(),
+            }
+        })
+        .collect();
+    identities.sort_by(|a, b| a.identity.as_bytes().cmp(b.identity.as_bytes()));
+    State { identities }
 }

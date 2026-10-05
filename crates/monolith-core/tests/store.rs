@@ -15,9 +15,9 @@ mod common;
 
 use std::sync::Arc;
 
-use common::{befriend, confirm_both, party, run, step};
+use common::{State, befriend, confirm_both, party, run, state, step};
 use monolith_core::contacts::{ContactView, ImportOutcome, StoreError};
-use monolith_core::identity::{Installation, LocalIdentity, RotationState};
+use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_identity::{IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::Message;
 use monolith_protocol::card::ContactCard;
@@ -57,68 +57,6 @@ fn card(seed: u8, key: u8, epoch: u64) -> ContactCard {
 
 fn id(seed: u8) -> IdentityPublicKey {
     IdentitySecretKey::from_seed(&[seed; 32]).public_key()
-}
-
-/// Everything durable an installation holds, as its public interface
-/// shows it. Session counts are left out: sessions do not survive a
-/// restart.
-#[derive(Debug, PartialEq, Eq)]
-struct State {
-    identities: Vec<IdentityState>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct IdentityState {
-    identity: IdentityPublicKey,
-    card: ContactCard,
-    endpoint: OnionServiceKey,
-    rotation: RotationState,
-    successor: Option<ContactCard>,
-    request_mode: RequestMode,
-    invitations: Vec<(Option<DisplayName>, Vec<u8>)>,
-    known: Vec<(IdentityPublicKey, ContactView)>,
-    has_onion_secret: bool,
-}
-
-fn state(installation: &Installation) -> State {
-    let mut identities: Vec<IdentityState> = installation
-        .identities()
-        .iter()
-        .map(|identity| {
-            let mut invitations: Vec<(Option<DisplayName>, Vec<u8>)> = identity
-                .invitations()
-                .into_iter()
-                .map(|(invitation, label)| {
-                    (
-                        label,
-                        identity.invitation_card(invitation).unwrap().encode(),
-                    )
-                })
-                .collect();
-            invitations.sort_by(|a, b| a.1.cmp(&b.1));
-            IdentityState {
-                identity: *identity.identity(),
-                card: identity.card(),
-                endpoint: identity.endpoint(),
-                rotation: identity.rotation(),
-                successor: identity.successor_card(),
-                request_mode: identity.request_mode(),
-                invitations,
-                known: identity
-                    .known()
-                    .into_iter()
-                    .map(|remote| {
-                        let mut view = identity.contact(&remote).unwrap();
-                        view.sessions = 0;
-                        (remote, view)
-                    })
-                    .collect(),
-                has_onion_secret: identity.onion_secret().is_some(),
-            }
-        })
-        .collect();
-    identities.sort_by(|a, b| a.identity.as_bytes().cmp(b.identity.as_bytes()));
-    State { identities }
 }
 
 /// An installation in a vault with one identity and some of everything:
