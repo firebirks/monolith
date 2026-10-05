@@ -33,8 +33,8 @@ fn confirmed_session(
     initiator_holds: &mut Credentials,
     responder_holds: &mut Credentials,
 ) -> (AuthenticatedSession, AuthenticatedSession) {
-    let (outbound, inbound, _) = handshake_with(initiator, responder, dialed).unwrap();
-    let (mut i, admission_i, first_i) = outbound
+    let ((mut i, admission_i, first_i), inbound, _) = handshake_with(initiator, responder, dialed)
+        .unwrap()
         .admit(PeerRecord::Accepted(initiator_holds))
         .unwrap();
     let (mut r, admission_r, first_r) = inbound
@@ -110,7 +110,9 @@ fn a_rotation_through_the_active_key_retires_it_and_its_sessions() {
     assert!(chat_is_delivered(&mut alice_t1, &mut bob_t1));
 
     // B. Alice dials with T2. Bob's admission promotes it and retires T1.
-    let (outbound, inbound, _) = handshake(&party_with(ALICE, T2, 2), &party(BOB));
+    let ((mut alice_t2, _, _), inbound, _) = handshake(&party_with(ALICE, T2, 2), &party(BOB))
+        .admit(PeerRecord::Accepted(&mut bob_at_alice))
+        .unwrap();
     let (mut bob_t2, admission, _) = inbound
         .admit(PeerRecord::Accepted(&mut alice_at_bob))
         .unwrap();
@@ -118,9 +120,6 @@ fn a_rotation_through_the_active_key_retires_it_and_its_sessions() {
     assert_eq!(admission.change, Some(CredentialChange::Promoted));
     assert_eq!(alice_at_bob.active(), &successor);
     assert_eq!(alice_at_bob.retired(), Some(card(ALICE).transport()));
-    let (mut alice_t2, _, _) = outbound
-        .admit(PeerRecord::Accepted(&mut bob_at_alice))
-        .unwrap();
 
     // C. The T1 session no longer stands for Alice. Bob withdraws it
     // before anything else; a chat message Alice sends on it afterwards
@@ -144,7 +143,7 @@ fn a_rotation_through_the_active_key_retires_it_and_its_sessions() {
     assert!(chat_is_delivered(&mut alice_t2, &mut bob_t2));
 
     // D. A new session made with T1 is not a contact session.
-    let (_, inbound, _) = handshake(&party(ALICE), &party(BOB));
+    let (_, _, inbound, _) = handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Accepted);
     let (_, admission, first) = inbound
         .admit(PeerRecord::Accepted(&mut alice_at_bob))
         .unwrap();
@@ -313,14 +312,13 @@ fn crossing_dials_of_two_rotations_complete() {
     );
     announce(&mut bob_u1, &mut alice_t1, bob_u2.card(), &mut bob_at_alice);
 
-    let (alice_dials, bob_answers, _) = handshake_with(&alice_t2, &bob_u2, bob_u2.card()).unwrap();
-    let (bob_dials, alice_answers, _) =
-        handshake_with(&bob_u2, &alice_t2, alice_t2.card()).unwrap();
+    let alice_dials = handshake_with(&alice_t2, &bob_u2, bob_u2.card()).unwrap();
+    let bob_dials = handshake_with(&bob_u2, &alice_t2, alice_t2.card()).unwrap();
 
-    let (_, at_alice_out, _) = alice_dials
+    let ((_, at_alice_out, _), bob_answers, _) = alice_dials
         .admit(PeerRecord::Accepted(&mut bob_at_alice))
         .unwrap();
-    let (_, at_bob_out, _) = bob_dials
+    let ((_, at_bob_out, _), alice_answers, _) = bob_dials
         .admit(PeerRecord::Accepted(&mut alice_at_bob))
         .unwrap();
     assert_eq!(at_alice_out.change, Some(CredentialChange::Promoted));
@@ -366,7 +364,9 @@ fn simultaneous_rotation_without_the_old_keys_fails_safely() {
 
     // Had Alice learned Bob's new card, her new key would still reach him
     // only as a pending one: no standing, nothing taken over.
-    let (_, inbound, _) = handshake_with(&alice_now, &bob_now, bob_now.card()).unwrap();
+    let (_, _, inbound, _) = handshake_with(&alice_now, &bob_now, bob_now.card())
+        .unwrap()
+        .admit_as(Standing::Accepted);
     let (_, admission, first) = inbound
         .admit(PeerRecord::Accepted(&mut alice_at_bob))
         .unwrap();
@@ -384,7 +384,9 @@ fn simultaneous_rotation_without_the_old_keys_fails_safely() {
         alice_at_bob.confirm(alice_now.card()),
         Ok(CredentialChange::Promoted)
     );
-    let (_, inbound, _) = handshake_with(&alice_now, &bob_now, bob_now.card()).unwrap();
+    let (_, _, inbound, _) = handshake_with(&alice_now, &bob_now, bob_now.card())
+        .unwrap()
+        .admit_as(Standing::Accepted);
     let (_, admission, _) = inbound
         .admit(PeerRecord::Accepted(&mut alice_at_bob))
         .unwrap();

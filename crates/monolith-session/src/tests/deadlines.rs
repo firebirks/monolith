@@ -127,7 +127,7 @@ fn a_frame_that_completes_in_time_clears_its_deadline() {
 #[test]
 fn a_peer_that_is_not_a_contact_has_to_send_its_first_message_in_time() {
     // Bob holds no record of Alice. She is authenticated and sends nothing.
-    let pair = connect(Standing::None, PeerRecord::None);
+    let pair = connect(Standing::Requested, PeerRecord::None);
     let mut bob = pair.responder;
     assert_eq!(bob.state(), SessionState::AuthenticatedUnknown);
     assert_eq!(bob.deadline(), Some(after(UNKNOWN_FIRST_MESSAGE_TIMEOUT)));
@@ -191,8 +191,7 @@ fn the_age_limit_ends_a_session_that_only_receives_part_of_a_frame() {
     let limits = SessionLimits::reduced(secs(60), secs(120), 1000, 1 << 20);
     let alice = party(ALICE).with_limits(limits);
     let bob = party(BOB).with_limits(limits);
-    let (outbound, inbound, _) = handshake(&alice, &bob);
-    let (mut at_alice, _, _) = outbound
+    let ((mut at_alice, _, _), inbound, _) = handshake(&alice, &bob)
         .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
         .unwrap();
     let (mut at_bob, _, _) = inbound

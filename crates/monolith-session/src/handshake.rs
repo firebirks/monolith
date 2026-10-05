@@ -5,10 +5,16 @@
 //! the one before it:
 //!
 //! ```text
-//! initiator   HandshakeInitiator --message 2--> OutboundPeer --record----> AuthenticatedSession
+//! initiator   HandshakeInitiator --message 2--> OutboundPeer --record--> message 3, AuthenticatedSession
 //! responder   HandshakeResponder --message 1--> HandshakeResponderFinal
-//!                                --message 3--> InboundPeer  --record----> AuthenticatedSession
+//!                                --message 3--> InboundPeer  --record--> AuthenticatedSession
 //! ```
+//!
+//! Message 3 carries the local identity and card. It exists only after the
+//! admission of the responder allowed it: [`OutboundPeer::admit`] writes it
+//! for a standing that may learn the local identity, and for any other
+//! standing returns no message 3 and no session. No function returns it
+//! before that decision.
 //!
 //! A handshake object has no function that sends or receives a frame, so
 //! no application data can be exchanged before the peer is authenticated.
@@ -41,6 +47,49 @@ use crate::{LocalParty, SessionError};
 /// What admitting an authenticated peer yields: the session, what the
 /// local side decided about the peer, and the first message to send.
 pub type Admitted = (AuthenticatedSession, Admission, Vec<Action>);
+
+/// Message 3 of a handshake: the local card, encrypted to the responder.
+///
+/// Only [`OutboundPeer::admit`] makes one, and only after the admission
+/// decided that the responder may learn the local identity
+/// (`docs/PROTOCOL.md` section 4.4). Its bytes are written to the stream
+/// as they are.
+pub struct Message3([u8; HANDSHAKE_MSG3_LEN]);
+
+impl Message3 {
+    /// The bytes to write.
+    pub const fn as_bytes(&self) -> &[u8; HANDSHAKE_MSG3_LEN] {
+        &self.0
+    }
+}
+
+/// What the admission of a responder yields.
+///
+/// The granted variant holds a session and is much larger than the other.
+/// A value is made once per dial and moved straight into the link, so it
+/// is not boxed.
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum OutboundAdmission {
+    /// The responder's proven key stands for an identity the local side
+    /// holds as a requested or accepted contact: the session, the
+    /// admission, the first message to send once message 3 is written,
+    /// and message 3.
+    Granted {
+        /// The session. It may be used once message 3 is written.
+        session: AuthenticatedSession,
+        /// What the local side decided about the responder.
+        admission: Admission,
+        /// The first message to send.
+        first: Vec<Action>,
+        /// Message 3, to write before anything else.
+        message_3: Message3,
+    },
+    /// The responder may not learn the local identity. No message 3 was
+    /// made and no session exists; the stream is closed with nothing more
+    /// sent. The admission says why, for the local side only.
+    Refused(Admission),
+}
 
 /// The Noise protocol name of `docs/PROTOCOL.md` section 4.1. One suite;
 /// nothing is negotiated.
@@ -213,16 +262,13 @@ impl HandshakeInitiator {
         self.started.checked_add(HANDSHAKE_TIMEOUT)
     }
 
-    /// Takes message 2 and returns the authenticated peer and message 3.
+    /// Takes message 2 and returns the authenticated responder.
     ///
     /// A message 2 that Noise accepts shows that its sender holds the
     /// transport key of the pinned card and used the pinned identity key
-    /// in its prologue. Only then is message 3 produced, which carries the
-    /// local transport key and the local card, encrypted to that responder.
-    /// Producing it is not sending it: it may be written only after
-    /// [`OutboundPeer::admit`] gave a standing that may learn the local
-    /// identity, and while the session is not withdrawn. `link::dial` in
-    /// `monolith-core` does that; nothing else writes it.
+    /// in its prologue. Message 3, which carries the local transport key
+    /// and the local card, is not made here: [`OutboundPeer::admit`] makes
+    /// it, and only for a responder that may learn the local identity.
     ///
     /// Any failure is [`ProtocolError::IdentityMismatch`]: the endpoint did
     /// not prove the identity that was dialed. The caller reports it and
@@ -233,28 +279,19 @@ impl HandshakeInitiator {
         mut self,
         message: &[u8; HANDSHAKE_MSG2_LEN],
         now: Instant,
-    ) -> Result<(OutboundPeer, [u8; HANDSHAKE_MSG3_LEN]), SessionError> {
+    ) -> Result<OutboundPeer, SessionError> {
         check_deadline(self.started, now)?;
         if self.noise.read_message(message, &mut []) != Ok(0) {
             return Err(SessionError::Protocol(ProtocolError::IdentityMismatch));
         }
-
-        let mut reply = [0_u8; HANDSHAKE_MSG3_LEN];
-        let card = self.local_card.encode();
-        let written = self
-            .noise
-            .write_message(&card, &mut reply)
-            .map_err(local_failure)?;
-        if written != HANDSHAKE_MSG3_LEN {
-            return Err(SessionError::Internal);
-        }
-
-        let established = establish(self.noise, self.logic, self.local_card, self.limits, now)?;
-        let peer = OutboundPeer {
-            established,
+        Ok(OutboundPeer {
+            noise: self.noise,
+            logic: self.logic,
+            local_card: self.local_card,
+            limits: self.limits,
+            at: now,
             card: self.remote,
-        };
-        Ok((peer, reply))
+        })
     }
 }
 
@@ -419,11 +456,15 @@ impl HandshakeResponderFinal {
     }
 }
 
-/// A responder that proved the identity that was dialed. The handshake is
-/// complete; the session exists once the caller has said what the local
-/// side holds about the peer.
+/// A responder that proved the identity that was dialed. Message 3, which
+/// completes the handshake, has not been made yet.
 pub struct OutboundPeer {
-    established: Established,
+    noise: snow::HandshakeState,
+    logic: Session,
+    local_card: ContactCard,
+    limits: SessionLimits,
+    /// When message 2 was taken.
+    at: Instant,
     card: ContactCard,
 }
 
@@ -434,30 +475,63 @@ impl OutboundPeer {
         &self.card
     }
 
-    /// Creates the session. `record` is what the local side holds about
-    /// the identity that was dialed, as it is now: the caller looks it up
-    /// after the handshake, not before the dial.
+    /// Decides whether the responder may learn the local identity, and only
+    /// then makes message 3 and the session. `record` is what the local
+    /// side holds about the identity that was dialed, as it is now: the
+    /// caller looks it up after message 2, not before the dial.
     ///
     /// The standing follows from the record and from the card that was
-    /// dialed, by the same table as for an inbound peer
+    /// dialed, by the same decision as for an inbound peer
     /// (`docs/PROTOCOL.md` section 6.2), and what the card means for the
     /// contact is recorded in the same step. Normally the dialed card
     /// states the active key and the standing is that of the record. If
     /// the active key changed while the dial was in progress, the
-    /// responder has proved a key that is retired or never held, and the
-    /// peer is not a contact for this session. The returned actions are
-    /// the first message to send, if any (section 6.4).
+    /// responder has proved a key that is retired, pending or never held,
+    /// and the peer is not a contact.
+    ///
+    /// For a standing that may learn the local identity
+    /// ([`Admission::may_learn_local_identity`]) the result is
+    /// [`OutboundAdmission::Granted`] with message 3 and the session. For
+    /// any other it is [`OutboundAdmission::Refused`]: no message 3 exists,
+    /// the handshake state with its keys is dropped, and no session is
+    /// made. What the card changed in the record stands either way; a
+    /// pending successor is held for the user (`docs/PROTOCOL.md` section
+    /// 4.4, check 3).
     ///
     /// Fails with [`ProtocolError::IdentityMismatch`] if the record is one
     /// of another identity.
-    pub fn admit(self, mut record: PeerRecord<'_>) -> Result<Admitted, SessionError> {
+    pub fn admit(mut self, mut record: PeerRecord<'_>) -> Result<OutboundAdmission, SessionError> {
         let admission = record.admit(&self.card)?;
+        if !admission.may_learn_local_identity() {
+            return Ok(OutboundAdmission::Refused(admission));
+        }
+        let mut message_3 = [0_u8; HANDSHAKE_MSG3_LEN];
+        let card = self.local_card.encode();
+        let written = self
+            .noise
+            .write_message(&card, &mut message_3)
+            .map_err(local_failure)?;
+        if written != HANDSHAKE_MSG3_LEN {
+            return Err(SessionError::Internal);
+        }
+        let established = establish(
+            self.noise,
+            self.logic,
+            self.local_card,
+            self.limits,
+            self.at,
+        )?;
         // A request to this peer carries the invitation the user was given
         // for it, which the record keeps (`docs/PROTOCOL.md` section 8.3).
         let invitation = record.invitation().cloned();
-        let (session, actions) =
-            AuthenticatedSession::new(self.established, self.card, admission.standing, invitation)?;
-        Ok((session, admission, actions))
+        let (session, first) =
+            AuthenticatedSession::new(established, self.card, admission.standing, invitation)?;
+        Ok(OutboundAdmission::Granted {
+            session,
+            admission,
+            first,
+            message_3: Message3(message_3),
+        })
     }
 }
 
@@ -519,6 +593,7 @@ macro_rules! redacted_debug {
 }
 
 redacted_debug!(
+    Message3,
     HandshakeInitiator,
     HandshakeResponder,
     HandshakeResponderFinal,

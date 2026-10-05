@@ -20,9 +20,9 @@ use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{PeerRecord, Standing};
 
 use crate::testing::{
-    ALICE, BOB, EPHEMERAL_R, admit_outbound, card, chat, handshake, party, request_with, start,
+    ALICE, BOB, EPHEMERAL_R, card, chat, handshake, party, request_with, start, transcript,
 };
-use crate::{HandshakeInitiator, HandshakeResponder};
+use crate::{HandshakeInitiator, HandshakeResponder, OutboundAdmission};
 
 /// An initiator other than Alice, with an ephemeral key of its own.
 const CAROL: u8 = 0x33;
@@ -39,8 +39,14 @@ fn carol_to_bob() -> ([u8; 48], [u8; 235]) {
             .unwrap();
     let bob = HandshakeResponder::new_with_ephemeral(&party(BOB), start(), EPHEMERAL_R).unwrap();
     let (_, message_2) = bob.read_message_1(&message_1, start()).unwrap();
-    let (_, message_3) = carol.read_message_2(&message_2, start()).unwrap();
-    (message_1, message_3)
+    let outbound = carol.read_message_2(&message_2, start()).unwrap();
+    let OutboundAdmission::Granted { message_3, .. } = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+        .unwrap()
+    else {
+        panic!("refused");
+    };
+    (message_1, *message_3.as_bytes())
 }
 
 /// Bob's second message to Alice's first, made with another ephemeral key:
@@ -73,18 +79,18 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
 
     // The handshake between the two fixed parties, which the targets
     // reproduce, and frames from sessions that grew out of it.
-    let (_, _, transcript) = handshake(&party(ALICE), &party(BOB));
+    let transcript = transcript(&party(ALICE), &party(BOB));
 
     let request_from_alice = {
-        let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-        let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+        let (mut alice, _, _, _) =
+            handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Requested);
         alice
             .send(&request_with(alice_card.clone(), None), start())
             .unwrap()
     };
     let (accept_from_alice, chat_from_alice, close_from_alice, accept_from_bob, chat_from_bob) = {
-        let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
-        let (mut alice, _) = admit_outbound(outbound, Standing::Accepted);
+        let (mut alice, _, inbound, _) =
+            handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Accepted);
         let (mut bob, _, _) = inbound
             .admit(PeerRecord::Accepted(&mut Credentials::new(
                 alice_card.clone(),
@@ -109,8 +115,8 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
     // request, her acceptance once Bob's request arrived, and a chat
     // message once Bob's acceptance confirmed the session.
     let both_ask_from_alice = {
-        let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
-        let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+        let (mut alice, _, inbound, _) =
+            handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Requested);
         let (mut bob, _, _) = inbound
             .admit(PeerRecord::Requested(&mut Credentials::new(
                 alice_card.clone(),
@@ -368,7 +374,7 @@ fn committed_seeds_are_current() {
 #[test]
 fn handshake_seeds_are_what_their_names_say() {
     let all = seeds();
-    let (_, _, transcript) = handshake(&party(ALICE), &party(BOB));
+    let transcript = transcript(&party(ALICE), &party(BOB));
     let mut genuine_for_responder = transcript.message_1.to_vec();
     genuine_for_responder.extend_from_slice(&transcript.message_3);
 
@@ -404,7 +410,7 @@ fn handshake_seeds_are_what_their_names_say() {
 fn seeds_named_valid_complete_a_handshake_that_is_not_the_transcript() {
     // The fuzz targets accept these, and must not assume that only the
     // stored transcript is valid.
-    let (_, _, transcript) = handshake(&party(ALICE), &party(BOB));
+    let transcript = transcript(&party(ALICE), &party(BOB));
     let (message_1, message_3) = carol_to_bob();
     assert_ne!(message_1, transcript.message_1);
     let bob = HandshakeResponder::new_with_ephemeral(&party(BOB), start(), EPHEMERAL_R).unwrap();
@@ -421,9 +427,15 @@ fn seeds_named_valid_complete_a_handshake_that_is_not_the_transcript() {
         crate::testing::EPHEMERAL_I,
     )
     .unwrap();
-    let (outbound, message_3) = alice.read_message_2(&message_2, start()).unwrap();
+    let outbound = alice.read_message_2(&message_2, start()).unwrap();
     assert_eq!(outbound.card(), &card(BOB));
-    assert_ne!(message_3, transcript.message_3);
+    let OutboundAdmission::Granted { message_3, .. } = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+        .unwrap()
+    else {
+        panic!("refused");
+    };
+    assert_ne!(message_3.as_bytes(), &transcript.message_3);
 }
 
 #[test]

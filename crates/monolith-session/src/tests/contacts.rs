@@ -15,10 +15,10 @@ use monolith_protocol::session::{Action, Admission, PeerRecord, Standing};
 use monolith_protocol::{ProtocolError, SessionState};
 
 use crate::testing::{
-    ALICE, BOB, MALLORY, admit_outbound, card, card_inviting, card_of, card_with, chat, handshake,
-    handshake_with, party, party_with, request_with, start,
+    ALICE, BOB, MALLORY, card, card_inviting, card_of, card_with, chat, handshake, handshake_with,
+    party, party_with, request_with, start,
 };
-use crate::{AuthenticatedSession, LocalParty, SessionError};
+use crate::{AuthenticatedSession, LocalParty, OutboundAdmission, SessionError};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Side {
@@ -60,8 +60,18 @@ impl Run {
         Self::dialing(alice_party, &card(BOB), alice_holds_bob, bob_record)
     }
 
+    /// Alice dials Bob as a requested contact and then sends nothing: what
+    /// an initiator that holds no contact record of Bob did before Phase 4.
+    /// Such an initiator no longer sends message 3, so a session with Bob
+    /// exists only for one that holds him as a contact; this is the closest
+    /// that still reaches Bob, and what Bob sends to it is what matters.
+    fn silent(alice_party: &LocalParty, bob_record: PeerRecord<'_>) -> Self {
+        Self::dialing(alice_party, &card(BOB), Standing::None, bob_record)
+    }
+
     /// The same, with the card of Bob that Alice dials. A request she
-    /// sends carries the invitation capability of that card.
+    /// sends carries the invitation capability of that card. With a
+    /// standing that is not a contact's, Alice is [`Self::silent`].
     fn dialing(
         alice_party: &LocalParty,
         dialed: &ContactCard,
@@ -69,8 +79,16 @@ impl Run {
         bob_record: PeerRecord<'_>,
     ) -> Self {
         let invitation = dialed.invitation().cloned();
-        let (outbound, inbound, _) = handshake_with(alice_party, &party(BOB), dialed).unwrap();
-        let (alice, alice_first) = admit_outbound(outbound, alice_holds_bob);
+        let silent = !alice_holds_bob.is_contact_record();
+        let standing = if silent {
+            Standing::Requested
+        } else {
+            alice_holds_bob
+        };
+        let (alice, alice_first, inbound, _) = handshake_with(alice_party, &party(BOB), dialed)
+            .unwrap()
+            .admit_as(standing);
+        let alice_first = if silent { Vec::new() } else { alice_first };
         let (bob, admission, bob_first) = inbound.admit(bob_record).unwrap();
         let mut run = Self {
             alice,
@@ -234,7 +252,24 @@ fn every_pair_of_records_ends_consistently() {
         Standing::Requested,
         Standing::Accepted,
     ];
-    for alice_holds_bob in standings {
+    // An initiator that does not hold the responder as a contact sends no
+    // message 3, so no session exists on either side.
+    for alice_holds_bob in [Standing::None, Standing::Declined, Standing::Blocked] {
+        let record = match alice_holds_bob {
+            Standing::Declined => PeerRecord::Declined,
+            Standing::Blocked => PeerRecord::Blocked,
+            _ => PeerRecord::None,
+        };
+        let refused = handshake(&party(ALICE), &party(BOB))
+            .outbound
+            .admit(record)
+            .unwrap();
+        let OutboundAdmission::Refused(admission) = refused else {
+            panic!("message 3 to a peer that is not a contact");
+        };
+        assert_eq!(admission.standing, alice_holds_bob);
+    }
+    for alice_holds_bob in [Standing::Requested, Standing::Accepted] {
         for bob_holds_alice in standings {
             let mut held = held_alice();
             let bob_record = match bob_holds_alice {
@@ -347,11 +382,7 @@ fn a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one()
 
     // A fresh attempt that goes straight to a chat message is a violation,
     // as it is for any peer that is not a contact.
-    let mut run = Run::new(
-        &party(ALICE),
-        Standing::None,
-        PeerRecord::Accepted(&mut held),
-    );
+    let mut run = Run::silent(&party(ALICE), PeerRecord::Accepted(&mut held));
     run.alice_breaks_the_rules(&chat("as Alice"));
     assert_eq!(
         run.violation,
@@ -439,12 +470,18 @@ fn a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session() {
     // responder has then proved a key that Alice no longer accepts: the
     // session exists, and it is not a contact session. The record passed
     // here is the one Alice holds after the handshake.
-    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
     let mut held = Credentials::new(card(BOB));
     let successor = card_of(BOB, MALLORY, 2, false);
     held.import(successor.clone()).unwrap();
     held.confirm(&successor).unwrap();
-    let (alice, admission, first) = outbound.admit(PeerRecord::Accepted(&mut held)).unwrap();
+    let refused = handshake(&party(ALICE), &party(BOB))
+        .outbound
+        .admit(PeerRecord::Accepted(&mut held))
+        .unwrap();
+    // No message 3 and no session: the responder learns nothing of Alice.
+    let OutboundAdmission::Refused(admission) = refused else {
+        panic!("message 3 to a retired key");
+    };
     assert_eq!(
         admission,
         Admission {
@@ -452,31 +489,29 @@ fn a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session() {
             change: Some(CredentialChange::Stale)
         }
     );
-    assert_eq!(first, Vec::new());
-    assert_eq!(alice.standing(), Standing::StaleCard);
-    for message_type in monolith_protocol::MessageType::ALL {
-        assert!(!alice.may_send(message_type), "{message_type:?}");
-    }
 
     // The card that was dialed states the active key: the record decides.
-    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-    let (_, admission, first) = outbound
+    let ((_, admission, first), _, _) = handshake(&party(ALICE), &party(BOB))
         .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
         .unwrap();
     assert_eq!(admission.change, Some(CredentialChange::Unchanged));
     assert_eq!(first, vec![Action::SendContactAccept]);
 
-    // A record without a card: no comparison.
-    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-    let (_, admission, first) = outbound.admit(PeerRecord::Blocked).unwrap();
+    // A record without a card: no comparison, and no message 3.
+    let refused = handshake(&party(ALICE), &party(BOB))
+        .outbound
+        .admit(PeerRecord::Blocked)
+        .unwrap();
+    let OutboundAdmission::Refused(admission) = refused else {
+        panic!("message 3 to a blocked identity");
+    };
     assert_eq!(admission.standing, Standing::Blocked);
     assert_eq!(admission.change, None);
-    assert_eq!(first, Vec::new());
 
     // The record of another identity is refused.
-    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
     assert_eq!(
-        outbound
+        handshake(&party(ALICE), &party(BOB))
+            .outbound
             .admit(PeerRecord::Accepted(&mut Credentials::new(card(MALLORY))))
             .err(),
         Some(SessionError::Protocol(ProtocolError::IdentityMismatch))
@@ -606,8 +641,8 @@ fn peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason() {
     // A peer that breaks the rules gets the same treatment in every case
     // as well: the stream is closed and nothing is written.
     for name in cases {
-        let mut run = usual(
-            Standing::None,
+        let mut run = Run::silent(
+            &party(ALICE),
             record(name, &mut held_newer, &mut held_conflicting),
         );
         run.alice_breaks_the_rules(&chat("hello"));
@@ -712,9 +747,10 @@ fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
     // somebody else is not sent here, and none is made up.
     let given = [0x11_u8; 16];
     let other = Some(InvitationCapability::from_bytes([0x22; 16]));
-    let (outbound, _, _) =
-        handshake_with(&party(ALICE), &party(BOB), &card_inviting(BOB, given)).unwrap();
-    let (mut alice, first) = admit_outbound(outbound, Standing::Requested);
+    let (mut alice, first, _, _) =
+        handshake_with(&party(ALICE), &party(BOB), &card_inviting(BOB, given))
+            .unwrap()
+            .admit_as(Standing::Requested);
     assert_eq!(first, vec![Action::SendContactRequest]);
     for wrong in [other.clone(), None] {
         assert_eq!(
@@ -730,8 +766,7 @@ fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
     );
 
     // A card without a capability: the request has none.
-    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-    let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+    let (mut alice, _, _, _) = handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Requested);
     assert_eq!(
         alice.send(&request_with(card(ALICE), other), start()).err(),
         Some(SessionError::InvalidMessage)
@@ -746,7 +781,7 @@ fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
     // holds of the peer. Bob imported a card of Alice with a capability,
     // and Alice dialed first.
     let mut held = Credentials::new(card_inviting(ALICE, given));
-    let (_, inbound, _) = handshake(&party(ALICE), &party(BOB));
+    let (_, _, inbound, _) = handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Accepted);
     let (mut bob, _, first) = inbound.admit(PeerRecord::Requested(&mut held)).unwrap();
     assert_eq!(first, vec![Action::SendContactRequest]);
     assert_eq!(
@@ -760,8 +795,7 @@ fn a_request_carries_the_invitation_for_this_peer_and_no_other() {
 fn a_request_is_sent_once_on_a_session() {
     // PROTOCOL.md 6.4. The peer would end the session over a second one,
     // so the local side does not send it.
-    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-    let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+    let (mut alice, _, _, _) = handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Requested);
     let request = request_with(card(ALICE), None);
     assert!(alice.may_send(monolith_protocol::MessageType::ContactRequest));
     assert!(alice.send(&request, start()).is_ok());
@@ -771,8 +805,7 @@ fn a_request_is_sent_once_on_a_session() {
         Some(SessionError::NotPermitted)
     );
     // A request that was refused before it was encrypted does not count.
-    let (outbound, _, _) = handshake(&party(ALICE), &party(BOB));
-    let (mut alice, _) = admit_outbound(outbound, Standing::Requested);
+    let (mut alice, _, _, _) = handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Requested);
     assert!(
         alice
             .send(&request_with(card(MALLORY), None), start())
@@ -786,8 +819,8 @@ fn nothing_is_sent_on_a_confirmed_session_before_the_local_accept() {
     // The peer's ContactAccept confirms the session on this side. The
     // peer confirms it when it sees ours, and takes application messages
     // only then. So ours goes first.
-    let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
-    let (mut alice, _) = admit_outbound(outbound, Standing::Accepted);
+    let (mut alice, _, inbound, _) =
+        handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Accepted);
     let (mut bob, _, _) = inbound
         .admit(PeerRecord::Accepted(&mut held_alice()))
         .unwrap();
@@ -816,7 +849,7 @@ fn nothing_is_sent_on_a_confirmed_session_before_the_local_accept() {
 
 #[test]
 fn a_record_of_another_identity_is_refused() {
-    let (_, inbound, _) = handshake(&party(ALICE), &party(BOB));
+    let (_, _, inbound, _) = handshake(&party(ALICE), &party(BOB)).admit_as(Standing::Accepted);
     assert_eq!(
         inbound
             .admit(PeerRecord::Accepted(&mut Credentials::new(card(MALLORY))))

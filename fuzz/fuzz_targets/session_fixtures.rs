@@ -14,9 +14,11 @@ use std::time::Instant;
 
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::card::{ContactCard, EndpointSet};
+use monolith_protocol::credential::Credentials;
+use monolith_protocol::session::PeerRecord;
 use monolith_session::{
-    HandshakeInitiator, HandshakeResponder, InboundPeer, LocalParty, MessageBuffer, OutboundPeer,
-    TransportSecretKey,
+    AuthenticatedSession, HandshakeInitiator, HandshakeResponder, InboundPeer, LocalParty,
+    MessageBuffer, OutboundAdmission, TransportSecretKey,
 };
 
 /// Seed of the initiator.
@@ -87,18 +89,31 @@ pub struct Transcript {
     pub message_3: [u8; 235],
 }
 
-/// Runs the handshake between Alice and Bob.
-pub fn handshake() -> (OutboundPeer, InboundPeer, Transcript) {
+/// Runs the handshake between Alice and Bob. Alice holds Bob as an
+/// accepted contact, so her admission makes message 3. Returns her
+/// session, Bob's authenticated peer and the transcript.
+pub fn handshake() -> (AuthenticatedSession, InboundPeer, Transcript) {
     let (alice, message_1) = alice_dialing();
     let (bob, message_2) = bob_waiting().read_message_1(&message_1, start()).unwrap();
-    let (outbound, message_3) = alice.read_message_2(&message_2, start()).unwrap();
+    let outbound = alice.read_message_2(&message_2, start()).unwrap();
+    let OutboundAdmission::Granted {
+        session: at_alice,
+        message_3,
+        ..
+    } = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+        .unwrap()
+    else {
+        panic!("Alice refused Bob");
+    };
+    let message_3 = *message_3.as_bytes();
     let inbound = bob.read_message_3(&message_3, start()).unwrap();
     let transcript = Transcript {
         message_1,
         message_2,
         message_3,
     };
-    (outbound, inbound, transcript)
+    (at_alice, inbound, transcript)
 }
 
 /// The messages of that handshake. They are the same on every run.

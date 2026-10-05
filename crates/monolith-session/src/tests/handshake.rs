@@ -7,11 +7,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use monolith_identity::IdentityPublicKey;
+use monolith_protocol::credential::Credentials;
 use monolith_protocol::limits::{
     CONTACT_CARD_BASE_LEN, HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN,
     HANDSHAKE_TIMEOUT,
 };
-use monolith_protocol::session::{PeerRecord, Standing};
+use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::{ProtocolError, SessionState};
 use snow::params::{CipherChoice, DHChoice, HashChoice};
 use snow::resolvers::CryptoResolver;
@@ -20,11 +21,12 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::resolver::Resolver;
 use crate::testing::{
-    ALICE, BOB, EPHEMERAL_I, EPHEMERAL_R, MALLORY, admit_outbound, after, card, card_of, card_with,
-    handshake, handshake_with, identity_secret, party, party_with, start, transport_bytes,
+    ALICE, BOB, EPHEMERAL_I, EPHEMERAL_R, MALLORY, after, card, card_of, card_with, handshake,
+    handshake_with, identity_secret, party, party_with, start, transcript, transport_bytes,
 };
 use crate::{
-    HandshakeInitiator, HandshakeResponder, HandshakeResponderFinal, LocalParty, SessionError,
+    HandshakeInitiator, HandshakeResponder, HandshakeResponderFinal, LocalParty, OutboundAdmission,
+    SessionError,
 };
 use monolith_protocol::duplicate::Initiator;
 
@@ -148,17 +150,17 @@ fn third_message_with(
 
 #[test]
 fn a_handshake_authenticates_both_sides() {
-    let (outbound, inbound, transcript) = handshake(&party(ALICE), &party(BOB));
+    let started = handshake(&party(ALICE), &party(BOB));
     // The initiator knows whom it dialed; the responder learns the
     // initiator from the card in message 3.
-    assert_eq!(outbound.card(), &card(BOB));
+    assert_eq!(started.outbound.card(), &card(BOB));
+    let (alice, first, inbound, transcript) = started.admit_as(Standing::Requested);
     assert_eq!(inbound.card(), &card(ALICE));
     assert_eq!(transcript.message_1.len(), 48);
     assert_eq!(transcript.message_2.len(), 48);
     assert_eq!(transcript.message_3.len(), 235);
 
-    let (alice, first) = admit_outbound(outbound, Standing::None);
-    assert_eq!(first, Vec::new());
+    assert_eq!(first, vec![Action::SendContactRequest]);
     let (bob, admission, first) = inbound.admit(PeerRecord::None).unwrap();
     assert_eq!(first, Vec::new());
     assert_eq!(admission.standing, Standing::None);
@@ -184,9 +186,19 @@ fn handshakes_with_fresh_randomness_differ_and_complete() {
             HandshakeInitiator::start(&party(ALICE), &card(BOB), start()).unwrap();
         let waiting = HandshakeResponder::new(&party(BOB), start()).unwrap();
         let (waiting, message_2) = waiting.read_message_1(&message_1, start()).unwrap();
-        let (outbound, message_3) = first.read_message_2(&message_2, start()).unwrap();
+        let outbound = first.read_message_2(&message_2, start()).unwrap();
+        let OutboundAdmission::Granted {
+            session: alice,
+            message_3,
+            ..
+        } = outbound
+            .admit(PeerRecord::Requested(&mut Credentials::new(card(BOB))))
+            .unwrap()
+        else {
+            panic!("refused");
+        };
+        let message_3 = *message_3.as_bytes();
         let inbound = waiting.read_message_3(&message_3, start()).unwrap();
-        let (alice, _) = admit_outbound(outbound, Standing::None);
         let (bob, _, _) = inbound.admit(PeerRecord::None).unwrap();
         assert_eq!(alice.handshake_hash(), bob.handshake_hash());
         (message_1, message_2, message_3, *alice.handshake_hash())
@@ -213,7 +225,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 #[test]
 fn no_long_term_key_appears_in_a_handshake_message() {
-    let (_, _, transcript) = handshake(&party(ALICE), &party(BOB));
+    let transcript = transcript(&party(ALICE), &party(BOB));
     // What would name a party: its three public keys and the signature of
     // its card. The transport private keys are in the list as well.
     let long_term_values: Vec<Vec<u8>> = [ALICE, BOB]
@@ -420,13 +432,14 @@ fn a_pinned_card_with_an_invitation_can_be_dialed() {
     // capability goes into the contact request, inside the session.
     let imported = card_of(BOB, BOB, 1, true);
     assert!(imported.invitation().is_some());
-    let (outbound, inbound, transcript) =
-        handshake_with(&party(ALICE), &party(BOB), &imported).unwrap();
+    let (alice, first, inbound, with_capability) =
+        handshake_with(&party(ALICE), &party(BOB), &imported)
+            .unwrap()
+            .admit_as(Standing::Requested);
     // It is the same handshake as with the card without the capability.
-    let (_, _, plain) = handshake(&party(ALICE), &party(BOB));
-    assert_eq!(transcript.message_1, plain.message_1);
-    assert_eq!(transcript.message_3, plain.message_3);
-    let (alice, first) = admit_outbound(outbound, Standing::Requested);
+    let plain = transcript(&party(ALICE), &party(BOB));
+    assert_eq!(with_capability.message_1, plain.message_1);
+    assert_eq!(with_capability.message_3, plain.message_3);
     assert_eq!(
         first,
         vec![monolith_protocol::session::Action::SendContactRequest]
@@ -828,7 +841,7 @@ fn malformed_handshake_messages_are_rejected() {
 fn every_byte_of_every_handshake_message_is_authenticated() {
     // One bit flipped in each byte of each message, a different bit from
     // byte to byte. The property tests flip arbitrary bits.
-    let (_, _, transcript) = handshake(&party(ALICE), &party(BOB));
+    let transcript = transcript(&party(ALICE), &party(BOB));
 
     for index in 0..HANDSHAKE_MSG1_LEN {
         let mut message = transcript.message_1;
@@ -864,7 +877,7 @@ fn every_byte_of_every_handshake_message_is_authenticated() {
 
 #[test]
 fn handshake_messages_cannot_be_replayed() {
-    let (_, _, recorded) = handshake(&party(ALICE), &party(BOB));
+    let recorded = transcript(&party(ALICE), &party(BOB));
 
     // A recorded first message gets a reply from a new responder: it
     // carries nothing that could be fresh. The reply is made with a new
@@ -960,7 +973,14 @@ fn a_stalled_handshake_times_out() {
     // Message 2 arrives too late.
     assert_eq!(alice.read_message_2(&message_2, too_late).err(), timed_out);
     let (alice, _) = alice_dialing_bob();
-    let (_, message_3) = alice.read_message_2(&message_2, just_in_time).unwrap();
+    let outbound = alice.read_message_2(&message_2, just_in_time).unwrap();
+    let OutboundAdmission::Granted { message_3, .. } = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+        .unwrap()
+    else {
+        panic!("refused");
+    };
+    let message_3 = *message_3.as_bytes();
 
     // Message 3 arrives too late: a peer that sends a valid first message
     // and then nothing holds a pending handshake for this long and no
@@ -1004,10 +1024,10 @@ fn a_party_acts_only_as_the_identity_that_signed_its_card() {
     // Carol takes the peer for Mallory, not for Bob, although the key is
     // Bob's.
     let carol = party(0x33);
-    let (_, inbound, _) = handshake(&impostor, &carol);
+    let (_, _, inbound, _) = handshake(&impostor, &carol).admit_as(Standing::Accepted);
     assert_eq!(inbound.card().identity(), &identity(MALLORY));
     assert_eq!(inbound.card(), impostor.card());
-    let (_, inbound, _) = handshake(&party(BOB), &carol);
+    let (_, _, inbound, _) = handshake(&party(BOB), &carol).admit_as(Standing::Accepted);
     assert_eq!(inbound.card().identity(), &identity(BOB));
 }
 
@@ -1022,14 +1042,24 @@ fn debug_output_of_handshake_types_shows_nothing() {
         format!("{waiting:?}"),
         "HandshakeResponderFinal([redacted])"
     );
-    let (outbound, message_3) = alice.read_message_2(&message_2, start()).unwrap();
+    let outbound = alice.read_message_2(&message_2, start()).unwrap();
     assert_eq!(format!("{outbound:?}"), "OutboundPeer([redacted])");
-    let inbound = waiting.read_message_3(&message_3, start()).unwrap();
+    let OutboundAdmission::Granted {
+        session, message_3, ..
+    } = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+        .unwrap()
+    else {
+        panic!("refused");
+    };
+    assert_eq!(format!("{message_3:?}"), "Message3([redacted])");
+    let inbound = waiting
+        .read_message_3(message_3.as_bytes(), start())
+        .unwrap();
     assert_eq!(format!("{inbound:?}"), "InboundPeer([redacted])");
 
     // A session prints its state and its counters, and that is all: no
     // key, no identity, no card, no standing, no handshake hash.
-    let (session, _) = admit_outbound(outbound, Standing::Accepted);
     assert_eq!(
         format!("{session:?}"),
         concat!(
@@ -1063,4 +1093,78 @@ fn a_failing_random_source_fails_the_handshake() {
         bob.read_message_1(&message_1, start()).err(),
         Some(SessionError::Randomness)
     );
+}
+
+#[test]
+fn message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity() {
+    // Rule S51 is a property of this crate: before the admission no
+    // function returns message 3, and for a standing that may not learn
+    // the local identity none is ever made.
+    let genuine = transcript(&party(ALICE), &party(BOB)).message_3;
+    let newer_bob = card_of(BOB, MALLORY, 2, false);
+    let mut retired = Credentials::new(card(BOB));
+    retired.import(newer_bob.clone()).unwrap();
+    retired.confirm(&newer_bob).unwrap();
+    let mut pending = Credentials::new(card_of(BOB, BOB, 1, false));
+    // Bob's key is held as active at epoch 1; the dialed card of key 0x33
+    // and epoch 2 is a newer key without continuity.
+    let pending_bob = party_with(BOB, 0x33, 2);
+    let mut conflicting = Credentials::new(card_with(BOB, BOB, 1, 0x44, false));
+    let bob = party(BOB);
+    for (name, responder, record, granted) in [
+        ("no record", &bob, PeerRecord::None, false),
+        ("declined", &bob, PeerRecord::Declined, false),
+        ("blocked", &bob, PeerRecord::Blocked, false),
+        (
+            "retired key",
+            &bob,
+            PeerRecord::Accepted(&mut retired),
+            false,
+        ),
+        (
+            "pending key",
+            &pending_bob,
+            PeerRecord::Accepted(&mut pending),
+            false,
+        ),
+        (
+            "conflict",
+            &bob,
+            PeerRecord::Requested(&mut conflicting),
+            false,
+        ),
+        (
+            "requested",
+            &bob,
+            PeerRecord::Requested(&mut Credentials::new(card(BOB))),
+            true,
+        ),
+        (
+            "accepted",
+            &bob,
+            PeerRecord::Accepted(&mut Credentials::new(card(BOB))),
+            true,
+        ),
+    ] {
+        let outbound = handshake_with(&party(ALICE), responder, responder.card())
+            .unwrap()
+            .outbound;
+        match outbound.admit(record).unwrap() {
+            OutboundAdmission::Granted {
+                session,
+                admission,
+                message_3,
+                ..
+            } => {
+                assert!(granted, "{name}");
+                assert!(admission.may_learn_local_identity());
+                assert_eq!(session.standing(), admission.standing);
+                assert_eq!(message_3.as_bytes(), &genuine, "{name}");
+            }
+            OutboundAdmission::Refused(admission) => {
+                assert!(!granted, "{name}");
+                assert!(!admission.may_learn_local_identity(), "{name}");
+            }
+        }
+    }
 }

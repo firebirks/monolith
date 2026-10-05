@@ -27,7 +27,9 @@ use monolith_protocol::card::{ContactCard, EndpointSet};
 use monolith_protocol::credential::{CredentialChange, Credentials};
 use monolith_protocol::session::{Action, Admission, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
-use monolith_session::{Admitted, LocalParty, OutboundPeer, SessionError, TransportSecretKey};
+use monolith_session::{
+    Admitted, LocalParty, OutboundAdmission, OutboundPeer, SessionError, TransportSecretKey,
+};
 use monolith_tor::{KeySource, MockNetwork, OnionService, TorBackend};
 
 fn run<F: Future>(future: F) -> F::Output {
@@ -134,6 +136,22 @@ impl Contact {
         Ok(admitted)
     }
 
+    /// The same for an outbound admission, which makes a session only
+    /// when the responder may learn the local identity.
+    fn admitted_outbound(
+        &mut self,
+        admitted: Result<OutboundAdmission, SessionError>,
+        withdrawal: &Withdrawal,
+    ) -> Result<OutboundAdmission, SessionError> {
+        let admitted = admitted?;
+        if let OutboundAdmission::Granted { session, .. } = &admitted {
+            self.sessions
+                .push((session.peer_card().clone(), withdrawal.clone()));
+        }
+        self.withdraw_retired();
+        Ok(admitted)
+    }
+
     /// Withdraws the sessions whose key no longer stands for the contact
     /// and forgets those and the links that are gone.
     fn withdraw_retired(&mut self) {
@@ -219,7 +237,7 @@ fn a_dial_is_admitted_against_the_contact_state_after_the_handshake() {
             |peer, _| {
                 let mut contact = alice_holds_bob.lock().unwrap();
                 let admitted = peer.admit(PeerRecord::Accepted(&mut contact.held));
-                decided.set(admitted.as_ref().ok().map(|admitted| admitted.1));
+                decided.set(admitted.as_ref().ok().map(admission));
                 admitted
             },
         );
@@ -276,7 +294,7 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
                     |peer, withdrawal| {
                         let mut contact = alice_holds_bob.lock().unwrap();
                         let admitted = peer.admit(PeerRecord::Accepted(&mut contact.held));
-                        contact.admitted(admitted, withdrawal)
+                        contact.admitted_outbound(admitted, withdrawal)
                     },
                 )
                 .await
@@ -669,7 +687,7 @@ async fn dial_bob<F>(
     bool,
 )
 where
-    F: FnOnce(&ContactCard, OutboundPeer, &Withdrawal) -> Result<Admitted, SessionError>,
+    F: FnOnce(&ContactCard, OutboundPeer, &Withdrawal) -> Result<OutboundAdmission, SessionError>,
 {
     dial_bob_at(1, budgets, alice_admits).await
 }
@@ -684,7 +702,7 @@ async fn dial_bob_at<F>(
     bool,
 )
 where
-    F: FnOnce(&ContactCard, OutboundPeer, &Withdrawal) -> Result<Admitted, SessionError>,
+    F: FnOnce(&ContactCard, OutboundPeer, &Withdrawal) -> Result<OutboundAdmission, SessionError>,
 {
     let network = MockNetwork::new();
     let (alice_tor, bob_tor) = (network.backend(), network.backend());
@@ -721,6 +739,19 @@ where
 }
 
 /// The error of a dial refused with `standing` and `change`.
+/// The admission inside the result of an outbound admission.
+fn admission(admitted: &OutboundAdmission) -> Admission {
+    match admitted {
+        OutboundAdmission::Granted { admission, .. } | OutboundAdmission::Refused(admission) => {
+            *admission
+        }
+    }
+}
+
+fn admission_of(admitted: &Result<OutboundAdmission, SessionError>) -> Admission {
+    admission(admitted.as_ref().unwrap())
+}
+
 fn refused(standing: Standing, change: Option<CredentialChange>) -> Option<LinkError> {
     Some(LinkError::Refused(Admission { standing, change }))
 }
@@ -738,7 +769,7 @@ fn a_key_retired_right_after_the_admission_does_not_receive_message_3() {
     run(async {
         let (result, reached) = dial_bob(&Budgets::new(), |dialed, peer, withdrawal| {
             let admitted = peer.admit(PeerRecord::Accepted(&mut Credentials::new(dialed.clone())));
-            assert!(admitted.as_ref().unwrap().1.may_learn_local_identity());
+            assert!(admission_of(&admitted).may_learn_local_identity());
             withdrawal.withdraw();
             admitted
         })
@@ -862,10 +893,7 @@ fn a_pending_key_does_not_receive_message_3() {
         let held = Mutex::new(Credentials::new(active.clone()));
         let (result, reached) = dial_bob_at(2, &Budgets::new(), |_, peer, _| {
             let admitted = peer.admit(PeerRecord::Accepted(&mut held.lock().unwrap()));
-            assert_eq!(
-                admitted.as_ref().unwrap().1.standing,
-                Standing::PendingSuccessor
-            );
+            assert_eq!(admission_of(&admitted).standing, Standing::PendingSuccessor);
             admitted
         })
         .await;
@@ -903,7 +931,7 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
         let (result, reached) = dial_bob_at(2, &Budgets::new(), |_, peer, _| {
             let admitted = peer.admit(PeerRecord::Accepted(&mut held.lock().unwrap()));
             assert_eq!(
-                admitted.as_ref().unwrap().1.change,
+                admission_of(&admitted).change,
                 Some(CredentialChange::Stale)
             );
             admitted
@@ -915,23 +943,6 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
         );
         assert!(!reached);
         assert_eq!(*held.lock().unwrap(), before);
-    });
-}
-
-#[test]
-fn message_3_follows_the_standing_of_the_session_not_the_admission_returned() {
-    // The admission function admits Bob as a stranger and returns an
-    // admission that says otherwise. The dial reads the standing from the
-    // session: no message 3.
-    run(async {
-        let (result, reached) = dial_bob(&Budgets::new(), |_, peer, _| {
-            let (session, mut admission, first) = peer.admit(PeerRecord::None)?;
-            admission.standing = Standing::Accepted;
-            Ok((session, admission, first))
-        })
-        .await;
-        assert_eq!(result.err(), refused(Standing::Accepted, None));
-        assert!(!reached);
     });
 }
 
@@ -1006,7 +1017,7 @@ fn a_promotion_stands_when_message_3_cannot_be_written() {
                     let mut held = held.lock().unwrap();
                     let admitted = peer.admit(PeerRecord::Accepted(&mut held));
                     assert_eq!(
-                        admitted.as_ref().unwrap().1.change,
+                        admission_of(&admitted).change,
                         Some(CredentialChange::Promoted)
                     );
                     admitted

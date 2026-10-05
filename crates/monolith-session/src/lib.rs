@@ -22,12 +22,11 @@
 //!   one.
 //! - To dial a contact: [`HandshakeInitiator::start`] with the pinned card
 //!   of that contact, then [`HandshakeInitiator::read_message_2`], then
-//!   [`OutboundPeer::admit`]. Message 3, which `read_message_2` returns,
-//!   carries the local identity and may leave the process only if the
-//!   admission allows it. This crate prepares the bytes; the core decides
-//!   whether they are sent, and `link::dial` in `monolith-core` is the one
-//!   production path that writes them (`docs/PROTOCOL.md` section 4.4).
-//!   These functions are not a shortcut around it.
+//!   [`OutboundPeer::admit`] with what the local side holds about the
+//!   identity at that moment. Message 3 carries the local identity, and
+//!   `admit` is the only function that makes it: for a responder that may
+//!   learn the local identity it returns message 3 with the session, for
+//!   any other it returns neither (`docs/PROTOCOL.md` section 4.4).
 //! - To answer a stream: [`HandshakeResponder::new`], then
 //!   [`HandshakeResponder::read_message_1`], then
 //!   [`HandshakeResponderFinal::read_message_3`], then
@@ -72,7 +71,7 @@ mod tests;
 pub use error::SessionError;
 pub use handshake::{
     Admitted, HandshakeInitiator, HandshakeResponder, HandshakeResponderFinal, InboundPeer,
-    MessageBuffer, OutboundPeer,
+    Message3, MessageBuffer, OutboundAdmission, OutboundPeer,
 };
 pub use key::{LocalParty, TRANSPORT_SECRET_KEY_LEN, TransportSecretKey};
 pub use session::{AuthenticatedSession, Expiry, Received};

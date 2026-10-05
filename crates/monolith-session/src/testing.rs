@@ -17,8 +17,9 @@ use monolith_protocol::text::{ChatText, DisplayName, Filename, IntroductionText,
 use monolith_protocol::{MessageType, SessionState};
 
 use crate::{
-    AuthenticatedSession, HandshakeInitiator, HandshakeResponder, InboundPeer, LocalParty,
-    OutboundPeer, Received, SessionError, TransportSecretKey,
+    Admitted, AuthenticatedSession, HandshakeInitiator, HandshakeResponder,
+    HandshakeResponderFinal, InboundPeer, LocalParty, OutboundAdmission, OutboundPeer, Received,
+    SessionError, TransportSecretKey,
 };
 
 /// Seed of the initiator in most tests.
@@ -147,33 +148,94 @@ pub(crate) struct Transcript {
     pub(crate) message_3: [u8; HANDSHAKE_MSG3_LEN],
 }
 
-/// Runs a complete handshake with fixed ephemeral keys. The initiator
-/// dials `dialed`, which is normally the responder's card.
+/// A handshake with fixed ephemeral keys that has reached the admission of
+/// the responder: message 2 was taken, and message 3 comes only from a
+/// granted admission.
+pub(crate) struct Handshake {
+    pub(crate) outbound: OutboundPeer,
+    pub(crate) waiting: HandshakeResponderFinal,
+    pub(crate) message_1: [u8; HANDSHAKE_MSG1_LEN],
+    pub(crate) message_2: [u8; HANDSHAKE_MSG2_LEN],
+}
+
+impl Handshake {
+    /// The initiator admits the responder with `record`. The admission has
+    /// to let the responder learn the local identity; the responder then
+    /// reads message 3. Returns the initiator's admission, the responder's
+    /// authenticated peer and the transcript.
+    pub(crate) fn admit(
+        self,
+        record: PeerRecord<'_>,
+    ) -> Result<(Admitted, InboundPeer, Transcript), SessionError> {
+        let OutboundAdmission::Granted {
+            session,
+            admission,
+            first,
+            message_3,
+        } = self.outbound.admit(record)?
+        else {
+            panic!("the initiator refused the responder");
+        };
+        let message_3 = *message_3.as_bytes();
+        let inbound = self.waiting.read_message_3(&message_3, start())?;
+        let transcript = Transcript {
+            message_1: self.message_1,
+            message_2: self.message_2,
+            message_3,
+        };
+        Ok(((session, admission, first), inbound, transcript))
+    }
+
+    /// The initiator admits the responder holding exactly the dialed card
+    /// with the given standing, which has to be that of a contact.
+    pub(crate) fn admit_as(
+        self,
+        standing: Standing,
+    ) -> (AuthenticatedSession, Vec<Action>, InboundPeer, Transcript) {
+        let mut held = Credentials::new(self.outbound.card().clone());
+        let record = match standing {
+            Standing::Requested => PeerRecord::Requested(&mut held),
+            Standing::Accepted => PeerRecord::Accepted(&mut held),
+            _ => panic!("an initiator sends message 3 only to a contact"),
+        };
+        let ((session, admission, first), inbound, transcript) = self.admit(record).unwrap();
+        assert_eq!(admission.standing, standing);
+        (session, first, inbound, transcript)
+    }
+}
+
+/// Runs a handshake with fixed ephemeral keys up to the admission of the
+/// responder. The initiator dials `dialed`, which is normally the
+/// responder's card.
 pub(crate) fn handshake_with(
     initiator: &LocalParty,
     responder: &LocalParty,
     dialed: &ContactCard,
-) -> Result<(OutboundPeer, InboundPeer, Transcript), SessionError> {
+) -> Result<Handshake, SessionError> {
     let (first, message_1) =
         HandshakeInitiator::start_with_ephemeral(initiator, dialed, start(), EPHEMERAL_I)?;
     let waiting = HandshakeResponder::new_with_ephemeral(responder, start(), EPHEMERAL_R)?;
     let (waiting, message_2) = waiting.read_message_1(&message_1, start())?;
-    let (outbound, message_3) = first.read_message_2(&message_2, start())?;
-    let inbound = waiting.read_message_3(&message_3, start())?;
-    let transcript = Transcript {
+    let outbound = first.read_message_2(&message_2, start())?;
+    Ok(Handshake {
+        outbound,
+        waiting,
         message_1,
         message_2,
-        message_3,
-    };
-    Ok((outbound, inbound, transcript))
+    })
 }
 
-/// Runs a complete handshake between two parties.
-pub(crate) fn handshake(
-    initiator: &LocalParty,
-    responder: &LocalParty,
-) -> (OutboundPeer, InboundPeer, Transcript) {
+/// Runs a handshake between two parties up to the admission of the
+/// responder.
+pub(crate) fn handshake(initiator: &LocalParty, responder: &LocalParty) -> Handshake {
     handshake_with(initiator, responder, responder.card()).unwrap()
+}
+
+/// The transcript of a handshake in which Alice holds Bob as accepted.
+pub(crate) fn transcript(initiator: &LocalParty, responder: &LocalParty) -> Transcript {
+    handshake(initiator, responder)
+        .admit_as(Standing::Accepted)
+        .3
 }
 
 /// Two sessions connected to each other, with what each side was told to
@@ -187,31 +249,12 @@ pub(crate) struct Pair {
     pub(crate) responder_first: Vec<Action>,
 }
 
-/// Creates the session of an initiator that holds the peer with the given
-/// standing and holds, of a contact, exactly the card it dialed.
-pub(crate) fn admit_outbound(
-    outbound: OutboundPeer,
-    standing: Standing,
-) -> (AuthenticatedSession, Vec<Action>) {
-    let mut held = Credentials::new(outbound.card().clone());
-    let record = match standing {
-        Standing::None => PeerRecord::None,
-        Standing::Declined => PeerRecord::Declined,
-        Standing::Blocked => PeerRecord::Blocked,
-        Standing::Requested => PeerRecord::Requested(&mut held),
-        Standing::Accepted => PeerRecord::Accepted(&mut held),
-        Standing::StaleCard | Standing::PendingSuccessor => panic!("not a record"),
-    };
-    let (session, admission, actions) = outbound.admit(record).unwrap();
-    assert_eq!(admission.standing, standing);
-    (session, actions)
-}
-
-/// Alice dials Bob. Alice holds Bob with the given standing; Bob holds the
-/// given record of Alice.
+/// Alice dials Bob. Alice holds Bob with the given standing, which is that
+/// of a contact, since an initiator sends message 3 to nobody else; Bob
+/// holds the given record of Alice.
 pub(crate) fn connect(alice_holds_bob: Standing, bob_holds_alice: PeerRecord<'_>) -> Pair {
-    let (outbound, inbound, _) = handshake(&party(ALICE), &party(BOB));
-    let (initiator, initiator_first) = admit_outbound(outbound, alice_holds_bob);
+    let (initiator, initiator_first, inbound, _) =
+        handshake(&party(ALICE), &party(BOB)).admit_as(alice_holds_bob);
     let (responder, _, responder_first) = inbound.admit(bob_holds_alice).unwrap();
     Pair {
         initiator,

@@ -58,7 +58,7 @@ use tokio::sync::{Notify, OwnedSemaphorePermit};
 use crate::budget::Budgets;
 use monolith_session::{
     Admitted, AuthenticatedSession, Expiry, HandshakeInitiator, HandshakeResponder, InboundPeer,
-    LocalParty, MessageBuffer, OutboundPeer, Received, SessionError,
+    LocalParty, MessageBuffer, OutboundAdmission, OutboundPeer, Received, SessionError,
 };
 use monolith_tor::{IsolationGroup, TorBackend, TorError};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -305,7 +305,7 @@ pub async fn dial<B, F>(
 ) -> Result<Established<B::Stream>, LinkError>
 where
     B: TorBackend,
-    F: FnOnce(OutboundPeer, &Withdrawal) -> Result<Admitted, SessionError>,
+    F: FnOnce(OutboundPeer, &Withdrawal) -> Result<OutboundAdmission, SessionError>,
 {
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     let endpoint = *card.endpoints().first();
@@ -317,17 +317,28 @@ where
         let (initiator, message_1) = HandshakeInitiator::start(local, card, now())?;
         write_all(&mut stream, &message_1).await?;
         let message_2 = read_message::<_, HANDSHAKE_MSG2_LEN>(&mut stream).await?;
-        let (outbound, message_3) = initiator.read_message_2(&message_2, now())?;
-        // The responder is authenticated. The admission comes before the
-        // local identity goes out in message 3.
+        let outbound = initiator.read_message_2(&message_2, now())?;
+        // The responder is authenticated. The admission decides whether
+        // message 3, which carries the local identity, is made at all.
         let withdrawal = Withdrawal::new();
-        let (session, admission, first) =
-            admit(outbound, &withdrawal).inspect_err(|_| withdrawal.end())?;
+        let (session, admission, first, message_3) = match admit(outbound, &withdrawal) {
+            Ok(OutboundAdmission::Granted {
+                session,
+                admission,
+                first,
+                message_3,
+            }) => (session, admission, first, message_3),
+            Ok(OutboundAdmission::Refused(admission)) => {
+                withdrawal.end();
+                return Err(LinkError::Refused(admission));
+            }
+            Err(error) => {
+                withdrawal.end();
+                return Err(error.into());
+            }
+        };
         let mut link = Link::new(stream, session, withdrawal, None);
-        if !link.session.standing().may_learn_local_identity() {
-            return Err(LinkError::Refused(admission));
-        }
-        link.write_unless_withdrawn(&message_3).await?;
+        link.write_unless_withdrawn(message_3.as_bytes()).await?;
         Ok(Established {
             link,
             admission,
@@ -737,13 +748,21 @@ mod tests {
         let (initiator, message_1) = HandshakeInitiator::start(&alice, bob.card(), now()).unwrap();
         let responder = HandshakeResponder::new(&bob, now()).unwrap();
         let (waiting, message_2) = responder.read_message_1(&message_1, now()).unwrap();
-        let (outbound, message_3) = initiator.read_message_2(&message_2, now()).unwrap();
-        let inbound = waiting.read_message_3(&message_3, now()).unwrap();
-        let (at_alice, _, _) = outbound
+        let outbound = initiator.read_message_2(&message_2, now()).unwrap();
+        let OutboundAdmission::Granted {
+            session: at_alice,
+            message_3,
+            ..
+        } = outbound
             .admit(PeerRecord::Accepted(&mut Credentials::new(
                 bob.card().clone(),
             )))
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("refused");
+        };
+        let message_3 = *message_3.as_bytes();
+        let inbound = waiting.read_message_3(&message_3, now()).unwrap();
         let (at_bob, _, _) = inbound
             .admit(PeerRecord::Accepted(&mut Credentials::new(
                 alice.card().clone(),
@@ -902,13 +921,20 @@ mod tests {
         let (initiator, message_1) = HandshakeInitiator::start(&alice, bob.card(), now()).unwrap();
         let responder = HandshakeResponder::new(&bob, now()).unwrap();
         let (waiting, message_2) = responder.read_message_1(&message_1, now()).unwrap();
-        let (outbound, message_3) = initiator.read_message_2(&message_2, now()).unwrap();
-        let inbound = waiting.read_message_3(&message_3, now()).unwrap();
-        let (at_alice, _, _) = outbound
+        let outbound = initiator.read_message_2(&message_2, now()).unwrap();
+        let OutboundAdmission::Granted {
+            session: at_alice,
+            message_3,
+            ..
+        } = outbound
             .admit(PeerRecord::Requested(&mut Credentials::new(
                 bob.card().clone(),
             )))
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("refused");
+        };
+        let inbound = waiting.read_message_3(message_3.as_bytes(), now()).unwrap();
         let mut held = Credentials::new(alice.card().clone());
         let record = match bob_holds {
             BobHolds::Nothing => PeerRecord::None,
