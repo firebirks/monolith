@@ -483,6 +483,12 @@ fn a_deleted_identity_admits_nobody_and_changes_nothing() {
             b.identity.block(other.identity.identity()).await.err(),
             Some(StoreError::Failed)
         );
+        // Refused before anything is changed, also in memory.
+        assert_eq!(
+            b.identity.set_request_mode(RequestMode::Open).await.err(),
+            Some(StoreError::Failed)
+        );
+        assert_eq!(b.identity.request_mode(), RequestMode::Invitation);
 
         let after = state(&installation);
         assert_eq!(after.identities.len(), 1);
