@@ -1030,7 +1030,7 @@ PHASE4 = [
           ("                if durability.applied() > durability.durable() {\n                    let _ = self.start(durability, &runtime, &write);\n                }\n",
            "")),
     fault("CS93", CORE + "persist.rs", "waiters learn of a failure before the sessions are withdrawn",
-          ("                if let Some(failed) = self.failed.take() {\n                    failed();\n                }\n                self.durability.wake();",
+          ("                let _wake = Wake(&self.durability);\n                if let Some(failed) = self.failed.take() {\n                    failed();\n                }",
            "                self.durability.wake();\n                if let Some(failed) = self.failed.take() {\n                    failed();\n                }")),
     fault("CS94", CORE + "persist.rs", "a wait starts a write after a write failed",
           ("            if durability.is_failed() {\n                return Err(durability.failure());\n            }\n            if held.writing {",

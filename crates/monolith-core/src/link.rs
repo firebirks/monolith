@@ -43,10 +43,12 @@
 //! A link that failed is over for good: after the end of the stream, a read
 //! or write error, a deadline, a withdrawal, a violation or a Close, every
 //! later call fails at once, without waiting for the stream again, and
-//! nothing more is read or delivered. So is a link whose send was dropped
-//! while it wrote (a deadline of the caller, an aborted task): the session
-//! counted the frame as sent and the stream may hold part of it, so the
-//! next call ends the link, without a Close, and fails.
+//! nothing more is read or delivered, but for a message a receive took and
+//! could not return because it was dropped, which the next receive
+//! returns. So is a link whose send was dropped while it wrote (a deadline
+//! of the caller, an aborted task): the session counted the frame as sent
+//! and the stream may hold part of it, so the next call ends the link,
+//! without a Close, and fails.
 
 use core::fmt;
 use core::future::{Future, poll_fn};
@@ -832,7 +834,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// Waits for the next message. Fails when the peer breaks the
     /// protocol, the stream ends or fails, a deadline of the session
     /// passes, or the session is withdrawn. After a failure the link is
-    /// over, and every later call fails at once.
+    /// over, and every later call fails at once, but for the one exception
+    /// below: a message a dropped receive took is returned first.
     ///
     /// A withdrawal and the deadlines are looked at before each frame is
     /// taken from the buffer and before every wait for the peer, and they

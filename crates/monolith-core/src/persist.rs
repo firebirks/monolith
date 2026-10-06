@@ -184,9 +184,10 @@ pub(crate) struct Write {
     /// session (fail closed). The job runs it itself, with no lock held,
     /// whether or not a waiter is left to see the failure. It holds the
     /// installation weakly, as the job holds the vault's slot: once the job
-    /// has published a durable outcome it keeps nothing of the installation
-    /// alive, so closing the installation lets go of the vault and the lock
-    /// of its directory at once.
+    /// has published its outcome it keeps nothing of the installation
+    /// alive, so closing an installation that has nothing left to write
+    /// lets go of the vault and the lock of its directory at once. One that
+    /// still has changes to write holds them while the write for them runs.
     pub(crate) failed: Box<dyn FnOnce() + Send>,
 }
 
@@ -278,6 +279,15 @@ impl Job {
     }
 }
 
+/// Wakes every waiter of a durability when dropped.
+struct Wake<'a>(&'a Durability);
+
+impl Drop for Wake<'_> {
+    fn drop(&mut self) {
+        self.0.wake();
+    }
+}
+
 impl Drop for Job {
     fn drop(&mut self) {
         let outcome = self.outcome.take();
@@ -315,10 +325,11 @@ impl Drop for Job {
                 // of, before any waiter learns the outcome: none starts a
                 // session on an installation that failed, or finds it
                 // still held.
+                // The waiters are woken also if the withdrawal unwinds.
+                let _wake = Wake(&self.durability);
                 if let Some(failed) = self.failed.take() {
                     failed();
                 }
-                self.durability.wake();
             }
         }
     }
