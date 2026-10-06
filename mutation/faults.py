@@ -995,5 +995,8 @@ PHASE4 = [
     fault("CS82", CORE + "link.rs", "a dial that waited while its identity was deleted opens a stream",
           ("    // The identity may have been deleted while the dial waited: it opens\n    // no stream then, and starts no handshake.\n    if identity.is_deleted() {\n        return Err(LinkError::Storage(CommitError::Failed));\n    }\n",
            "")),
+    fault("CS83", CORE + "link.rs", "a message taken by a dropped receive is lost",
+          ("        if let Some(received) = self.taken.take() {\n            return Ok(received);\n        }\n",
+           "")),
 ]
 

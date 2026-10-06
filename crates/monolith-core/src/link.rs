@@ -292,6 +292,10 @@ pub struct Link<S> {
     /// counted the frame as sent and the stream may hold part of it, so
     /// the link can only end.
     writing: bool,
+    /// A message the session took and a receive has not returned yet,
+    /// because that receive was dropped while it ended the link. The next
+    /// receive returns it: the session counted it as received.
+    taken: Option<Received>,
     /// A step a test runs when a message was taken from the buffer, before
     /// it is delivered, to place an eviction exactly there.
     #[cfg(test)]
@@ -568,6 +572,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             end: 0,
             finished: false,
             writing: false,
+            taken: None,
             #[cfg(test)]
             hook: None,
         }
@@ -835,8 +840,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// When a message ends the session, the link ends before it is
     /// returned: a Close the session logic decided ([`Action::SendClose`])
     /// has been written, and after a Close from the peer the stream is shut
-    /// down. Either way the slot for strangers is back.
+    /// down. Either way the slot for strangers is back. A receive that is
+    /// dropped after it took a message, while it ends the link, does not
+    /// lose the message: the next receive returns it, and the one after
+    /// fails.
     pub async fn receive(&mut self) -> Result<Received, LinkError> {
+        if let Some(received) = self.taken.take() {
+            return Ok(received);
+        }
         if let Some(error) = self.interrupted().await {
             return Err(error);
         }
@@ -877,8 +888,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
                             {
                                 return Err(self.end_evicted().await);
                             }
+                            // Kept until it is returned: a receive dropped
+                            // while it ends the link does not lose it.
+                            self.taken = Some(received);
                             self.complete_end().await;
-                            return Ok(received);
+                            return self.taken.take().ok_or(LinkError::Stream);
                         }
                     }
                     Err(error) => {
@@ -1757,5 +1771,75 @@ mod tests {
                 assert_eq!(taken.lock().unwrap().len(), room);
             });
         }
+    }
+
+    /// A stream that has `input` to read and takes no write.
+    struct Mute {
+        input: Vec<u8>,
+    }
+
+    impl AsyncRead for Mute {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            if self.input.is_empty() {
+                return Poll::Pending;
+            }
+            let n = buffer.remaining().min(self.input.len());
+            let taken: Vec<u8> = self.input.drain(..n).collect();
+            buffer.put_slice(&taken);
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for Mute {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Pending
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[test]
+    fn a_message_taken_before_a_receive_was_dropped_is_still_delivered() {
+        // A stranger's request was taken from the buffer, and the receive
+        // is dropped while it writes the Close the request called for. The
+        // request is not lost: the next receive returns it, and the link
+        // is over after that.
+        run(async {
+            let strangers = crate::strangers::Strangers::new(1);
+            let (mut alice, bob) = unconfirmed(BobHolds::Nothing);
+            let frame = alice.send(&request(), now()).unwrap();
+            let mut link = Link::new(
+                Mute { input: frame },
+                bob,
+                Withdrawal::new(),
+                strangers.take(),
+                None,
+            );
+            {
+                let mut receiving = pin!(link.receive());
+                let pending =
+                    poll_fn(|cx| Poll::Ready(receiving.as_mut().poll(cx).is_pending())).await;
+                assert!(pending);
+            }
+            let received = link.receive().await.unwrap();
+            assert_eq!(received.message, request());
+            assert!(received.actions.contains(&Action::ConsiderRequest));
+            assert!(link.receive().await.is_err());
+            assert!(link.is_over());
+        });
     }
 }
