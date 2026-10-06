@@ -355,7 +355,9 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// section 4.4). Before message 3 is written, the state the admission
 /// depended on is made durable ([`LinkError::Storage`] if it cannot be),
 /// and a slot of the contact session budgets is taken
-/// ([`LinkError::Budget`] if none is free). The withdrawal is looked at
+/// ([`LinkError::Budget`] if none is free). What an admission recorded (a
+/// pending successor, a conflict, a newer card) stands also when no
+/// session follows, and is made durable before the refusal is returned. The withdrawal is looked at
 /// before the write starts and while it is pending; a withdrawal ends the
 /// dial with [`LinkError::Withdrawn`]. Bytes the stream accepted before
 /// that cannot be called back.
@@ -400,8 +402,9 @@ where
                     },
                     depends,
                 )) => (session, admission, first, message_3, depends),
-                Ok((OutboundAdmission::Refused(admission), _)) => {
+                Ok((OutboundAdmission::Refused(admission), depends)) => {
                     withdrawal.end();
+                    keep_recorded(identity, depends).await?;
                     return Err(LinkError::Refused(admission));
                 }
                 Err(error) => {
@@ -411,6 +414,7 @@ where
             };
         let Some(contact_slot) = budgets.contact_session(identity) else {
             withdrawal.end();
+            keep_recorded(identity, depends).await?;
             return Err(LinkError::Budget);
         };
         let cancelled = EndIfCancelled::new(&withdrawal);
@@ -445,8 +449,9 @@ where
 /// session budgets, any other peer a slot for strangers, which may evict
 /// the oldest silent stranger (`crate::strangers`). Without a slot the
 /// stream is closed and nothing is sent; what the admission recorded
-/// stands, a pending successor included, and the link's [`Withdrawal`]
-/// reports [`Withdrawal::is_ended`]. The established link is returned only
+/// stands, a pending successor included, and is made durable before the
+/// refusal is returned, and the link's [`Withdrawal`] reports
+/// [`Withdrawal::is_ended`]. The established link is returned only
 /// once the state the admission depended on is durable.
 pub async fn answer<S>(
     mut stream: S,
@@ -476,12 +481,14 @@ where
         let (unknown_slot, contact_slot) = if session.standing().is_contact_record() {
             let Some(slot) = budgets.contact_session(identity) else {
                 withdrawal.end();
+                keep_recorded(identity, depends).await?;
                 return Err(LinkError::Budget);
             };
             (None, Some(slot))
         } else {
             let Some(slot) = identity.strangers.take() else {
                 withdrawal.end();
+                keep_recorded(identity, depends).await?;
                 return Err(LinkError::Budget);
             };
             (Some(slot), None)
@@ -501,6 +508,17 @@ where
     })
     .await
     .map_err(|_| LinkError::TimedOut)?
+}
+
+/// Makes durable what an admission that leads to no session recorded: a
+/// pending successor, a conflict, a newer card. It stands, and the user is
+/// shown it, so it is written like any other change; a restart does not
+/// lose it.
+async fn keep_recorded(identity: &LocalIdentity, depends: u64) -> Result<(), LinkError> {
+    identity
+        .wait_durable(depends)
+        .await
+        .map_err(LinkError::Storage)
 }
 
 /// What ended a wait for the peer.

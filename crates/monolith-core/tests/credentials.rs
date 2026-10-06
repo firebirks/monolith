@@ -18,16 +18,19 @@ use common::{
     Released, befriend, both, chat, confirm_both, connect, dial_and_answer, node, node_in,
     node_with, party, request, run, run_paused, send_first, step,
 };
+use monolith_core::budget::Budgets;
 use monolith_core::contacts::ImportOutcome;
 use monolith_core::identity::Installation;
 use monolith_core::link::{LinkError, dial};
 use monolith_protocol::body::Message;
 use monolith_protocol::contact::RecordKind;
 use monolith_protocol::credential::{CardRelation, CredentialChange};
-use monolith_protocol::limits::HANDSHAKE_MSG1_LEN;
+use monolith_protocol::limits::{
+    HANDSHAKE_MSG1_LEN, MAX_CONCURRENT_DIALS, MAX_INBOUND_HANDSHAKES, MAX_UNKNOWN_SESSIONS,
+};
 use monolith_protocol::session::{Action, Admission, Standing};
 use monolith_session::HandshakeResponder;
-use monolith_storage::dir::MemoryDir;
+use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{MockNetwork, OnionService};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -950,5 +953,157 @@ fn a_rotation_ends_only_after_a_durable_switch() {
         assert!(switch.await.unwrap().unwrap());
         assert!(alice.identity.finish_rotation(true).await.unwrap());
         assert_eq!(alice.card(), successor);
+    });
+}
+
+#[test]
+fn what_a_refused_dial_recorded_survives_a_restart() {
+    // Alice dials Bob's new key, which she holds as nothing yet: it is
+    // pending, the dial is refused, and the card is held for the user.
+    // That is made durable like any change, though no session uses it.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let passphrase = Passphrase::new("test passphrase").unwrap();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase, KdfParams::FLOOR).unwrap();
+        let alice = node_in(installation, &network, 1, 1, 1).await;
+        let mut bob = node_with(&network, 2, 22, 2).await;
+        let old = party(2, 2, 1, bob.identity.endpoint()).card().clone();
+        alice.identity.import(&old).await.unwrap();
+        let new = bob.card();
+        let (dialed, _) = dial_and_answer(&alice, &new, &mut bob).await;
+        assert_eq!(
+            dialed.err(),
+            refused(Standing::PendingSuccessor, Some(CredentialChange::Pending))
+        );
+        let pending = |installation: &Installation| {
+            installation.identities()[0]
+                .contact(bob.identity.identity())
+                .unwrap()
+                .credentials
+                .unwrap()
+                .pending_successor()
+                .cloned()
+        };
+        assert_eq!(pending(&alice.installation), Some(new.clone()));
+        let (reopened, _) =
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase).unwrap();
+        assert_eq!(pending(&reopened), Some(new));
+    });
+}
+
+#[test]
+fn what_an_answer_without_a_slot_recorded_survives_a_restart() {
+    // Bob holds Alice's card of epoch 1. She dials him with her card of
+    // epoch 2, the same key: his admission takes the newer card, and then
+    // finds no slot for a contact session. The link is refused, the newer
+    // card stays, and it is made durable.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let passphrase = Passphrase::new("test passphrase").unwrap();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase, KdfParams::FLOOR).unwrap();
+        let alice = node_with(&network, 1, 1, 2).await;
+        let mut bob = node_in(installation, &network, 2, 2, 1).await;
+        bob.budgets = Budgets::with_limits(MAX_INBOUND_HANDSHAKES, 0, MAX_CONCURRENT_DIALS);
+        let first = party(1, 1, 1, alice.identity.endpoint()).card().clone();
+        bob.identity.import(&first).await.unwrap();
+        alice.identity.import(&bob.card()).await.unwrap();
+        let (_, answered) = connect(&alice, &mut bob).await;
+        assert_eq!(answered.err(), Some(LinkError::Budget));
+        let active = |installation: &Installation| {
+            installation.identities()[0]
+                .contact(alice.identity.identity())
+                .unwrap()
+                .credentials
+                .unwrap()
+                .active()
+                .clone()
+        };
+        assert_eq!(active(&bob.installation), alice.card());
+        let (reopened, _) =
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase).unwrap();
+        assert_eq!(active(&reopened), alice.card());
+    });
+}
+
+#[test]
+fn what_a_dial_without_a_slot_recorded_survives_a_restart() {
+    // Alice holds Bob's card of epoch 1 and dials his card of epoch 2, the
+    // same key. Her admission takes the newer card, and then she has no
+    // slot for a contact session.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let passphrase = Passphrase::new("test passphrase").unwrap();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase, KdfParams::FLOOR).unwrap();
+        let mut alice = node_in(installation, &network, 1, 1, 1).await;
+        alice.budgets = Budgets::with_limits(MAX_INBOUND_HANDSHAKES, 0, MAX_CONCURRENT_DIALS);
+        let mut bob = node_with(&network, 2, 2, 2).await;
+        let first = party(2, 2, 1, bob.identity.endpoint()).card().clone();
+        alice.identity.import(&first).await.unwrap();
+        let newer = bob.card();
+        let (dialed, _) = dial_and_answer(&alice, &newer, &mut bob).await;
+        assert_eq!(dialed.err(), Some(LinkError::Budget));
+        let active = |installation: &Installation| {
+            installation.identities()[0]
+                .contact(bob.identity.identity())
+                .unwrap()
+                .credentials
+                .unwrap()
+                .active()
+                .clone()
+        };
+        assert_eq!(active(&alice.installation), bob.card());
+        let (reopened, _) =
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase).unwrap();
+        assert_eq!(active(&reopened), bob.card());
+    });
+}
+
+#[test]
+fn what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart() {
+    // Bob holds Alice with her key T1. Every slot for strangers is taken,
+    // and as many evicted strangers are still draining. Alice dials him
+    // with T22, announced to nobody: the key is pending, so her session is
+    // not a contact's and needs a slot for strangers, which there is not.
+    // The pending card stays, and is made durable.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let passphrase = Passphrase::new("test passphrase").unwrap();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase, KdfParams::FLOOR).unwrap();
+        let mut bob = node_in(installation, &network, 2, 2, 1).await;
+        let mut held = Vec::new();
+        for seed in 0..2 * MAX_UNKNOWN_SESSIONS {
+            let stranger = node(&network, 40 + u8::try_from(seed).unwrap()).await;
+            stranger.identity.import(&bob.card()).await.unwrap();
+            let (asking, answering) = connect(&stranger, &mut bob).await;
+            held.push((stranger, asking.unwrap(), answering.unwrap()));
+        }
+        let alice = node_with(&network, 1, 22, 2).await;
+        let old = party(1, 1, 1, alice.identity.endpoint()).card().clone();
+        bob.identity.import(&old).await.unwrap();
+        alice.identity.import(&bob.card()).await.unwrap();
+        let (_, answered) = connect(&alice, &mut bob).await;
+        assert_eq!(answered.err(), Some(LinkError::Budget));
+        let pending = |installation: &Installation| {
+            installation.identities()[0]
+                .contact(alice.identity.identity())
+                .unwrap()
+                .credentials
+                .unwrap()
+                .pending_successor()
+                .cloned()
+        };
+        assert_eq!(pending(&bob.installation), Some(alice.card()));
+        let (reopened, _) =
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase).unwrap();
+        assert_eq!(pending(&reopened), Some(alice.card()));
+        drop(held);
     });
 }

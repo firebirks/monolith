@@ -822,7 +822,12 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   wait loses neither the vault nor the lock of its directory, and the
   snapshot it writes is one cut through every contact store, never an
   operation half done. When the write fails, the job itself withdraws
-  every session, whether or not a waiter is left.
+  every session, whether or not a waiter is left; when it succeeds and
+  changes came after its snapshot, it starts the next write, so a change
+  is written also when its waiter was cancelled or nothing waits for it.
+  What an admission records without a session following (a refused dial,
+  an answer or a dial without a slot) is made durable before the refusal
+  is returned.
 - Tests: T-CRASH (`vault::tests`: a write or a creation stopped at every
   step leaves the old or the new vault, with every combination of what a
   crash keeps; `tests/store.rs`: every critical change stopped at every
@@ -834,8 +839,12 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   (`a_failed_write_withdraws_every_session_even_when_nobody_waits`),
   `tests/invitations.rs`
   (`an_invitation_is_handed_out_only_once_it_is_durable`),
-  `requests::tests`, mutation faults CS13 to CS15, CS35, CS36, CS45,
-  CS51, CS55, CS64 and CS65.
+  `requests::tests`, `tests/credentials.rs` (`what_a_refused_dial_...`
+  and the three tests after it: what a refusal recorded survives a
+  restart), `persist::tests`
+  (`a_change_is_written_though_its_waiter_was_cancelled_during_a_write`),
+  mutation faults CS13 to CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65
+  and CS68 to CS72.
 
 ### S32. No hidden network traffic
 
