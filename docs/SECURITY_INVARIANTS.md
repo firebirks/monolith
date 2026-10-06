@@ -476,7 +476,11 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   The copies of its secret bytes are erased and its capabilities and
   pending requests dropped when it is closed. A party handed out before,
   to a handshake in progress, keeps its transport key until it is
-  dropped (best effort, `CRYPTOGRAPHY.md` section 8).
+  dropped, and so does the party the identity object itself holds, until
+  the last reference to that object is gone; no getter hands it out after
+  the deletion (best effort, `CRYPTOGRAPHY.md` section 8). A dial that
+  was waiting for its slot when the identity was deleted opens no stream,
+  and a session that outlives its identity applies nothing to it.
 - Tests: T-MI-2 and T-MI-3 (`tests/identities.rs`), the private network
   test (step 8: two identities of one node hold one peer differently),
   `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity

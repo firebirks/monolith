@@ -395,7 +395,8 @@ impl LocalIdentity {
     /// are erased, the capabilities and the pending requests are dropped,
     /// and every getter of a secret, a party or a signed card fails or
     /// returns nothing. A party that was handed out earlier, to a
-    /// handshake in progress, keeps its transport key until it is dropped.
+    /// handshake in progress, keeps its transport key until it is dropped,
+    /// and so do the parties this object holds, until it is dropped.
     fn close(&self) {
         self.contacts.close();
         {
@@ -573,6 +574,9 @@ impl LocalIdentity {
         if !self.contacts.admitted(session.withdrawal) {
             return Err(StoreError::OtherIdentity);
         }
+        // A session can outlive the identity it belongs to; nothing it
+        // brings is taken then.
+        self.check_open()?;
         let mut applied = Applied::default();
         let mut generation = self.durability.applied();
         if received.actions.contains(&Action::MarkAccepted) {

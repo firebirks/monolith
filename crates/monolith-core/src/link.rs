@@ -390,11 +390,19 @@ where
         .map_err(|_| LinkError::Storage(CommitError::Failed))?;
     let isolation = identity.isolation(&contact).map_err(LinkError::Tor)?;
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
+    // The identity may have been deleted while the dial waited: it opens
+    // no stream then, and starts no handshake.
+    if identity.is_deleted() {
+        return Err(LinkError::Storage(CommitError::Failed));
+    }
     let endpoint = *card.endpoints().first();
     let mut stream = backend
         .connect_onion(&endpoint, &isolation)
         .await
         .map_err(LinkError::Tor)?;
+    if identity.is_deleted() {
+        return Err(LinkError::Storage(CommitError::Failed));
+    }
     tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         let (initiator, message_1) = HandshakeInitiator::start(&local, card, now())?;
         write_all(&mut stream, &message_1).await?;

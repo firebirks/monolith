@@ -21,7 +21,11 @@
 //!   service, and so does the deletion of the identity: a publication
 //!   under way is dropped, which removes whatever Tor published with its
 //!   control connection, and a service that Tor returns for an identity
-//!   deleted meanwhile is removed at once and never reported available.
+//!   deleted meanwhile is removed at once, without being reported
+//!   available. A deletion that comes in the instant the service is
+//!   reported available ends the accept loop at its first look, which
+//!   removes the service; it may have been reported available for that
+//!   instant.
 //!
 //! The supervisor reaches Tor only through the backend, which fails
 //! closed: it never falls back to a direct connection, a resolver or
@@ -225,6 +229,10 @@ where
             break;
         }
         let Some(secret) = identity.onion_secret() else {
+            // Deleted since the look above: its key is gone with it.
+            if identity.is_deleted() {
+                break;
+            }
             state.send_replace(Publication::NoKey);
             return Publication::NoKey;
         };

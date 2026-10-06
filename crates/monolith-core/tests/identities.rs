@@ -531,6 +531,76 @@ fn a_deleted_identity_hands_out_no_secret() {
 }
 
 #[test]
+fn a_session_that_outlives_its_deleted_identity_changes_nothing() {
+    // Carol, a stranger, has a session with B and has not spoken yet when
+    // B is deleted. Her request then arrives: B queues nothing.
+    run(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let (_a, mut b) = two(&network, &installation).await;
+        b.identity
+            .set_request_mode(RequestMode::Open)
+            .await
+            .unwrap();
+        let carol = node(&network, 3).await;
+        carol.identity.import(&b.card()).await.unwrap();
+        let (asking, answering) = connect(&carol, &mut b).await;
+        let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
+        installation
+            .delete_identity(b.identity.identity())
+            .await
+            .unwrap();
+        send_first(&mut asking, &carol.identity).await;
+        let received = answering.link.receive().await.unwrap();
+        assert_eq!(
+            b.identity
+                .apply(answering.link.session_ref(), &received)
+                .await
+                .err(),
+            Some(StoreError::Failed)
+        );
+        assert!(b.identity.requests().is_empty());
+    });
+}
+
+#[test]
+fn a_dial_that_waited_for_its_slot_while_the_identity_was_deleted_opens_no_stream() {
+    // B's dial waits for the only dial slot. B is deleted meanwhile; when
+    // the slot frees, the dial ends without opening a stream.
+    run(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let (_a, mut b) = two(&network, &installation).await;
+        let mut carol = node(&network, 3).await;
+        b.identity.import(&carol.card()).await.unwrap();
+        b.budgets = monolith_core::budget::Budgets::with_limits(16, 256, 1);
+        let held = b.budgets.dial().await.unwrap();
+        let card = carol.card();
+        let dialing = {
+            let identity = b.identity.clone();
+            let budgets = b.budgets.clone();
+            let tor = network.backend();
+            tokio::spawn(async move { dial(&tor, &budgets, &identity, &card).await.err() })
+        };
+        tokio::task::yield_now().await;
+        installation
+            .delete_identity(b.identity.identity())
+            .await
+            .unwrap();
+        drop(held);
+        assert_eq!(
+            dialing.await.unwrap(),
+            Some(LinkError::Storage(CommitError::Failed))
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), carol.service.accept())
+                .await
+                .is_err()
+        );
+    });
+}
+
+#[test]
 fn t_mi_9_deleting_one_identity_leaves_the_other_as_it_was() {
     run(async {
         let network = MockNetwork::new();
