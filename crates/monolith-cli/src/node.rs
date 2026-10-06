@@ -27,7 +27,7 @@
 //! confirm <n> <card>            confirm a pending successor
 //! confirm-dial <n> <card>       confirm the active card for dialing
 //! block|unblock|delete <n> <peer>
-//! accept|decline <n> <peer>     answer a pending request
+//! accept|decline <n> <peer>     answer the request of <peer> that `requests` listed
 //! show <n> <peer>               what is held about a peer
 //! requests <n>                  the pending requests
 //! send <n> <peer> <text>        send a chat message on the newest session,
@@ -53,6 +53,7 @@ use monolith_core::budget::Budgets;
 use monolith_core::contacts::{ImportOutcome, StoreError};
 use monolith_core::identity::{Installation, LocalIdentity, RotationState};
 use monolith_core::link::{Established, LinkError, answer, dial};
+use monolith_core::requests::RequestId;
 use monolith_core::supervisor::{Publication, supervise};
 use monolith_identity::IdentityPublicKey;
 use monolith_protocol::body::{ContactRequest, Message, MessageId};
@@ -93,6 +94,10 @@ struct Node {
     /// The open sessions of each local identity with each peer, newest
     /// last; a contact may have two while one of the keys changes.
     sessions: Mutex<HashMap<(IdentityPublicKey, IdentityPublicKey), Vec<OpenSession>>>,
+    /// The requests each local identity listed last: an answer is for one
+    /// of them, the request that was shown, and not for another of the
+    /// same sender that came later.
+    listed: Mutex<HashMap<IdentityPublicKey, Vec<RequestId>>>,
     serial: AtomicU64,
     shutdown: watch::Sender<bool>,
     supervisors: Mutex<Vec<tokio::task::JoinHandle<()>>>,
@@ -135,9 +140,17 @@ impl Node {
             .ok_or_else(|| "no such identity".to_owned())
     }
 
+    /// The peer whose short form starts with `prefix`, among the
+    /// identities `local` holds a record of and the senders of its pending
+    /// requests. A prefix two of them share names neither.
     fn peer(&self, local: &LocalIdentity, prefix: &str) -> Result<IdentityPublicKey, String> {
-        let mut found = local
-            .known()
+        let mut candidates = local.known();
+        for request in local.requests() {
+            if !candidates.contains(request.identity()) {
+                candidates.push(*request.identity());
+            }
+        }
+        let mut found = candidates
             .into_iter()
             .filter(|known| short(known).starts_with(prefix));
         let peer = found.next().ok_or_else(|| "no such peer".to_owned())?;
@@ -230,10 +243,15 @@ impl Node {
         let (sender, outgoing) = mpsc::channel(SESSION_QUEUE);
         let key = (*local.identity(), peer);
         let serial = self.serial.fetch_add(1, Ordering::Relaxed);
-        lock(&self.sessions)
-            .entry(key)
-            .or_default()
-            .push(OpenSession { serial, sender });
+        // Only a session that stands for the contact is the peer's for
+        // what the user sends or closes; one of a stale or pending key, or
+        // of a stranger, is not.
+        if established.link.session().standing().is_contact_record() {
+            lock(&self.sessions)
+                .entry(key)
+                .or_default()
+                .push(OpenSession { serial, sender });
+        }
         let ended = self
             .session(index, &local, established, outgoing, &mut queued)
             .await;
@@ -543,6 +561,7 @@ pub(crate) async fn run(
         backend: SystemTorBackend::new(config),
         budgets: Budgets::new(),
         sessions: Mutex::new(HashMap::new()),
+        listed: Mutex::new(HashMap::new()),
         serial: AtomicU64::new(0),
         shutdown,
         supervisors: Mutex::new(Vec::new()),
@@ -712,24 +731,25 @@ impl Node {
                 peer,
             ] => {
                 let (index, local) = self.identity(n)?;
-                let peer = self.peer(&local, peer).or_else(|error| {
-                    local
-                        .requests()
-                        .into_iter()
-                        .map(|request| *request.identity())
-                        .find(|known| short(known).starts_with(*peer))
-                        .ok_or(error)
-                })?;
+                let peer = self.peer(&local, peer)?;
                 let done = match *verb {
                     "block" => local.block(&peer).await,
                     "unblock" => local.unblock(&peer).await,
                     "delete" => local.delete(&peer).await,
                     "accept" | "decline" => {
-                        // The request of that sender as it is listed now.
+                        // The request of that sender that `requests` showed
+                        // last, if it still waits: an answer is for what
+                        // the user saw.
+                        let shown = lock(&self.listed)
+                            .get(local.identity())
+                            .cloned()
+                            .unwrap_or_default();
                         let request = local
                             .requests()
                             .into_iter()
-                            .find(|request| request.identity() == &peer)
+                            .find(|request| {
+                                request.identity() == &peer && shown.contains(&request.id)
+                            })
                             .map(|request| request.id);
                         match (request, *verb) {
                             (None, _) => Err(StoreError::NotFound),
@@ -778,6 +798,10 @@ impl Node {
             ["requests", n] => {
                 let (index, local) = self.identity(n)?;
                 let requests = local.requests();
+                lock(&self.listed).insert(
+                    *local.identity(),
+                    requests.iter().map(|request| request.id).collect(),
+                );
                 for request in &requests {
                     say(&format!(
                         "request-pending {index} {}",
