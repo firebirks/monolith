@@ -66,6 +66,7 @@ use monolith_tor::{
     KeySource, OnionService, SystemTorBackend, SystemTorConfig, TorBackend, TorError, TorStream,
 };
 use tokio::sync::{mpsc, watch};
+use zeroize::Zeroizing;
 
 /// How often, and how far apart, a dial is tried while Tor cannot reach
 /// the peer's service yet: its descriptor may still be on its way.
@@ -506,7 +507,7 @@ pub(crate) async fn run(
     floor: bool,
     echo: bool,
 ) -> ExitCode {
-    let passphrase = match std::fs::read_to_string(&passphrase_file) {
+    let passphrase = match std::fs::read_to_string(&passphrase_file).map(Zeroizing::new) {
         Ok(text) => match Passphrase::new(text.trim_end_matches(['\r', '\n'])) {
             Ok(passphrase) => passphrase,
             Err(error) => return fail(&error.to_string()),

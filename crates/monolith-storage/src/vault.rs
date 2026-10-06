@@ -107,7 +107,10 @@ impl Passphrase {
     /// for an empty passphrase or one longer than [`MAX_PASSPHRASE_LEN`]
     /// bytes after normalization.
     pub fn new(text: &str) -> Result<Self, StorageError> {
-        let normalized: Zeroizing<String> = Zeroizing::new(text.nfc().collect());
+        // Room for the longest form NFC can give, three times the input,
+        // so that the string never grows and leaves a copy behind.
+        let mut normalized = Zeroizing::new(String::with_capacity(text.len().saturating_mul(3)));
+        normalized.extend(text.nfc());
         if normalized.is_empty() || normalized.len() > MAX_PASSPHRASE_LEN {
             return Err(StorageError::BadPassphrase);
         }

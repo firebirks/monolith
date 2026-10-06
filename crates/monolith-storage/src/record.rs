@@ -199,8 +199,9 @@ fn get_label(reader: &mut Reader<'_>) -> Result<Option<DisplayName>, StorageErro
 }
 
 fn put_card(writer: &mut Writer, card: &ContactCard) -> Result<(), StorageError> {
+    // A card held of a contact may carry its capability.
     writer
-        .bytes(&card.encode(), MAX_CONTACT_CARD_LEN)
+        .bytes(&Zeroizing::new(card.encode()), MAX_CONTACT_CARD_LEN)
         .map_err(|_| StorageError::TooLarge)
 }
 

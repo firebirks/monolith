@@ -27,6 +27,7 @@ use monolith_protocol::limits::{
 };
 use monolith_protocol::session::{Action, Session, Standing};
 use monolith_protocol::{MessageType, ProtocolError, SessionState};
+use zeroize::Zeroizing;
 
 use crate::SessionError;
 
@@ -512,7 +513,9 @@ impl AuthenticatedSession {
             return self.fail(ProtocolError::SessionExpired);
         }
 
-        let mut plaintext = vec![0_u8; payload.len().saturating_sub(PARAMS.overhead())];
+        // Erased when dropped: it holds what the peer sent.
+        let mut plaintext =
+            Zeroizing::new(vec![0_u8; payload.len().saturating_sub(PARAMS.overhead())]);
         let opened = match self.noise.as_mut() {
             Some(noise) => noise.read_message(&payload, &mut plaintext),
             None => return Err(SessionError::Closed),
@@ -704,11 +707,17 @@ impl AuthenticatedSession {
 }
 
 /// Builds the padded plaintext of a frame for a message.
-fn plaintext_of(message: &Message) -> Result<Vec<u8>, SessionError> {
-    let body = message
-        .encode_body()
-        .map_err(|_| SessionError::InvalidMessage)?;
+/// The plaintext of the frame of `message`. It holds the content of the
+/// message, and the capability of a request: it and the body it is made
+/// from are erased when dropped.
+fn plaintext_of(message: &Message) -> Result<Zeroizing<Vec<u8>>, SessionError> {
+    let body = Zeroizing::new(
+        message
+            .encode_body()
+            .map_err(|_| SessionError::InvalidMessage)?,
+    );
     encode_plaintext(&PARAMS, message.message_type(), &body)
+        .map(Zeroizing::new)
         .map_err(|_| SessionError::InvalidMessage)
 }
 

@@ -484,7 +484,9 @@ reduced values exists only in test builds of the session crate.
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
 
 Session keys and ephemeral keys are never written to storage. Types that
-hold a secret do not derive `Debug`.
+hold a secret do not derive `Debug`; that includes the records of the
+vault that hold the stored secrets, whose `Debug` is written out and
+prints none of them.
 
 An invitation capability leaves the device inside every card that carries
 it, and the user decides where that card goes: to one person, or published
@@ -511,7 +513,18 @@ exchange between two ephemeral keys.
 Erasure: Monolith's own types for private keys and for invitation
 capabilities zeroize on drop. The encoder of messages and vault records
 erases a buffer it outgrows and what it holds when it is dropped, and
-the plaintext of a vault is held in buffers that clear themselves. So do the objects
+the plaintext of a vault is held in buffers that clear themselves. The
+other buffers that hold a capability or message content are erased when
+dropped too: the bytes a card signature covers, made to sign a card and
+to verify one; the encoded card a vault record copies, which may carry
+the capability of a contact; the copies `ContactCard::to_text` and
+`ContactCard::from_text` make on the way; and the plaintext of every
+frame a session seals or opens, with the body it is made from. The base32
+encoder and the normalization of a passphrase reserve their whole length
+at once, so they leave no copies in buffers they outgrew. The CLI holds
+the passphrase it reads from its file in a buffer that is erased. A local
+identity that is deleted erases its copies of its secret bytes at once
+(`SECURITY_INVARIANTS.md` S40). So do the objects
 of the resolver that hold a key for `snow`: the copy of the transport
 private key, the ephemeral private key and the cipher keys are held in
 types that clear their memory when they are dropped (ADR 0002, F-R1). The
@@ -530,8 +543,14 @@ that session there. The transport private key is not among these values:
 `snow` passes it to the resolver by reference and keeps no copy.
 
 In no case does erasure reach copies the compiler made, freed memory that
-was reused, pages that were swapped out, or crash dumps. This is listed as
-a limit, not hidden.
+was reused, pages that were swapped out, or crash dumps. Nor does it reach
+what Monolith hands to its caller or the user: a received message, with
+its text and names, belongs to the caller once it is returned; the text
+form of a card is the user's to hand out; and a party given to a
+handshake keeps its transport key until the handshake drops it. Small
+values on the stack (the groups of the base32 codec, a byte read while
+decoding) are not erased, and the standard library may copy a file it
+reads into a buffer it grows. This is listed as a limit, not hidden.
 
 Secrets are not locked into RAM. Doing so needs `mlock`, which needs
 `unsafe` or a dependency that wraps it. On a system with swap, secrets can
