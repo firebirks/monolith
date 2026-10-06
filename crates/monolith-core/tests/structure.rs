@@ -48,8 +48,11 @@ fn production_sources() -> Vec<(String, String)> {
                     continue;
                 }
                 let text = fs::read_to_string(&path).unwrap();
+                // Up to the first item at the top level that only tests
+                // build. A field or a method marked `#[cfg(test)]`, such as
+                // a hook tests place steps at, is read with the rest.
                 let production = text
-                    .split("#[cfg(test)]")
+                    .split("\n#[cfg(test)]")
                     .next()
                     .unwrap_or_default()
                     .to_owned();
@@ -78,6 +81,7 @@ fn only_the_contact_store_admits_a_responder_and_only_dial_writes_message_3() {
             "monolith-core/src/identity.rs",
             "monolith-session/src/handshake.rs",
             "monolith-session/src/lib.rs",
+            "monolith-session/src/session.rs",
         ]
     );
     // The re-export in the session crate's `lib.rs` follows its first

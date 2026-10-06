@@ -243,10 +243,6 @@ impl fmt::Debug for DialPlan {
     }
 }
 
-/// A step a test runs at a named point of an operation.
-#[cfg(test)]
-type Hook = Box<dyn FnOnce() + Send>;
-
 /// One local identity.
 ///
 /// Its [`Installation`] owns it. Once the installation is dropped, the
@@ -271,7 +267,8 @@ pub struct LocalIdentity {
     /// Steps a test runs at named points, to place another operation
     /// exactly there.
     #[cfg(test)]
-    hooks: Mutex<HashMap<&'static str, Hook>>,
+    #[allow(clippy::type_complexity)]
+    hooks: Mutex<HashMap<&'static str, Box<dyn FnOnce() + Send>>>,
 }
 
 impl fmt::Debug for LocalIdentity {
@@ -1517,6 +1514,9 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    /// A step placed at a point of an operation (`LocalIdentity::hooks`).
+    type Hook = Box<dyn FnOnce() + Send>;
 
     fn run<F: core::future::Future>(future: F) -> F::Output {
         tokio::runtime::Builder::new_current_thread()

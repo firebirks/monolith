@@ -301,12 +301,9 @@ pub(crate) struct ContactStore {
     /// at hand, until one returns true: to place another operation exactly
     /// there.
     #[cfg(test)]
-    hooks: Mutex<HashMap<&'static str, SlotHook>>,
+    #[allow(clippy::type_complexity)]
+    hooks: Mutex<HashMap<&'static str, Box<dyn FnMut(&IdentityPublicKey) -> bool + Send>>>,
 }
-
-/// See `ContactStore::hooks`.
-#[cfg(test)]
-type SlotHook = Box<dyn FnMut(&IdentityPublicKey) -> bool + Send>;
 
 impl fmt::Debug for ContactStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1121,6 +1118,9 @@ mod tests {
     use monolith_session::{LocalParty, TransportSecretKey};
 
     use super::*;
+
+    /// A step placed at a point of the store (`ContactStore::hooks`).
+    type SlotHook = Box<dyn FnMut(&IdentityPublicKey) -> bool + Send>;
 
     fn seed(n: u32, salt: u8) -> [u8; 32] {
         let mut seed = [salt; 32];
