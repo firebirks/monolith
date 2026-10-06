@@ -156,10 +156,10 @@ where
     let mut tasks = JoinSet::new();
     // A deleted identity answers nobody: the loop ends as at shutdown, and
     // its service is removed.
-    let mut deletion = identity.deletion();
+    let mut deletion = identity.closing();
     let mut deleted = core::pin::pin!(deletion.wait_for(|deleted| *deleted));
     let end = loop {
-        if *shutdown.borrow() || identity.is_deleted() {
+        if *shutdown.borrow() || identity.is_closed() {
             break ServeEnd::Shutdown;
         }
         // Finished handlers are collected here, so the set holds only the

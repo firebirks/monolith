@@ -255,10 +255,13 @@ impl fmt::Debug for DialPlan {
 
 /// One local identity.
 ///
-/// Its [`Installation`] owns it. Once the installation is dropped, the
-/// identity refuses every change and admits nobody
-/// ([`StoreError::Failed`]): what it decides could no longer be made
-/// durable. Keep the installation for as long as the identity is used.
+/// Its [`Installation`] owns it. Once the installation is closed (its last
+/// handle dropped), the identity is closed as if it were deleted
+/// ([`Self::is_closed`]): it refuses every change
+/// ([`StoreError::Failed`]), admits nobody, withdraws its sessions and
+/// hands out no party, secret or signed card; what it decided could no
+/// longer be made durable. Keep the installation for as long as the
+/// identity is used.
 pub struct LocalIdentity {
     identity: IdentityPublicKey,
     keys: Mutex<Keys>,
@@ -272,8 +275,8 @@ pub struct LocalIdentity {
     isolation: Mutex<HashMap<IdentityPublicKey, IsolationGroup>>,
     shared: Weak<Shared>,
     durability: Arc<Durability>,
-    /// Turns true when the identity is deleted.
-    deleted: watch::Sender<bool>,
+    /// Turns true when the identity is closed.
+    closed: watch::Sender<bool>,
     /// The generation that makes the identity durable in its installation:
     /// it is listed only from then on. 0 for an identity read from the
     /// vault; `u64::MAX` while it is being stamped.
@@ -313,7 +316,7 @@ impl LocalIdentity {
             isolation: Mutex::new(HashMap::new()),
             shared,
             durability,
-            deleted: watch::Sender::new(false),
+            closed: watch::Sender::new(false),
             added_at: AtomicU64::new(0),
             #[cfg(test)]
             hooks: Mutex::new(HashMap::new()),
@@ -354,7 +357,7 @@ impl LocalIdentity {
     /// it. `None` before Tor returned one, and once the identity was
     /// deleted.
     pub fn onion_secret(&self) -> Option<OnionServiceSecret> {
-        if self.is_deleted() {
+        if self.is_closed() {
             return None;
         }
         lock(&self.keys)
@@ -376,7 +379,7 @@ impl LocalIdentity {
         let keys = lock(&self.keys);
         // Read under the lock of the keys, which the deletion takes to
         // erase them after it set the flag.
-        if self.is_deleted() {
+        if self.is_closed() {
             return Err(StoreError::Failed);
         }
         Ok(keys.answering(durable))
@@ -385,27 +388,30 @@ impl LocalIdentity {
     /// Refuses a change of a deleted identity, or of an installation that
     /// failed, before anything is changed.
     fn check_open(&self) -> Result<(), StoreError> {
-        if self.is_deleted() || self.durability.is_failed() {
+        if self.is_closed() || self.durability.is_failed() {
             Err(StoreError::Failed)
         } else {
             Ok(())
         }
     }
 
-    /// Returns true once the identity was deleted. A deleted identity
-    /// refuses every change and admits nobody, and its state is in no
-    /// vault.
-    pub fn is_deleted(&self) -> bool {
+    /// Returns true once the identity is closed: deleted, or its
+    /// installation closed. A closed identity refuses every change, admits
+    /// nobody and hands out nothing that holds or uses a secret; this
+    /// object stays a closed one for good, also if the same identity is
+    /// opened again in another installation object. A deleted identity's
+    /// state is in no vault.
+    pub fn is_closed(&self) -> bool {
         self.contacts.is_closed()
     }
 
-    /// Follows the deletion of the identity, for its supervisor.
-    pub(crate) fn deletion(&self) -> watch::Receiver<bool> {
-        self.deleted.subscribe()
+    /// Follows the closing of the identity, for its supervisor.
+    pub(crate) fn closing(&self) -> watch::Receiver<bool> {
+        self.closed.subscribe()
     }
 
-    /// Closes the identity before it is removed from its installation.
-    /// From here on nothing that holds or uses one of its secrets is
+    /// Closes the identity: before it is removed from its installation, or
+    /// when its installation closes. From here on nothing that holds or uses one of its secrets is
     /// handed out: the copies of the secret bytes it kept for the vault
     /// are erased, the capabilities and the pending requests are dropped,
     /// and every getter of a secret, a party or a signed card fails or
@@ -423,7 +429,7 @@ impl LocalIdentity {
         }
         *lock(&self.invitations) = Invitations::new();
         *lock(&self.requests) = Requests::new();
-        self.deleted.send_replace(true);
+        self.closed.send_replace(true);
     }
 
     async fn commit(&self, generation: u64) -> Result<(), StoreError> {
@@ -437,12 +443,12 @@ impl LocalIdentity {
     /// deleted identity has nothing durable: the wait fails if it was
     /// deleted before it began or before it ended.
     pub(crate) async fn wait_durable(&self, generation: u64) -> Result<(), CommitError> {
-        if self.is_deleted() {
+        if self.is_closed() {
             return Err(CommitError::Failed);
         }
         let shared = self.shared.upgrade().ok_or(CommitError::Failed)?;
         shared.commit(generation).await?;
-        if self.is_deleted() {
+        if self.is_closed() {
             return Err(CommitError::Failed);
         }
         Ok(())
@@ -553,7 +559,7 @@ impl LocalIdentity {
     pub fn dial_plan(&self, identity: &IdentityPublicKey) -> Option<DialPlan> {
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
-        if self.is_deleted() {
+        if self.is_closed() {
             return None;
         }
         let view = self.contacts.view(identity, keys.rotation_id())?;
@@ -664,7 +670,7 @@ impl LocalIdentity {
         // Looked at with the queue locked: the deletion sets the flag
         // before it drops the queue, so a request is never queued into the
         // queue of a deleted identity.
-        if self.is_deleted() {
+        if self.is_closed() {
             return Err(StoreError::Failed);
         }
         let kind = self.contacts.kind(request.card.identity());
@@ -746,7 +752,7 @@ impl LocalIdentity {
     /// The card that carries the capability `id`, again. Fails with
     /// [`StoreError::Failed`] once the identity was deleted.
     pub fn invitation_card(&self, id: InvitationId) -> Result<ContactCard, StoreError> {
-        if self.is_deleted() {
+        if self.is_closed() {
             return Err(StoreError::Failed);
         }
         let durable = self.durability.durable();
@@ -811,7 +817,7 @@ impl LocalIdentity {
     ) -> Result<ContactCard, StoreError> {
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
-        if self.is_deleted() {
+        if self.is_closed() {
             return Err(StoreError::Failed);
         }
         let party = keys.answering(durable);
@@ -918,7 +924,7 @@ impl LocalIdentity {
         }
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
-        if self.is_deleted() {
+        if self.is_closed() {
             return None;
         }
         let rotation = keys.rotation.as_ref()?;
@@ -1095,6 +1101,18 @@ pub(crate) struct Shared {
     identities: Mutex<Vec<Arc<LocalIdentity>>>,
     /// One identity is created or deleted at a time.
     changes: AsyncMutex<()>,
+}
+
+/// The installation closes when its last handle, and the last wait for a
+/// write it started, are gone: its identities close with it, in this
+/// step, so that a handle kept of one holds no authority any more. A write
+/// already under way holds the vault, not this, and ends on its own.
+impl Drop for Shared {
+    fn drop(&mut self) {
+        for identity in lock(&self.identities).iter() {
+            identity.close();
+        }
+    }
 }
 
 impl Shared {
@@ -1757,7 +1775,7 @@ mod tests {
         });
         lock(&identity.hooks).insert("considering", step);
         assert!(identity.consider(&request(&stranger(3))).is_err());
-        assert!(identity.is_deleted());
+        assert!(identity.is_closed());
         assert!(identity.requests().is_empty());
     }
 

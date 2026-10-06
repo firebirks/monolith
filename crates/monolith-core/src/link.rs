@@ -398,7 +398,7 @@ where
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     // The identity may have been deleted while the dial waited: it opens
     // no stream then, and starts no handshake.
-    if identity.is_deleted() {
+    if identity.is_closed() {
         return Err(LinkError::Storage(CommitError::Failed));
     }
     let endpoint = *card.endpoints().first();
@@ -406,7 +406,7 @@ where
         .connect_onion(&endpoint, &isolation)
         .await
         .map_err(LinkError::Tor)?;
-    if identity.is_deleted() {
+    if identity.is_closed() {
         return Err(LinkError::Storage(CommitError::Failed));
     }
     tokio::time::timeout(HANDSHAKE_TIMEOUT, async {

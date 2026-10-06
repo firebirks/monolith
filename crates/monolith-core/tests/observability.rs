@@ -188,14 +188,16 @@ fn t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike()
                 let stranger = node(&network, seed).await;
                 stranger.identity.import(&bob_card).await.unwrap();
                 let (dialed, answered) = dial_and_answer(&stranger, &bob_card, &mut bob).await;
-                held.push((dialed.unwrap(), answered.unwrap()));
+                // The node is kept with its link: closing its installation
+                // would withdraw the link.
+                held.push((dialed.unwrap(), answered.unwrap(), stranger));
             }
             assert_eq!(bob.identity.strangers().free(), 0, "{class:?}");
 
             let (dialed, answered) = dial_and_answer(&peer, &bob_card, &mut bob).await;
             let (mut dialed, mut answered) = (dialed.unwrap(), answered.unwrap());
             let took_a_slot = answered.link.holds_unknown_slot();
-            let (oldest_dialed, oldest_answered) = &mut held[0];
+            let (oldest_dialed, oldest_answered, _) = &mut held[0];
             let evicted = oldest_answered.link.receive().await.err();
             let oldest_saw = watch(oldest_dialed).await;
             send_first(&mut dialed, &peer.identity).await;

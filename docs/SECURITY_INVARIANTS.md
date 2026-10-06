@@ -481,6 +481,11 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   the deletion (best effort, `CRYPTOGRAPHY.md` section 8). A dial that
   was waiting for its slot when the identity was deleted opens no stream,
   and a session that outlives its identity applies nothing to it.
+  Closing an installation, by dropping its last handle, closes every
+  identity in it the same way, at once: a handle of an identity, a link,
+  a supervisor or a task that outlives the installation holds no
+  authority. Its state stays in the vault; a write already under way
+  ends on its own, holding the vault and nothing of the installation.
 - Tests: T-MI-2 and T-MI-3 (`tests/identities.rs`), the private network
   test (step 8: two identities of one node hold one peer differently),
   `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity

@@ -447,7 +447,7 @@ fn a_deleted_identity_admits_nobody_and_changes_nothing() {
             .delete_identity(b.identity.identity())
             .await
             .unwrap();
-        assert!(b.identity.is_deleted());
+        assert!(b.identity.is_closed());
         assert!(b.identity.onion_secret().is_none());
 
         // B dials nobody: it has no party to dial with, and no stream is
@@ -715,5 +715,83 @@ fn the_rotation_of_one_identity_counts_for_no_other() {
         );
         assert!(!b.identity.switch_rotation(false).await.unwrap());
         let _ = (&mut a, &mut b);
+    });
+}
+
+#[test]
+fn closing_the_installation_ends_the_authority_of_what_it_handed_out() {
+    // A keeps its identity and a confirmed link to Carol, and drops its
+    // installation. What it kept holds no authority any more: no party,
+    // no Onion Service secret, no signed card, no dial, no change, and the
+    // link is withdrawn.
+    run(async {
+        let network = MockNetwork::new();
+        let a = node_in(Installation::ephemeral(), &network, 1, 1, 1).await;
+        let mut carol = node(&network, 3).await;
+        common::befriend(&a, &mut carol).await;
+        let (invitation, _) = a.identity.create_invitation(None).await.unwrap();
+        let (mut kept_link, _carol_link) = confirm_both(&a, &mut carol).await;
+        let kept = a.identity.clone();
+        drop(a);
+        assert!(kept.answering_party().is_err());
+        assert!(kept.onion_secret().is_none());
+        assert_eq!(
+            kept.invitation_card(invitation).err(),
+            Some(StoreError::Failed)
+        );
+        assert!(kept.dial_plan(carol.identity.identity()).is_none());
+        assert_eq!(
+            kept.set_request_mode(RequestMode::Open).await.err(),
+            Some(StoreError::Failed)
+        );
+        assert_eq!(
+            kept_link.send(&common::chat("after")).await.err(),
+            Some(LinkError::Withdrawn)
+        );
+    });
+}
+
+#[test]
+fn a_write_under_way_when_the_installation_closes_still_ends() {
+    // A change is being written when its wait is given up and the
+    // installation is closed. The identity is closed at once; the write
+    // goes on, holding the vault and nothing else, and what it wrote is
+    // what a new process finds.
+    run(async {
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let identity = installation
+            .restore_identity(keys(1, 1, 1, place(1)), None)
+            .await
+            .unwrap();
+        dir.hold_writes();
+        let released = common::Released(&dir);
+        let changing = identity.clone();
+        let change =
+            tokio::spawn(async move { changing.set_request_mode(RequestMode::Open).await });
+        while !dir.write_held() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        change.abort();
+        assert!(change.await.unwrap_err().is_cancelled());
+        drop(installation);
+        assert!(identity.is_closed());
+        assert!(identity.answering_party().is_err());
+        drop(released);
+        let written = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Ok((reopened, _)) =
+                    Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase())
+                {
+                    if reopened.identities()[0].request_mode() == RequestMode::Open {
+                        return;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await;
+        assert!(written.is_ok(), "the write under way did not end");
     });
 }

@@ -593,8 +593,12 @@ fn dials_beyond_the_dial_budget_wait_for_a_slot() {
             peer.identity.import(&card).await.unwrap();
             let budgets = budgets.clone();
             let card = card.clone();
-            tasks
-                .spawn(async move { dial(&peer.tor, &budgets, &peer.identity, &card).await.err() });
+            // The whole node goes into the task: its installation, too,
+            // which would close the identity if it were dropped.
+            tasks.spawn(async move {
+                let peer = peer;
+                dial(&peer.tor, &budgets, &peer.identity, &card).await.err()
+            });
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(network.dials(), MAX_CONCURRENT_DIALS);

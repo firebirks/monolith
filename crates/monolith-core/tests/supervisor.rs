@@ -539,3 +539,35 @@ fn a_service_published_for_a_deleted_identity_is_never_reported_available() {
         assert!(!network.is_published(&bob.endpoint()));
     });
 }
+
+#[test]
+fn closing_the_installation_takes_its_services_down() {
+    // The installation of a published identity is closed while its
+    // supervisor runs with a handle of the identity: the supervisor ends
+    // and the service is removed.
+    run_paused(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let bob = installation
+            .restore_identity(
+                IdentityKeys {
+                    seed: Zeroizing::new([2; 32]),
+                    transport: Zeroizing::new([2 ^ 0xA5; 32]),
+                    onion: Some(Zeroizing::new([2; 64])),
+                    epoch: EndpointEpoch::FIRST,
+                    endpoint: endpoint(2),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        let (_stop, shutdown) = watch::channel(false);
+        let (task, mut states) = supervised(network.backend(), bob.clone(), shutdown);
+        wait_for(&mut states, Publication::Available).await;
+        assert!(network.is_published(&bob.endpoint()));
+        drop(installation);
+        assert_eq!(ended(task).await, Publication::Stopped);
+        assert!(!network.is_published(&bob.endpoint()));
+        assert!(bob.is_closed());
+    });
+}

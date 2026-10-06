@@ -144,7 +144,7 @@ async fn unless_stopped<T>(
     shutdown: &mut watch::Receiver<bool>,
     identity: &LocalIdentity,
 ) -> Waited<T> {
-    let mut deletion = identity.deletion();
+    let mut deletion = identity.closing();
     let mut work = core::pin::pin!(work);
     let mut changed = core::pin::pin!(shutdown.changed());
     let mut deleted = core::pin::pin!(deletion.wait_for(|deleted| *deleted));
@@ -178,9 +178,9 @@ async fn sleep_or_stop(
     let Some(deadline) = tokio::time::Instant::now().checked_add(delay) else {
         return true;
     };
-    let mut deletion = identity.deletion();
+    let mut deletion = identity.closing();
     loop {
-        if *shutdown.borrow_and_update() || identity.is_deleted() {
+        if *shutdown.borrow_and_update() || identity.is_closed() {
             return true;
         }
         let sleep = async {
@@ -196,7 +196,7 @@ async fn sleep_or_stop(
         };
         match unless_stopped(sleep, shutdown, identity).await {
             Waited::Done(slept) => {
-                return !slept || *shutdown.borrow() || identity.is_deleted();
+                return !slept || *shutdown.borrow() || identity.is_closed();
             }
             Waited::Changed => {}
             Waited::Gone => return true,
@@ -225,12 +225,12 @@ where
     let mut backoff = Backoff::new();
     loop {
         // A deleted identity is not published again.
-        if *shutdown.borrow_and_update() || identity.is_deleted() {
+        if *shutdown.borrow_and_update() || identity.is_closed() {
             break;
         }
         let Some(secret) = identity.onion_secret() else {
             // Deleted since the look above: its key is gone with it.
-            if identity.is_deleted() {
+            if identity.is_closed() {
                 break;
             }
             state.send_replace(Publication::NoKey);
@@ -253,7 +253,7 @@ where
         let failure = match published {
             // Deleted as Tor answered: the service is removed, and never
             // reported available.
-            Ok(service) if identity.is_deleted() => {
+            Ok(service) if identity.is_closed() => {
                 let _ = service.close().await;
                 break;
             }

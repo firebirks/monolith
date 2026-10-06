@@ -126,6 +126,15 @@ identities never share a key (S39), checked at creation, restore and
 when a vault is opened. Which phase offers several identities in the
 interface is not decided.
 
+The installation owns the lifecycle of its identities. A `LocalIdentity`
+handle is a runtime object, one instance of a logical identity (its
+identity key): deleting the identity, or closing the installation by
+dropping its last handle, closes the instance for good, and a handle
+kept of it holds no authority. Opening the vault again makes new
+instances of the same logical identities, with their durable state; no
+handle, link or session of the old instances is accepted by the new
+ones.
+
 ### 1.2 Admission and credentials
 
 Which transport key stands for a contact is held in its `Credentials`
