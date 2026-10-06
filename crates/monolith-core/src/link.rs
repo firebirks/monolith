@@ -845,8 +845,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// lose the message: the next receive returns it, and the one after
     /// fails.
     pub async fn receive(&mut self) -> Result<Received, LinkError> {
-        if let Some(received) = self.taken.take() {
-            return Ok(received);
+        if self.taken.is_some() {
+            // The receive that took it was dropped while it ended the link,
+            // which ends now, before the message is returned. It is kept
+            // until then, should this call be dropped as well.
+            if self.writing {
+                self.writing = false;
+                self.finish().await;
+            }
+            return self.taken.take().ok_or(LinkError::Stream);
         }
         if let Some(error) = self.interrupted().await {
             return Err(error);
@@ -1838,6 +1845,9 @@ mod tests {
             let received = link.receive().await.unwrap();
             assert_eq!(received.message, request());
             assert!(received.actions.contains(&Action::ConsiderRequest));
+            // The link ended before the message came back: the slot is free.
+            assert!(!link.holds_unknown_slot());
+            assert_eq!(strangers.free(), 1);
             assert!(link.receive().await.is_err());
             assert!(link.is_over());
         });

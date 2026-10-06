@@ -529,8 +529,9 @@ impl ContactStore {
 
     /// An admission that failed after it changed the record (no path does
     /// today: what fails after the credentials changed is internal) keeps
-    /// the change as any other: stamped, so that it is written, and with
-    /// the sessions that no longer stand withdrawn.
+    /// the change as any other: stamped, so that the write under way or the
+    /// next one holds it (nothing waits for it here), and with the sessions
+    /// that no longer stand withdrawn.
     fn kept_on_error<T>(
         &self,
         entry: &mut Entry,
