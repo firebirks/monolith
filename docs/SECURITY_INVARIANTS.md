@@ -820,8 +820,10 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   The write is a job on the blocking pool that puts the vault back and
   publishes its outcome however the waiting task ends, so a cancelled
   wait loses neither the vault nor the lock of its directory, and the
-  snapshot it writes is one cut through every contact store, never an
-  operation half done. When the write fails, the job itself withdraws
+  snapshot it writes is one cut through every identity (keys, rotation
+  and the progress made for it, settings, active set, contact store),
+  never an operation half done, and never the progress of one rotation
+  with another. When the write fails, the job itself withdraws
   every session, whether or not a waiter is left; when it succeeds and
   changes came after its snapshot, it starts the next write, so a change
   is written also when its waiter was cancelled or nothing waits for it.
@@ -843,8 +845,14 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   and the three tests after it: what a refusal recorded survives a
   restart), `persist::tests`
   (`a_change_is_written_though_its_waiter_was_cancelled_during_a_write`),
-  mutation faults CS13 to CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65
-  and CS68 to CS72.
+  `identity::tests` (a snapshot taken while one rotation ends and the
+  next begins, at a hook between its reads; rotations, marks and
+  snapshots on several threads), `contacts::tests`
+  (`the_progress_of_a_rotation_counts_only_for_that_rotation`),
+  `tests/credentials.rs` (`the_progress_of_one_rotation_...`,
+  `the_progress_of_a_rotation_survives_...`), mutation faults CS13 to
+  CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65, CS68 to CS72 and CS77
+  to CS80.
 
 ### S32. No hidden network traffic
 

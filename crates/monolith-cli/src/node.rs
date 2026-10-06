@@ -351,12 +351,16 @@ impl Node {
                     "old"
                 };
                 say(&format!("confirmed {index} {} key={key}", short(&peer)));
-                if let Some(successor) = local.announcement_for(link.session_ref()) {
-                    let update = Message::EndpointUpdate(Box::new(successor));
+                if let Some(announcement) = local.announcement_for(link.session_ref()) {
+                    let update = Message::EndpointUpdate(Box::new(announcement.card));
                     if let Err(error) = link.send(&update).await {
                         return error.to_string();
                     }
-                    if local.mark_announced(&peer).await.is_ok() {
+                    if local
+                        .mark_announced(&peer, announcement.rotation)
+                        .await
+                        .is_ok_and(|recorded| recorded)
+                    {
                         say(&format!("announced {index} {}", short(&peer)));
                     }
                 }

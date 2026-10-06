@@ -41,7 +41,7 @@ use monolith_tor::{IsolationGroup, OnionServiceSecret, TorError};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, watch};
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::contacts::{ContactStore, ContactView, ImportOutcome, StoreError};
+use crate::contacts::{ContactStore, ContactView, ImportOutcome, Progress, StoreError};
 use crate::dialplan;
 use crate::link::Withdrawal;
 use crate::persist::{CommitError, Durability, Store, Write};
@@ -91,6 +91,9 @@ fn issue(
 /// A change of the local transport key in progress (`docs/PROTOCOL.md`
 /// section 11.4, changing the transport key).
 struct Rotation {
+    /// Which rotation of the identity this is. The progress contacts make
+    /// is recorded for it, and counts for no other.
+    id: RotationId,
     transport: Zeroizing<[u8; 32]>,
     epoch: EndpointEpoch,
     party: Arc<LocalParty>,
@@ -132,9 +135,24 @@ struct Keys {
     endpoint: OnionServiceKey,
     party: Arc<LocalParty>,
     rotation: Option<Rotation>,
+    /// The number of the next rotation.
+    rotations: u64,
 }
 
 impl Keys {
+    /// A number for a new rotation, one no earlier rotation of this
+    /// identity had in this process.
+    const fn next_rotation(&mut self) -> RotationId {
+        let id = RotationId(self.rotations);
+        self.rotations = self.rotations.saturating_add(1);
+        id
+    }
+
+    /// The rotation in progress, if any.
+    fn rotation_id(&self) -> Option<RotationId> {
+        self.rotation.as_ref().map(|rotation| rotation.id)
+    }
+
     /// The party that answers, with `durable` the generation on disk.
     fn answering(&self, durable: u64) -> Arc<LocalParty> {
         match &self.rotation {
@@ -142,6 +160,22 @@ impl Keys {
             _ => self.party.clone(),
         }
     }
+}
+
+/// One local rotation, as its identity numbers them: progress recorded for
+/// one rotation never counts for another. Local, and not kept across a
+/// restart; a rotation read from the vault gets a new number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct RotationId(pub(crate) u64);
+
+/// A successor card to announce on a session, and the rotation it belongs
+/// to, for [`LocalIdentity::mark_announced`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announcement {
+    /// The successor card.
+    pub card: ContactCard,
+    /// Its rotation.
+    pub rotation: RotationId,
 }
 
 /// Where a local rotation stands.
@@ -487,7 +521,8 @@ impl LocalIdentity {
 
     /// What is held about `identity`.
     pub fn contact(&self, identity: &IdentityPublicKey) -> Option<ContactView> {
-        self.contacts.view(identity)
+        let keys = lock(&self.keys);
+        self.contacts.view(identity, keys.rotation_id())
     }
 
     /// Every remote identity with a record.
@@ -503,15 +538,15 @@ impl LocalIdentity {
     /// What to dial for `identity`, or `None` if it is not a contact or
     /// the local identity was deleted.
     pub fn dial_plan(&self, identity: &IdentityPublicKey) -> Option<DialPlan> {
-        let view = self.contacts.view(identity)?;
-        let credentials = view.credentials?;
-        let dial = view.dial?;
-        let cards = dialplan::plan(&credentials, &dial);
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
         if self.is_deleted() {
             return None;
         }
+        let view = self.contacts.view(identity, keys.rotation_id())?;
+        let credentials = view.credentials?;
+        let dial = view.dial?;
+        let cards = dialplan::plan(&credentials, &dial);
         // During a rotation, a contact that holds the new key as the
         // announced successor is dialed with it once the identity has
         // switched, durably; any other contact with the old key, on whose
@@ -564,19 +599,26 @@ impl LocalIdentity {
             }
         }
         if received.actions.contains(&Action::Confirmed) {
-            let new_key = lock(&self.keys)
+            // The rotation whose new key the session was made with, read
+            // and marked with the keys held: the mark is for that rotation
+            // and no other.
+            let keys = lock(&self.keys);
+            if let Some(rotation) = keys
                 .rotation
                 .as_ref()
-                .is_some_and(|rotation| rotation.party.card() == session.local);
-            if new_key
-                && self
+                .filter(|rotation| rotation.party.card() == session.local)
+            {
+                if self
                     .contacts
                     .session_stands(session.peer, session.withdrawal)
-            {
-                generation =
-                    self.contacts
-                        .set_rotation_marks(session.peer.identity(), None, Some(true))?;
-                applied.promoted_successor = true;
+                {
+                    generation = self.contacts.mark_rotation(
+                        session.peer.identity(),
+                        rotation.id,
+                        Progress::Promoted,
+                    )?;
+                    applied.promoted_successor = true;
+                }
             }
         }
         self.commit(generation).await?;
@@ -770,6 +812,11 @@ impl LocalIdentity {
         }
     }
 
+    /// The rotation in progress, for [`Self::mark_announced`].
+    pub fn rotation_id(&self) -> Option<RotationId> {
+        lock(&self.keys).rotation_id()
+    }
+
     /// The successor card of a rotation in progress: what is announced in
     /// an EndpointUpdate on sessions of the old key, once it is durable.
     pub fn successor_card(&self) -> Option<ContactCard> {
@@ -787,7 +834,7 @@ impl LocalIdentity {
     pub async fn begin_rotation(&self) -> Result<ContactCard, StoreError> {
         self.check_open()?;
         let transport = random::<32>()?;
-        let card = {
+        let (card, id) = {
             let mut keys = lock(&self.keys);
             if keys.rotation.is_some() {
                 return Err(StoreError::NotThatCard);
@@ -800,7 +847,11 @@ impl LocalIdentity {
                 ));
             }
             let card = party.card().clone();
+            // A number no earlier rotation of this identity had: what
+            // contacts did for an earlier one does not count for it.
+            let id = keys.next_rotation();
             keys.rotation = Some(Rotation {
+                id,
                 transport,
                 epoch,
                 party,
@@ -808,13 +859,12 @@ impl LocalIdentity {
                 switched: false,
                 switched_at: u64::MAX,
             });
-            card
+            (card, id)
         };
-        self.contacts.clear_rotation_marks();
         let generation = self.durability.bump();
         if let Some(rotation) = lock(&self.keys).rotation.as_mut() {
-            // Only the rotation this call made, which is still unstamped.
-            if rotation.begun == u64::MAX {
+            // Only the rotation this call made.
+            if rotation.id == id {
                 rotation.begun = generation;
             }
         }
@@ -823,61 +873,84 @@ impl LocalIdentity {
     }
 
     /// The successor card to announce on the confirmed session `session`,
-    /// if one is due there: a rotation is in progress, the session was made
-    /// with the old key, it still stands for the contact, and the contact
-    /// was not sent the successor yet (`docs/PROTOCOL.md` section 11.4,
-    /// steps 3 and 5). The caller sends it in an EndpointUpdate and then
-    /// calls [`Self::mark_announced`].
-    pub fn announcement_for(&self, session: SessionRef<'_>) -> Option<ContactCard> {
+    /// with the rotation it belongs to, if one is due there: a rotation is
+    /// in progress, the session was made with the old key, it still stands
+    /// for the contact, and the contact was not sent the successor of this
+    /// rotation yet (`docs/PROTOCOL.md` section 11.4, steps 3 and 5). The
+    /// caller sends the card in an EndpointUpdate and then calls
+    /// [`Self::mark_announced`] with the rotation.
+    pub fn announcement_for(&self, session: SessionRef<'_>) -> Option<Announcement> {
         if !self.contacts.admitted(session.withdrawal) {
             return None;
         }
         let durable = self.durability.durable();
-        let successor = {
-            let keys = lock(&self.keys);
-            if self.is_deleted() {
-                return None;
-            }
-            let rotation = keys.rotation.as_ref()?;
-            if keys.party.card() != session.local || !rotation.announced_from(durable) {
-                return None;
-            }
-            rotation.party.card().clone()
-        };
-        let view = self.contacts.view(session.peer.identity())?;
+        let keys = lock(&self.keys);
+        if self.is_deleted() {
+            return None;
+        }
+        let rotation = keys.rotation.as_ref()?;
+        if keys.party.card() != session.local || !rotation.announced_from(durable) {
+            return None;
+        }
+        let view = self
+            .contacts
+            .view(session.peer.identity(), Some(rotation.id))?;
         (view.kind == RecordKind::Accepted
             && !view.successor_announced
             && self
                 .contacts
                 .session_stands(session.peer, session.withdrawal))
-        .then_some(successor)
+        .then(|| Announcement {
+            card: rotation.party.card().clone(),
+            rotation: rotation.id,
+        })
     }
 
-    /// The successor was sent to `contact` on a confirmed session of the
-    /// old key.
-    pub async fn mark_announced(&self, contact: &IdentityPublicKey) -> Result<(), StoreError> {
+    /// The successor of `rotation` was sent to `contact` on a confirmed
+    /// session of the old key. Recorded only while `rotation` is the one in
+    /// progress: a completion that comes after that rotation ended counts
+    /// for no other, and returns false. Durable when this returns true.
+    pub async fn mark_announced(
+        &self,
+        contact: &IdentityPublicKey,
+        rotation: RotationId,
+    ) -> Result<bool, StoreError> {
         self.check_open()?;
-        let generation = self
-            .contacts
-            .set_rotation_marks(contact, Some(true), None)?;
-        self.commit(generation).await
+        let generation = {
+            let keys = lock(&self.keys);
+            if keys
+                .rotation
+                .as_ref()
+                .is_none_or(|held| held.id != rotation)
+            {
+                return Ok(false);
+            }
+            self.contacts
+                .mark_rotation(contact, rotation, Progress::Announced)?
+        };
+        self.commit(generation).await?;
+        Ok(true)
     }
 
     /// Switches to answering with the new key (step 4). The policy of
     /// `docs/DESIGN_QUESTIONS.md` section 11: once every accepted contact
-    /// was sent the successor, or when the user says so (`force`).
-    /// Returns false if the switch is not due yet.
+    /// was sent the successor of this rotation, or when the user says so
+    /// (`force`). The condition is read with the keys held, against the
+    /// rotation it switches. Returns false if the switch is not due yet.
     pub async fn switch_rotation(&self, force: bool) -> Result<bool, StoreError> {
         self.check_open()?;
-        let due = force || self.every_accepted(|view| view.successor_announced);
-        if !due {
-            return Ok(false);
-        }
         let generation = {
             let mut keys = lock(&self.keys);
             let Some(rotation) = keys.rotation.as_mut() else {
                 return Err(StoreError::NotFound);
             };
+            if !force
+                && !self
+                    .contacts
+                    .every_accepted(rotation.id, Progress::Announced)
+            {
+                return Ok(false);
+            }
             if !rotation.switched {
                 rotation.switched = true;
                 rotation.switched_at = u64::MAX;
@@ -894,19 +967,23 @@ impl LocalIdentity {
 
     /// Ends the rotation (step 5): the old key is dropped and the new one
     /// is the only one. Due once every accepted contact confirmed a session
-    /// with the new key, or when the user says so (`force`), and in any case
-    /// only after a switch that is durable: the new key is then in use and
-    /// stored, so ending the rotation hands out nothing the vault could
-    /// lose. Returns false if it is not due yet.
+    /// with the new key of this rotation, or when the user says so
+    /// (`force`), and in any case only after a switch that is durable: the
+    /// new key is then in use and stored, so ending the rotation hands out
+    /// nothing the vault could lose. The condition is read with the keys
+    /// held. Returns false if it is not due yet.
     pub async fn finish_rotation(&self, force: bool) -> Result<bool, StoreError> {
         self.check_open()?;
-        let due = force || self.every_accepted(|view| view.successor_promoted);
         let durable = self.durability.durable();
-        {
+        let generation = {
             let mut keys = lock(&self.keys);
             let Some(rotation) = keys.rotation.as_ref() else {
                 return Err(StoreError::NotFound);
             };
+            let due = force
+                || self
+                    .contacts
+                    .every_accepted(rotation.id, Progress::Promoted);
             if !due || !rotation.switched_by(durable) {
                 return Ok(false);
             }
@@ -916,27 +993,25 @@ impl LocalIdentity {
             keys.transport = rotation.transport;
             keys.epoch = rotation.epoch;
             keys.party = rotation.party;
-        }
-        self.contacts.clear_rotation_marks();
-        let generation = self.durability.bump();
+            self.durability.bump()
+        };
         self.commit(generation).await?;
         Ok(true)
     }
 
-    fn every_accepted(&self, condition: impl Fn(&ContactView) -> bool) -> bool {
-        self.contacts.identities().iter().all(|identity| {
-            self.contacts
-                .view(identity)
-                .is_none_or(|view| view.kind != RecordKind::Accepted || condition(&view))
-        })
-    }
-
     // --- Storage ----------------------------------------------------------
 
+    /// The state of the identity to write, in one cut: the keys, the
+    /// rotation in progress, the settings, the active set and every record
+    /// with the progress of that rotation are read with all of their locks
+    /// held, so no operation is seen half done and no progress of another
+    /// rotation is joined to this one.
     fn snapshot(&self) -> StoredIdentity {
-        let (contacts, blocked, declined) = self.contacts.snapshot();
+        self.hook("snapshot");
         let keys = lock(&self.keys);
         let settings = lock(&self.settings);
+        let invitations = lock(&self.invitations);
+        let (contacts, blocked, declined) = self.contacts.snapshot(keys.rotation_id());
         StoredIdentity {
             identity_seed: keys.seed.clone(),
             transport_secret: keys.transport.clone(),
@@ -950,7 +1025,7 @@ impl LocalIdentity {
             }),
             request_mode: settings.request_mode,
             label: settings.label.clone(),
-            invitations: lock(&self.invitations).snapshot(),
+            invitations: invitations.snapshot(),
             contacts,
             blocked,
             declined,
@@ -1210,6 +1285,9 @@ impl Installation {
         .map_err(|_| InstallationError::Invalid)?;
         let rotation = match stored.rotation {
             Some(rotation) => Some(Rotation {
+                // The first number of this process: the marks stored with
+                // the rotation are read back with it.
+                id: RotationId(0),
                 party: issue(
                     &stored.identity_seed,
                     &rotation.transport_secret,
@@ -1234,6 +1312,7 @@ impl Installation {
         let contacts = ContactStore::load(
             identity,
             self.shared.durability.clone(),
+            rotation.as_ref().map(|rotation| rotation.id),
             stored.contacts,
             &stored.blocked,
             &stored.declined,
@@ -1247,6 +1326,7 @@ impl Installation {
             endpoint: stored.endpoint,
             party,
             rotation,
+            rotations: 1,
         };
         Ok(LocalIdentity::new(
             keys,
@@ -1300,6 +1380,7 @@ impl Installation {
             endpoint,
             party,
             rotation: None,
+            rotations: 0,
         };
         let identity = Arc::new(LocalIdentity::new(
             keys,
@@ -1346,6 +1427,7 @@ impl Installation {
                 endpoint: keys.endpoint,
                 party,
                 rotation: None,
+                rotations: 0,
             },
             Settings {
                 request_mode: RequestMode::default(),
@@ -1520,6 +1602,99 @@ mod tests {
         blocked.join().unwrap();
         assert_eq!(identity.kind(&carol_id), RecordKind::Blocked);
         assert!(identity.requests().is_empty());
+    }
+
+    #[test]
+    fn a_snapshot_never_joins_the_progress_of_one_rotation_to_another() {
+        // Bob was sent the successor of rotation R1. While the state is
+        // read for a write, R1 ends and R2 begins. What is written holds
+        // R2 and none of R1's progress: after a crash, R2 must not take
+        // Bob for announced.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        let bob = stranger(2);
+        identity.contacts.accept_request(&bob).unwrap();
+        run(identity.begin_rotation()).unwrap();
+        assert!(
+            run(identity.mark_announced(bob.identity(), identity.rotation_id().unwrap())).unwrap()
+        );
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            move || {
+                assert!(run(identity.switch_rotation(true)).unwrap());
+                assert!(run(identity.finish_rotation(true)).unwrap());
+                run(identity.begin_rotation()).unwrap();
+            }
+        });
+        lock(&identity.hooks).insert("snapshot", step);
+        let stored = identity.snapshot();
+        let rotation = stored.rotation.as_ref().unwrap();
+        assert_eq!(rotation.epoch, EndpointEpoch::new(3).unwrap());
+        let held = stored
+            .contacts
+            .iter()
+            .find(|contact| contact.credentials.identity() == bob.identity())
+            .unwrap();
+        assert!(!held.successor_announced);
+        assert!(!held.successor_promoted);
+    }
+
+    #[test]
+    fn rotations_marks_and_snapshots_on_many_threads_stay_one_cut() {
+        // One thread runs rotation after rotation, another records the
+        // announcement to Bob for whatever rotation it finds, a third
+        // takes snapshots. No snapshot holds progress without the rotation
+        // it belongs to, and every mark recorded for a rotation is read
+        // back for that rotation only.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        let bob = stranger(2);
+        identity.contacts.accept_request(&bob).unwrap();
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let rotating = std::thread::spawn({
+            let identity = identity.clone();
+            let done = done.clone();
+            move || {
+                for _ in 0..300 {
+                    run(identity.begin_rotation()).unwrap();
+                    run(identity.switch_rotation(true)).unwrap();
+                    run(identity.finish_rotation(true)).unwrap();
+                }
+                done.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        let marking = std::thread::spawn({
+            let identity = identity.clone();
+            let done = done.clone();
+            let bob = *bob.identity();
+            move || {
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    if let Some(rotation) = identity.rotation_id() {
+                        let recorded = run(identity.mark_announced(&bob, rotation)).unwrap();
+                        // Recorded only for the rotation that was in
+                        // progress; while it still is, the mark shows.
+                        let keys = lock(&identity.keys);
+                        if recorded && keys.rotation_id() == Some(rotation) {
+                            let view = identity.contacts.view(&bob, keys.rotation_id());
+                            assert!(view.unwrap().successor_announced);
+                        }
+                    }
+                }
+            }
+        });
+        while !done.load(std::sync::atomic::Ordering::SeqCst) {
+            let stored = identity.snapshot();
+            if stored.rotation.is_none() {
+                assert!(
+                    stored
+                        .contacts
+                        .iter()
+                        .all(|contact| !contact.successor_announced && !contact.successor_promoted)
+                );
+            }
+        }
+        rotating.join().unwrap();
+        marking.join().unwrap();
     }
 
     #[test]

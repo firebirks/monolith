@@ -215,7 +215,8 @@ Persistent state is written only at "applied".
   - vault writes and KDF work run on the blocking pool; a task that
     waits for a change to be durable and finds no write under way starts
     one, a job that writes the whole installation, as one cut through
-    every contact store, puts the vault back and publishes the outcome
+    every identity and its contact store, puts the vault back and
+    publishes the outcome
     however the task ends; tasks that wait at the same time find their
     change covered;
   - one writer task per active file transfer.

@@ -478,8 +478,10 @@ What is written is used only once it is durable (`DESIGN_QUESTIONS.md`
 P4-4). The write is a job of its own on the blocking pool, which ends the
 same way whatever becomes of the task that started it: a cancelled wait
 loses neither the vault nor the lock of its directory. It writes one cut
-through every contact store, so a vault never holds an operation half
-done or more entries than a bound. A step of a rotation reaches peers only
+through every identity, its keys, its rotation and the progress contacts
+made in that rotation, its settings, its active set and its contact
+store, so a vault never holds an operation half done, more entries than
+a bound, or the progress of one rotation stored with another. A step of a rotation reaches peers only
 once it is in the vault, so a crash never leaves a contact with a key the
 vault does not hold. A new data directory is flushed into its parent
 before the vault in it is reported created.

@@ -53,6 +53,7 @@ use monolith_protocol::text::DisplayName;
 use monolith_session::{Admitted, InboundPeer, OutboundAdmission, OutboundPeer, SessionError};
 use monolith_storage::record::StoredContact;
 
+use crate::identity::RotationId;
 use crate::link::{Owner, Withdrawal};
 use crate::persist::Durability;
 
@@ -128,8 +129,21 @@ struct ContactRecord {
     dial: ContactCard,
     verified: bool,
     alias: Option<DisplayName>,
-    successor_announced: bool,
-    successor_promoted: bool,
+    /// The local rotation whose successor was sent to this contact on a
+    /// confirmed session of the old key. It counts only for that rotation.
+    announced: Option<RotationId>,
+    /// The local rotation whose new key this contact confirmed a session
+    /// with. It counts only for that rotation.
+    promoted: Option<RotationId>,
+}
+
+/// Which step of a local rotation a contact made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Progress {
+    /// It was sent the successor.
+    Announced,
+    /// It confirmed a session with the new key.
+    Promoted,
 }
 
 /// What the local identity holds about one remote identity.
@@ -259,9 +273,12 @@ pub struct ContactView {
     pub verified: bool,
     /// The local alias.
     pub alias: Option<DisplayName>,
-    /// The successor of a local rotation was announced to this contact.
+    /// The successor of the local rotation in progress was announced to
+    /// this contact. What was announced in an earlier rotation does not
+    /// count.
     pub successor_announced: bool,
-    /// This contact confirmed a session with the new local key.
+    /// This contact confirmed a session with the new key of the local
+    /// rotation in progress.
     pub successor_promoted: bool,
     /// Sessions admitted as the contact's that are still open.
     pub sessions: usize,
@@ -310,6 +327,7 @@ impl ContactStore {
     pub(crate) fn load(
         local: IdentityPublicKey,
         durability: Arc<Durability>,
+        rotation: Option<RotationId>,
         contacts: Vec<StoredContact>,
         blocked: &[IdentityPublicKey],
         declined: &[IdentityPublicKey],
@@ -341,8 +359,10 @@ impl ContactStore {
                         dial: stored.dial,
                         verified: stored.verified,
                         alias: stored.alias,
-                        successor_announced: stored.successor_announced,
-                        successor_promoted: stored.successor_promoted,
+                        // The marks stored are those of the rotation stored
+                        // with them, read back with it.
+                        announced: rotation.filter(|_| stored.successor_announced),
+                        promoted: rotation.filter(|_| stored.successor_promoted),
                     })),
                 )?;
                 counts.contacts = counts.contacts.saturating_add(1);
@@ -567,8 +587,8 @@ impl ContactStore {
                     dial: card.clone(),
                     verified: false,
                     alias: None,
-                    successor_announced: false,
-                    successor_promoted: false,
+                    announced: None,
+                    promoted: None,
                 }));
                 ImportOutcome::Created
             };
@@ -785,8 +805,8 @@ impl ContactStore {
                 dial: card.clone(),
                 verified: false,
                 alias: None,
-                successor_announced: false,
-                successor_promoted: false,
+                announced: None,
+                promoted: None,
             }));
             self.durability.bump();
             Ok(self.depends())
@@ -875,12 +895,15 @@ impl ContactStore {
         })
     }
 
-    /// Records the progress of a local rotation at a contact.
-    pub(crate) fn set_rotation_marks(
+    /// Records the progress of the local rotation `rotation` at a contact:
+    /// its successor was sent to it, or it confirmed the new key. The
+    /// caller holds the keys of the identity, so that `rotation` is the
+    /// one in progress while the mark is made.
+    pub(crate) fn mark_rotation(
         &self,
         identity: &IdentityPublicKey,
-        announced: Option<bool>,
-        promoted: Option<bool>,
+        rotation: RotationId,
+        progress: Progress,
     ) -> Result<u64, StoreError> {
         self.check_failed()?;
         self.with_entry(identity, false, |entry| {
@@ -891,26 +914,34 @@ impl ContactStore {
             else {
                 return Err(StoreError::NotFound);
             };
-            let before = (contact.successor_announced, contact.successor_promoted);
-            if let Some(announced) = announced {
-                contact.successor_announced = announced;
-            }
-            if let Some(promoted) = promoted {
-                contact.successor_promoted = promoted;
-            }
-            if before != (contact.successor_announced, contact.successor_promoted) {
+            let mark = match progress {
+                Progress::Announced => &mut contact.announced,
+                Progress::Promoted => &mut contact.promoted,
+            };
+            if *mark != Some(rotation) {
+                *mark = Some(rotation);
                 self.durability.bump();
             }
             Ok(self.depends())
         })
     }
 
-    /// Clears the rotation marks of every contact: a new rotation begins,
-    /// or the last one ended.
-    pub(crate) fn clear_rotation_marks(&self) {
-        for identity in self.identities() {
-            let _ = self.set_rotation_marks(&identity, Some(false), Some(false));
-        }
+    /// Returns true if `condition` holds for the marks of `rotation` at
+    /// every accepted contact, read in one cut through the store: the lock
+    /// of the map is held while every slot is read, so a contact accepted
+    /// meanwhile is either seen or accepted after the answer.
+    pub(crate) fn every_accepted(&self, rotation: RotationId, progress: Progress) -> bool {
+        let slots = lock(&self.slots);
+        slots.values().all(|slot| match &lock(&slot.0).record {
+            Record::Contact(contact) if contact.kind == RecordKind::Accepted => {
+                let mark = match progress {
+                    Progress::Announced => contact.announced,
+                    Progress::Promoted => contact.promoted,
+                };
+                mark == Some(rotation)
+            }
+            _ => true,
+        })
     }
 
     /// Returns true if the session whose peer is `card`, admitted with
@@ -929,8 +960,14 @@ impl ContactStore {
         })
     }
 
-    /// A copy of what is held about `identity`, or `None` without a record.
-    pub(crate) fn view(&self, identity: &IdentityPublicKey) -> Option<ContactView> {
+    /// A copy of what is held about `identity`, or `None` without a record,
+    /// with the progress of the local rotation `rotation`, the one in
+    /// progress.
+    pub(crate) fn view(
+        &self,
+        identity: &IdentityPublicKey,
+        rotation: Option<RotationId>,
+    ) -> Option<ContactView> {
         self.with_entry(identity, false, |entry| {
             let entry = entry?;
             entry.reconcile();
@@ -942,8 +979,8 @@ impl ContactStore {
                     dial: Some(contact.dial.clone()),
                     verified: contact.verified,
                     alias: contact.alias.clone(),
-                    successor_announced: contact.successor_announced,
-                    successor_promoted: contact.successor_promoted,
+                    successor_announced: rotation.is_some() && contact.announced == rotation,
+                    successor_promoted: rotation.is_some() && contact.promoted == rotation,
                     sessions,
                 },
                 other => ContactView {
@@ -979,9 +1016,12 @@ impl ContactStore {
         }
     }
 
-    /// The records to store: contacts, blocked, declined (oldest first).
+    /// The records to store: contacts, blocked, declined (oldest first),
+    /// with the progress of the local rotation `rotation`, the one stored
+    /// with them. Progress of another rotation is not stored.
     pub(crate) fn snapshot(
         &self,
+        rotation: Option<RotationId>,
     ) -> (
         Vec<StoredContact>,
         Vec<IdentityPublicKey>,
@@ -1007,8 +1047,8 @@ impl ContactStore {
                     dial: contact.dial.clone(),
                     verified: contact.verified,
                     alias: contact.alias.clone(),
-                    successor_announced: contact.successor_announced,
-                    successor_promoted: contact.successor_promoted,
+                    successor_announced: rotation.is_some() && contact.announced == rotation,
+                    successor_promoted: rotation.is_some() && contact.promoted == rotation,
                 }),
                 Record::Blocked => blocked.push(identity),
                 Record::Declined => declined.push(identity),
@@ -1082,6 +1122,53 @@ mod tests {
         .clone()
     }
 
+    #[test]
+    fn the_progress_of_a_rotation_counts_only_for_that_rotation() {
+        let store = ContactStore::new(id(0), Durability::new());
+        store.accept_request(&card(1)).unwrap();
+        store.accept_request(&card(2)).unwrap();
+        let (first, second) = (RotationId(0), RotationId(1));
+        for progress in [Progress::Announced, Progress::Promoted] {
+            store.mark_rotation(&id(1), first, progress).unwrap();
+            store.mark_rotation(&id(2), first, progress).unwrap();
+            assert!(store.every_accepted(first, progress));
+            assert!(!store.every_accepted(second, progress));
+            // One contact made the step again for the second rotation.
+            store.mark_rotation(&id(1), second, progress).unwrap();
+            assert!(!store.every_accepted(second, progress));
+            let marked = |rotation, contact: u32| {
+                let view = store.view(&id(contact), Some(rotation)).unwrap();
+                match progress {
+                    Progress::Announced => view.successor_announced,
+                    Progress::Promoted => view.successor_promoted,
+                }
+            };
+            assert!(marked(second, 1));
+            assert!(!marked(second, 2));
+            assert!(!marked(first, 1));
+            // Stored with the second rotation: only what was done for it.
+            let (held, _, _) = store.snapshot(Some(second));
+            let stored = |contact: u32| {
+                let record = held
+                    .iter()
+                    .find(|record| record.credentials.identity() == &id(contact))
+                    .unwrap();
+                match progress {
+                    Progress::Announced => record.successor_announced,
+                    Progress::Promoted => record.successor_promoted,
+                }
+            };
+            assert!(stored(1));
+            assert!(!stored(2));
+            // Without a rotation nothing is marked.
+            let (held, _, _) = store.snapshot(None);
+            assert!(
+                held.iter()
+                    .all(|record| !record.successor_announced && !record.successor_promoted)
+            );
+        }
+    }
+
     /// The fewest and the most of something a snapshot held.
     #[derive(Debug, PartialEq, Eq)]
     struct Range {
@@ -1118,7 +1205,7 @@ mod tests {
             std::thread::spawn(move || {
                 let (mut contacts, mut declined) = (Range::new(), Range::new());
                 while !stop.load(Ordering::SeqCst) {
-                    let (held, _, refused) = store.snapshot();
+                    let (held, _, refused) = store.snapshot(None);
                     contacts.add(held.len());
                     declined.add(refused.len());
                     taken.fetch_add(1, Ordering::SeqCst);

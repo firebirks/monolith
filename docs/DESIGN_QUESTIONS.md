@@ -1439,7 +1439,14 @@ P4-10 Rotation (CR-1). One rotation at a time. Beginning one makes the
     successor are dialed with the old key, which announces it to them.
     Each step reaches peers only once it is durable: the successor is
     announced, and the new key answers, dials and is handed out, from the
-    generation that wrote the step (section 11.4).
+    generation that wrote the step (section 11.4). Each rotation has a
+    number of its own, and what a contact did (it was sent the successor,
+    it confirmed the new key) is recorded for that number: an
+    announcement is completed with the rotation it was made for, and a
+    completion that comes after that rotation ended counts for no other.
+    The switch and the end read their condition with the keys held,
+    against the rotation they change, and a snapshot stores the rotation
+    with the progress made for it and nothing else.
 
 P4-11 Dialing. The cards dialed for a contact are its authorized
     successor, if it states the endpoints the user confirmed, and then
