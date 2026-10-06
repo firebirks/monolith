@@ -43,7 +43,10 @@
 //! A link that failed is over for good: after the end of the stream, a read
 //! or write error, a deadline, a withdrawal, a violation or a Close, every
 //! later call fails at once, without waiting for the stream again, and
-//! nothing more is read or delivered.
+//! nothing more is read or delivered. So is a link whose send was dropped
+//! while it wrote (a deadline of the caller, an aborted task): the session
+//! counted the frame as sent and the stream may hold part of it, so the
+//! next call ends the link, without a Close, and fails.
 
 use core::fmt;
 use core::future::{Future, poll_fn};
@@ -284,6 +287,11 @@ pub struct Link<S> {
     end: usize,
     /// The link has ended: the stream was shut down, or given the chance.
     finished: bool,
+    /// A frame is being written. Still true when a call is entered, it
+    /// means the call that wrote it was dropped part way: the session
+    /// counted the frame as sent and the stream may hold part of it, so
+    /// the link can only end.
+    writing: bool,
 }
 
 /// A link with what the session logic said when it was made.
@@ -547,7 +555,32 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             start: 0,
             end: 0,
             finished: false,
+            writing: false,
         }
+    }
+
+    /// Ends the link if a write of an earlier call was dropped part way.
+    /// Returns the error for the call, or `None` if the link can go on.
+    async fn interrupted(&mut self) -> Option<LinkError> {
+        if !self.writing {
+            return None;
+        }
+        self.writing = false;
+        self.finish().await;
+        Some(LinkError::Stream)
+    }
+
+    /// Writes `frame`, a frame or handshake message, in whole, and flushes
+    /// it, within `FRAME_WRITE_TIMEOUT`. If the call is dropped while it
+    /// writes, the link is over from the next call on.
+    async fn write_frame(&mut self, frame: &[u8]) -> Result<(), LinkError> {
+        self.writing = true;
+        let written = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, frame))
+            .await
+            .map_err(|_| LinkError::TimedOut)
+            .and_then(|result| result);
+        self.writing = false;
+        written
     }
 
     /// The session.
@@ -566,7 +599,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
 
     /// Returns true once the link is over. Every later call fails.
     pub const fn is_over(&self) -> bool {
-        self.session.is_over()
+        self.session.is_over() || self.writing
     }
 
     /// Returns true while the link holds a slot of `MAX_UNKNOWN_SESSIONS`.
@@ -634,8 +667,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// every call that hands bytes to the stream, the first included, so
     /// nothing is handed over once it is seen, also when the stream would
     /// take more at that moment. A withdrawal or a failed write ends the
-    /// link without a Close: part of the bytes may be on the stream.
+    /// link without a Close: part of the bytes may be on the stream. A call
+    /// that is dropped while this runs leaves the link to end at the next
+    /// call ([`Self::interrupted`]).
     async fn write_unless_withdrawn(&mut self, bytes: &[u8]) -> Result<(), LinkError> {
+        self.writing = true;
         let outcome = {
             let withdrawal = &self.withdrawal;
             let stream = &mut self.stream;
@@ -664,6 +700,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             })
             .await
         };
+        self.writing = false;
         match outcome {
             Some(Ok(())) => Ok(()),
             Some(Err(error)) => {
@@ -685,8 +722,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// and the link ends.
     async fn end_withdrawn(&mut self) -> LinkError {
         if let Some(frame) = self.session.withdraw() {
-            let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
-                .await;
+            let _ = self.write_frame(&frame).await;
         }
         self.finish().await;
         LinkError::Withdrawn
@@ -697,8 +733,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// `FRAME_WRITE_TIMEOUT`.
     async fn end_evicted(&mut self) -> LinkError {
         if let Some(frame) = self.session.close() {
-            let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
-                .await;
+            let _ = self.write_frame(&frame).await;
         }
         self.finish().await;
         LinkError::Evicted
@@ -708,8 +743,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// deadline calls for one, written within `FRAME_WRITE_TIMEOUT`.
     async fn end_expired(&mut self, now: Instant) -> LinkError {
         if let Expiry::Close(Some(frame)) = self.session.expire(now) {
-            let _ = tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
-                .await;
+            let _ = self.write_frame(&frame).await;
         }
         self.finish().await;
         LinkError::TimedOut
@@ -723,6 +757,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// that may not be sent now fails with the error of the session and
     /// changes nothing.
     pub async fn send(&mut self, message: &Message) -> Result<(), LinkError> {
+        if let Some(error) = self.interrupted().await {
+            return Err(error);
+        }
         if self.session.is_over() {
             return Err(self.over());
         }
@@ -747,6 +784,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         {
             return written;
         }
+        // The write was given up here, not dropped by the caller: the link
+        // ends now.
+        self.writing = false;
         self.finish().await;
         Err(LinkError::TimedOut)
     }
@@ -760,9 +800,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     async fn complete_end(&mut self) {
         if self.session.state() == SessionState::Closing {
             if let Some(frame) = self.session.close() {
-                let _ =
-                    tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
-                        .await;
+                let _ = self.write_frame(&frame).await;
             }
         }
         if self.session.is_over() {
@@ -785,6 +823,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// has been written, and after a Close from the peer the stream is shut
     /// down. Either way the slot for strangers is back.
     pub async fn receive(&mut self) -> Result<Received, LinkError> {
+        if let Some(error) = self.interrupted().await {
+            return Err(error);
+        }
         loop {
             if self.session.is_over() {
                 return Err(self.over());
@@ -882,13 +923,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// stream down, each within `FRAME_WRITE_TIMEOUT`. On a link that is
     /// over already it returns at once.
     pub async fn close(mut self) -> Result<(), LinkError> {
+        if let Some(error) = self.interrupted().await {
+            return Err(error);
+        }
         let written = match self.session.close() {
-            Some(frame) => {
-                tokio::time::timeout(FRAME_WRITE_TIMEOUT, write_all(&mut self.stream, &frame))
-                    .await
-                    .map_err(|_| LinkError::TimedOut)
-                    .and_then(|result| result)
-            }
+            Some(frame) => self.write_frame(&frame).await,
             None => Ok(()),
         };
         self.finish().await;
@@ -1635,6 +1674,42 @@ mod tests {
                 assert_eq!(link.send(&chat()).await, Err(LinkError::Withdrawn));
                 assert_eq!(taken.lock().unwrap().len(), at);
                 assert_over(&link);
+            });
+        }
+    }
+
+    #[test]
+    fn a_send_dropped_while_it_writes_leaves_the_link_terminal() {
+        // A send is dropped (a deadline of the caller, an aborted task)
+        // after the frame was sealed: before its first byte was taken,
+        // after one, after part of the frame. The session counted the frame
+        // as sent, and the stream may hold part of it: the link is over,
+        // every later call fails at once, and nothing more is written, not
+        // even the Close of a withdrawal that comes afterwards.
+        for (room, withdraw) in [(0, false), (1, false), (10, false), (10, true)] {
+            run(async {
+                let (_, bob) = confirmed();
+                let (stream, taken) = stalling(room);
+                let mut link = Link::new(stream, bob, Withdrawal::new(), None, None);
+                let message = chat();
+                {
+                    let mut send = pin!(link.send(&message));
+                    let pending =
+                        poll_fn(|cx| Poll::Ready(send.as_mut().poll(cx).is_pending())).await;
+                    assert!(pending);
+                }
+                assert_eq!(taken.lock().unwrap().len(), room);
+                if withdraw {
+                    link.withdrawal.withdraw();
+                }
+                let started = tokio::time::Instant::now();
+                assert!(link.send(&chat()).await.is_err());
+                assert!(link.is_over());
+                assert!(link.receive().await.is_err());
+                assert!(link.send(&chat()).await.is_err());
+                let _ = link.close().await;
+                assert_eq!(started.elapsed(), core::time::Duration::ZERO);
+                assert_eq!(taken.lock().unwrap().len(), room);
             });
         }
     }

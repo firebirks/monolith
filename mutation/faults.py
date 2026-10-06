@@ -968,5 +968,8 @@ PHASE4 = [
     fault("CS73", CORE + "link.rs", "a write looks at the withdrawal once per wake-up, not before every write",
           ("            poll_fn(|cx| {\n                loop {\n                    if withdrawal.is_withdrawn() || withdrawn.as_mut().poll(cx).is_ready() {\n                        return Poll::Ready(None);\n                    }\n",
            "            poll_fn(|cx| {\n                if withdrawal.is_withdrawn() || withdrawn.as_mut().poll(cx).is_ready() {\n                    return Poll::Ready(None);\n                }\n                loop {\n")),
+    fault("CS74", CORE + "link.rs", "a link whose write was dropped part way goes on",
+          ("        if !self.writing {\n            return None;\n        }",
+           "        if !self.writing || true {\n            return None;\n        }")),
 ]
 
