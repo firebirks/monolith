@@ -866,3 +866,26 @@ fn a_deletion_names_the_instance_it_deletes() {
         assert_eq!(installation.identities().len(), 1);
     });
 }
+
+#[test]
+fn a_closed_identity_shows_the_card_it_answered_with() {
+    // A switched to a new key, and is deleted. The card it shows is the one
+    // it answered with, of the new key: public, and it grants nothing.
+    run(async {
+        let installation = Installation::ephemeral();
+        let a = installation
+            .restore_identity(keys(1, 1, 1, place(1)), None)
+            .await
+            .unwrap();
+        let successor = a.begin_rotation().await.unwrap();
+        assert!(
+            a.switch_rotation(a.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
+        assert_eq!(a.card(), successor);
+        installation.delete_identity(&a).await.unwrap();
+        assert!(a.is_closed());
+        assert_eq!(a.card(), successor);
+    });
+}

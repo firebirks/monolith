@@ -469,7 +469,14 @@ impl LocalIdentity {
             keys.seed.zeroize();
             keys.transport.zeroize();
             keys.onion = None;
-            keys.rotation = None;
+            // From here on it shows the card it answered with, which is
+            // public and grants nothing.
+            let durable = self.durability.durable();
+            if let Some(rotation) = keys.rotation.take() {
+                if rotation.switched_by(durable) {
+                    keys.party = rotation.party;
+                }
+            }
         }
         let mut invitations = lock(&self.invitations);
         *invitations = Invitations::new(invitations.instance());
