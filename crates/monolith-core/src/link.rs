@@ -47,7 +47,7 @@
 
 use core::fmt;
 use core::future::{Future, poll_fn};
-use core::pin::pin;
+use core::pin::{Pin, pin};
 use core::task::Poll;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
@@ -630,19 +630,37 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     }
 
     /// Writes `bytes` unless the session is withdrawn before the write
-    /// starts or while it is pending. A withdrawal or a failed write ends
-    /// the link without a Close: part of the bytes may be on the stream.
+    /// starts or while it is under way. The withdrawal is looked at before
+    /// every call that hands bytes to the stream, the first included, so
+    /// nothing is handed over once it is seen, also when the stream would
+    /// take more at that moment. A withdrawal or a failed write ends the
+    /// link without a Close: part of the bytes may be on the stream.
     async fn write_unless_withdrawn(&mut self, bytes: &[u8]) -> Result<(), LinkError> {
         let outcome = {
             let withdrawal = &self.withdrawal;
+            let stream = &mut self.stream;
             let mut withdrawn = pin!(withdrawal.0.wake.notified());
-            let mut write = pin!(write_all(&mut self.stream, bytes));
-            // Looked at before every step of the write, the first included.
+            let mut written = 0_usize;
             poll_fn(|cx| {
-                if withdrawal.is_withdrawn() || withdrawn.as_mut().poll(cx).is_ready() {
-                    return Poll::Ready(None);
+                loop {
+                    if withdrawal.is_withdrawn() || withdrawn.as_mut().poll(cx).is_ready() {
+                        return Poll::Ready(None);
+                    }
+                    let Some(rest) = bytes.get(written..).filter(|rest| !rest.is_empty()) else {
+                        return Pin::new(&mut *stream)
+                            .poll_flush(cx)
+                            .map(|flushed| Some(flushed.map_err(|_| LinkError::Stream)));
+                    };
+                    match Pin::new(&mut *stream).poll_write(cx, rest) {
+                        Poll::Ready(Ok(0) | Err(_)) => {
+                            return Poll::Ready(Some(Err(LinkError::Stream)));
+                        }
+                        Poll::Ready(Ok(taken)) => {
+                            written = written.saturating_add(taken.min(rest.len()));
+                        }
+                        Poll::Pending => return Poll::Pending,
+                    }
                 }
-                write.as_mut().poll(cx).map(Some)
             })
             .await
         };
@@ -1533,6 +1551,90 @@ mod tests {
                 assert!(link.receive().await.is_err());
                 link.close().await.unwrap();
                 assert_eq!(started.elapsed(), core::time::Duration::ZERO);
+            });
+        }
+    }
+
+    /// A stream that takes one byte per write call and withdraws the link
+    /// right after it took the byte number `at`: the withdrawal comes
+    /// between two writes, at the moment the stream could take more.
+    struct Trickling {
+        at: usize,
+        withdrawal: Withdrawal,
+        taken: std::sync::Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl AsyncWrite for Trickling {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            let Some(byte) = bytes.first() else {
+                return Poll::Ready(Ok(0));
+            };
+            let mut taken = self.taken.lock().unwrap();
+            taken.push(*byte);
+            if taken.len() == self.at {
+                self.withdrawal.withdraw();
+            }
+            Poll::Ready(Ok(1))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncRead for Trickling {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Pending
+        }
+    }
+
+    #[test]
+    fn nothing_is_written_after_a_withdrawal_that_comes_between_two_writes() {
+        // The stream is always ready and takes a byte at a time; the key
+        // is retired right after byte `at`. Not one more byte follows, for
+        // message 3 and for a frame of the session.
+        for at in [1, 2, 50] {
+            run(async {
+                let (session, _, message_3) = sessions();
+                let withdrawal = Withdrawal::new();
+                let taken = std::sync::Arc::new(Mutex::new(Vec::new()));
+                let stream = Trickling {
+                    at,
+                    withdrawal: withdrawal.clone(),
+                    taken: taken.clone(),
+                };
+                let mut link = Link::new(stream, session, withdrawal, None, None);
+                assert_eq!(
+                    link.write_unless_withdrawn(&message_3).await,
+                    Err(LinkError::Withdrawn)
+                );
+                assert_eq!(taken.lock().unwrap().as_slice(), &message_3[..at]);
+                assert_over(&link);
+
+                let (_, bob) = confirmed();
+                let withdrawal = Withdrawal::new();
+                let taken = std::sync::Arc::new(Mutex::new(Vec::new()));
+                let stream = Trickling {
+                    at,
+                    withdrawal: withdrawal.clone(),
+                    taken: taken.clone(),
+                };
+                let mut link = Link::new(stream, bob, withdrawal, None, None);
+                assert_eq!(link.send(&chat()).await, Err(LinkError::Withdrawn));
+                assert_eq!(taken.lock().unwrap().len(), at);
+                assert_over(&link);
             });
         }
     }

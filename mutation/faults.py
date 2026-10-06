@@ -965,5 +965,8 @@ PHASE4 = [
     fault("CS72", CORE + "link.rs", "what an answer without a slot for strangers recorded is not made durable",
           ("            let Some(slot) = identity.strangers.take() else {\n                withdrawal.end();\n                keep_recorded(identity, depends).await?;",
            "            let Some(slot) = identity.strangers.take() else {\n                withdrawal.end();")),
+    fault("CS73", CORE + "link.rs", "a write looks at the withdrawal once per wake-up, not before every write",
+          ("            poll_fn(|cx| {\n                loop {\n                    if withdrawal.is_withdrawn() || withdrawn.as_mut().poll(cx).is_ready() {\n                        return Poll::Ready(None);\n                    }\n",
+           "            poll_fn(|cx| {\n                if withdrawal.is_withdrawn() || withdrawn.as_mut().poll(cx).is_ready() {\n                    return Poll::Ready(None);\n                }\n                loop {\n")),
 ]
 
