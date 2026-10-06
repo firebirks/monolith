@@ -317,7 +317,7 @@ fn a_deleted_identity_is_taken_down_and_not_published_again() {
         let (task, mut states) = supervised(network.backend(), bob.clone(), shutdown);
         wait_for(&mut states, Publication::Available).await;
         assert!(reach(&network, &alice, &bob).await);
-        installation.delete_identity(bob.identity()).await.unwrap();
+        installation.delete_identity(&bob).await.unwrap();
         assert_eq!(ended(task).await, Publication::Stopped);
         assert!(!network.is_published(&bob.endpoint()));
         assert!(bob.onion_secret().is_none());
@@ -339,10 +339,7 @@ fn a_deleted_identity_is_taken_down_and_not_published_again() {
         )
         .await;
         let asked = tokio::time::Instant::now();
-        installation
-            .delete_identity(carol.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&carol).await.unwrap();
         assert_eq!(ended(task).await, Publication::Stopped);
         assert!(asked.elapsed() < Duration::from_secs(1));
     });
@@ -356,7 +353,7 @@ struct Gated {
     inner: MockTorBackend,
     entered: Arc<tokio::sync::Notify>,
     release: Option<Arc<tokio::sync::Notify>>,
-    during: std::sync::Mutex<Option<(&'static Installation, monolith_identity::IdentityPublicKey)>>,
+    during: std::sync::Mutex<Option<(&'static Installation, Arc<LocalIdentity>)>>,
     states: watch::Receiver<Publication>,
     removed_while_available: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -451,7 +448,7 @@ fn supervised_on(
 fn gated(
     network: &MockNetwork,
     release: Option<Arc<tokio::sync::Notify>>,
-    during: Option<(&'static Installation, monolith_identity::IdentityPublicKey)>,
+    during: Option<(&'static Installation, Arc<LocalIdentity>)>,
 ) -> (
     Gated,
     watch::Sender<Publication>,
@@ -501,7 +498,7 @@ fn a_publication_under_way_ends_when_the_identity_is_deleted() {
         let (task, _stop) = supervised_on(backend, bob.clone(), state);
         entered.notified().await;
         let asked = tokio::time::Instant::now();
-        installation.delete_identity(bob.identity()).await.unwrap();
+        installation.delete_identity(&bob).await.unwrap();
         assert_eq!(ended(task).await, Publication::Stopped);
         assert!(asked.elapsed() < Duration::from_secs(1));
         release.notify_waiters();
@@ -532,7 +529,7 @@ fn a_service_published_for_a_deleted_identity_is_never_reported_available() {
             .await
             .unwrap();
         let (backend, state, removed_while_available) =
-            gated(&network, None, Some((installation, *bob.identity())));
+            gated(&network, None, Some((installation, bob.clone())));
         let (task, _stop) = supervised_on(backend, bob.clone(), state);
         assert_eq!(ended(task).await, Publication::Stopped);
         assert!(!removed_while_available.load(std::sync::atomic::Ordering::SeqCst));

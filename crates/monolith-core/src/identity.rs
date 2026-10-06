@@ -1594,19 +1594,19 @@ impl Installation {
             .cloned()
     }
 
-    /// Deletes a local identity: its keys, its Onion Service key, its
-    /// capabilities and its contact state, and nothing of any other. Its
-    /// sessions are withdrawn. Durable when this returns.
-    pub async fn delete_identity(
-        &self,
-        identity: &IdentityPublicKey,
-    ) -> Result<(), InstallationError> {
+    /// Deletes the local identity `identity`: its keys, its Onion Service
+    /// key, its capabilities and its contact state, and nothing of any
+    /// other. Its sessions are withdrawn. Durable when this returns. It is
+    /// that instance which is deleted: once it is gone, a deletion of it
+    /// finds nothing ([`StoreError::NotFound`]), also when an identity of
+    /// the same keys was made again since.
+    pub async fn delete_identity(&self, identity: &LocalIdentity) -> Result<(), InstallationError> {
         let _change = self.shared.changes.lock().await;
         {
             let mut identities = lock(&self.shared.identities);
             let position = identities
                 .iter()
-                .position(|held| held.identity() == identity)
+                .position(|held| core::ptr::eq(Arc::as_ptr(held), identity))
                 .ok_or(InstallationError::Store(StoreError::NotFound))?;
             // Closed before it leaves the installation, so that nothing it
             // does from here on can be taken for durable by a write that no
@@ -1851,7 +1851,7 @@ mod tests {
         run(identity.set_request_mode(RequestMode::Open)).unwrap();
         let step: Hook = Box::new({
             let installation = installation.clone();
-            let deleted = *identity.identity();
+            let deleted = identity.clone();
             move || {
                 std::thread::spawn(move || run(installation.delete_identity(&deleted)).unwrap())
                     .join()
@@ -1870,10 +1870,7 @@ mod tests {
             let installation = Installation::ephemeral();
             let identity = installation.restore_identity(keys(1), None).await.unwrap();
             identity.begin_rotation().await.unwrap();
-            installation
-                .delete_identity(identity.identity())
-                .await
-                .unwrap();
+            installation.delete_identity(&identity).await.unwrap();
             let keys = lock(&identity.keys);
             assert_eq!(*keys.seed, [0; 32]);
             assert_eq!(*keys.transport, [0; 32]);

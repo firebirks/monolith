@@ -1052,5 +1052,8 @@ PHASE4 = [
     fault("CS99", CORE + "requests.rs", "every request of an identity has the same handle",
           ("        let id = RequestId {\n            instance: self.instance,\n            number: self.next,\n        };",
            "        let id = RequestId {\n            instance: self.instance,\n            number: 0,\n        };")),
+    fault("CS100", CORE + "identity.rs", "a deletion takes whatever identity has the keys it names",
+          ("                .position(|held| core::ptr::eq(Arc::as_ptr(held), identity))",
+           "                .position(|held| held.identity() == identity.identity())")),
 ]
 

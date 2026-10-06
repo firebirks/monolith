@@ -347,10 +347,7 @@ fn t_mi_10_a_session_of_one_identity_changes_nothing_at_another() {
         // Nor at an identity made again from A's keys: the session belongs
         // to the store that admitted it, which is gone.
         let endpoint = a.identity.endpoint();
-        installation
-            .delete_identity(a.identity.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&a.identity).await.unwrap();
         let again = installation
             .restore_identity(keys(1, 1, 1, endpoint), None)
             .await
@@ -443,10 +440,7 @@ fn a_deleted_identity_admits_nobody_and_changes_nothing() {
         let (a, mut b) = two(&network, &installation).await;
         let mut carol = node(&network, 3).await;
         befriend(&carol, &mut b).await;
-        installation
-            .delete_identity(b.identity.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&b.identity).await.unwrap();
         assert!(b.identity.is_closed());
         assert!(b.identity.onion_secret().is_none());
 
@@ -517,10 +511,7 @@ fn a_deleted_identity_hands_out_no_secret() {
         a.identity.import(&carol.card()).await.unwrap();
         let (invitation, _) = b.identity.create_invitation(None).await.unwrap();
         let (kept, _) = a.identity.create_invitation(None).await.unwrap();
-        installation
-            .delete_identity(b.identity.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&b.identity).await.unwrap();
         assert_eq!(
             b.identity.invitation_card(invitation).err(),
             Some(StoreError::Failed)
@@ -552,10 +543,7 @@ fn a_session_that_outlives_its_deleted_identity_changes_nothing() {
         carol.identity.import(&b.card()).await.unwrap();
         let (asking, answering) = connect(&carol, &mut b).await;
         let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
-        installation
-            .delete_identity(b.identity.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&b.identity).await.unwrap();
         send_first(&mut asking, &carol.identity).await;
         let received = answering.link.receive().await.unwrap();
         assert_eq!(
@@ -589,10 +577,7 @@ fn a_dial_that_waited_for_its_slot_while_the_identity_was_deleted_opens_no_strea
             tokio::spawn(async move { dial(&tor, &budgets, &identity, &card).await.err() })
         };
         tokio::task::yield_now().await;
-        installation
-            .delete_identity(b.identity.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&b.identity).await.unwrap();
         drop(held);
         assert_eq!(
             dialing.await.unwrap(),
@@ -630,10 +615,7 @@ fn t_mi_9_deleting_one_identity_leaves_the_other_as_it_was() {
             .into_iter()
             .find(|held| &held.identity == a.identity.identity())
             .unwrap();
-        installation
-            .delete_identity(b.identity.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&b.identity).await.unwrap();
         assert!(b_link.is_withdrawn());
         let after = state(&installation);
         assert_eq!(after.identities, vec![a_before]);
@@ -837,10 +819,7 @@ fn t_mi_11_an_invitation_handle_of_one_identity_is_refused_by_another() {
         );
         // A made again from its keys, with an invitation of its own.
         let endpoint = a.identity.endpoint();
-        installation
-            .delete_identity(a.identity.identity())
-            .await
-            .unwrap();
+        installation.delete_identity(&a.identity).await.unwrap();
         let again = installation
             .restore_identity(keys(1, 1, 1, endpoint), None)
             .await
@@ -855,5 +834,30 @@ fn t_mi_11_an_invitation_handle_of_one_identity_is_refused_by_another() {
             Some(StoreError::NotFound)
         );
         assert_eq!(again.invitations().len(), 1);
+    });
+}
+
+#[test]
+fn a_deletion_names_the_instance_it_deletes() {
+    // A is deleted and made again from the same keys. A second deletion
+    // of the first A, late or repeated, finds nothing: it does not delete
+    // the identity made again.
+    run(async {
+        let installation = Installation::ephemeral();
+        let first = installation
+            .restore_identity(keys(1, 1, 1, place(1)), None)
+            .await
+            .unwrap();
+        installation.delete_identity(&first).await.unwrap();
+        let again = installation
+            .restore_identity(keys(1, 1, 1, place(1)), None)
+            .await
+            .unwrap();
+        assert_eq!(
+            installation.delete_identity(&first).await.err(),
+            Some(InstallationError::Store(StoreError::NotFound))
+        );
+        assert!(!again.is_closed());
+        assert_eq!(installation.identities().len(), 1);
     });
 }
