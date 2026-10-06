@@ -611,7 +611,7 @@ impl LocalIdentity {
         }
         if received.actions.contains(&Action::ConsiderRequest) {
             if let Message::ContactRequest(request) = &received.message {
-                applied.request = Some(self.consider(request));
+                applied.request = Some(self.consider(request)?);
             }
         }
         if received.actions.contains(&Action::Confirmed) {
@@ -654,14 +654,22 @@ impl LocalIdentity {
     // blocked by then.
 
     /// Decides what becomes of a contact request from a stranger.
-    fn consider(&self, request: &ContactRequest) -> Result<(), Dropped> {
+    /// Fails with [`StoreError::Failed`] if the identity was deleted.
+    fn consider(&self, request: &ContactRequest) -> Result<Result<(), Dropped>, StoreError> {
+        self.hook("considering");
         let mode = lock(&self.settings).request_mode;
         let durable = self.durability.durable();
         let invitations = lock(&self.invitations);
         let mut requests = lock(&self.requests);
+        // Looked at with the queue locked: the deletion sets the flag
+        // before it drops the queue, so a request is never queued into the
+        // queue of a deleted identity.
+        if self.is_deleted() {
+            return Err(StoreError::Failed);
+        }
         let kind = self.contacts.kind(request.card.identity());
         self.hook("consider");
-        requests.consider(request, kind, mode, &invitations, durable)
+        Ok(requests.consider(request, kind, mode, &invitations, durable))
     }
 
     /// The pending contact requests.
@@ -1728,6 +1736,29 @@ mod tests {
         }
         rotating.join().unwrap();
         marking.join().unwrap();
+    }
+
+    #[test]
+    fn a_request_considered_as_the_identity_is_deleted_is_not_queued() {
+        // A session of the identity passed its check, and the identity is
+        // deleted, wholly, before the request is considered. The deleted
+        // identity queues nothing.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        run(identity.set_request_mode(RequestMode::Open)).unwrap();
+        let step: Hook = Box::new({
+            let installation = installation.clone();
+            let deleted = *identity.identity();
+            move || {
+                std::thread::spawn(move || run(installation.delete_identity(&deleted)).unwrap())
+                    .join()
+                    .unwrap();
+            }
+        });
+        lock(&identity.hooks).insert("considering", step);
+        assert!(identity.consider(&request(&stranger(3))).is_err());
+        assert!(identity.is_deleted());
+        assert!(identity.requests().is_empty());
     }
 
     #[test]

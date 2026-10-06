@@ -1018,5 +1018,8 @@ PHASE4 = [
     fault("CS89", CORE + "persist.rs", "a failed write hides what an earlier write made durable",
           ("                if let Some(written) = self.written {\n                    self.durability.durable.send_if_modified(",
            "                if let Some(written) = self.written.filter(|_| false) {\n                    self.durability.durable.send_if_modified(")),
+    fault("CS90", CORE + "identity.rs", "a request is queued for an identity deleted as it is considered",
+          ("        if self.is_deleted() {\n            return Err(StoreError::Failed);\n        }\n        let kind = self.contacts.kind(request.card.identity());",
+           "        let kind = self.contacts.kind(request.card.identity());")),
 ]
 
