@@ -908,5 +908,9 @@ PHASE4 = [
     fault("CS55", CORE + "persist.rs", "a failed write withdraws nothing when no waiter is left",
           ("                if let Some(failed) = self.failed.take() {\n                    failed();\n                }",
            "                drop(self.failed.take());")),
+    # The fixes of the review closure of Phase 4.
+    fault("CS56", ST + "record.rs", "a stored rotation prints its secret key",
+          ("        f.debug_struct(\"StoredRotation\")\n            .field(\"transport_secret\", &Redacted::new(()))",
+           "        f.debug_struct(\"StoredRotation\")\n            .field(\"transport_secret\", &self.transport_secret)")),
 ]
 

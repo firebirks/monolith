@@ -33,8 +33,10 @@
 //! the payload; it never skips. Nothing peer-supplied is ever read as
 //! structure (S28).
 
+use core::fmt;
 use std::collections::HashSet;
 
+use monolith_identity::redact::Redacted;
 use monolith_identity::{EndpointEpoch, IdentityPublicKey, OnionServiceKey, TransportPublicKey};
 use monolith_protocol::ProtocolError;
 use monolith_protocol::card::{ContactCard, InvitationCapability};
@@ -68,7 +70,10 @@ pub struct Contents {
 }
 
 /// A local identity and everything that belongs to it.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// `Debug` prints no secret: the identity seed, the transport secret and
+/// the Onion Service secret are redacted (S18).
+#[derive(PartialEq, Eq)]
 pub struct StoredIdentity {
     /// The 32-byte seed of the identity key.
     pub identity_seed: Zeroizing<[u8; 32]>,
@@ -98,8 +103,9 @@ pub struct StoredIdentity {
 }
 
 /// A change of the local transport key in progress (`docs/PROTOCOL.md`
-/// section 11.4, the steps of changing the transport key).
-#[derive(Debug, PartialEq, Eq)]
+/// section 11.4, the steps of changing the transport key). `Debug` prints
+/// no secret.
+#[derive(PartialEq, Eq)]
 pub struct StoredRotation {
     /// The 32 bytes of the new transport secret key.
     pub transport_secret: Zeroizing<[u8; 32]>,
@@ -107,6 +113,38 @@ pub struct StoredRotation {
     pub epoch: EndpointEpoch,
     /// The identity answers with the new key.
     pub switched: bool,
+}
+
+impl fmt::Debug for StoredIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoredIdentity")
+            .field("identity_seed", &Redacted::new(()))
+            .field("transport_secret", &Redacted::new(()))
+            .field(
+                "onion_secret",
+                &self.onion_secret.as_ref().map(|_| Redacted::new(())),
+            )
+            .field("epoch", &self.epoch)
+            .field("endpoint", &self.endpoint)
+            .field("rotation", &self.rotation)
+            .field("request_mode", &self.request_mode)
+            .field("label", &self.label)
+            .field("invitations", &self.invitations)
+            .field("contacts", &self.contacts)
+            .field("blocked", &self.blocked)
+            .field("declined", &self.declined)
+            .finish()
+    }
+}
+
+impl fmt::Debug for StoredRotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoredRotation")
+            .field("transport_secret", &Redacted::new(()))
+            .field("epoch", &self.epoch)
+            .field("switched", &self.switched)
+            .finish()
+    }
 }
 
 /// One member of the active set of invitation capabilities.
@@ -741,5 +779,37 @@ mod tests {
             held.invitation(),
             Some(&InvitationCapability::from_bytes([7; 16]))
         );
+    }
+
+    #[test]
+    fn debug_output_shows_no_secret() {
+        // Secrets of bytes that appear nowhere else, so that any of them
+        // in the output, in a list as `Debug` prints an array, is a leak.
+        let mut stored = identity(1);
+        stored.identity_seed = Zeroizing::new([0xB1; 32]);
+        stored.transport_secret = Zeroizing::new([0xB2; 32]);
+        stored.onion_secret = Some(Zeroizing::new([0xB3; ONION_SECRET_LEN]));
+        stored.rotation.as_mut().unwrap().transport_secret = Zeroizing::new([0xB4; 32]);
+        let rotation = stored.rotation.as_ref().unwrap();
+        let mut texts = vec![
+            format!("{rotation:?}"),
+            format!("{rotation:#?}"),
+            format!("{:?}", stored.rotation),
+            format!("{stored:?}"),
+            format!("{stored:#?}"),
+            format!("{:?}", vec![&stored]),
+        ];
+        let contents = Contents {
+            identities: vec![identity(2), stored],
+        };
+        texts.push(format!("{contents:?}"));
+        texts.push(format!("{contents:#?}"));
+        for text in &texts {
+            for byte in [0xB1_u8, 0xB2, 0xB3, 0xB4] {
+                for after in [",", "]", "\n"] {
+                    assert!(!text.contains(&format!("{byte}{after}")), "{text}");
+                }
+            }
+        }
     }
 }

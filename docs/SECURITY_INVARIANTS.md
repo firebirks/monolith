@@ -721,7 +721,10 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   do not derive `Debug` and do not implement `Display`. Their hand-written
   `Debug` prints `[redacted]`, or sizes and a type name where that is all
   there is to say. A type that is made only of such types may derive
-  `Debug`, because the fields print themselves. Error types carry no peer
+  `Debug`, because the fields print themselves. A buffer of secret bytes
+  (`Zeroizing<[u8; N]>`) is not such a type: it prints its bytes, so a
+  type that holds one implements `Debug` by hand (the stored identity and
+  rotation of `monolith_storage::record`). Error types carry no peer
   data. See `monolith_identity::redact`. The handshake and session types
   print `[redacted]`; a session prints its state, its frame and byte
   counters and whether it failed.
