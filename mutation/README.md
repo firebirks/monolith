@@ -62,11 +62,11 @@ With Phase 4:
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
-| Phase 4 | 91 | 91 | none |
+| Phase 4 | 94 | 94 | none |
 
-306 faults, 297 to be caught, 9 expected to survive.
+309 faults, 300 to be caught, 9 expected to survive.
 
-The Phase 4 list, CS1 to CS91, covers the contact store and the vault:
+The Phase 4 list, CS1 to CS94, covers the contact store and the vault:
 
 - one decision about a card and no rollback: an older card of the active
   key that rolls the contact back, a stale card promoted, a conflicting
@@ -120,7 +120,7 @@ The Phase 4 list, CS1 to CS91, covers the contact store and the vault:
   is durable: an invitation, its card, the successor card, a new identity
   (CS64, CS65, CS84 to CS86), the order of a request and the record of
   its sender (CS66, CS67), what a refused or slot-less admission recorded
-  and the writes of a job (CS68 to CS72, CS88, CS89), the withdrawal
+  and the writes of a job (CS68 to CS72, CS88, CS89, CS92 to CS94), the withdrawal
   looked at before every write, a link whose write or receive was
   dropped (CS73, CS74, CS83, CS91), a publication when its identity is
   deleted (CS75, CS76), and the progress of one rotation counted for
