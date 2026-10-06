@@ -1251,7 +1251,7 @@ mod tests {
         let store = ContactStore::new(id(0), Durability::new());
         store.accept_request(&card(1)).unwrap();
         store.accept_request(&card(2)).unwrap();
-        let (first, second) = (RotationId(0), RotationId(1));
+        let (first, second) = (RotationId::for_test(7, 0), RotationId::for_test(7, 1));
         for progress in [Progress::Announced, Progress::Promoted] {
             store.mark_rotation(&id(1), first, progress).unwrap();
             store.mark_rotation(&id(2), first, progress).unwrap();

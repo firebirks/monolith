@@ -62,11 +62,11 @@ fn random<const N: usize>() -> Result<Zeroizing<[u8; N]>, StoreError> {
     Ok(bytes)
 }
 
-/// The number of the first rotation of an identity: drawn at random, so
-/// that the numbers of two identities, or of an identity made again from
-/// the same keys, are not the same, and a number of one counts for no
-/// other.
-fn first_rotation() -> Result<u64, StoreError> {
+/// A number for a new instance of a local identity, drawn at random: the
+/// handles an instance gives out (an invitation, a rotation) carry it, so
+/// that another identity, or another instance of the same keys, made after
+/// a deletion or when the vault is opened again, refuses them.
+fn new_instance() -> Result<u64, StoreError> {
     random::<8>().map(|bytes| u64::from_be_bytes(*bytes))
 }
 
@@ -144,7 +144,9 @@ struct Keys {
     endpoint: OnionServiceKey,
     party: Arc<LocalParty>,
     rotation: Option<Rotation>,
-    /// The number of the next rotation; the first is drawn at random.
+    /// The instance of the identity these keys belong to.
+    instance: u64,
+    /// The number of the next rotation of this instance.
     rotations: u64,
 }
 
@@ -152,8 +154,11 @@ impl Keys {
     /// A number for a new rotation, one no earlier rotation of this
     /// identity had in this process.
     const fn next_rotation(&mut self) -> RotationId {
-        let id = RotationId(self.rotations);
-        self.rotations = self.rotations.wrapping_add(1);
+        let id = RotationId {
+            instance: self.instance,
+            number: self.rotations,
+        };
+        self.rotations = self.rotations.saturating_add(1);
         id
     }
 
@@ -176,7 +181,10 @@ impl Keys {
 /// Each identity starts its numbers at random. Local, and not kept across
 /// a restart; a rotation read from the vault gets a new number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RotationId(pub(crate) u64);
+pub struct RotationId {
+    instance: u64,
+    number: u64,
+}
 
 /// A successor card to announce on a session, and the rotation it belongs
 /// to, for [`LocalIdentity::mark_announced`].
@@ -427,7 +435,9 @@ impl LocalIdentity {
             keys.onion = None;
             keys.rotation = None;
         }
-        *lock(&self.invitations) = Invitations::new();
+        let mut invitations = lock(&self.invitations);
+        *invitations = Invitations::new(invitations.instance());
+        drop(invitations);
         *lock(&self.requests) = Requests::new();
         self.closed.send_replace(true);
     }
@@ -1316,7 +1326,7 @@ impl Installation {
     }
 
     fn restore(&self, stored: StoredIdentity) -> Result<LocalIdentity, InstallationError> {
-        let first = first_rotation()?;
+        let instance = new_instance()?;
         let party = issue(
             &stored.identity_seed,
             &stored.transport_secret,
@@ -1328,7 +1338,10 @@ impl Installation {
             Some(rotation) => Some(Rotation {
                 // The first number of this identity in this process: the
                 // marks stored with the rotation are read back with it.
-                id: RotationId(first),
+                id: RotationId {
+                    instance,
+                    number: 0,
+                },
                 party: issue(
                     &stored.identity_seed,
                     &rotation.transport_secret,
@@ -1367,7 +1380,8 @@ impl Installation {
             endpoint: stored.endpoint,
             party,
             rotation,
-            rotations: first.wrapping_add(1),
+            instance,
+            rotations: 1,
         };
         Ok(LocalIdentity::new(
             keys,
@@ -1376,7 +1390,8 @@ impl Installation {
                 label: stored.label,
             },
             contacts,
-            Invitations::load(stored.invitations).map_err(|_| InstallationError::Invalid)?,
+            Invitations::load(stored.invitations, instance)
+                .map_err(|_| InstallationError::Invalid)?,
             Arc::downgrade(&self.shared),
             self.shared.durability.clone(),
         ))
@@ -1409,6 +1424,7 @@ impl Installation {
         if onion.is_some_and(|secret| !record::is_usable_secret(secret.expose())) {
             return Err(InstallationError::Invalid);
         }
+        let instance = new_instance()?;
         let seed = random::<32>()?;
         let transport = random::<32>()?;
         let party = issue(&seed, &transport, EndpointEpoch::FIRST, endpoint)?;
@@ -1421,7 +1437,8 @@ impl Installation {
             endpoint,
             party,
             rotation: None,
-            rotations: first_rotation()?,
+            instance,
+            rotations: 0,
         };
         let identity = Arc::new(LocalIdentity::new(
             keys,
@@ -1430,7 +1447,7 @@ impl Installation {
                 label,
             },
             ContactStore::new(id, self.shared.durability.clone()),
-            Invitations::new(),
+            Invitations::new(instance),
             Arc::downgrade(&self.shared),
             self.shared.durability.clone(),
         ));
@@ -1459,6 +1476,7 @@ impl Installation {
         let party = issue(&keys.seed, &keys.transport, keys.epoch, keys.endpoint)
             .map_err(|_| InstallationError::Invalid)?;
         let id = *party.identity();
+        let instance = new_instance()?;
         let identity = Arc::new(LocalIdentity::new(
             Keys {
                 seed: keys.seed,
@@ -1468,14 +1486,15 @@ impl Installation {
                 endpoint: keys.endpoint,
                 party,
                 rotation: None,
-                rotations: first_rotation()?,
+                instance,
+                rotations: 0,
             },
             Settings {
                 request_mode: RequestMode::default(),
                 label,
             },
             ContactStore::new(id, self.shared.durability.clone()),
-            Invitations::new(),
+            Invitations::new(instance),
             Arc::downgrade(&self.shared),
             self.shared.durability.clone(),
         ));
@@ -1576,6 +1595,13 @@ mod tests {
 
     /// A step placed at a point of an operation (`LocalIdentity::hooks`).
     type Hook = Box<dyn FnOnce() + Send>;
+
+    impl RotationId {
+        /// The rotation `number` of the instance `instance`.
+        pub(crate) const fn for_test(instance: u64, number: u64) -> Self {
+            Self { instance, number }
+        }
+    }
 
     fn run<F: core::future::Future>(future: F) -> F::Output {
         tokio::runtime::Builder::new_current_thread()

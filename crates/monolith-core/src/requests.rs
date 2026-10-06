@@ -30,10 +30,16 @@ use monolith_storage::record::StoredInvitation;
 
 use crate::contacts::StoreError;
 
-/// A member of the active set, as the local side refers to it. The number
-/// is local and never sent; it is not kept across restarts.
+/// A member of the active set, as the local side refers to it: the
+/// instance of the identity that holds it and a number within it. Only
+/// that instance accepts it: another identity, or another instance of the
+/// same keys (after a deletion, or when the vault is opened again), finds
+/// nothing for it. Local, never sent, not kept across restarts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct InvitationId(u64);
+pub struct InvitationId {
+    instance: u64,
+    number: u64,
+}
 
 struct Invitation {
     id: InvitationId,
@@ -49,6 +55,10 @@ struct Invitation {
 /// The active set of invitation capabilities of one local identity.
 pub(crate) struct Invitations {
     members: Vec<Invitation>,
+    /// The instance of the identity that holds the set: in every id it
+    /// gives out, and compared with every id it is given (ids are compared
+    /// whole).
+    instance: u64,
     next: u64,
 }
 
@@ -61,15 +71,21 @@ impl fmt::Debug for Invitations {
 }
 
 impl Invitations {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new(instance: u64) -> Self {
         Self {
             members: Vec::new(),
+            instance,
             next: 0,
         }
     }
 
-    pub(crate) fn load(stored: Vec<StoredInvitation>) -> Result<Self, StoreError> {
-        let mut invitations = Self::new();
+    /// The instance of the identity that holds the set.
+    pub(crate) const fn instance(&self) -> u64 {
+        self.instance
+    }
+
+    pub(crate) fn load(stored: Vec<StoredInvitation>, instance: u64) -> Result<Self, StoreError> {
+        let mut invitations = Self::new(instance);
         for invitation in stored {
             let id = invitations.add(invitation.capability, invitation.label)?;
             // Read from the vault: durable.
@@ -95,7 +111,10 @@ impl Invitations {
                 monolith_protocol::ProtocolError::InvalidValue,
             ));
         }
-        let id = InvitationId(self.next);
+        let id = InvitationId {
+            instance: self.instance,
+            number: self.next,
+        };
         self.next = self.next.saturating_add(1);
         self.members.push(Invitation {
             id,
@@ -328,7 +347,7 @@ mod tests {
 
     #[test]
     fn a_capability_is_handed_out_and_admits_only_once_durable() {
-        let mut invitations = Invitations::new();
+        let mut invitations = Invitations::new(1);
         let capability = InvitationCapability::from_bytes([7; 16]);
         let id = invitations.add(capability.clone(), None).unwrap();
         // Unstamped: nothing, whatever is durable.

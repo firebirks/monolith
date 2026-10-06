@@ -498,8 +498,12 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
 - Mechanism: each local identity has its own active set (PROTOCOL.md
   section 12.3). A request is compared only with the set of the identity
   whose service it reached, and revoking changes only that set. There is
-  no lookup across the sets of all identities.
-- Tests: T-MI-4 (`tests/identities.rs`).
+  no lookup across the sets of all identities. The handle of a member
+  (`InvitationId`) names the instance of the identity that holds it, a
+  number drawn at random when the instance is made: another identity, or
+  another instance of the same keys, finds nothing for it, so it neither
+  exports nor revokes a member of its own through a handle of another.
+- Tests: T-MI-4 and T-MI-11 (`tests/identities.rs`), mutation fault CS96.
 
 ### S42. Stream isolation is per local identity and contact
 

@@ -1,4 +1,4 @@
-//! Several local identities in one installation: T-MI-1 to T-MI-10 of
+//! Several local identities in one installation: T-MI-1 to T-MI-11 of
 //! `docs/TEST_PLAN.md`, invariants S39 to S46.
 
 // Test code builds its own inputs.
@@ -793,5 +793,65 @@ fn a_write_under_way_when_the_installation_closes_still_ends() {
         })
         .await;
         assert!(written.is_ok(), "the write under way did not end");
+    });
+}
+
+#[test]
+fn t_mi_11_an_invitation_handle_of_one_identity_is_refused_by_another() {
+    // A and B each create an invitation. A's handle given to B, or B's to
+    // A, finds nothing: no card, no revocation. Nor does a handle of A
+    // after A was deleted and made again from the same keys.
+    run(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let (a, b) = two(&network, &installation).await;
+        let (of_a, card_a) = a.identity.create_invitation(None).await.unwrap();
+        let (of_b, card_b) = b.identity.create_invitation(None).await.unwrap();
+        assert_eq!(
+            b.identity.invitation_card(of_a).err(),
+            Some(StoreError::NotFound)
+        );
+        assert_eq!(
+            a.identity.invitation_card(of_b).err(),
+            Some(StoreError::NotFound)
+        );
+        assert_eq!(
+            b.identity.revoke_invitation(of_a).await.err(),
+            Some(StoreError::NotFound)
+        );
+        assert_eq!(
+            a.identity.revoke_and_discard(of_b).await.err(),
+            Some(StoreError::NotFound)
+        );
+        assert_eq!(a.identity.invitations().len(), 1);
+        assert_eq!(b.identity.invitations().len(), 1);
+        assert_eq!(
+            a.identity.invitation_card(of_a).unwrap().invitation(),
+            card_a.invitation()
+        );
+        assert_eq!(
+            b.identity.invitation_card(of_b).unwrap().invitation(),
+            card_b.invitation()
+        );
+        // A made again from its keys, with an invitation of its own.
+        let endpoint = a.identity.endpoint();
+        installation
+            .delete_identity(a.identity.identity())
+            .await
+            .unwrap();
+        let again = installation
+            .restore_identity(keys(1, 1, 1, endpoint), None)
+            .await
+            .unwrap();
+        let (_, _) = again.create_invitation(None).await.unwrap();
+        assert_eq!(
+            again.invitation_card(of_a).err(),
+            Some(StoreError::NotFound)
+        );
+        assert_eq!(
+            again.revoke_invitation(of_a).await.err(),
+            Some(StoreError::NotFound)
+        );
+        assert_eq!(again.invitations().len(), 1);
     });
 }

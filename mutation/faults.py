@@ -922,7 +922,7 @@ PHASE4 = [
     fault("CS60", CORE + "identity.rs", "a deleted identity signs cards for its capabilities",
           ("    pub fn invitation_card(&self, id: InvitationId) -> Result<ContactCard, StoreError> {\n        if self.is_closed() {\n            return Err(StoreError::Failed);\n        }\n",
            "    pub fn invitation_card(&self, id: InvitationId) -> Result<ContactCard, StoreError> {\n"),
-          ("        *lock(&self.invitations) = Invitations::new();\n", ""),
+          ("        let mut invitations = lock(&self.invitations);\n        *invitations = Invitations::new(invitations.instance());\n        drop(invitations);\n", ""),
           ("        let keys = lock(&self.keys);\n        if self.is_closed() {\n            return Err(StoreError::Failed);\n        }\n        let party = keys.answering(durable);",
            "        let keys = lock(&self.keys);\n        let party = keys.answering(durable);")),
     fault("CS61", CORE + "identity.rs", "a deleted identity hands out a party to dial and answer with",
@@ -1014,7 +1014,7 @@ PHASE4 = [
     fault("CS86", CORE + "identity.rs", "a new identity is listed before it is durable",
           ("            .filter(|held| held.added_at.load(Ordering::SeqCst) <= durable)",
            "            .filter(|held| held.added_at.load(Ordering::SeqCst) <= u64::MAX)")),
-    fault("CS87", CORE + "identity.rs", "every identity numbers its rotations alike",
+    fault("CS87", CORE + "identity.rs", "every instance of an identity is numbered alike",
           ("    random::<8>().map(|bytes| u64::from_be_bytes(*bytes))",
            "    random::<8>().map(|_| 0)")),
     fault("CS88", CORE + "persist.rs", "a job stops at its bound with nobody waiting for the rest",
@@ -1038,5 +1038,8 @@ PHASE4 = [
     fault("CS95", CORE + "identity.rs", "the identities of a closed installation keep their authority",
           ("    fn drop(&mut self) {\n        for identity in lock(&self.identities).iter() {\n            identity.close();\n        }\n    }",
            "    fn drop(&mut self) {\n        let _ = &self.identities;\n    }")),
+    fault("CS96", CORE + "requests.rs", "an invitation handle names no instance",
+          ("        let id = InvitationId {\n            instance: self.instance,",
+           "        let id = InvitationId {\n            instance: 0,")),
 ]
 
