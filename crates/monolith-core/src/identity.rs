@@ -35,9 +35,7 @@ use monolith_session::{
 };
 use monolith_storage::StorageError;
 use monolith_storage::dir::VaultDir;
-use monolith_storage::record::{
-    self, Contents, ONION_SECRET_LEN, StoredIdentity, StoredRotation,
-};
+use monolith_storage::record::{self, Contents, ONION_SECRET_LEN, StoredIdentity, StoredRotation};
 use monolith_storage::vault::{KdfParams, Passphrase, Recovery, Vault};
 use monolith_tor::{IsolationGroup, OnionServiceSecret, TorError};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, watch};

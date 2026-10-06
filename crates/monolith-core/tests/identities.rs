@@ -141,8 +141,7 @@ fn an_identity_is_restored_only_if_the_vault_can_hold_it() {
         }
         drop(installation);
         let (reopened, _) =
-            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase())
-                .unwrap();
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase()).unwrap();
         let mut found: Vec<_> = reopened
             .identities()
             .iter()
