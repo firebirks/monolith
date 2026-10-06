@@ -1079,5 +1079,8 @@ PHASE4 = [
     fault("CS108", CORE + "link.rs", "a card of someone who is no contact is dialed",
           ("    let Some(plan) = identity.dial_plan(&contact) else {\n        let standing",
            "    let Some(plan) = identity.dial_plan(&contact).or_else(|| {\n        identity.answering_party().ok().map(|local| crate::identity::DialPlan { local, cards: Vec::new() })\n    }) else {\n        let standing")),
+    fault("CS109", SE + "session.rs", "a session reports no capability for its contact request",
+          ("    pub const fn invitation(&self) -> Option<&InvitationCapability> {\n        self.invitation.as_ref()",
+           "    pub const fn invitation(&self) -> Option<&InvitationCapability> {\n        None")),
 ]
 
