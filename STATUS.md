@@ -2,7 +2,10 @@
 
 Written on 2026-10-05, when the owner stopped the final verification to
 have findings of their own fixed, and brought up to date on 2026-10-06,
-when those findings were closed. This file describes work in progress on the branch
+when those findings were closed, and again at the end of that day, in the
+middle of a further round of review closure (section 5.1), so that the
+work can be picked up on another machine. This file describes work in
+progress on the branch
 `phase-4-contact-store`. It is removed when Phase 4 is closed; it does not
 belong on `main`.
 
@@ -29,8 +32,8 @@ Rules that hold until the phase is closed:
 - Work on this branch only. `main` is not rewritten or moved, and the
   branch is not merged.
 - Nothing is pushed unless the owner asks for it. No force push. No
-  tags. The owner asked for this branch to be pushed on 2026-10-05, at
-  the commit that brings this file up to date.
+  tags. The owner asked for this branch to be pushed on 2026-10-05 and
+  on 2026-10-06, each time to pick the work up on another machine.
 - No history is rewritten.
 - Commits use the repository-local identity
   `firebirks <336470935+firebirks@users.noreply.github.com>` as author and
@@ -94,6 +97,7 @@ Commits on the branch, oldest first:
 | `d5f7721` to `a5383cb`, `6d26193` to `c42c698`, `9c5ce64` | The fixes of the two reviews of the Phase 4 code (`docs/DESIGN_QUESTIONS.md` 11.4): the write job, which also fails closed on its own and holds nothing of the installation once its outcome is out, the closing of a deleted identity, durable rotation steps, an end of rotation only after a durable switch, the snapshot as one cut, cancelled admissions forgotten, the flush of a new directory, the erasing encoder, and their mutation faults. |
 | `e29d7f2`, `49a225a`, `d84eb80` | CS45 following the write job; deadlines instead of hangs in two tests, so that CS46 and CS50 are caught at once; the runner's note for a fault caught by its timeout alone. |
 | `854fcf7` to `881ed27` | The closure of the owner's review (`docs/DESIGN_QUESTIONS.md` 11.5): thirteen findings reproduced and fixed, a second review of the whole Phase 4 code and reviews of its fixes, all fixed; CS28 caught and CS52 back by hooks; faults retargeted; the structure scan fixed. |
+| `cc8650f` to `c8322e9` | A further round of review closure, not finished (section 5.1): three findings of an outside review and the mutation issues it raised, and what independent reviews of the whole code then found. |
 | `86c2b40` onwards, between the above | Documents. |
 
 Where things are:
@@ -112,7 +116,7 @@ Where things are:
   `persist.rs` and `contacts.rs`, the tests in `crates/monolith-storage/`
   (`src/`, `tests/vault_format.rs`, `tests/kdf_benchmark.rs`), fuzz
   targets `vault_payload`, `contact_store` and the extended
-  `credential_sequence`, mutation faults `CS1` to `CS94`,
+  `credential_sequence`, mutation faults `CS1` to `CS109`,
   `tests/tor-network/two-node.sh` steps 4 to 11.
 
 ## 4. What was verified
@@ -185,10 +189,76 @@ final verification starts again on the commit that ends them.
 
 ## 5. What is left, in order
 
-### 5.1 The owner's findings
+### 5.1 The review closure in progress
 
-Closed; `docs/DESIGN_QUESTIONS.md` section 11.5 records them, and what
-the reviews of their fixes found.
+The owner's first findings are closed; `docs/DESIGN_QUESTIONS.md`
+section 11.5 records them and what the reviews of their fixes found. On
+`642a5ed` the first stage of the final verification, the fuzz runs and
+the private Tor network test passed; the code has changed since, so none
+of that counts for the final commit.
+
+The owner then brought three findings of an outside review of `642a5ed`
+and two mutation issues. They are being closed now. The pattern behind
+them is a logical name taken for an object instance: the same local
+identity in another lifecycle, the same remote contact in another
+record, the same counter in another identity, the same rotation context
+in another rotation. Done, each with a test that fails on the code before
+it and a mutation fault, in commits of their own:
+
+| Item | What was wrong | Fix | Commit | Test, fault |
+| --- | --- | --- | --- | --- |
+| Outside review 1 | Handles kept after the last `Installation` handle was dropped still had authority: party, Onion Service secret, invitation cards, dial plans, changes made in memory; kept links still sent. | Dropping the installation closes its identities as a deletion does; a write under way ends on its own. `is_deleted` is `is_closed` now. | `cc8650f` | `tests/identities.rs`, `tests/supervisor.rs`, CS95 |
+| Outside review 2 | `InvitationId` was a bare counter: an id of A worked at B. | Ids carry the identity instance, a random number drawn when the instance is made; so do rotation ids. | `b3a7cb5` | T-MI-11, CS96, CS87 |
+| Outside review 3 | A late announcement marked a contact made again for the same identity. | `mark_announced` takes the `Announcement`, bound to its rotation, its contact instance and its session. | `8c0aff1` | `tests/credentials.rs` (six cases), CS97, CS98, CS77 |
+| Outside review 4 | The test of CS51 missed the fault in one order of the map in 1024. | It checks at every read that the snapshot holds the lock of the map. | `f39f906` | `contacts::tests`, CS51 |
+| Outside review 5 | CS47 and CS48 survived the whole core suite: other guards held. | Retargeted at the state they name: a change of a deleted identity made in memory, a deleted identity's Onion Service secret. | `e6b8e18` | `tests/identities.rs`, CS47, CS48 |
+| Sibling | A request was answered by its sender: an answer for one request accepted a later one. | Requests have handles (`RequestId`). | `1314b9d` | `tests/invitations.rs`, CS99, CS67 |
+| Independent review | `delete_identity` deleted whatever identity held the keys named. | It takes the instance. | `fc07b65` | `tests/identities.rs`, CS100 |
+| Independent review | A forced switch or end decided for one rotation hit the next. | Both take the `RotationId`. | `c73482e` | `tests/credentials.rs`, CS101, CS102 |
+| Independent review | `import` and `block` took out a request queued after them. | The queue is locked across the change. (`91a3415` was committed with a test failing; `780c3dc` adapts the test.) | `91a3415`, `780c3dc` | `identity::tests`, CS103, CS104, CS14, CS66 |
+| Independent review | A card was returned for a capability revoked as it was created. | The card is made from the active set after the commit. | `3a6a823` | `identity::tests`, CS105, CS84 |
+| Independent review | A `DialPlan` or the answering party handed out a party with its key. | Parties stay in the core; `DialPlan::local_card` instead. | `4c8e14b` | `tests/structure.rs`, CS107 |
+| Independent review | A closed identity showed the card of a key it no longer answered with. | It keeps the party it answered with. | `85d6a33` | `tests/identities.rs`, CS106 |
+| Independent review | A card of someone no longer a contact was dialed, up to message 2. | `dial` refuses before a stream. | `9f91b1f` | `tests/credentials.rs`, CS108 |
+| Independent review | A contact request was made with the card of the moment, refused while switched. | It is made with the card and capability of its session (`AuthenticatedSession::invitation`). | `069ad2c`, `ffb81cd` | `tests/credentials.rs`, CS109 |
+| Independent review | The dev node answered a request by sender, took ambiguous prefixes, and kept non-contact sessions as a peer's. | Fixed in `dev-node`. No automated test; the private Tor network test runs these commands. | `c8322e9` | none |
+
+The mutation manifest at `c8322e9`: 324 faults, 109 of Phase 4 (CS1 to
+CS109).
+
+Left of this round, in order:
+
+1. CS81 survives since `90b9cbe`: `consider` checks the closing itself,
+   so removing the check in `apply` changes nothing seen. Retarget it to
+   remove both, or drop it.
+2. CS38 came out as a build failure, not a kill, in a run of every
+   Phase 4 fault on `e6b8e18`; check it by hand. In that run CS6 and
+   CS45 were caught with one test that also hung, CS17 and CS30 by the
+   timeout as known, all others by failing tests.
+3. A run of every Phase 4 fault on the final commit, recording for each
+   the tests that kill it (the script of that run was in the session's
+   scratch space and is to be written again, or `mutation/run.py`
+   extended), and from it, for every Phase 4 fault: the invariant, the
+   change, the test expected to kill it and why it fails. Repeat the
+   new hook tests a number of times as a check.
+4. Documents: `mutation/README.md` (counts 324 and 109, the new faults),
+   `docs/DESIGN_QUESTIONS.md` section 11.5 (the rows of this round),
+   `docs/SECURITY_INVARIANTS.md` and `docs/ARCHITECTURE.md` (instance
+   handles: logical identity, lifecycle instance, durable record,
+   runtime handle; `RequestId`, `DialPlan::local_card`, parties kept in
+   the core, the dial refusal, `delete_identity` by instance), the
+   public API changes in `docs/` wherever they are named.
+5. fmt, clippy, all workspace tests, the fuzz smoke run of all 16
+   targets, `tests/network/fail-closed.sh`, and the private Tor network
+   test (the dev node changed).
+6. Independent reviews of the round's fixes, for the three patterns:
+   a handle that survives its parent's closure, an identifier that
+   addresses another instance, a completion that reaches a replacement.
+   Fix what is real.
+7. The report of the round, of 23 items, ending with `READY TO FREEZE
+   FOR PRE-FINAL CHECKS` or `NOT READY TO FREEZE`; then the final
+   verification of section 5.2 on the frozen commit, when the owner
+   says so.
 
 ### 5.2 Final verification on the final commit
 
@@ -232,9 +302,11 @@ Stage 2, side by side:
 Stage 3, alone:
 
 - `python3 mutation/run.py all 4` (four workers on a machine with twelve
-  threads; fewer on a smaller one). Expected: 309 faults, 300 caught, 9
-  survivors, exactly those of `mutation/README.md` (B3, B4, S15, S24,
-  CAP2, CAP3, Q14, Q18, Q29), exit code 0. CS17 and CS30 are caught
+  threads; fewer on a smaller one). Expected, at `c8322e9`: 324
+  faults, 315 caught, 9 survivors, exactly those of
+  `mutation/README.md` (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29),
+  exit code 0, once CS81 and CS38 are settled; the numbers change with
+  the faults the round still adds. CS17 and CS30 are caught
   by the runner's timeout of 20 minutes each. The run takes several
   hours. The runner works on copies of `HEAD` under `mutation/work/`, so
   everything has to be committed first; its results go to
