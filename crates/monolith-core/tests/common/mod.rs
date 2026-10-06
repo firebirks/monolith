@@ -20,6 +20,7 @@ use monolith_protocol::contact::RequestMode;
 use monolith_protocol::session::Action;
 use monolith_protocol::text::{ChatText, DisplayName, IntroductionText};
 use monolith_session::{LocalParty, TransportSecretKey};
+use monolith_storage::dir::MemoryDir;
 use monolith_tor::{
     KeySource, MockNetwork, MockOnionService, MockTorBackend, OnionService, TorBackend,
 };
@@ -324,7 +325,7 @@ pub struct State {
     pub identities: Vec<IdentityState>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentityState {
     pub identity: IdentityPublicKey,
     pub card: ContactCard,
@@ -376,4 +377,21 @@ pub fn state(installation: &Installation) -> State {
         .collect();
     identities.sort_by(|a, b| a.identity.as_bytes().cmp(b.identity.as_bytes()));
     State { identities }
+}
+
+/// Lets held writes go on when dropped, also when an assertion fails, so
+/// that a failing test ends instead of waiting for a write it held.
+pub struct Released<'a>(pub &'a MemoryDir);
+
+impl Drop for Released<'_> {
+    fn drop(&mut self) {
+        self.0.release_writes();
+    }
+}
+
+/// Waits until `dir` holds a write.
+pub async fn held(dir: &MemoryDir) {
+    while !dir.write_held() {
+        tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+    }
 }

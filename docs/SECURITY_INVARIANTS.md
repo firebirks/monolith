@@ -813,7 +813,10 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   contact and stamps it with a generation; whatever grants on the basis of
   the change (message 3, a returned link, the success of a user command)
   waits until that generation is in the vault, and a failed write fails
-  the installation closed. A crash loses only changes nothing has used.
+  the installation closed. A new invitation capability is listed, put
+  into a card and admits requests only once its generation is durable,
+  also when its creation was cancelled. A crash loses only changes
+  nothing has used.
   The write is a job on the blocking pool that puts the vault back and
   publishes its outcome however the waiting task ends, so a cancelled
   wait loses neither the vault nor the lock of its directory, and the
@@ -829,7 +832,10 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   `contacts::tests` (snapshots taken while operations run at the bounds),
   `tests/credentials.rs`
   (`a_failed_write_withdraws_every_session_even_when_nobody_waits`),
-  mutation faults CS13 to CS15, CS35, CS36, CS45, CS51 and CS55.
+  `tests/invitations.rs`
+  (`an_invitation_is_handed_out_only_once_it_is_durable`),
+  `requests::tests`, mutation faults CS13 to CS15, CS35, CS36, CS45,
+  CS51, CS55, CS64 and CS65.
 
 ### S32. No hidden network traffic
 

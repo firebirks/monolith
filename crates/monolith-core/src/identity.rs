@@ -539,9 +539,10 @@ impl LocalIdentity {
             if let Message::ContactRequest(request) = &received.message {
                 let kind = self.contacts.kind(request.card.identity());
                 let mode = lock(&self.settings).request_mode;
+                let durable = self.durability.durable();
                 let invitations = lock(&self.invitations);
                 applied.request =
-                    Some(lock(&self.requests).consider(request, kind, mode, &invitations));
+                    Some(lock(&self.requests).consider(request, kind, mode, &invitations, durable));
             }
         }
         if received.actions.contains(&Action::Confirmed) {
@@ -613,8 +614,13 @@ impl LocalIdentity {
         self.check_open()?;
         let capability = InvitationCapability::from_bytes(*random::<INVITATION_CAPABILITY_LEN>()?);
         let card = self.card_with(Some(capability.clone()))?;
-        let id = lock(&self.invitations).add(capability, label)?;
-        let generation = self.durability.bump();
+        let (id, generation) = {
+            let mut invitations = lock(&self.invitations);
+            let id = invitations.add(capability, label)?;
+            let generation = self.durability.bump();
+            invitations.stamp(id, generation);
+            (id, generation)
+        };
         self.commit(generation).await?;
         Ok((id, card))
     }
@@ -625,16 +631,19 @@ impl LocalIdentity {
         if self.is_deleted() {
             return Err(StoreError::Failed);
         }
+        let durable = self.durability.durable();
         let capability = lock(&self.invitations)
-            .capability(id)
+            .capability(id, durable)
             .cloned()
             .ok_or(StoreError::NotFound)?;
         self.card_with(Some(capability))
     }
 
-    /// The members of the active set and their labels.
+    /// The members of the active set and their labels: those that are
+    /// durable. A capability whose write is pending is handed out nowhere.
     pub fn invitations(&self) -> Vec<(InvitationId, Option<DisplayName>)> {
-        lock(&self.invitations).list()
+        let durable = self.durability.durable();
+        lock(&self.invitations).list(durable)
     }
 
     /// Revokes `id`: requests that carry it are dropped from now on.

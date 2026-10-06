@@ -237,8 +237,14 @@ where
                 if succeeded {
                     assert_eq!(found, after_here, "step {step} {outcome:?}");
                 } else {
+                    // A capability whose write failed is handed out
+                    // nowhere, so the state this run shows does not have
+                    // it; the vault may, as the operation made it.
                     assert!(
-                        found == before || found == after_here,
+                        found == before
+                            || found == after_here
+                            || (one_more_invitation(&before, &after)
+                                && one_more_invitation(&before, &found)),
                         "step {step} {outcome:?}"
                     );
                 }
@@ -275,6 +281,33 @@ fn draws_randomness(before: &State, after: &State) -> bool {
         .iter()
         .zip(&after.identities)
         .any(|(b, a)| b.successor != a.successor || b.invitations.len() < a.invitations.len())
+}
+
+/// True if `after` is `before` with one more invitation, whatever its
+/// capability, and nothing else changed.
+fn one_more_invitation(before: &State, after: &State) -> bool {
+    if before.identities.len() != after.identities.len() {
+        return false;
+    }
+    let mut added = 0;
+    for (b, a) in before.identities.iter().zip(&after.identities) {
+        let mut a = a.clone();
+        if a.invitations.len() == b.invitations.len() + 1 {
+            let Some(extra) = a
+                .invitations
+                .iter()
+                .position(|held| !b.invitations.contains(held))
+            else {
+                return false;
+            };
+            a.invitations.remove(extra);
+            added += 1;
+        }
+        if a != *b {
+            return false;
+        }
+    }
+    added == 1
 }
 
 fn setup_rich(dir: MemoryDir) -> std::pin::Pin<Box<dyn core::future::Future<Output = ()>>> {

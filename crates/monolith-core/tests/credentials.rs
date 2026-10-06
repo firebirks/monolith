@@ -15,8 +15,8 @@
 mod common;
 
 use common::{
-    befriend, both, chat, confirm_both, connect, dial_and_answer, node, node_in, node_with, party,
-    request, run, run_paused, send_first, step,
+    Released, befriend, both, chat, confirm_both, connect, dial_and_answer, node, node_in,
+    node_with, party, request, run, run_paused, send_first, step,
 };
 use monolith_core::contacts::ImportOutcome;
 use monolith_core::identity::Installation;
@@ -736,16 +736,6 @@ fn a_rotation_switches_and_finishes_only_when_due() {
         assert_eq!(alice.card(), successor);
         let _ = (&mut bob, &mut carol);
     });
-}
-
-/// Lets held writes go on when dropped, also when an assertion fails, so
-/// that a failing test ends instead of waiting for a write it held.
-struct Released<'a>(&'a MemoryDir);
-
-impl Drop for Released<'_> {
-    fn drop(&mut self) {
-        self.0.release_writes();
-    }
 }
 
 #[test]

@@ -938,5 +938,11 @@ PHASE4 = [
     fault("CS63", CORE + "identity.rs", "a session of one identity is applied at another",
           ("        if !self.contacts.admitted(session.withdrawal) {\n            return Err(StoreError::OtherIdentity);\n        }\n",
            "")),
+    fault("CS64", CORE + "requests.rs", "an invitation is listed before it is durable",
+          ("            .filter(|member| member.durable_at <= durable)",
+           "            .filter(|member| member.durable_at <= u64::MAX)")),
+    fault("CS65", CORE + "requests.rs", "an invitation admits requests before it is durable",
+          ("            let equal = member.capability == *capability && member.durable_at <= durable;",
+           "            let equal = member.capability == *capability;")),
 ]
 

@@ -12,8 +12,12 @@
 
 mod common;
 
-use common::{Node, befriend, chat, confirm_both, connect, dial_and_answer, node, run, send_first};
+use common::{
+    Node, Released, befriend, chat, confirm_both, connect, dial_and_answer, held, node, node_in,
+    run, send_first,
+};
 use monolith_core::contacts::StoreError;
+use monolith_core::identity::Installation;
 use monolith_core::requests::Dropped;
 use monolith_identity::IdentitySecretKey;
 use monolith_protocol::body::Message;
@@ -22,6 +26,8 @@ use monolith_protocol::contact::{RecordKind, RequestMode};
 use monolith_protocol::limits::{MAX_ACTIVE_INVITATIONS, MAX_PENDING_REQUESTS_PER_INVITATION};
 use monolith_protocol::session::Action;
 use monolith_protocol::text::DisplayName;
+use monolith_storage::dir::{CrashOutcome, MemoryDir};
+use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::MockNetwork;
 
 /// What the requester saw, and what became of its request at Bob.
@@ -410,5 +416,48 @@ fn request_modes_decide_what_a_stranger_can_ask() {
             bob.identity.kind(declined.identity.identity()),
             RecordKind::Declined
         );
+    });
+}
+
+#[test]
+fn an_invitation_is_handed_out_only_once_it_is_durable() {
+    // The capability is in the active set in memory before its write is
+    // done. Until then it is listed nowhere, no card carries it and it
+    // admits no request: a crash would lose it, and a card handed out for
+    // it would admit nothing after the restart. A creation that is
+    // cancelled while its write is pending hands out nothing either; the
+    // capability shows up once the write is done, and never after a crash
+    // before it.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let passphrase = Passphrase::new("invitations test").unwrap();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase, KdfParams::FLOOR).unwrap();
+        let bob = node_in(installation, &network, 2, 2, 1).await;
+
+        dir.hold_writes();
+        let released = Released(&dir);
+        let identity = bob.identity.clone();
+        let create = tokio::spawn(async move { identity.create_invitation(None).await });
+        held(&dir).await;
+        assert!(bob.identity.invitations().is_empty());
+        let crashed = dir.restart(CrashOutcome::ALL[0]);
+        create.abort();
+        assert!(create.await.unwrap_err().is_cancelled());
+        assert!(bob.identity.invitations().is_empty());
+        drop(released);
+        tokio::time::timeout(core::time::Duration::from_secs(10), async {
+            while bob.identity.invitations().is_empty() {
+                tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let (id, _) = bob.identity.invitations()[0].clone();
+        assert!(bob.identity.invitation_card(id).is_ok());
+
+        let (reopened, _) = Installation::open(Box::new(crashed), &passphrase).unwrap();
+        assert!(reopened.identities()[0].invitations().is_empty());
     });
 }
