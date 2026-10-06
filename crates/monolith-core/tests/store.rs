@@ -227,11 +227,15 @@ where
                 // values drawn from the random source, such as a new key or
                 // a capability.
                 let after_here = state(&installation);
-                assert_eq!(
-                    after_here == after,
-                    !draws_randomness(&before, &after),
-                    "{step}"
-                );
+                // A run whose write failed shows nothing it could not make
+                // durable (a new identity, a capability, a successor card).
+                if succeeded {
+                    assert_eq!(
+                        after_here == after,
+                        !draws_randomness(&before, &after),
+                        "{step}"
+                    );
+                }
                 drop(installation);
                 let found = state(&open(&dir.restart(outcome)));
                 if succeeded {
@@ -246,7 +250,8 @@ where
                             || (one_more_invitation(&before, &after)
                                 && one_more_invitation(&before, &found))
                             || (successor_begun(&before, &after)
-                                && successor_shown(&after_here, &found)),
+                                && successor_shown(&after_here, &found))
+                            || (!draws_randomness(&before, &after) && found == after),
                         "step {step} {outcome:?}"
                     );
                 }

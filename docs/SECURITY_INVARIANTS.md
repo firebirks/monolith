@@ -819,8 +819,9 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   waits until that generation is in the vault, and a failed write fails
   the installation closed. A new invitation capability is listed, put
   into a card and admits requests only once its generation is durable,
-  also when its creation was cancelled. A crash loses only changes
-  nothing has used.
+  also when its creation was cancelled; so is a new local identity
+  listed, and the successor card of a rotation shown. A crash loses only
+  changes nothing has used.
   The write is a job on the blocking pool that puts the vault back and
   publishes its outcome however the waiting task ends, so a cancelled
   wait loses neither the vault nor the lock of its directory, and the

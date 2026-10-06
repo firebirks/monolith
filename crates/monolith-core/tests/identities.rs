@@ -647,3 +647,47 @@ fn t_mi_9_deleting_one_identity_leaves_the_other_as_it_was() {
         assert_eq!(state(&restored), after);
     });
 }
+
+#[test]
+fn a_new_identity_is_listed_only_once_it_is_durable() {
+    // An identity being created is listed nowhere until its write is done,
+    // also when the creation is cancelled; after a crash before that, it
+    // does not exist.
+    run(async {
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        dir.hold_writes();
+        let released = common::Released(&dir);
+        let creating = installation.clone();
+        let create = tokio::spawn(async move {
+            creating
+                .restore_identity(keys(1, 1, 1, place(1)), None)
+                .await
+        });
+        while !dir.write_held() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let id = *keys_identity(1);
+        assert!(installation.identities().is_empty());
+        assert!(installation.identity(&id).is_none());
+        let crashed = dir.restart(CrashOutcome::ALL[0]);
+        create.abort();
+        assert!(create.await.unwrap_err().is_cancelled());
+        assert!(installation.identities().is_empty());
+        drop(released);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while installation.identity(&id).is_none() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let (reopened, _) = Installation::open(Box::new(crashed), &passphrase()).unwrap();
+        assert!(reopened.identities().is_empty());
+    });
+}
+
+fn keys_identity(seed: u8) -> Box<monolith_identity::IdentityPublicKey> {
+    Box::new(IdentitySecretKey::from_seed(&[seed; 32]).public_key())
+}

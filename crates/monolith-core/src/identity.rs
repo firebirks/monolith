@@ -16,6 +16,7 @@
 
 use core::fmt;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use monolith_identity::{EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
@@ -264,6 +265,10 @@ pub struct LocalIdentity {
     durability: Arc<Durability>,
     /// Turns true when the identity is deleted.
     deleted: watch::Sender<bool>,
+    /// The generation that makes the identity durable in its installation:
+    /// it is listed only from then on. 0 for an identity read from the
+    /// vault; `u64::MAX` while it is being stamped.
+    added_at: AtomicU64,
     /// Steps a test runs at named points, to place another operation
     /// exactly there.
     #[cfg(test)]
@@ -300,6 +305,7 @@ impl LocalIdentity {
             shared,
             durability,
             deleted: watch::Sender::new(false),
+            added_at: AtomicU64::new(0),
             #[cfg(test)]
             hooks: Mutex::new(HashMap::new()),
         }
@@ -1441,7 +1447,7 @@ impl Installation {
         &self,
         identity: Arc<LocalIdentity>,
     ) -> Result<Arc<LocalIdentity>, InstallationError> {
-        {
+        let generation = {
             let mut identities = lock(&self.shared.identities);
             if identities.len() >= MAX_LOCAL_IDENTITIES {
                 return Err(InstallationError::Full);
@@ -1452,23 +1458,38 @@ impl Installation {
             {
                 return Err(InstallationError::Invalid);
             }
+            identity.added_at.store(u64::MAX, Ordering::SeqCst);
             identities.push(identity.clone());
-        }
-        let generation = self.shared.durability.bump();
+            let generation = self.shared.durability.bump();
+            identity.added_at.store(generation, Ordering::SeqCst);
+            generation
+        };
         self.shared.commit(generation).await?;
         Ok(identity)
     }
 
     /// Every local identity.
+    ///
+    /// Only those that are durable: an identity whose creation is still
+    /// being written, or was cancelled before it was, is listed once its
+    /// write is done, and never after a crash before that.
     pub fn identities(&self) -> Vec<Arc<LocalIdentity>> {
-        lock(&self.shared.identities).clone()
+        let durable = self.shared.durability.durable();
+        lock(&self.shared.identities)
+            .iter()
+            .filter(|held| held.added_at.load(Ordering::SeqCst) <= durable)
+            .cloned()
+            .collect()
     }
 
     /// The local identity `identity`.
     pub fn identity(&self, identity: &IdentityPublicKey) -> Option<Arc<LocalIdentity>> {
+        let durable = self.shared.durability.durable();
         lock(&self.shared.identities)
             .iter()
-            .find(|held| held.identity() == identity)
+            .find(|held| {
+                held.identity() == identity && held.added_at.load(Ordering::SeqCst) <= durable
+            })
             .cloned()
     }
 

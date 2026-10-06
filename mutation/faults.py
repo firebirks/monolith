@@ -1006,5 +1006,8 @@ PHASE4 = [
     fault("CS85", CORE + "identity.rs", "the successor card is handed out before it is durable",
           ("            .filter(|rotation| rotation.announced_from(durable))\n            .map(|rotation| rotation.party.card().clone())",
            "            .map(|rotation| rotation.party.card().clone())")),
+    fault("CS86", CORE + "identity.rs", "a new identity is listed before it is durable",
+          ("            .filter(|held| held.added_at.load(Ordering::SeqCst) <= durable)",
+           "            .filter(|held| held.added_at.load(Ordering::SeqCst) <= u64::MAX)")),
 ]
 
