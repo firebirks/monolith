@@ -292,6 +292,10 @@ pub struct Link<S> {
     /// counted the frame as sent and the stream may hold part of it, so
     /// the link can only end.
     writing: bool,
+    /// A step a test runs when a message was taken from the buffer, before
+    /// it is delivered, to place an eviction exactly there.
+    #[cfg(test)]
+    hook: Option<Box<dyn FnOnce() + Send>>,
 }
 
 /// A link with what the session logic said when it was made.
@@ -556,6 +560,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             end: 0,
             finished: false,
             writing: false,
+            #[cfg(test)]
+            hook: None,
         }
     }
 
@@ -849,6 +855,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
                     Ok((used, received)) => {
                         self.start = self.start.saturating_add(used).min(self.end);
                         if let Some(received) = received {
+                            #[cfg(test)]
+                            if let Some(step) = self.hook.take() {
+                                step();
+                            }
                             // A stranger's first message and its eviction
                             // race on one state; an evicted stranger's
                             // message is not delivered.
@@ -1297,6 +1307,33 @@ mod tests {
             display_name: monolith_protocol::text::DisplayName::new("Alice").unwrap(),
             introduction: monolith_protocol::text::IntroductionText::new("hi").unwrap(),
         }))
+    }
+
+    #[test]
+    fn a_stranger_evicted_as_its_first_message_is_taken_gets_nothing_delivered() {
+        // Alice's request is in Bob's buffer and the session has taken it.
+        // Right then, before the link claims her slot for a stranger who
+        // was heard, a newer stranger takes the slot and evicts her. Her
+        // request is not delivered, and the newcomer keeps the slot.
+        run(async {
+            let strangers = crate::strangers::Strangers::new(1);
+            let (mut alice, bob) = unconfirmed(BobHolds::Nothing);
+            let frame = alice.send(&request(), now()).unwrap();
+            let (mut peer_end, bob_end) = tokio::io::duplex(1 << 16);
+            peer_end.write_all(&frame).await.unwrap();
+            let mut link = Link::new(bob_end, bob, Withdrawal::new(), strangers.take(), None);
+            let newcomer = std::sync::Arc::new(Mutex::new(None));
+            link.hook = Some(Box::new({
+                let strangers = strangers.clone();
+                let newcomer = newcomer.clone();
+                move || {
+                    *newcomer.lock().unwrap() = strangers.take();
+                }
+            }));
+            assert_eq!(link.receive().await.err(), Some(LinkError::Evicted));
+            assert!(newcomer.lock().unwrap().is_some());
+            assert_over(&link);
+        });
     }
 
     #[test]
