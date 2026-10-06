@@ -137,7 +137,10 @@ Test area names refer to `docs/TEST_PLAN.md`.
 - Mechanism: the contact store of each local identity creates a record
   in two operations, both the local user's: importing a card
   (`LocalIdentity::import`) and accepting a pending request
-  (`accept_request`). A session with an identity the user has not added
+  (`accept_request`). The user answers a request by its handle
+  (`RequestId`, bound to the identity instance), so an answer is to the
+  request the user was shown and to no later request of the same sender.
+  A session with an identity the user has not added
   has write access to one thing: the bounded in-memory queue of pending
   requests (`Requests`), which is never written to the vault. For an
   identity the user did add, the peer's ContactAccept or ContactRequest

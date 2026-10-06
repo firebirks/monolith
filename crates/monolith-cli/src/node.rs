@@ -50,7 +50,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use monolith_core::budget::Budgets;
-use monolith_core::contacts::ImportOutcome;
+use monolith_core::contacts::{ImportOutcome, StoreError};
 use monolith_core::identity::{Installation, LocalIdentity, RotationState};
 use monolith_core::link::{Established, LinkError, answer, dial};
 use monolith_core::supervisor::{Publication, supervise};
@@ -724,8 +724,20 @@ impl Node {
                     "block" => local.block(&peer).await,
                     "unblock" => local.unblock(&peer).await,
                     "delete" => local.delete(&peer).await,
-                    "accept" => local.accept_request(&peer).await,
-                    _ => local.decline_request(&peer).await,
+                    "accept" | "decline" => {
+                        // The request of that sender as it is listed now.
+                        let request = local
+                            .requests()
+                            .into_iter()
+                            .find(|request| request.identity() == &peer)
+                            .map(|request| request.id);
+                        match (request, *verb) {
+                            (None, _) => Err(StoreError::NotFound),
+                            (Some(request), "accept") => local.accept_request(request).await,
+                            (Some(request), _) => local.decline_request(request).await,
+                        }
+                    }
+                    _ => Err(StoreError::NotFound),
                 };
                 done.map_err(|error| text(&error))?;
                 let past = match *verb {

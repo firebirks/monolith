@@ -407,3 +407,16 @@ pub async fn announce(a: &Node, b: &mut Node) -> bool {
         .expect("an announcement is due");
     a.identity.mark_announced(&announcement).await.unwrap()
 }
+
+/// The request of `sender` waiting at `identity`, to answer it.
+pub fn request_of(
+    identity: &LocalIdentity,
+    sender: &IdentityPublicKey,
+) -> monolith_core::requests::RequestId {
+    identity
+        .requests()
+        .into_iter()
+        .find(|request| request.identity() == sender)
+        .expect("a request of the sender waits")
+        .id
+}

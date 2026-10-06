@@ -948,8 +948,8 @@ PHASE4 = [
           ("        let kind = self.contacts.kind(request.card.identity());\n        self.hook(\"consider\");\n        Ok(requests",
            "        Ok(requests")),
     fault("CS67", CORE + "identity.rs", "a request is taken out before its answer is recorded",
-          ("        let request = requests.get(identity).ok_or(StoreError::NotFound)?;\n        let generation = answer(request)?;\n        requests.forget(identity);\n",
-           "        let request = requests.get(identity).ok_or(StoreError::NotFound)?.clone();\n        requests.forget(identity);\n        let generation = answer(&request)?;\n")),
+          ("        let pending = requests.get(request).ok_or(StoreError::NotFound)?;\n        let sender = *pending.identity();\n        let generation = answer(pending)?;\n        requests.forget(&sender);\n",
+           "        let pending = requests.get(request).ok_or(StoreError::NotFound)?.clone();\n        let sender = *pending.identity();\n        requests.forget(&sender);\n        let generation = answer(&pending)?;\n")),
     fault("CS68", CORE + "link.rs", "what a refused dial recorded is not made durable",
           ("                    withdrawal.end();\n                    keep_recorded(identity, depends).await?;\n                    return Err(LinkError::Refused(admission));",
            "                    withdrawal.end();\n                    let _ = depends;\n                    return Err(LinkError::Refused(admission));")),
@@ -1047,5 +1047,8 @@ PHASE4 = [
     fault("CS98", CORE + "contacts.rs", "a late announcement marks whatever contact holds the identity now",
           ("            if contact.instance != instance || !stands {",
            "            if instance == u64::MAX && !stands {")),
+    fault("CS99", CORE + "requests.rs", "every request of an identity has the same handle",
+          ("        let id = RequestId {\n            instance: self.instance,\n            number: self.next,\n        };",
+           "        let id = RequestId {\n            instance: self.instance,\n            number: 0,\n        };")),
 ]
 

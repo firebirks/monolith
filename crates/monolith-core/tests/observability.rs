@@ -135,7 +135,7 @@ async fn member(class: Class, network: &MockNetwork, bob: &mut Node, seed: u8) -
                 .unwrap();
             assert_eq!(ask(&peer, bob, &card).await.1, Some(Ok(())));
             bob.identity
-                .decline_request(peer.identity.identity())
+                .decline_request(common::request_of(&bob.identity, peer.identity.identity()))
                 .await
                 .unwrap();
             bob.identity
@@ -310,7 +310,7 @@ fn t_confirm_1_every_fate_of_a_request_looks_the_same() {
         let peer = node(&network, next()).await;
         assert_eq!(ask(&peer, &mut bob, &cards[1]).await.1, Some(Ok(())));
         bob.identity
-            .decline_request(peer.identity.identity())
+            .decline_request(common::request_of(&bob.identity, peer.identity.identity()))
             .await
             .unwrap();
         let (view, decided) = ask(&peer, &mut bob, &cards[1]).await;
@@ -446,7 +446,7 @@ fn t_contact_3_a_request_after_a_deletion_is_from_an_unknown_identity() {
         assert!(bob.identity.known().is_empty());
         // Accepting her makes a new contact, with nothing of the old one.
         bob.identity
-            .accept_request(alice.identity.identity())
+            .accept_request(common::request_of(&bob.identity, alice.identity.identity()))
             .await
             .unwrap();
         let view = bob.identity.contact(alice.identity.identity()).unwrap();
@@ -533,7 +533,10 @@ fn a_confirmation_is_for_a_contact_only() {
             .unwrap();
         assert_eq!(ask(&declined, &mut bob, &card).await.1, Some(Ok(())));
         bob.identity
-            .decline_request(declined.identity.identity())
+            .decline_request(common::request_of(
+                &bob.identity,
+                declined.identity.identity(),
+            ))
             .await
             .unwrap();
         let unknown = node(&network, 5).await;

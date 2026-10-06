@@ -197,9 +197,22 @@ impl Invitations {
     }
 }
 
+/// A request in the queue, as the local side refers to it: the instance of
+/// the identity that holds it and a number within it, a new one for every
+/// request queued. An answer names it, so that it is the answer to that
+/// request and to no other, also not to a later request of the same
+/// sender. Local, never sent, not kept across restarts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct RequestId {
+    instance: u64,
+    number: u64,
+}
+
 /// A contact request waiting for the user.
 #[derive(Clone, PartialEq, Eq)]
 pub struct PendingRequest {
+    /// Which request it is, for the answer.
+    pub id: RequestId,
     /// The card the sender presented, which is its own.
     pub card: ContactCard,
     /// Its display name.
@@ -214,6 +227,7 @@ pub struct PendingRequest {
 impl fmt::Debug for PendingRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PendingRequest")
+            .field("id", &self.id)
             .field("admitted_by", &self.admitted_by)
             .finish_non_exhaustive()
     }
@@ -251,14 +265,27 @@ pub enum Dropped {
 }
 
 /// The pending requests of one local identity.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Requests {
     queue: Vec<PendingRequest>,
+    /// The instance of the identity that holds the queue.
+    instance: u64,
+    /// The number of the next request queued.
+    next: u64,
 }
 
 impl Requests {
-    pub(crate) fn new() -> Self {
-        Self::default()
+    pub(crate) fn new(instance: u64) -> Self {
+        Self {
+            queue: Vec::new(),
+            instance,
+            next: 0,
+        }
+    }
+
+    /// The instance of the identity that holds the queue.
+    pub(crate) const fn instance(&self) -> u64 {
+        self.instance
     }
 
     /// Decides whether `request` from a peer whose record is `kind` goes
@@ -306,7 +333,13 @@ impl Requests {
         if self.queue.len() >= MAX_PENDING_CONTACT_REQUESTS {
             return Err(Dropped::QueueFull);
         }
+        let id = RequestId {
+            instance: self.instance,
+            number: self.next,
+        };
+        self.next = self.next.saturating_add(1);
         self.queue.push(PendingRequest {
+            id,
             card: request.card.clone(),
             display_name: request.display_name.clone(),
             introduction: request.introduction.clone(),
@@ -315,9 +348,9 @@ impl Requests {
         Ok(())
     }
 
-    /// The request of `identity`, if one waits.
-    pub(crate) fn get(&self, identity: &IdentityPublicKey) -> Option<&PendingRequest> {
-        self.queue.iter().find(|held| held.identity() == identity)
+    /// The request `id`, if it waits.
+    pub(crate) fn get(&self, id: RequestId) -> Option<&PendingRequest> {
+        self.queue.iter().find(|held| held.id == id)
     }
 
     /// Discards the requests that `id` admitted: the separate action of

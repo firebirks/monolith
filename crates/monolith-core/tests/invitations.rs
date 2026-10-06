@@ -127,10 +127,7 @@ fn t_inv_1_to_4_cards_with_capabilities_admit_requests_until_revoked() {
             closed(Some(Err(Dropped::Quota)))
         );
         for request in bob.identity.requests() {
-            bob.identity
-                .decline_request(request.identity())
-                .await
-                .unwrap();
+            bob.identity.decline_request(request.id).await.unwrap();
         }
         assert!(bob.identity.requests().is_empty());
         let late = node(&network, 40).await;
@@ -190,7 +187,7 @@ fn t_inv_7_a_contact_accepted_from_a_revoked_capability_stays_accepted() {
         let mut alice = node(&network, 1).await;
         assert_eq!(ask(&alice, &mut bob, &card_a).await.decided, Some(Ok(())));
         bob.identity
-            .accept_request(alice.identity.identity())
+            .accept_request(common::request_of(&bob.identity, alice.identity.identity()))
             .await
             .unwrap();
         // The next session confirms, and stays open.
@@ -393,7 +390,10 @@ fn request_modes_decide_what_a_stranger_can_ask() {
         let declined = node(&network, 13).await;
         assert_eq!(ask(&declined, &mut bob, &open).await.decided, Some(Ok(())));
         bob.identity
-            .decline_request(declined.identity.identity())
+            .decline_request(common::request_of(
+                &bob.identity,
+                declined.identity.identity(),
+            ))
             .await
             .unwrap();
         assert_eq!(
@@ -502,7 +502,9 @@ fn a_request_stays_pending_when_answering_it_fails() {
             bob.identity.import(&filler(n)).await.unwrap();
         }
         assert_eq!(
-            bob.identity.accept_request(carol.identity.identity()).await,
+            bob.identity
+                .accept_request(common::request_of(&bob.identity, carol.identity.identity()))
+                .await,
             Err(StoreError::Full)
         );
         assert_eq!(bob.identity.requests().len(), 1);
@@ -511,7 +513,7 @@ fn a_request_stays_pending_when_answering_it_fails() {
             RecordKind::None
         );
         bob.identity
-            .decline_request(carol.identity.identity())
+            .decline_request(common::request_of(&bob.identity, carol.identity.identity()))
             .await
             .unwrap();
         assert!(bob.identity.requests().is_empty());
@@ -550,5 +552,46 @@ fn an_invitation_card_states_the_key_that_answers_when_it_is_returned() {
         assert!(switch.await.unwrap().unwrap());
         assert_ne!(bob.card(), old);
         assert_eq!(card.transport(), bob.card().transport());
+    });
+}
+
+#[test]
+fn an_answer_is_for_the_request_it_was_given_for() {
+    // Carol's request, admitted by a capability, is listed. The capability
+    // is revoked and its requests discarded, and Carol asks again, in open
+    // mode: another request of the same sender. An answer given for the
+    // first one finds nothing; the second waits for an answer of its own.
+    run(async {
+        let network = MockNetwork::new();
+        let mut bob = node(&network, 2).await;
+        let (invitation, card) = bob.identity.create_invitation(None).await.unwrap();
+        let carol = node(&network, 3).await;
+        assert_eq!(ask(&carol, &mut bob, &card).await.decided, Some(Ok(())));
+        let seen = bob.identity.requests().remove(0);
+        assert_eq!(seen.admitted_by, Some(invitation));
+        assert_eq!(bob.identity.revoke_and_discard(invitation).await, Ok(1));
+        bob.identity
+            .set_request_mode(RequestMode::Open)
+            .await
+            .unwrap();
+        let open = bob.identity.card();
+        assert_eq!(ask(&carol, &mut bob, &open).await.decided, Some(Ok(())));
+        let again = bob.identity.requests().remove(0);
+        assert_eq!(again.admitted_by, None);
+        assert_ne!(seen.id, again.id);
+        assert_eq!(
+            bob.identity.accept_request(seen.id).await,
+            Err(StoreError::NotFound)
+        );
+        assert_eq!(
+            bob.identity.kind(carol.identity.identity()),
+            RecordKind::None
+        );
+        assert_eq!(bob.identity.requests().len(), 1);
+        bob.identity.accept_request(again.id).await.unwrap();
+        assert_eq!(
+            bob.identity.kind(carol.identity.identity()),
+            RecordKind::Accepted
+        );
     });
 }

@@ -46,7 +46,7 @@ use crate::contacts::{ContactStore, ContactView, ImportOutcome, Progress, StoreE
 use crate::dialplan;
 use crate::link::Withdrawal;
 use crate::persist::{CommitError, Durability, Store, Write};
-use crate::requests::{Dropped, InvitationId, Invitations, PendingRequest, Requests};
+use crate::requests::{Dropped, InvitationId, Invitations, PendingRequest, RequestId, Requests};
 use crate::strangers::Strangers;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -340,8 +340,8 @@ impl LocalIdentity {
             keys: Mutex::new(keys),
             settings: Mutex::new(settings),
             contacts,
+            requests: Mutex::new(Requests::new(invitations.instance())),
             invitations: Mutex::new(invitations),
-            requests: Mutex::new(Requests::new()),
             strangers: Strangers::new(MAX_UNKNOWN_SESSIONS),
             handshakes: Arc::new(Semaphore::new(MAX_INBOUND_HANDSHAKES)),
             contact_sessions: Arc::new(Semaphore::new(MAX_CONTACT_SESSIONS)),
@@ -462,7 +462,9 @@ impl LocalIdentity {
         let mut invitations = lock(&self.invitations);
         *invitations = Invitations::new(invitations.instance());
         drop(invitations);
-        *lock(&self.requests) = Requests::new();
+        let mut requests = lock(&self.requests);
+        *requests = Requests::new(requests.instance());
+        drop(requests);
         self.closed.send_replace(true);
     }
 
@@ -722,37 +724,42 @@ impl LocalIdentity {
     /// leaves the request waiting.
     fn answer_request(
         &self,
-        identity: &IdentityPublicKey,
+        request: RequestId,
         answer: impl FnOnce(&PendingRequest) -> Result<u64, StoreError>,
     ) -> Result<u64, StoreError> {
         self.check_open()?;
         let mut requests = lock(&self.requests);
-        let request = requests.get(identity).ok_or(StoreError::NotFound)?;
-        let generation = answer(request)?;
-        requests.forget(identity);
+        let pending = requests.get(request).ok_or(StoreError::NotFound)?;
+        let sender = *pending.identity();
+        let generation = answer(pending)?;
+        requests.forget(&sender);
         Ok(generation)
     }
 
-    /// The user accepted the request of `identity`: it becomes an accepted
-    /// contact with the card of the request. Durable when this returns.
-    pub async fn accept_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
-        let generation = self.answer_request(identity, |request| {
-            self.contacts.accept_request(&request.card)
+    /// The user accepted the request `request`: its sender becomes an
+    /// accepted contact with the card of that request. A request that no
+    /// longer waits, also when its sender has queued another since, is
+    /// [`StoreError::NotFound`]. Durable when this returns.
+    pub async fn accept_request(&self, request: RequestId) -> Result<(), StoreError> {
+        let generation = self.answer_request(request, |pending| {
+            self.contacts.accept_request(&pending.card)
         })?;
         self.commit(generation).await
     }
 
-    /// The user declined the request of `identity`. Nothing is sent.
-    pub async fn decline_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
-        let generation = self.answer_request(identity, |_| self.contacts.decline(identity))?;
+    /// The user declined the request `request`. Nothing is sent.
+    pub async fn decline_request(&self, request: RequestId) -> Result<(), StoreError> {
+        let generation =
+            self.answer_request(request, |pending| self.contacts.decline(pending.identity()))?;
         self.commit(generation).await
     }
 
-    /// The user blocked the sender of the request of `identity`. Its
+    /// The user blocked the sender of the request `request`. Its
     /// sessions as a contact are withdrawn at once; durable when this
     /// returns.
-    pub async fn block_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
-        let generation = self.answer_request(identity, |_| self.contacts.block(identity))?;
+    pub async fn block_request(&self, request: RequestId) -> Result<(), StoreError> {
+        let generation =
+            self.answer_request(request, |pending| self.contacts.block(pending.identity()))?;
         self.commit(generation).await
     }
 

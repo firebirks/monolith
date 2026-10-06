@@ -684,7 +684,7 @@ fn a_stranger_request_reaches_the_queue_and_nothing_durable() {
         );
         // Accepting it makes an accepted contact.
         bob.identity
-            .accept_request(alice.identity.identity())
+            .accept_request(common::request_of(&bob.identity, alice.identity.identity()))
             .await
             .unwrap();
         assert_eq!(
