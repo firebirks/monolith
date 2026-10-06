@@ -120,10 +120,10 @@ The Phase 4 list, CS1 to CS94, covers the contact store and the vault:
   is durable: an invitation, its card, the successor card, a new identity
   (CS64, CS65, CS84 to CS86), the order of a request and the record of
   its sender (CS66, CS67), what a refused or slot-less admission recorded
-  and the writes of a job (CS68 to CS72, CS88, CS89, CS92 to CS94), the withdrawal
-  looked at before every write, a link whose write or receive was
-  dropped (CS73, CS74, CS83, CS91), a publication when its identity is
-  deleted (CS75, CS76), and the progress of one rotation counted for
+  and the writes of a job (CS68 to CS72, CS88, CS89, CS92 to CS94), the
+  withdrawal looked at before every write, a link whose write or receive
+  was dropped (CS73, CS74, CS83, CS91), a publication when its identity
+  is deleted (CS75, CS76), and the progress of one rotation counted for
   another (CS77 to CS80, CS87).
 
 CS28 is caught by a test that evicts the stranger at a hook between
