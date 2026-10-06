@@ -523,8 +523,16 @@ impl LocalIdentity {
 
     /// The user imported `card`. Durable when this returns.
     pub async fn import(&self, card: &ContactCard) -> Result<ImportOutcome, StoreError> {
-        let (outcome, generation) = self.contacts.import(card)?;
-        lock(&self.requests).forget(card.identity());
+        let (outcome, generation) = {
+            // The queue is locked across the change of the record and the
+            // removal of the sender's request, so that a request queued
+            // after this, for a record changed again, is not taken out.
+            let mut requests = lock(&self.requests);
+            let imported = self.contacts.import(card)?;
+            self.hook("forgetting");
+            requests.forget(card.identity());
+            imported
+        };
         self.commit(generation).await?;
         Ok(outcome)
     }
@@ -546,8 +554,14 @@ impl LocalIdentity {
     /// Blocks `identity`. Its sessions as a contact are withdrawn at once;
     /// durable when this returns.
     pub async fn block(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
-        let generation = self.contacts.block(identity)?;
-        lock(&self.requests).forget(identity);
+        let generation = {
+            // As for an import: one step with the queue locked.
+            let mut requests = lock(&self.requests);
+            let generation = self.contacts.block(identity)?;
+            self.hook("forgetting");
+            requests.forget(identity);
+            generation
+        };
         self.commit(generation).await
     }
 
@@ -1886,6 +1900,73 @@ mod tests {
         assert!(identity.consider(&request(&stranger(3))).is_err());
         assert!(identity.is_closed());
         assert!(identity.requests().is_empty());
+    }
+
+    #[test]
+    fn a_block_or_an_import_takes_out_no_request_queued_after_it() {
+        // The user blocks Carol, or imports her card. Between the change of
+        // her record and the removal of her pending request, the change is
+        // undone (she is unblocked, or deleted) and she asks again: her new
+        // request is queued for a record that is neither, and must not be
+        // taken out.
+        for blocking in [true, false] {
+            a_request_queued_meanwhile_stays(blocking);
+        }
+    }
+
+    fn a_request_queued_meanwhile_stays(blocking: bool) {
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        run(identity.set_request_mode(RequestMode::Open)).unwrap();
+        let carol = stranger(3);
+        let carol_id = *carol.identity();
+        let thread = Arc::new(Mutex::new(None));
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            let thread = thread.clone();
+            let carol = carol.clone();
+            move || {
+                let other = identity.clone();
+                let asking = carol.clone();
+                *lock(&thread) = Some(std::thread::spawn(move || {
+                    if blocking {
+                        run(other.unblock(&carol_id)).unwrap();
+                    } else {
+                        run(other.delete(&carol_id)).unwrap();
+                    }
+                    assert_eq!(other.consider(&request(&asking)), Ok(Ok(())));
+                }));
+                // Unblocked; the request is queued, unless the queue is
+                // locked here, and so waits for the block to end.
+                let started = std::time::Instant::now();
+                loop {
+                    assert!(started.elapsed() < core::time::Duration::from_secs(10));
+                    if identity.kind(&carol_id) != RecordKind::None {
+                        std::thread::yield_now();
+                        continue;
+                    }
+                    match identity.requests.try_lock() {
+                        Err(std::sync::TryLockError::WouldBlock) => break,
+                        Ok(queue) if queue.list().len() == 1 => break,
+                        _ => std::thread::yield_now(),
+                    }
+                }
+            }
+        });
+        lock(&identity.hooks).insert("forgetting", step);
+        if blocking {
+            run(identity.block(&carol_id)).unwrap();
+        } else {
+            run(identity.import(&carol)).unwrap();
+        }
+        let other = lock(&thread).take().unwrap();
+        other.join().unwrap();
+        assert_eq!(identity.kind(&carol_id), RecordKind::None);
+        assert_eq!(
+            identity.requests().len(),
+            1,
+            "the request queued after the block was lost"
+        );
     }
 
     #[test]

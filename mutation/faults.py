@@ -766,8 +766,8 @@ PHASE4 = [
           ("            if decision.changes_state() {\n                self.durability.bump();\n            }\n            entry.reconcile();\n            Ok((outcome, self.depends()))",
            "            entry.reconcile();\n            Ok((outcome, self.depends()))")),
     fault("CS14", CORE + "identity.rs", "an import returns before it is durable",
-          ("        lock(&self.requests).forget(card.identity());\n        self.commit(generation).await?;\n        Ok(outcome)",
-           "        lock(&self.requests).forget(card.identity());\n        let _ = generation;\n        Ok(outcome)")),
+          ("            imported\n        };\n        self.commit(generation).await?;\n        Ok(outcome)",
+           "            imported\n        };\n        let _ = generation;\n        Ok(outcome)")),
     # Message 3 and the admission.
     fault("CS15", CORE + "link.rs", "message 3 is written before the admission is durable",
           ("        let mut link = Link::new(stream, session, withdrawal, None, Some(contact_slot));\n        link.write_unless_withdrawn(message_3.as_bytes()).await?;",
@@ -1061,5 +1061,11 @@ PHASE4 = [
     fault("CS102", CORE + "identity.rs", "an end decided for one rotation ends another",
           ("            let Some(rotation) = keys.rotation.as_ref() else {\n                return Err(StoreError::NotFound);\n            };\n            // A decision for another rotation changes nothing here.\n            if rotation.id != named {\n                return Ok(false);\n            }\n",
            "            let Some(rotation) = keys.rotation.as_ref() else {\n                return Err(StoreError::NotFound);\n            };\n            let _ = named;\n")),
+    fault("CS103", CORE + "identity.rs", "a block takes out a request queued after it",
+          ("            let mut requests = lock(&self.requests);\n            let generation = self.contacts.block(identity)?;\n            self.hook(\"forgetting\");\n            requests.forget(identity);\n",
+           "            let generation = self.contacts.block(identity)?;\n            self.hook(\"forgetting\");\n            lock(&self.requests).forget(identity);\n")),
+    fault("CS104", CORE + "identity.rs", "an import takes out a request queued after it",
+          ("            let mut requests = lock(&self.requests);\n            let imported = self.contacts.import(card)?;\n            self.hook(\"forgetting\");\n            requests.forget(card.identity());\n",
+           "            let imported = self.contacts.import(card)?;\n            self.hook(\"forgetting\");\n            lock(&self.requests).forget(card.identity());\n")),
 ]
 
