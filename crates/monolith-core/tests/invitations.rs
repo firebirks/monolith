@@ -19,13 +19,17 @@ use common::{
 use monolith_core::contacts::StoreError;
 use monolith_core::identity::Installation;
 use monolith_core::requests::Dropped;
-use monolith_identity::IdentitySecretKey;
+use monolith_identity::{EndpointEpoch, IdentitySecretKey};
 use monolith_protocol::body::Message;
+use monolith_protocol::card::EndpointSet;
 use monolith_protocol::card::{ContactCard, InvitationCapability};
 use monolith_protocol::contact::{RecordKind, RequestMode};
-use monolith_protocol::limits::{MAX_ACTIVE_INVITATIONS, MAX_PENDING_REQUESTS_PER_INVITATION};
+use monolith_protocol::limits::{
+    MAX_ACTIVE_INVITATIONS, MAX_CONTACTS, MAX_PENDING_REQUESTS_PER_INVITATION,
+};
 use monolith_protocol::session::Action;
 use monolith_protocol::text::DisplayName;
+use monolith_session::{LocalParty, TransportSecretKey};
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::MockNetwork;
@@ -459,5 +463,61 @@ fn an_invitation_is_handed_out_only_once_it_is_durable() {
 
         let (reopened, _) = Installation::open(Box::new(crashed), &passphrase).unwrap();
         assert!(reopened.identities()[0].invitations().is_empty());
+    });
+}
+
+/// The card of contact number `n`, an identity of no node.
+fn filler(n: usize) -> ContactCard {
+    let mut seed = [0xF1_u8; 32];
+    seed[..8].copy_from_slice(&(n as u64).to_be_bytes());
+    let mut transport = [0xF2_u8; 32];
+    transport[..8].copy_from_slice(&(n as u64).to_be_bytes());
+    LocalParty::issue(
+        &IdentitySecretKey::from_seed(&seed),
+        TransportSecretKey::from_bytes(&transport).unwrap(),
+        EndpointEpoch::FIRST,
+        EndpointSet::single(common::elsewhere()),
+    )
+    .unwrap()
+    .card()
+    .clone()
+}
+
+#[test]
+fn a_request_stays_pending_when_answering_it_fails() {
+    // Accepting a request while the contact list is full fails. The
+    // request is not lost: it waits as before, and the user can still
+    // decline it, which then takes it out.
+    run(async {
+        let network = MockNetwork::new();
+        let mut bob = node(&network, 2).await;
+        bob.identity
+            .set_request_mode(RequestMode::Open)
+            .await
+            .unwrap();
+        let open = bob.identity.card();
+        let carol = node(&network, 3).await;
+        assert_eq!(ask(&carol, &mut bob, &open).await.decided, Some(Ok(())));
+        for n in 0..MAX_CONTACTS {
+            bob.identity.import(&filler(n)).await.unwrap();
+        }
+        assert_eq!(
+            bob.identity.accept_request(carol.identity.identity()).await,
+            Err(StoreError::Full)
+        );
+        assert_eq!(bob.identity.requests().len(), 1);
+        assert_eq!(
+            bob.identity.kind(carol.identity.identity()),
+            RecordKind::None
+        );
+        bob.identity
+            .decline_request(carol.identity.identity())
+            .await
+            .unwrap();
+        assert!(bob.identity.requests().is_empty());
+        assert_eq!(
+            bob.identity.kind(carol.identity.identity()),
+            RecordKind::Declined
+        );
     });
 }

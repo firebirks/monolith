@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use monolith_identity::{EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
-use monolith_protocol::body::Message;
+use monolith_protocol::body::{ContactRequest, Message};
 use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
 use monolith_protocol::contact::{RecordKind, RequestMode};
 use monolith_protocol::credential::CredentialChange;
@@ -209,6 +209,10 @@ impl fmt::Debug for DialPlan {
     }
 }
 
+/// A step a test runs at a named point of an operation.
+#[cfg(test)]
+type Hook = Box<dyn FnOnce() + Send>;
+
 /// One local identity.
 ///
 /// Its [`Installation`] owns it. Once the installation is dropped, the
@@ -230,6 +234,10 @@ pub struct LocalIdentity {
     durability: Arc<Durability>,
     /// Turns true when the identity is deleted.
     deleted: watch::Sender<bool>,
+    /// Steps a test runs at named points, to place another operation
+    /// exactly there.
+    #[cfg(test)]
+    hooks: Mutex<HashMap<&'static str, Hook>>,
 }
 
 impl fmt::Debug for LocalIdentity {
@@ -261,8 +269,23 @@ impl LocalIdentity {
             shared,
             durability,
             deleted: watch::Sender::new(false),
+            #[cfg(test)]
+            hooks: Mutex::new(HashMap::new()),
         }
     }
+
+    /// Runs the step a test placed at `point`, once.
+    #[cfg(test)]
+    fn hook(&self, point: &'static str) {
+        let step = lock(&self.hooks).remove(point);
+        if let Some(step) = step {
+            step();
+        }
+    }
+
+    #[cfg(not(test))]
+    #[expect(clippy::unused_self, reason = "a point where tests place a step")]
+    const fn hook(&self, _point: &'static str) {}
 
     /// The identity.
     pub const fn identity(&self) -> &IdentityPublicKey {
@@ -537,12 +560,7 @@ impl LocalIdentity {
         }
         if received.actions.contains(&Action::ConsiderRequest) {
             if let Message::ContactRequest(request) = &received.message {
-                let kind = self.contacts.kind(request.card.identity());
-                let mode = lock(&self.settings).request_mode;
-                let durable = self.durability.durable();
-                let invitations = lock(&self.invitations);
-                applied.request =
-                    Some(lock(&self.requests).consider(request, kind, mode, &invitations, durable));
+                applied.request = Some(self.consider(request));
             }
         }
         if received.actions.contains(&Action::Confirmed) {
@@ -566,40 +584,70 @@ impl LocalIdentity {
     }
 
     // --- Requests and invitations ----------------------------------------
+    //
+    // The queue of requests and the records of their senders change
+    // together: considering a request reads the record of its sender with
+    // the queue locked, and answering one changes the record and takes the
+    // request out with the queue locked. Every change of a record that
+    // drops a request (an import, a block) takes it out afterwards. So the
+    // operations on a request run in one order, and a request is taken out
+    // exactly when its answer was recorded, never lost when the answer
+    // fails, and never left queued for a sender that is a contact or
+    // blocked by then.
+
+    /// Decides what becomes of a contact request from a stranger.
+    fn consider(&self, request: &ContactRequest) -> Result<(), Dropped> {
+        let mode = lock(&self.settings).request_mode;
+        let durable = self.durability.durable();
+        let invitations = lock(&self.invitations);
+        let mut requests = lock(&self.requests);
+        let kind = self.contacts.kind(request.card.identity());
+        self.hook("consider");
+        requests.consider(request, kind, mode, &invitations, durable)
+    }
 
     /// The pending contact requests.
     pub fn requests(&self) -> Vec<PendingRequest> {
         lock(&self.requests).list()
     }
 
+    /// Runs `answer` on the request of `identity` and takes the request out
+    /// if it succeeds, with the queue locked throughout. A failed answer
+    /// leaves the request waiting.
+    fn answer_request(
+        &self,
+        identity: &IdentityPublicKey,
+        answer: impl FnOnce(&PendingRequest) -> Result<u64, StoreError>,
+    ) -> Result<u64, StoreError> {
+        self.check_open()?;
+        let mut requests = lock(&self.requests);
+        let request = requests.get(identity).ok_or(StoreError::NotFound)?;
+        let generation = answer(request)?;
+        requests.forget(identity);
+        Ok(generation)
+    }
+
     /// The user accepted the request of `identity`: it becomes an accepted
     /// contact with the card of the request. Durable when this returns.
     pub async fn accept_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
-        self.check_open()?;
-        let request = lock(&self.requests)
-            .take(identity)
-            .ok_or(StoreError::NotFound)?;
-        let generation = self.contacts.accept_request(&request.card)?;
+        let generation = self.answer_request(identity, |request| {
+            self.contacts.accept_request(&request.card)
+        })?;
         self.commit(generation).await
     }
 
     /// The user declined the request of `identity`. Nothing is sent.
     pub async fn decline_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
-        self.check_open()?;
-        lock(&self.requests)
-            .take(identity)
-            .ok_or(StoreError::NotFound)?;
-        let generation = self.contacts.decline(identity)?;
+        let generation = self.answer_request(identity, |_| self.contacts.decline(identity))?;
         self.commit(generation).await
     }
 
-    /// The user blocked the sender of the request of `identity`.
+    /// The user blocked the sender of the request of `identity`. Its
+    /// sessions as a contact are withdrawn at once; durable when this
+    /// returns.
     pub async fn block_request(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
-        self.check_open()?;
-        lock(&self.requests)
-            .take(identity)
-            .ok_or(StoreError::NotFound)?;
-        self.block(identity).await
+        let generation = self.answer_request(identity, |_| self.contacts.block(identity))?;
+        self.commit(generation).await
     }
 
     /// Creates a new invitation capability with a local label and returns
@@ -1398,6 +1446,65 @@ mod tests {
             epoch: EndpointEpoch::FIRST,
             endpoint: endpoint(seed),
         }
+    }
+
+    /// The card of a stranger of seed `seed`.
+    fn stranger(seed: u8) -> ContactCard {
+        LocalParty::issue(
+            &IdentitySecretKey::from_seed(&[seed; 32]),
+            TransportSecretKey::from_bytes(&[seed ^ 0xA5; 32]).unwrap(),
+            EndpointEpoch::FIRST,
+            EndpointSet::single(endpoint(seed)),
+        )
+        .unwrap()
+        .card()
+        .clone()
+    }
+
+    fn request(card: &ContactCard) -> ContactRequest {
+        ContactRequest {
+            card: card.clone(),
+            invitation: None,
+            display_name: monolith_protocol::text::DisplayName::new("Carol").unwrap(),
+            introduction: monolith_protocol::text::IntroductionText::new("hello").unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_request_and_a_block_of_its_sender_run_in_one_order() {
+        // Carol's request is being considered: her record was read, and
+        // nothing decided yet. Right then the user blocks her, on another
+        // thread. Either order is fine, but not a mix of the two: her
+        // request must not stay queued once she is blocked.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        run(identity.set_request_mode(RequestMode::Open)).unwrap();
+        let carol = stranger(3);
+        let carol_id = *carol.identity();
+        let thread = Arc::new(Mutex::new(None));
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            let thread = thread.clone();
+            move || {
+                let blocking = identity.clone();
+                *lock(&thread) = Some(std::thread::spawn(move || {
+                    run(blocking.block(&carol_id)).unwrap();
+                }));
+                // Blocked in the store; the thread may still be on its way
+                // to the queue.
+                let started = std::time::Instant::now();
+                while identity.kind(&carol_id) != RecordKind::Blocked {
+                    assert!(started.elapsed() < core::time::Duration::from_secs(10));
+                    std::thread::yield_now();
+                }
+            }
+        });
+        lock(&identity.hooks).insert("consider", step);
+        let _ = identity.consider(&request(&carol));
+        let blocked = lock(&thread).take().unwrap();
+        blocked.join().unwrap();
+        assert_eq!(identity.kind(&carol_id), RecordKind::Blocked);
+        assert!(identity.requests().is_empty());
     }
 
     #[test]

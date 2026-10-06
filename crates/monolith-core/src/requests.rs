@@ -296,13 +296,9 @@ impl Requests {
         Ok(())
     }
 
-    /// Takes the request of `identity` out of the queue.
-    pub(crate) fn take(&mut self, identity: &IdentityPublicKey) -> Option<PendingRequest> {
-        let position = self
-            .queue
-            .iter()
-            .position(|held| held.identity() == identity)?;
-        Some(self.queue.remove(position))
+    /// The request of `identity`, if one waits.
+    pub(crate) fn get(&self, identity: &IdentityPublicKey) -> Option<&PendingRequest> {
+        self.queue.iter().find(|held| held.identity() == identity)
     }
 
     /// Discards the requests that `id` admitted: the separate action of
