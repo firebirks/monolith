@@ -12,13 +12,16 @@
 
 mod common;
 
+use core::time::Duration;
+
 use common::{
     Node, befriend, confirm_both, connect, dial_and_answer, keys, node, node_in, request, run,
     send_first, state,
 };
 use monolith_core::contacts::StoreError;
 use monolith_core::identity::{Installation, InstallationError};
-use monolith_core::link::LinkError;
+use monolith_core::link::{LinkError, dial};
+use monolith_core::persist::CommitError;
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::contact::{RecordKind, RequestMode};
 use monolith_protocol::limits::MAX_UNKNOWN_SESSIONS;
@@ -26,7 +29,7 @@ use monolith_protocol::session::Standing;
 use monolith_storage::dir::{CrashOutcome, MemoryDir, VAULT, VaultDir};
 use monolith_storage::record::{Contents, StoredIdentity};
 use monolith_storage::vault::{KdfParams, Passphrase, Vault};
-use monolith_tor::MockNetwork;
+use monolith_tor::{MockNetwork, OnionService};
 use zeroize::Zeroizing;
 
 fn passphrase() -> Passphrase {
@@ -387,12 +390,20 @@ fn a_deleted_identity_admits_nobody_and_changes_nothing() {
         assert!(b.identity.is_deleted());
         assert!(b.identity.onion_secret().is_none());
 
-        // B dials Carol: no message 3, so Carol sees the stream end where
-        // it was due.
-        let (dialed, answered) = connect(&b, &mut carol).await;
-        assert!(dialed.is_err());
-        assert_eq!(answered.err(), Some(LinkError::Stream));
-        // Carol dials B: B admits nobody, and Carol's link ends.
+        // B dials nobody: it has no party to dial with, and no stream is
+        // opened.
+        assert_eq!(
+            dial(&b.tor, &b.budgets, &b.identity, &carol.card())
+                .await
+                .err(),
+            Some(LinkError::Storage(CommitError::Failed))
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), carol.service.accept())
+                .await
+                .is_err()
+        );
+        // Carol dials B: B answers nobody, and Carol's link ends.
         let (dialed, answered) = connect(&carol, &mut b).await;
         assert!(answered.is_err());
         if let Ok(mut dialed) = dialed {
@@ -422,6 +433,40 @@ fn a_deleted_identity_admits_nobody_and_changes_nothing() {
                 .unwrap()
                 .0;
         assert_eq!(state(&reopened), after);
+    });
+}
+
+#[test]
+fn a_deleted_identity_hands_out_no_secret() {
+    // Once B is deleted, nothing that holds or uses one of its secrets is
+    // handed out any more: no card signed with its identity key for a
+    // capability, no capability, no party with its transport key to dial
+    // or answer with, no Onion Service secret. A stays as it was.
+    run(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let (a, b) = two(&network, &installation).await;
+        let carol = node(&network, 3).await;
+        b.identity.import(&carol.card()).await.unwrap();
+        a.identity.import(&carol.card()).await.unwrap();
+        let (invitation, _) = b.identity.create_invitation(None).await.unwrap();
+        let (kept, _) = a.identity.create_invitation(None).await.unwrap();
+        installation
+            .delete_identity(b.identity.identity())
+            .await
+            .unwrap();
+        assert_eq!(
+            b.identity.invitation_card(invitation).err(),
+            Some(StoreError::Failed)
+        );
+        assert!(b.identity.invitations().is_empty());
+        assert!(b.identity.dial_plan(carol.identity.identity()).is_none());
+        assert!(b.identity.answering_party().is_err());
+        assert!(b.identity.onion_secret().is_none());
+        assert!(a.identity.invitation_card(kept).is_ok());
+        assert!(a.identity.dial_plan(carol.identity.identity()).is_some());
+        assert!(a.identity.answering_party().is_ok());
+        assert!(a.identity.onion_secret().is_some());
     });
 }
 

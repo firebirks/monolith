@@ -465,12 +465,20 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   it leaves the installation: it refuses every change and admission, its
   waits for durability fail, it holds no Onion Service key, and its accept
   loop and supervisor end and remove its service; nothing it held is
-  written again.
+  written again. It hands out nothing that holds or uses a secret: no
+  party to dial or answer with (`answering_party` fails, `dial_plan` is
+  `None`, so `dial` and `answer` fail before a stream or a handshake), no
+  card signed for a capability, no capability, no Onion Service secret.
+  The copies of its secret bytes are erased and its capabilities and
+  pending requests dropped when it is closed. A party handed out before,
+  to a handshake in progress, keeps its transport key until it is
+  dropped (best effort, `CRYPTOGRAPHY.md` section 8).
 - Tests: T-MI-2 and T-MI-3 (`tests/identities.rs`), the private network
   test (step 8: two identities of one node hold one peer differently),
   `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity
-  admits nobody, changes nothing, and is taken down), mutation faults
-  CS46 to CS48.
+  admits nobody, changes nothing, hands out no secret, and is taken
+  down), `identity::tests`, mutation faults CS46 to CS48 and CS60 to
+  CS62.
 
 ### S41. An invitation capability admits requests only to the identity that issued it
 

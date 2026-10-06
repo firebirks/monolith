@@ -589,7 +589,7 @@ fn a_promotion_stands_when_message_3_cannot_be_written() {
             .unwrap();
         step(&mut alice_link, &alice.identity).await.unwrap();
         bob.identity.switch_rotation(true).await.unwrap();
-        let party = bob.identity.answering_party();
+        let party = bob.identity.answering_party().unwrap();
         assert_eq!(party.card(), &successor);
         let service = &mut bob.service;
         // A responder that answers message 1 and then breaks the stream.
@@ -803,7 +803,7 @@ fn the_new_key_reaches_no_peer_before_it_is_durable() {
         let switch = tokio::spawn(async move { identity.switch_rotation(false).await });
         held().await;
         assert_eq!(alice.card(), old_card);
-        assert_eq!(alice.identity.answering_party().card(), &old_card);
+        assert_eq!(alice.identity.answering_party().unwrap().card(), &old_card);
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
         assert_eq!(plan.local.card(), &old_card);
         dir.release_writes();

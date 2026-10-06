@@ -41,7 +41,7 @@ use monolith_storage::record::{
 use monolith_storage::vault::{KdfParams, Passphrase, Recovery, Vault};
 use monolith_tor::{IsolationGroup, OnionServiceSecret, TorError};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, watch};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::contacts::{ContactStore, ContactView, ImportOutcome, StoreError};
 use crate::dialplan;
@@ -271,7 +271,8 @@ impl LocalIdentity {
     /// The card of the key the identity answers with: what the user hands
     /// to others, without a capability.
     pub fn card(&self) -> ContactCard {
-        self.answering_party().card().clone()
+        let durable = self.durability.durable();
+        lock(&self.keys).answering(durable).card().clone()
     }
 
     /// The endpoint of the identity: its Onion Service.
@@ -297,10 +298,18 @@ impl LocalIdentity {
         &self.strangers
     }
 
-    /// The party that answers inbound handshakes.
-    pub fn answering_party(&self) -> Arc<LocalParty> {
+    /// The party that answers inbound handshakes. Fails with
+    /// [`StoreError::Failed`] once the identity was deleted: its keys are
+    /// used for nothing more.
+    pub fn answering_party(&self) -> Result<Arc<LocalParty>, StoreError> {
         let durable = self.durability.durable();
-        lock(&self.keys).answering(durable)
+        let keys = lock(&self.keys);
+        // Read under the lock of the keys, which the deletion takes to
+        // erase them after it set the flag.
+        if self.is_deleted() {
+            return Err(StoreError::Failed);
+        }
+        Ok(keys.answering(durable))
     }
 
     /// Refuses a change of a deleted identity, or of an installation that
@@ -326,8 +335,23 @@ impl LocalIdentity {
     }
 
     /// Closes the identity before it is removed from its installation.
+    /// From here on nothing that holds or uses one of its secrets is
+    /// handed out: the copies of the secret bytes it kept for the vault
+    /// are erased, the capabilities and the pending requests are dropped,
+    /// and every getter of a secret, a party or a signed card fails or
+    /// returns nothing. A party that was handed out earlier, to a
+    /// handshake in progress, keeps its transport key until it is dropped.
     fn close(&self) {
         self.contacts.close();
+        {
+            let mut keys = lock(&self.keys);
+            keys.seed.zeroize();
+            keys.transport.zeroize();
+            keys.onion = None;
+            keys.rotation = None;
+        }
+        *lock(&self.invitations) = Invitations::new();
+        *lock(&self.requests) = Requests::new();
         self.deleted.send_replace(true);
     }
 
@@ -452,7 +476,8 @@ impl LocalIdentity {
         self.contacts.kind(identity)
     }
 
-    /// What to dial for `identity`, or `None` if it is not a contact.
+    /// What to dial for `identity`, or `None` if it is not a contact or
+    /// the local identity was deleted.
     pub fn dial_plan(&self, identity: &IdentityPublicKey) -> Option<DialPlan> {
         let view = self.contacts.view(identity)?;
         let credentials = view.credentials?;
@@ -460,6 +485,9 @@ impl LocalIdentity {
         let cards = dialplan::plan(&credentials, &dial);
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
+        if self.is_deleted() {
+            return None;
+        }
         // During a rotation, a contact that holds the new key as the
         // announced successor is dialed with it once the identity has
         // switched, durably; any other contact with the old key, on whose
@@ -587,8 +615,12 @@ impl LocalIdentity {
         Ok((id, card))
     }
 
-    /// The card that carries the capability `id`, again.
+    /// The card that carries the capability `id`, again. Fails with
+    /// [`StoreError::Failed`] once the identity was deleted.
     pub fn invitation_card(&self, id: InvitationId) -> Result<ContactCard, StoreError> {
+        if self.is_deleted() {
+            return Err(StoreError::Failed);
+        }
         let capability = lock(&self.invitations)
             .capability(id)
             .cloned()
@@ -640,13 +672,17 @@ impl LocalIdentity {
         lock(&self.settings).label.clone()
     }
 
-    /// A card of the key the identity answers with, with `capability`.
+    /// A card of the key the identity answers with, with `capability`,
+    /// signed with the identity key. Never for a deleted identity.
     fn card_with(
         &self,
         capability: Option<InvitationCapability>,
     ) -> Result<ContactCard, StoreError> {
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
+        if self.is_deleted() {
+            return Err(StoreError::Failed);
+        }
         let party = keys.answering(durable);
         let card = party.card();
         ContactCard::sign(
@@ -735,6 +771,9 @@ impl LocalIdentity {
         let durable = self.durability.durable();
         let successor = {
             let keys = lock(&self.keys);
+            if self.is_deleted() {
+                return None;
+            }
             let rotation = keys.rotation.as_ref()?;
             if keys.party.card() != session.local || !rotation.announced_from(durable) {
                 return None;
@@ -1309,5 +1348,57 @@ impl Installation {
 impl From<CommitError> for InstallationError {
     fn from(error: CommitError) -> Self {
         Self::Store(StoreError::Commit(error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    fn run<F: core::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    fn endpoint(seed: u8) -> OnionServiceKey {
+        OnionServiceKey::from_bytes(
+            IdentitySecretKey::from_seed(&[seed.wrapping_add(100); 32])
+                .public_key()
+                .as_bytes(),
+        )
+        .unwrap()
+    }
+
+    fn keys(seed: u8) -> IdentityKeys {
+        IdentityKeys {
+            seed: Zeroizing::new([seed; 32]),
+            transport: Zeroizing::new([seed ^ 0xA5; 32]),
+            onion: Some(Zeroizing::new([seed; ONION_SECRET_LEN])),
+            epoch: EndpointEpoch::FIRST,
+            endpoint: endpoint(seed),
+        }
+    }
+
+    #[test]
+    fn a_deleted_identity_keeps_no_copy_of_its_secrets() {
+        run(async {
+            let installation = Installation::ephemeral();
+            let identity = installation.restore_identity(keys(1), None).await.unwrap();
+            identity.begin_rotation().await.unwrap();
+            installation
+                .delete_identity(identity.identity())
+                .await
+                .unwrap();
+            let keys = lock(&identity.keys);
+            assert_eq!(*keys.seed, [0; 32]);
+            assert_eq!(*keys.transport, [0; 32]);
+            assert!(keys.onion.is_none());
+            assert!(keys.rotation.is_none());
+        });
     }
 }

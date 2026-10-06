@@ -347,9 +347,11 @@ where
     B: TorBackend,
 {
     let contact = *card.identity();
+    // A deleted identity dials nobody: it has no party any more.
     let local = identity
         .dial_plan(&contact)
-        .map_or_else(|| identity.answering_party(), |plan| plan.local);
+        .map_or_else(|| identity.answering_party(), |plan| Ok(plan.local))
+        .map_err(|_| LinkError::Storage(CommitError::Failed))?;
     let isolation = identity.isolation(&contact).map_err(LinkError::Tor)?;
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     let endpoint = *card.endpoints().first();
@@ -432,7 +434,10 @@ pub async fn answer<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let local = identity.answering_party();
+    // A deleted identity answers nobody: it has no party any more.
+    let local = identity
+        .answering_party()
+        .map_err(|_| LinkError::Storage(CommitError::Failed))?;
     tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         let responder = HandshakeResponder::new(&local, now())?;
         let message_1 = read_message::<_, HANDSHAKE_MSG1_LEN>(&mut stream).await?;
