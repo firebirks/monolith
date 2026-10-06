@@ -88,7 +88,8 @@ To check that the targets compile without running them:
 
 ## Status
 
-All seventeen targets build; Phase 4 added `vault_payload` and
+All sixteen targets build (`fuzz_targets/session_fixtures.rs` holds
+fixtures they share and is not one); Phase 4 added `vault_payload` and
 `contact_store` and extended `credential_sequence`. During Phase 4 the
 three ran for 60 seconds each from their seeds; `contact_store` found a
 confirmation for a blocked identity that was reported as the wrong card

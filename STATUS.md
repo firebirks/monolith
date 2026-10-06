@@ -124,7 +124,7 @@ None of this is the final verification; code changed after it.
 - fmt, clippy with `-D warnings` and the tests of every crate, on Linux,
   after each code commit.
 - Fuzz runs of 60 seconds of `credential_sequence`, `vault_payload` and
-  `contact_store`; one finding, fixed in `1897a71`. Smoke runs of the 17
+  `contact_store`; one finding, fixed in `1897a71`. Smoke runs of the 16
   targets (25 seconds each) on `42fa7e4` and on `2deef1c`, and runs of 10
   minutes of `tor_control_reply`, `socks_reply`, `handshake_initiator`,
   `handshake_responder` and `session_frames` on `42fa7e4`: no failure.
@@ -213,7 +213,7 @@ Stage 1, in order:
 
 Stage 2, side by side:
 
-- Fuzz smoke run of all 17 targets, 25 seconds each, from `fuzz/`:
+- Fuzz smoke run of all 16 targets, 25 seconds each, from `fuzz/`:
 
       cargo +nightly fuzz run <target> corpus/<target> seeds/<target> -- \
           -malloc_limit_mb=64 -timeout=5 -max_total_time=25
