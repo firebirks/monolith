@@ -147,7 +147,13 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
 
         // Alice switches to T2, which every accepted contact was sent, and
         // dials Bob with it.
-        assert!(alice.identity.switch_rotation(false).await.unwrap());
+        assert!(
+            alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
         assert_eq!(plan.local.card(), &successor);
         let (alice_t2, bob_t2) = connect(&alice, &mut bob).await;
@@ -176,7 +182,13 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
             .await
             .unwrap();
         assert!(applied.promoted_successor);
-        assert!(alice.identity.finish_rotation(false).await.unwrap());
+        assert!(
+            alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         step(&mut bob_t2.link, &bob.identity).await.unwrap();
         alice_t2.link.send(&chat("from T2")).await.unwrap();
         let received = bob_t2.link.receive().await.unwrap();
@@ -395,7 +407,10 @@ fn a_key_retired_while_the_admission_is_made_durable_gets_no_message_3() {
             .unwrap();
         assert!(bob.identity.mark_announced(&announcement).await.unwrap());
         step(&mut alice_link, &alice.identity).await.unwrap();
-        bob.identity.switch_rotation(false).await.unwrap();
+        bob.identity
+            .switch_rotation(bob.identity.rotation_id().unwrap(), false)
+            .await
+            .unwrap();
         drop((alice_link, bob_link));
 
         let identity = alice.identity.clone();
@@ -593,7 +608,10 @@ fn a_promotion_stands_when_message_3_cannot_be_written() {
             .await
             .unwrap();
         step(&mut alice_link, &alice.identity).await.unwrap();
-        bob.identity.switch_rotation(true).await.unwrap();
+        bob.identity
+            .switch_rotation(bob.identity.rotation_id().unwrap(), true)
+            .await
+            .unwrap();
         let party = bob.identity.answering_party().unwrap();
         assert_eq!(party.card(), &successor);
         let service = &mut bob.service;
@@ -712,23 +730,59 @@ fn a_rotation_switches_and_finishes_only_when_due() {
         // A second rotation cannot begin while one is in progress.
         assert!(alice.identity.begin_rotation().await.is_err());
         // Nobody was sent the successor: no switch, no finish.
-        assert!(!alice.identity.switch_rotation(false).await.unwrap());
-        assert!(!alice.identity.finish_rotation(false).await.unwrap());
+        assert!(
+            !alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         assert_eq!(alice.card(), old_card);
         // Bob only: still not due.
         assert!(announce(&alice, &mut bob).await);
-        assert!(!alice.identity.switch_rotation(false).await.unwrap());
+        assert!(
+            !alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         // Bob is dialed with the old key until the switch.
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
         assert_eq!(plan.local.card(), &old_card);
         // Carol too: due.
         assert!(announce(&alice, &mut carol).await);
-        assert!(alice.identity.switch_rotation(false).await.unwrap());
+        assert!(
+            alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         assert_eq!(alice.card(), successor);
         // Nobody confirmed the new key yet: the old key stays.
-        assert!(!alice.identity.finish_rotation(false).await.unwrap());
+        assert!(
+            !alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         // The user may end it anyway.
-        assert!(alice.identity.finish_rotation(true).await.unwrap());
+        assert!(
+            alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
         assert_eq!(alice.identity.successor_card(), None);
         assert_eq!(alice.card(), successor);
         let _ = (&mut bob, &mut carol);
@@ -788,7 +842,11 @@ fn the_new_key_reaches_no_peer_before_it_is_durable() {
 
         dir.hold_writes();
         let identity = alice.identity.clone();
-        let switch = tokio::spawn(async move { identity.switch_rotation(false).await });
+        let switch = tokio::spawn(async move {
+            identity
+                .switch_rotation(identity.rotation_id().unwrap(), false)
+                .await
+        });
         held().await;
         assert_eq!(alice.card(), old_card);
         assert_eq!(alice.identity.answering_party().unwrap().card(), &old_card);
@@ -924,13 +982,23 @@ fn a_rotation_ends_only_after_a_durable_switch() {
         let old_card = alice.card();
         let successor = alice.identity.begin_rotation().await.unwrap();
         // Not switched: not due, forced or not.
-        assert!(!alice.identity.finish_rotation(true).await.unwrap());
+        assert!(
+            !alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
         assert_eq!(alice.card(), old_card);
 
         dir.hold_writes();
         let _released = Released(&dir);
         let identity = alice.identity.clone();
-        let switch = tokio::spawn(async move { identity.switch_rotation(true).await });
+        let switch = tokio::spawn(async move {
+            identity
+                .switch_rotation(identity.rotation_id().unwrap(), true)
+                .await
+        });
         while !dir.write_held() {
             tokio::time::sleep(core::time::Duration::from_millis(1)).await;
         }
@@ -939,14 +1007,22 @@ fn a_rotation_ends_only_after_a_durable_switch() {
         // the test then instead of letting it hang.)
         let finished = tokio::time::timeout(
             core::time::Duration::from_secs(10),
-            alice.identity.finish_rotation(true),
+            alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), true),
         )
         .await;
         assert!(matches!(finished, Ok(Ok(false))), "{finished:?}");
         assert_eq!(alice.card(), old_card);
         dir.release_writes();
         assert!(switch.await.unwrap().unwrap());
-        assert!(alice.identity.finish_rotation(true).await.unwrap());
+        assert!(
+            alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
         assert_eq!(alice.card(), successor);
     });
 }
@@ -1119,23 +1195,53 @@ fn the_progress_of_one_rotation_never_counts_for_the_next() {
             .identity
             .announcement_for(alice_link.session_ref())
             .unwrap();
-        assert!(alice.identity.switch_rotation(true).await.unwrap());
-        assert!(alice.identity.finish_rotation(true).await.unwrap());
+        assert!(
+            alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
+        assert!(
+            alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
         let second = alice.identity.begin_rotation().await.unwrap();
         assert_ne!(first.card(), &second);
         // The late record of what was sent in R1: it is for R1, which is
         // over, and counts for nothing. Bob is the only contact, so the
         // switch would be due on his account alone.
         assert!(!alice.identity.mark_announced(&first).await.unwrap());
-        assert!(!alice.identity.switch_rotation(false).await.unwrap());
+        assert!(
+            !alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         // Dave becomes a contact on a session of the old key, which he
         // confirms: that is no confirmation of the new key.
         let mut dave = node(&network, 4).await;
         befriend(&alice, &mut dave).await;
         let view = alice.identity.contact(dave.identity.identity()).unwrap();
         assert!(!view.successor_promoted);
-        assert!(alice.identity.switch_rotation(true).await.unwrap());
-        assert!(!alice.identity.finish_rotation(false).await.unwrap());
+        assert!(
+            alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !alice
+                .identity
+                .finish_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
     });
 }
 
@@ -1172,8 +1278,18 @@ fn the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further() {
                 .unwrap()
                 .successor_announced
         );
-        assert!(local.switch_rotation(false).await.unwrap());
-        assert!(local.finish_rotation(true).await.unwrap());
+        assert!(
+            local
+                .switch_rotation(local.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
+        assert!(
+            local
+                .finish_rotation(local.rotation_id().unwrap(), true)
+                .await
+                .unwrap()
+        );
         local.begin_rotation().await.unwrap();
         drop(local);
         drop(restarted);
@@ -1186,7 +1302,12 @@ fn the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further() {
                 .unwrap()
                 .successor_announced
         );
-        assert!(!local.switch_rotation(false).await.unwrap());
+        assert!(
+            !local
+                .switch_rotation(local.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         let _ = (&mut bob, &mut carol);
     });
 }
@@ -1222,7 +1343,13 @@ fn a_late_announcement_counts_only_for_the_contact_it_was_made_to() {
                 .unwrap()
                 .successor_announced
         );
-        assert!(!alice.identity.switch_rotation(false).await.unwrap());
+        assert!(
+            !alice
+                .identity
+                .switch_rotation(alice.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
     });
 }
 
@@ -1283,7 +1410,12 @@ fn a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed() 
                         .unwrap();
                     assert!(bob.identity.mark_announced(&of_bob).await.unwrap());
                     step(&mut alice_link, &alice.identity).await.unwrap();
-                    assert!(bob.identity.switch_rotation(false).await.unwrap());
+                    assert!(
+                        bob.identity
+                            .switch_rotation(bob.identity.rotation_id().unwrap(), false)
+                            .await
+                            .unwrap()
+                    );
                     let (dialed, answered) = connect(&bob, &mut alice).await;
                     assert_eq!(
                         answered.unwrap().admission.change,
@@ -1300,8 +1432,20 @@ fn a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed() 
                 Meanwhile::NextRotation => {
                     alice.identity.delete(&bob_id).await.unwrap();
                     befriend(&alice, &mut bob).await;
-                    assert!(alice.identity.switch_rotation(true).await.unwrap());
-                    assert!(alice.identity.finish_rotation(true).await.unwrap());
+                    assert!(
+                        alice
+                            .identity
+                            .switch_rotation(alice.identity.rotation_id().unwrap(), true)
+                            .await
+                            .unwrap()
+                    );
+                    assert!(
+                        alice
+                            .identity
+                            .finish_rotation(alice.identity.rotation_id().unwrap(), true)
+                            .await
+                            .unwrap()
+                    );
                     alice.identity.begin_rotation().await.unwrap();
                 }
             }
@@ -1314,4 +1458,31 @@ fn a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed() 
             }
         });
     }
+}
+
+#[test]
+fn a_decision_for_one_rotation_changes_nothing_in_the_next() {
+    // The user decides to force the switch and the end of rotation R1. By
+    // the time the decision lands, R1 is over and R2 has begun: it neither
+    // switches R2 nor ends it.
+    run(async {
+        let network = MockNetwork::new();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        befriend(&alice, &mut bob).await;
+        alice.identity.begin_rotation().await.unwrap();
+        let first = alice.identity.rotation_id().unwrap();
+        assert!(alice.identity.switch_rotation(first, true).await.unwrap());
+        assert!(alice.identity.finish_rotation(first, true).await.unwrap());
+        alice.identity.begin_rotation().await.unwrap();
+        let second = alice.identity.rotation_id().unwrap();
+        assert_ne!(first, second);
+        assert!(!alice.identity.switch_rotation(first, true).await.unwrap());
+        assert_eq!(alice.identity.rotation(), RotationState::Announcing);
+        // R2 switched as decided for it, and so could be ended at once.
+        assert!(alice.identity.switch_rotation(second, true).await.unwrap());
+        assert!(!alice.identity.finish_rotation(first, true).await.unwrap());
+        assert_eq!(alice.identity.rotation_id(), Some(second));
+        let _ = &mut bob;
+    });
 }

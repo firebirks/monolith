@@ -831,10 +831,18 @@ impl Node {
                 let (index, local) = self.identity(n)?;
                 let done = match *step {
                     "begin" => local.begin_rotation().await.map(|_| true),
-                    "switch" => local.switch_rotation(false).await,
-                    "force-switch" => local.switch_rotation(true).await,
-                    "finish" => local.finish_rotation(false).await,
-                    "force-finish" => local.finish_rotation(true).await,
+                    "switch" | "force-switch" | "finish" | "force-finish" => {
+                        // The rotation in progress as the command runs.
+                        match local.rotation_id() {
+                            None => Err(StoreError::NotFound),
+                            Some(rotation) => match *step {
+                                "switch" => local.switch_rotation(rotation, false).await,
+                                "force-switch" => local.switch_rotation(rotation, true).await,
+                                "finish" => local.finish_rotation(rotation, false).await,
+                                _ => local.finish_rotation(rotation, true).await,
+                            },
+                        }
+                    }
                     _ => return Err("rotate begin, switch or finish".to_owned()),
                 }
                 .map_err(|error| text(&error))?;

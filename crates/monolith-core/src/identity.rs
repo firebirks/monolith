@@ -1024,18 +1024,28 @@ impl LocalIdentity {
         Ok(true)
     }
 
-    /// Switches to answering with the new key (step 4). The policy of
+    /// Switches the rotation `rotation`, which must be the one in progress,
+    /// to answering with the new key (step 4). The policy of
     /// `docs/DESIGN_QUESTIONS.md` section 11: once every accepted contact
     /// was sent the successor of this rotation, or when the user says so
     /// (`force`). The condition is read with the keys held, against the
     /// rotation it switches. Returns false if the switch is not due yet.
-    pub async fn switch_rotation(&self, force: bool) -> Result<bool, StoreError> {
+    pub async fn switch_rotation(
+        &self,
+        rotation: RotationId,
+        force: bool,
+    ) -> Result<bool, StoreError> {
         self.check_open()?;
+        let named = rotation;
         let generation = {
             let mut keys = lock(&self.keys);
             let Some(rotation) = keys.rotation.as_mut() else {
                 return Err(StoreError::NotFound);
             };
+            // A decision for another rotation changes nothing here.
+            if rotation.id != named {
+                return Ok(false);
+            }
             if !force
                 && !self
                     .contacts
@@ -1057,21 +1067,31 @@ impl LocalIdentity {
         Ok(true)
     }
 
-    /// Ends the rotation (step 5): the old key is dropped and the new one
+    /// Ends the rotation `rotation`, which must be the one in progress
+    /// (step 5): the old key is dropped and the new one
     /// is the only one. Due once every accepted contact confirmed a session
     /// with the new key of this rotation, or when the user says so
     /// (`force`), and in any case only after a switch that is durable: the
     /// new key is then in use and stored, so ending the rotation hands out
     /// nothing the vault could lose. The condition is read with the keys
     /// held. Returns false if it is not due yet.
-    pub async fn finish_rotation(&self, force: bool) -> Result<bool, StoreError> {
+    pub async fn finish_rotation(
+        &self,
+        rotation: RotationId,
+        force: bool,
+    ) -> Result<bool, StoreError> {
         self.check_open()?;
+        let named = rotation;
         let durable = self.durability.durable();
         let generation = {
             let mut keys = lock(&self.keys);
             let Some(rotation) = keys.rotation.as_ref() else {
                 return Err(StoreError::NotFound);
             };
+            // A decision for another rotation changes nothing here.
+            if rotation.id != named {
+                return Ok(false);
+            }
             let due = force
                 || self
                     .contacts
@@ -1759,8 +1779,12 @@ mod tests {
         let step: Hook = Box::new({
             let identity = identity.clone();
             move || {
-                assert!(run(identity.switch_rotation(true)).unwrap());
-                assert!(run(identity.finish_rotation(true)).unwrap());
+                assert!(
+                    run(identity.switch_rotation(identity.rotation_id().unwrap(), true)).unwrap()
+                );
+                assert!(
+                    run(identity.finish_rotation(identity.rotation_id().unwrap(), true)).unwrap()
+                );
                 run(identity.begin_rotation()).unwrap();
             }
         });
@@ -1795,8 +1819,8 @@ mod tests {
             move || {
                 for _ in 0..300 {
                     run(identity.begin_rotation()).unwrap();
-                    run(identity.switch_rotation(true)).unwrap();
-                    run(identity.finish_rotation(true)).unwrap();
+                    run(identity.switch_rotation(identity.rotation_id().unwrap(), true)).unwrap();
+                    run(identity.finish_rotation(identity.rotation_id().unwrap(), true)).unwrap();
                 }
                 done.store(true, std::sync::atomic::Ordering::SeqCst);
             }

@@ -545,7 +545,11 @@ fn an_invitation_card_states_the_key_that_answers_when_it_is_returned() {
         let create = tokio::spawn(async move { creating.create_invitation(None).await });
         held(&dir).await;
         let switching = bob.identity.clone();
-        let switch = tokio::spawn(async move { switching.switch_rotation(true).await });
+        let switch = tokio::spawn(async move {
+            switching
+                .switch_rotation(switching.rotation_id().unwrap(), true)
+                .await
+        });
         tokio::task::yield_now().await;
         drop(released);
         let (_, card) = create.await.unwrap().unwrap();

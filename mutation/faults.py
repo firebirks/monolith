@@ -1055,5 +1055,11 @@ PHASE4 = [
     fault("CS100", CORE + "identity.rs", "a deletion takes whatever identity has the keys it names",
           ("                .position(|held| core::ptr::eq(Arc::as_ptr(held), identity))",
            "                .position(|held| held.identity() == identity.identity())")),
+    fault("CS101", CORE + "identity.rs", "a switch decided for one rotation switches another",
+          ("            let Some(rotation) = keys.rotation.as_mut() else {\n                return Err(StoreError::NotFound);\n            };\n            // A decision for another rotation changes nothing here.\n            if rotation.id != named {\n                return Ok(false);\n            }\n",
+           "            let Some(rotation) = keys.rotation.as_mut() else {\n                return Err(StoreError::NotFound);\n            };\n            let _ = named;\n")),
+    fault("CS102", CORE + "identity.rs", "an end decided for one rotation ends another",
+          ("            let Some(rotation) = keys.rotation.as_ref() else {\n                return Err(StoreError::NotFound);\n            };\n            // A decision for another rotation changes nothing here.\n            if rotation.id != named {\n                return Ok(false);\n            }\n",
+           "            let Some(rotation) = keys.rotation.as_ref() else {\n                return Err(StoreError::NotFound);\n            };\n            let _ = named;\n")),
 ]
 

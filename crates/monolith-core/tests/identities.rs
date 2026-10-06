@@ -697,7 +697,12 @@ fn the_rotation_of_one_identity_counts_for_no_other() {
         let (a_link, _carol_link) = confirm_both(&a, &mut carol).await;
         let of_a = a.identity.announcement_for(a_link.session_ref()).unwrap();
         assert!(!b.identity.mark_announced(&of_a).await.unwrap());
-        assert!(!b.identity.switch_rotation(false).await.unwrap());
+        assert!(
+            !b.identity
+                .switch_rotation(b.identity.rotation_id().unwrap(), false)
+                .await
+                .unwrap()
+        );
         let _ = (&mut a, &mut b);
     });
 }
