@@ -1236,42 +1236,43 @@ mod tests {
 
     #[test]
     fn no_operation_runs_between_the_reads_of_a_snapshot() {
-        // The declined list is full. After the snapshot read a slot, a
-        // decline runs if it can: it takes a slot of its own and pushes the
-        // oldest declined identity out, two slots in one step. Whatever
-        // the snapshot read before and after, it holds the full list,
-        // never one fewer. (A snapshot that held the lock of the map runs
-        // nothing in between; one that let it go must still be one cut.)
-        // The hook acts at the first slot that is not the oldest; the
-        // oldest is then read after the decline, unless the map put it
-        // first (one order in 1024), when a snapshot that is not one cut
-        // goes unseen in this run.
+        // A snapshot is one cut through the store because it holds the
+        // lock of the map from the first slot it reads to the last: no
+        // operation, which takes the map first, can run in between. The
+        // hook looks at that at every slot the snapshot reads, in whatever
+        // order the map yields them: the lock must be held. Where it is
+        // not, an operation does run there, a decline of the full list
+        // that takes a new slot and pushes the oldest out, and the cut the
+        // snapshot returns can show it.
         let store = Arc::new(ContactStore::new(id(0), Durability::new()));
         for n in 0..MAX_DECLINED_IDENTITIES as u32 {
             store.decline(&id(10_000 + n)).unwrap();
         }
-        let oldest = id(10_000);
+        let free_at = Arc::new(Mutex::new(Vec::new()));
         let step: SlotHook = Box::new({
             let store = Arc::downgrade(&store);
-            move |read: &IdentityPublicKey| {
-                if *read == oldest {
-                    return false;
-                }
+            let free_at = free_at.clone();
+            let mut reads = 0_usize;
+            move |_: &IdentityPublicKey| {
+                reads += 1;
                 if let Some(store) = store.upgrade() {
                     let free = store.slots.try_lock().is_ok();
                     if free {
-                        store.decline(&id(99_999)).unwrap();
+                        lock(&free_at).push(reads);
+                        let _ = store.decline(&id(100_000 + reads as u32));
                     }
                 }
-                true
+                false
             }
         });
         lock(&store.hooks).insert("snapshot", step);
         let (_, _, declined) = store.snapshot(None);
+        assert_eq!(
+            *lock(&free_at),
+            Vec::<usize>::new(),
+            "the snapshot let go of the map between its reads"
+        );
         assert_eq!(declined.len(), MAX_DECLINED_IDENTITIES);
-        // The decline waited for the snapshot, or there was none.
-        let (_, _, after) = store.snapshot(None);
-        assert_eq!(after.len(), MAX_DECLINED_IDENTITIES);
     }
 
     #[test]

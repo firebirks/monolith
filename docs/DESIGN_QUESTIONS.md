@@ -1579,7 +1579,8 @@ fixes, found more, all fixed:
 The mutation suite: CS28, until then expected to survive, is caught by a
 hook between taking a stranger's first message and delivering it; CS52
 is back, caught by a hook between the two slots of a decline, and CS51
-by a hook between the slots a snapshot reads. Faults that the fixes had
+by a hook that checks, after every slot a snapshot reads, that it still
+holds the lock of the map: deterministic in any order of the slots. Faults that the fixes had
 moved were retargeted (`b06758c` and with their fixes). The structure
 test read each source only up to its first `#[cfg(test)]`, indented
 ones too, and so skipped most of `session.rs`; it reads up to the first

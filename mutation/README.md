@@ -107,9 +107,9 @@ The Phase 4 list, CS1 to CS94, covers the contact store and the vault:
   and a failed write that withdraws nothing when no waiter is left
   (CS55). CS52, a decline that lets go of the map between its two slots,
   is caught by a test that takes a snapshot at a hook between the two
-  slots; CS51 by one that runs a decline at a hook between the slots a
-  snapshot reads (it misses the fault in the one order of 1024 in which
-  the map yields the oldest declined identity first);
+  slots; CS51 by one that looks, at a hook after every slot a snapshot
+  reads, whether the snapshot still holds the lock of the map, whatever
+  the order in which the map yields the slots;
 - the closure of the review of the Phase 4 code
   (`docs/DESIGN_QUESTIONS.md` section 11.5): stored secrets in `Debug`
   output (CS56), keys the vault would refuse or a rotation to the same
