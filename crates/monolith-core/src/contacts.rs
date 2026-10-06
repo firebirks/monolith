@@ -297,7 +297,16 @@ pub(crate) struct ContactStore {
     /// only. One per store: a store made again for the same keys has
     /// another.
     owner: Arc<Owner>,
+    /// Steps a test runs at named points, with the identity of the slot
+    /// at hand, until one returns true: to place another operation exactly
+    /// there.
+    #[cfg(test)]
+    hooks: Mutex<HashMap<&'static str, SlotHook>>,
 }
+
+/// See `ContactStore::hooks`.
+#[cfg(test)]
+type SlotHook = Box<dyn FnMut(&IdentityPublicKey) -> bool + Send>;
 
 impl fmt::Debug for ContactStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -314,6 +323,20 @@ impl ContactStore {
             durability,
             closed: AtomicBool::new(false),
             owner: Arc::new(Owner),
+            #[cfg(test)]
+            hooks: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Runs the step a test placed at `point`. It is taken out while it
+    /// runs, so that it may call the store, and put back unless it is done.
+    #[cfg(test)]
+    fn run_hook(&self, point: &'static str, identity: &IdentityPublicKey) {
+        let step = lock(&self.hooks).remove(point);
+        if let Some(mut step) = step {
+            if !step(identity) {
+                lock(&self.hooks).insert(point, step);
+            }
         }
     }
 
@@ -760,6 +783,8 @@ impl ContactStore {
             entry.record = Record::Declined;
             dropped
         };
+        #[cfg(test)]
+        self.run_hook("decline", identity);
         if let Some(oldest) = dropped {
             if let Some(old) = slots.get(&oldest).cloned() {
                 let mut entry = lock(&old.0);
@@ -1054,6 +1079,9 @@ impl ContactStore {
                 Record::Declined => declined.push(identity),
                 Record::None => {}
             }
+            drop(entry);
+            #[cfg(test)]
+            self.run_hook("snapshot", &identity);
         }
         // Declined in the order of the list; what the list holds and what
         // the slots say agree, since both change in one step.
@@ -1120,6 +1148,82 @@ mod tests {
         .unwrap()
         .card()
         .clone()
+    }
+
+    #[test]
+    fn no_operation_runs_between_the_reads_of_a_snapshot() {
+        // The declined list is full. After the snapshot read a slot, a
+        // decline runs if it can: it takes a slot of its own and pushes the
+        // oldest declined identity out, two slots in one step. Whatever
+        // the snapshot read before and after, it holds the full list,
+        // never one fewer. (A snapshot that held the lock of the map runs
+        // nothing in between; one that let it go must still be one cut.)
+        // The hook acts at the first slot that is not the oldest; the
+        // oldest is then read after the decline, unless the map put it
+        // first (one order in 1024), when a snapshot that is not one cut
+        // goes unseen in this run.
+        let store = Arc::new(ContactStore::new(id(0), Durability::new()));
+        for n in 0..MAX_DECLINED_IDENTITIES as u32 {
+            store.decline(&id(10_000 + n)).unwrap();
+        }
+        let oldest = id(10_000);
+        let step: SlotHook = Box::new({
+            let store = Arc::downgrade(&store);
+            move |read: &IdentityPublicKey| {
+                if *read == oldest {
+                    return false;
+                }
+                if let Some(store) = store.upgrade() {
+                    let free = store.slots.try_lock().is_ok();
+                    if free {
+                        store.decline(&id(99_999)).unwrap();
+                    }
+                }
+                true
+            }
+        });
+        lock(&store.hooks).insert("snapshot", step);
+        let (_, _, declined) = store.snapshot(None);
+        assert_eq!(declined.len(), MAX_DECLINED_IDENTITIES);
+        // The decline waited for the snapshot, or there was none.
+        let (_, _, after) = store.snapshot(None);
+        assert_eq!(after.len(), MAX_DECLINED_IDENTITIES);
+    }
+
+    #[test]
+    fn no_snapshot_runs_between_the_two_slots_of_a_decline() {
+        // The declined list is full; a decline takes a slot of its own and
+        // pushes the oldest declined identity out. Between the two, a
+        // snapshot is taken if it can be: it must see the list full, not
+        // one over the bound, which the vault refuses to read.
+        let store = Arc::new(ContactStore::new(id(0), Durability::new()));
+        for n in 0..MAX_DECLINED_IDENTITIES as u32 {
+            store.decline(&id(10_000 + n)).unwrap();
+        }
+        let seen = Arc::new(Mutex::new(None));
+        let step: SlotHook = Box::new({
+            let store = Arc::downgrade(&store);
+            let seen = seen.clone();
+            move |_: &IdentityPublicKey| {
+                if let Some(store) = store.upgrade() {
+                    let free = store.slots.try_lock().is_ok();
+                    if free {
+                        let (_, _, declined) = store.snapshot(None);
+                        *lock(&seen) = Some(declined.len());
+                    }
+                }
+                true
+            }
+        });
+        lock(&store.hooks).insert("decline", step);
+        store.decline(&id(99_999)).unwrap();
+        let seen = *lock(&seen);
+        assert!(
+            seen.is_none_or(|count| count == MAX_DECLINED_IDENTITIES),
+            "{seen:?}"
+        );
+        let (_, _, declined) = store.snapshot(None);
+        assert_eq!(declined.len(), MAX_DECLINED_IDENTITIES);
     }
 
     #[test]
