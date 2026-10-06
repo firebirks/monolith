@@ -17,7 +17,10 @@
 //! blocking pool takes the vault, snapshots the whole installation, which
 //! holds every change up to the latest generation, writes it, puts the
 //! vault back and publishes the outcome. Later waiters find their
-//! generation covered. The job does all of that whatever becomes of the
+//! generation covered. A job that ends with changes applied after its
+//! snapshot starts the next write itself, so every change is written,
+//! also one whose waiter was cancelled and one that nothing waits for.
+//! The job does all of that whatever becomes of the
 //! waiter that started it, so a waiter that is cancelled (a deadline, an
 //! aborted task) loses neither the vault nor its lock, and no other waiter
 //! misses the outcome. A failed write marks the installation failed: every
@@ -158,6 +161,12 @@ pub(crate) struct Write {
     /// alive, so closing the installation lets go of the vault and the lock
     /// of its directory at once.
     pub(crate) failed: Box<dyn FnOnce() + Send>,
+    /// What the installation does when the write succeeded and changes
+    /// were applied after its snapshot: it starts another write unless one
+    /// is under way. So every change is written, also one whose waiter was
+    /// cancelled while this write ran, and one that nothing waits for.
+    /// Held weakly too.
+    pub(crate) again: Box<dyn FnOnce() + Send>,
 }
 
 /// Writes the vault. One per installation with a vault.
@@ -209,6 +218,7 @@ struct Job {
     vault: Option<Box<dyn Writer>>,
     outcome: Option<Result<u64, StorageError>>,
     failed: Option<Box<dyn FnOnce() + Send>>,
+    again: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl Job {
@@ -237,10 +247,17 @@ impl Drop for Job {
                 // out: the waiter it wakes may close the installation and
                 // open the vault again at once.
                 drop(self.failed.take());
+                let again = self.again.take();
                 self.durability.mark_durable(covered);
+                if self.durability.applied() > covered {
+                    if let Some(again) = again {
+                        again();
+                    }
+                }
             }
             outcome => {
                 // An error, or a write that did not finish.
+                drop(self.again.take());
                 self.durability.mark_failed(outcome.and_then(Result::err));
                 if let Some(failed) = self.failed.take() {
                     failed();
@@ -259,11 +276,63 @@ impl Store {
         })))
     }
 
+    /// Starts a write unless one is under way, on the blocking pool of
+    /// `runtime`: `write` gives the snapshot, which encodes the state of
+    /// the installation and the generation it covers and is called there
+    /// with no lock of the contact state held, what to do if the write
+    /// fails, and what to do if the state moved on meanwhile.
+    pub(crate) fn start<F>(
+        &self,
+        durability: &Arc<Durability>,
+        runtime: &tokio::runtime::Handle,
+        write: F,
+    ) -> Result<(), CommitError>
+    where
+        F: FnOnce() -> Write,
+    {
+        let Self::Vault(slot) = self else {
+            return Ok(());
+        };
+        let job = {
+            let mut held = lock(slot);
+            if held.writing {
+                // The write under way covers what was applied before its
+                // snapshot, and starts another for the rest.
+                None
+            } else if let Some(vault) = held.vault.take() {
+                held.writing = true;
+                Some(Job {
+                    slot: Arc::downgrade(slot),
+                    durability: durability.clone(),
+                    vault: Some(vault),
+                    outcome: None,
+                    failed: None,
+                    again: None,
+                })
+            } else {
+                // Without a write under way the vault is in its slot.
+                drop(held);
+                durability.mark_failed(None);
+                return Err(durability.failure());
+            }
+        };
+        if let Some(mut job) = job {
+            let Write {
+                snapshot,
+                failed,
+                again,
+            } = write();
+            job.failed = Some(failed);
+            job.again = Some(again);
+            // Not awaited: the job finishes on its own, and its outcome
+            // comes through `durable`.
+            drop(runtime.spawn_blocking(move || job.run(snapshot)));
+        }
+        Ok(())
+    }
+
     /// Waits until `generation` is durable. With a vault, a wait that
-    /// finds no write under way starts one: `write` gives the snapshot,
-    /// which encodes the state of the installation and the generation it
-    /// covers and is called on the blocking pool with no lock of the
-    /// contact state held, and what to do if the write fails.
+    /// finds no write under way starts one ([`Self::start`]).
     pub(crate) async fn wait<F>(
         &self,
         durability: &Arc<Durability>,
@@ -273,14 +342,15 @@ impl Store {
     where
         F: Fn() -> Write,
     {
-        let Self::Vault(slot) = self else {
+        if matches!(self, Self::Ephemeral) {
             durability.mark_durable(durability.applied());
             return if durability.is_failed() {
                 Err(durability.failure())
             } else {
                 Ok(())
             };
-        };
+        }
+        let runtime = tokio::runtime::Handle::current();
         let mut durable = durability.subscribe();
         loop {
             // Seen before the state is looked at: an outcome published
@@ -292,35 +362,7 @@ impl Store {
             if durability.durable() >= generation {
                 return Ok(());
             }
-            let job = {
-                let mut held = lock(slot);
-                if held.writing {
-                    // The write under way may cover this generation; its
-                    // outcome wakes this wait.
-                    None
-                } else if let Some(vault) = held.vault.take() {
-                    held.writing = true;
-                    Some(Job {
-                        slot: Arc::downgrade(slot),
-                        durability: durability.clone(),
-                        vault: Some(vault),
-                        outcome: None,
-                        failed: None,
-                    })
-                } else {
-                    // Without a write under way the vault is in its slot.
-                    drop(held);
-                    durability.mark_failed(None);
-                    return Err(durability.failure());
-                }
-            };
-            if let Some(mut job) = job {
-                let Write { snapshot, failed } = write();
-                job.failed = Some(failed);
-                // Not awaited: the job finishes on its own, and its
-                // outcome comes through `durable`.
-                drop(tokio::task::spawn_blocking(move || job.run(snapshot)));
-            }
+            self.start(durability, &runtime, &write)?;
             if durable.changed().await.is_err() {
                 return Err(CommitError::Failed);
             }
@@ -335,6 +377,7 @@ mod tests {
     use core::time::Duration;
     use std::sync::Condvar;
     use std::sync::atomic::AtomicUsize;
+    use std::sync::mpsc::Sender;
 
     use zeroize::Zeroizing;
 
@@ -382,6 +425,7 @@ mod tests {
             Write {
                 snapshot: Box::new(move || Ok((durability.applied(), Zeroizing::new(vec![0_u8])))),
                 failed: Box::new(|| {}),
+                again: Box::new(|| {}),
             }
         }
     }
@@ -438,6 +482,80 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(writes.load(Ordering::SeqCst), 2);
+        });
+    }
+
+    /// A write of nothing, as [`snapshot`], that reports each generation it
+    /// covers to `taken` and starts the next write when the state moved on
+    /// meanwhile, as the installation does.
+    fn chained(store: Weak<Store>, durability: Arc<Durability>, taken: Sender<u64>) -> Write {
+        let reading = durability.clone();
+        let reported = taken.clone();
+        Write {
+            snapshot: Box::new(move || {
+                let covered = reading.applied();
+                let _ = reported.send(covered);
+                Ok((covered, Zeroizing::new(vec![0_u8])))
+            }),
+            failed: Box::new(|| {}),
+            again: Box::new(move || {
+                if let (Some(held), Ok(runtime)) =
+                    (store.upgrade(), tokio::runtime::Handle::try_current())
+                {
+                    let next = Arc::downgrade(&held);
+                    let _ = held.start(&durability, &runtime, || {
+                        chained(next, durability.clone(), taken)
+                    });
+                }
+            }),
+        }
+    }
+
+    #[test]
+    fn a_change_is_written_though_its_waiter_was_cancelled_during_a_write() {
+        // A write is under way with a snapshot that does not hold the
+        // second change; the wait for that change is cancelled, and
+        // nothing else waits. The second change is written all the same.
+        let durability = Durability::new();
+        let writes = Arc::new(AtomicUsize::new(0));
+        let held = gate(false);
+        let store = Arc::new(Store::vault(Box::new(TestWriter {
+            writes: writes.clone(),
+            gate: held.clone(),
+            fail: false,
+        })));
+        let (taken, snapshots) = std::sync::mpsc::channel();
+        let write = {
+            let store = Arc::downgrade(&store);
+            let durability = durability.clone();
+            move || chained(store.clone(), durability.clone(), taken.clone())
+        };
+        runtime().block_on(async {
+            let first = durability.bump();
+            let waited = tokio::time::timeout(
+                Duration::from_millis(10),
+                store.wait(&durability, first, &write),
+            )
+            .await;
+            assert!(waited.is_err());
+            assert_eq!(snapshots.recv().unwrap(), first);
+            let second = durability.bump();
+            let waited = tokio::time::timeout(
+                Duration::from_millis(10),
+                store.wait(&durability, second, &write),
+            )
+            .await;
+            assert!(waited.is_err());
+            open_gate(&held);
+            let written = tokio::time::timeout(Duration::from_secs(10), async {
+                while durability.durable() < second {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await;
+            assert!(written.is_ok(), "the second change was never written");
+            assert_eq!(writes.load(Ordering::SeqCst), 2);
+            assert!(!durability.is_failed());
         });
     }
 

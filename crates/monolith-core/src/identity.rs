@@ -991,37 +991,52 @@ pub(crate) struct Shared {
 
 impl Shared {
     async fn commit(self: &Arc<Self>, generation: u64) -> Result<(), CommitError> {
-        let result = {
-            let shared = self.clone();
-            self.store
-                .wait(&self.durability, generation, move || {
-                    let reading = shared.clone();
-                    let failing = Arc::downgrade(&shared);
-                    Write {
-                        snapshot: Box::new(move || {
-                            // The generation first: the state read after it
-                            // holds every change up to it.
-                            let covered = reading.durability.applied();
-                            let contents = reading.contents();
-                            Ok((covered, contents.encode()?))
-                        }),
-                        // Nothing can be made durable any more: every
-                        // session is withdrawn, even if no waiter is left.
-                        failed: Box::new(move || {
-                            if let Some(shared) = failing.upgrade() {
-                                shared.withdraw_all();
-                            }
-                        }),
-                    }
-                })
-                .await
-        };
+        let result = self
+            .store
+            .wait(&self.durability, generation, || self.write())
+            .await;
         if result.is_err() {
             // Nothing can be made durable any more: every session is
             // withdrawn and every change refused (fail closed).
             self.withdraw_all();
         }
         result
+    }
+
+    /// What a write of the installation needs from it.
+    fn write(self: &Arc<Self>) -> Write {
+        let reading = self.clone();
+        let failing = Arc::downgrade(self);
+        let again = Arc::downgrade(self);
+        Write {
+            snapshot: Box::new(move || {
+                // The generation first: the state read after it holds every
+                // change up to it.
+                let covered = reading.durability.applied();
+                let contents = reading.contents();
+                Ok((covered, contents.encode()?))
+            }),
+            // Nothing can be made durable any more: every session is
+            // withdrawn, even if no waiter is left.
+            failed: Box::new(move || {
+                if let Some(shared) = failing.upgrade() {
+                    shared.withdraw_all();
+                }
+            }),
+            // Changes came after the snapshot: they are written next, even
+            // if nothing waits for them. The job runs this on the blocking
+            // pool, where the runtime is at hand; without one (the runtime
+            // shuts down) the next wait writes them.
+            again: Box::new(move || {
+                if let (Some(shared), Ok(runtime)) =
+                    (again.upgrade(), tokio::runtime::Handle::try_current())
+                {
+                    let _ = shared
+                        .store
+                        .start(&shared.durability, &runtime, || shared.write());
+                }
+            }),
+        }
     }
 
     /// Withdraws every session of every identity.

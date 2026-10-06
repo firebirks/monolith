@@ -950,5 +950,8 @@ PHASE4 = [
     fault("CS67", CORE + "identity.rs", "a request is taken out before its answer is recorded",
           ("        let request = requests.get(identity).ok_or(StoreError::NotFound)?;\n        let generation = answer(request)?;\n        requests.forget(identity);\n",
            "        let request = requests.get(identity).ok_or(StoreError::NotFound)?.clone();\n        requests.forget(identity);\n        let generation = answer(&request)?;\n")),
+    fault("CS70", CORE + "persist.rs", "changes after a snapshot wait for the next waiter",
+          ("                if self.durability.applied() > covered {\n                    if let Some(again) = again {\n                        again();\n                    }\n                }",
+           "                drop(again);")),
 ]
 
