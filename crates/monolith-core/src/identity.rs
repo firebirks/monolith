@@ -62,6 +62,14 @@ fn random<const N: usize>() -> Result<Zeroizing<[u8; N]>, StoreError> {
     Ok(bytes)
 }
 
+/// The number of the first rotation of an identity: drawn at random, so
+/// that the numbers of two identities, or of an identity made again from
+/// the same keys, are not the same, and a number of one counts for no
+/// other.
+fn first_rotation() -> Result<u64, StoreError> {
+    random::<8>().map(|bytes| u64::from_be_bytes(*bytes))
+}
+
 /// The local party of `seed` with the transport key `transport`, at
 /// `epoch`, reachable at `endpoint`. The secrets have to be ones the vault
 /// accepts when it reads them back (`record::is_usable_secret`): whatever
@@ -136,7 +144,7 @@ struct Keys {
     endpoint: OnionServiceKey,
     party: Arc<LocalParty>,
     rotation: Option<Rotation>,
-    /// The number of the next rotation.
+    /// The number of the next rotation; the first is drawn at random.
     rotations: u64,
 }
 
@@ -145,7 +153,7 @@ impl Keys {
     /// identity had in this process.
     const fn next_rotation(&mut self) -> RotationId {
         let id = RotationId(self.rotations);
-        self.rotations = self.rotations.saturating_add(1);
+        self.rotations = self.rotations.wrapping_add(1);
         id
     }
 
@@ -164,8 +172,9 @@ impl Keys {
 }
 
 /// One local rotation, as its identity numbers them: progress recorded for
-/// one rotation never counts for another. Local, and not kept across a
-/// restart; a rotation read from the vault gets a new number.
+/// one rotation never counts for another, of this identity or of another.
+/// Each identity starts its numbers at random. Local, and not kept across
+/// a restart; a rotation read from the vault gets a new number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RotationId(pub(crate) u64);
 
@@ -1278,6 +1287,7 @@ impl Installation {
     }
 
     fn restore(&self, stored: StoredIdentity) -> Result<LocalIdentity, InstallationError> {
+        let first = first_rotation()?;
         let party = issue(
             &stored.identity_seed,
             &stored.transport_secret,
@@ -1287,9 +1297,9 @@ impl Installation {
         .map_err(|_| InstallationError::Invalid)?;
         let rotation = match stored.rotation {
             Some(rotation) => Some(Rotation {
-                // The first number of this process: the marks stored with
-                // the rotation are read back with it.
-                id: RotationId(0),
+                // The first number of this identity in this process: the
+                // marks stored with the rotation are read back with it.
+                id: RotationId(first),
                 party: issue(
                     &stored.identity_seed,
                     &rotation.transport_secret,
@@ -1328,7 +1338,7 @@ impl Installation {
             endpoint: stored.endpoint,
             party,
             rotation,
-            rotations: 1,
+            rotations: first.wrapping_add(1),
         };
         Ok(LocalIdentity::new(
             keys,
@@ -1382,7 +1392,7 @@ impl Installation {
             endpoint,
             party,
             rotation: None,
-            rotations: 0,
+            rotations: first_rotation()?,
         };
         let identity = Arc::new(LocalIdentity::new(
             keys,
@@ -1429,7 +1439,7 @@ impl Installation {
                 endpoint: keys.endpoint,
                 party,
                 rotation: None,
-                rotations: 0,
+                rotations: first_rotation()?,
             },
             Settings {
                 request_mode: RequestMode::default(),

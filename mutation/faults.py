@@ -1009,5 +1009,8 @@ PHASE4 = [
     fault("CS86", CORE + "identity.rs", "a new identity is listed before it is durable",
           ("            .filter(|held| held.added_at.load(Ordering::SeqCst) <= durable)",
            "            .filter(|held| held.added_at.load(Ordering::SeqCst) <= u64::MAX)")),
+    fault("CS87", CORE + "identity.rs", "every identity numbers its rotations alike",
+          ("    random::<8>().map(|bytes| u64::from_be_bytes(*bytes))",
+           "    random::<8>().map(|_| 0)")),
 ]
 

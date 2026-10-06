@@ -691,3 +691,29 @@ fn a_new_identity_is_listed_only_once_it_is_durable() {
 fn keys_identity(seed: u8) -> Box<monolith_identity::IdentityPublicKey> {
     Box::new(IdentitySecretKey::from_seed(&[seed; 32]).public_key())
 }
+
+#[test]
+fn the_rotation_of_one_identity_counts_for_no_other() {
+    // A and B both rotate and hold Carol as accepted. A rotation number of
+    // A handed to B records nothing at B.
+    run(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let (mut a, mut b) = two(&network, &installation).await;
+        let mut carol = node(&network, 3).await;
+        common::befriend(&a, &mut carol).await;
+        common::befriend(&b, &mut carol).await;
+        a.identity.begin_rotation().await.unwrap();
+        b.identity.begin_rotation().await.unwrap();
+        let of_a = a.identity.rotation_id().unwrap();
+        assert_ne!(Some(of_a), b.identity.rotation_id());
+        assert!(
+            !b.identity
+                .mark_announced(carol.identity.identity(), of_a)
+                .await
+                .unwrap()
+        );
+        assert!(!b.identity.switch_rotation(false).await.unwrap());
+        let _ = (&mut a, &mut b);
+    });
+}
