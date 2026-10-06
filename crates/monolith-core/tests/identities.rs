@@ -103,6 +103,103 @@ fn t_mi_1_no_two_local_identities_share_a_key() {
 }
 
 #[test]
+fn an_identity_is_restored_only_if_the_vault_can_hold_it() {
+    // What `restore_identity` accepts is written to the vault, and has to
+    // be read back: keys the vault would refuse when it is opened are
+    // refused here first. Every identity that was accepted is there after
+    // a restart.
+    run(async {
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut zero_seed = keys(1, 1, 1, place(1));
+        zero_seed.seed = Zeroizing::new([0; 32]);
+        let mut zero_onion = keys(2, 2, 1, place(2));
+        zero_onion.onion = Some(Zeroizing::new([0; 64]));
+        let mut one_bit = keys(3, 3, 1, place(3));
+        one_bit.seed = Zeroizing::new([0; 32]);
+        one_bit.seed[31] = 1;
+        let mut no_onion = keys(4, 4, 1, place(4));
+        no_onion.onion = None;
+        let mut accepted = Vec::new();
+        for (keys, valid) in [
+            (zero_seed, false),
+            (zero_onion, false),
+            (one_bit, true),
+            (no_onion, true),
+            (keys(5, 5, 7, place(5)), true),
+        ] {
+            let restored = installation.restore_identity(keys, None).await;
+            if valid {
+                accepted.push(*restored.unwrap().identity());
+            } else {
+                assert_eq!(restored.err(), Some(InstallationError::Invalid));
+            }
+        }
+        drop(installation);
+        let (reopened, _) =
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase())
+                .unwrap();
+        let mut found: Vec<_> = reopened
+            .identities()
+            .iter()
+            .map(|identity| *identity.identity())
+            .collect();
+        found.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        accepted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        assert_eq!(found, accepted);
+    });
+}
+
+#[test]
+fn a_rotation_to_the_same_public_key_is_refused_when_the_vault_is_opened() {
+    // X25519 clamps the scalar: two secrets that differ only in the bits
+    // it clears are one key. A rotation whose new secret is the old one
+    // with such a bit changed would announce the active key as its own
+    // successor; the vault that holds it is refused.
+    let active = [0xC2_u8; 32];
+    let mut low = active;
+    low[0] ^= 0x01;
+    let mut high = active;
+    high[31] &= 0x7F;
+    for next in [low, high] {
+        let dir = MemoryDir::new();
+        let identity = StoredIdentity {
+            identity_seed: Zeroizing::new([1; 32]),
+            transport_secret: Zeroizing::new(active),
+            onion_secret: None,
+            epoch: EndpointEpoch::FIRST,
+            endpoint: place(1),
+            rotation: Some(monolith_storage::record::StoredRotation {
+                transport_secret: Zeroizing::new(next),
+                epoch: EndpointEpoch::FIRST.next().unwrap(),
+                switched: false,
+            }),
+            request_mode: RequestMode::Invitation,
+            label: None,
+            invitations: Vec::new(),
+            contacts: Vec::new(),
+            blocked: Vec::new(),
+            declined: Vec::new(),
+        };
+        let contents = Contents {
+            identities: vec![identity],
+        };
+        Vault::create(
+            dir.clone(),
+            &passphrase(),
+            KdfParams::FLOOR,
+            &contents.encode().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            Installation::open(Box::new(dir), &passphrase()).err(),
+            Some(InstallationError::Invalid)
+        );
+    }
+}
+
+#[test]
 fn t_mi_2_and_3_contact_state_belongs_to_one_identity() {
     run(async {
         let network = MockNetwork::new();

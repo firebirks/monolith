@@ -912,5 +912,14 @@ PHASE4 = [
     fault("CS56", ST + "record.rs", "a stored rotation prints its secret key",
           ("        f.debug_struct(\"StoredRotation\")\n            .field(\"transport_secret\", &Redacted::new(()))",
            "        f.debug_struct(\"StoredRotation\")\n            .field(\"transport_secret\", &self.transport_secret)")),
+    fault("CS57", CORE + "identity.rs", "a seed the vault refuses is issued",
+          ("    if !record::is_usable_secret(seed) || !record::is_usable_secret(transport) {",
+           "    if !record::is_usable_secret(transport) {")),
+    fault("CS58", CORE + "identity.rs", "an Onion Service secret the vault refuses is restored",
+          ("            .is_some_and(|onion| !record::is_usable_secret(onion.as_slice()))",
+           "            .is_some_and(|onion| onion.is_empty())")),
+    fault("CS59", CORE + "identity.rs", "a rotation to the same public key is read from the vault",
+          ("                .filter(|new| new.card().transport() != party.card().transport())",
+           "                .filter(|_| true)")),
 ]
 

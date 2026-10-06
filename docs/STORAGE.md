@@ -308,9 +308,14 @@ Rules that are fixed now:
   which refuses any state no transition could have produced, labels pass
   the display-name rules, no remote identity has two records, secrets of
   zero bytes are refused, and a rotation must move the epoch forward with
-  another key. Opening also refuses two identities that share a key
-  (S39). Padding after the records must be zero, so a payload has one
+  another key: another public key, since X25519 clamps the scalar and two
+  secrets can be one key. Opening also refuses two identities that share a
+  key (S39). Padding after the records must be zero, so a payload has one
   valid encoding.
+- What is written is what can be read back: creating, restoring and
+  rotating an identity apply the same rules to the secrets before they are
+  accepted (`record::is_usable_secret`), so no accepted identity makes the
+  vault fail to open.
 
 ### 3.5 Writing
 

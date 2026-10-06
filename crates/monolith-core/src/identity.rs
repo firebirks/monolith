@@ -35,7 +35,9 @@ use monolith_session::{
 };
 use monolith_storage::StorageError;
 use monolith_storage::dir::VaultDir;
-use monolith_storage::record::{Contents, ONION_SECRET_LEN, StoredIdentity, StoredRotation};
+use monolith_storage::record::{
+    self, Contents, ONION_SECRET_LEN, StoredIdentity, StoredRotation,
+};
 use monolith_storage::vault::{KdfParams, Passphrase, Recovery, Vault};
 use monolith_tor::{IsolationGroup, OnionServiceSecret, TorError};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, watch};
@@ -62,13 +64,20 @@ fn random<const N: usize>() -> Result<Zeroizing<[u8; N]>, StoreError> {
 }
 
 /// The local party of `seed` with the transport key `transport`, at
-/// `epoch`, reachable at `endpoint`.
+/// `epoch`, reachable at `endpoint`. The secrets have to be ones the vault
+/// accepts when it reads them back (`record::is_usable_secret`): whatever
+/// is issued here may be written there.
 fn issue(
     seed: &[u8; 32],
     transport: &[u8; 32],
     epoch: EndpointEpoch,
     endpoint: OnionServiceKey,
 ) -> Result<Arc<LocalParty>, StoreError> {
+    if !record::is_usable_secret(seed) || !record::is_usable_secret(transport) {
+        return Err(StoreError::Protocol(
+            monolith_protocol::ProtocolError::InvalidKey,
+        ));
+    }
     let secret = TransportSecretKey::from_bytes(transport)
         .map_err(|_| StoreError::Protocol(monolith_protocol::ProtocolError::InvalidKey))?;
     LocalParty::issue(
@@ -688,6 +697,11 @@ impl LocalIdentity {
             }
             let epoch = keys.epoch.next().ok_or(StoreError::Full)?;
             let party = issue(&keys.seed, &transport, epoch, keys.endpoint)?;
+            if party.card().transport() == keys.party.card().transport() {
+                return Err(StoreError::Protocol(
+                    monolith_protocol::ProtocolError::InvalidKey,
+                ));
+            }
             let card = party.card().clone();
             keys.rotation = Some(Rotation {
                 transport,
@@ -1084,7 +1098,11 @@ impl Installation {
                     rotation.epoch,
                     stored.endpoint,
                 )
-                .map_err(|_| InstallationError::Invalid)?,
+                .ok()
+                // The new key is another key, not the old one in another
+                // form: X25519 clamps, so two secrets can be one key.
+                .filter(|new| new.card().transport() != party.card().transport())
+                .ok_or(InstallationError::Invalid)?,
                 transport: rotation.transport_secret,
                 epoch: rotation.epoch,
                 // Read from the vault: durable.
@@ -1149,6 +1167,9 @@ impl Installation {
         label: Option<DisplayName>,
     ) -> Result<Arc<LocalIdentity>, InstallationError> {
         let _change = self.shared.changes.lock().await;
+        if onion.is_some_and(|secret| !record::is_usable_secret(secret.expose())) {
+            return Err(InstallationError::Invalid);
+        }
         let seed = random::<32>()?;
         let transport = random::<32>()?;
         let party = issue(&seed, &transport, EndpointEpoch::FIRST, endpoint)?;
@@ -1188,7 +1209,15 @@ impl Installation {
         label: Option<DisplayName>,
     ) -> Result<Arc<LocalIdentity>, InstallationError> {
         let _change = self.shared.changes.lock().await;
-        let party = issue(&keys.seed, &keys.transport, keys.epoch, keys.endpoint)?;
+        if keys
+            .onion
+            .as_ref()
+            .is_some_and(|onion| !record::is_usable_secret(onion.as_slice()))
+        {
+            return Err(InstallationError::Invalid);
+        }
+        let party = issue(&keys.seed, &keys.transport, keys.epoch, keys.endpoint)
+            .map_err(|_| InstallationError::Invalid)?;
         let id = *party.identity();
         let identity = Arc::new(LocalIdentity::new(
             Keys {

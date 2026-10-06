@@ -244,11 +244,17 @@ fn get_epoch(reader: &mut Reader<'_>) -> Result<EndpointEpoch, StorageError> {
     EndpointEpoch::new(reader.u64().map_err(format)?).map_err(|_| StorageError::BadFormat)
 }
 
+/// Whether `bytes` can be a stored secret: not all zero. No random source
+/// produces only zero bytes; a buffer that was never filled does. The
+/// vault refuses such a secret when it is read, so whoever writes one
+/// checks it with this first.
+pub fn is_usable_secret(bytes: &[u8]) -> bool {
+    bytes.iter().any(|byte| *byte != 0)
+}
+
 fn get_secret<const N: usize>(reader: &mut Reader<'_>) -> Result<Zeroizing<[u8; N]>, StorageError> {
     let bytes = Zeroizing::new(reader.array::<N>().map_err(format)?);
-    // No random source produces only zero bytes; a buffer that was never
-    // filled does.
-    if bytes.iter().all(|byte| *byte == 0) {
+    if !is_usable_secret(bytes.as_slice()) {
         return Err(StorageError::BadFormat);
     }
     Ok(bytes)
