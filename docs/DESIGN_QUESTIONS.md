@@ -1538,3 +1538,47 @@ That holds by construction; `tests/store.rs`
 (`closing_an_installation_lets_go_of_its_directory_at_once`) exercises
 it, and showed the old code failing in one run of five of the store
 tests and the new one in none.
+
+### 11.5 The closure of the review of the Phase 4 code
+
+A further review of the Phase 4 code, at `e29d7f2`, reported thirteen
+findings. Each was reproduced with a test that failed on the code it was
+reported against, fixed, and given a mutation fault where a fault can
+show it; all thirteen were real:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| The marks of a rotation's progress were booleans read apart from the keys: a snapshot taken while one rotation ended and the next began stored the new rotation with the progress of the old one. | Each rotation has a number; progress is recorded for a number, checked against the rotation in progress with the keys held, and the snapshot of an identity is one cut under the keys lock. | `abafe7e` | `identity::tests` (a hook between the reads), `contacts::tests`, `tests/credentials.rs`, CS77 to CS80 |
+| `mark_announced` did not say which rotation it completed: an announcement made in one rotation and recorded after it ended counted for the next. | The completion carries the rotation; a stale one records nothing and returns false. | `abafe7e` | `tests/credentials.rs` (`the_progress_of_one_rotation_never_counts_for_the_next`), CS77 |
+| Message 3 and frames were written by an aggregate write that the withdrawal was looked at around, not inside: a withdrawal between two writes let the rest of the bytes go out. | The link writes in its own loop and looks at the withdrawal before every write call. | `fdd6378` | `link::tests` (a stream that withdraws between two bytes), CS73 |
+| A send dropped after it sealed its frame left a link that could be used again, with a frame cut short or a counter that had moved on. | A flag marks a write under way; the next call ends the link without a Close. A receive dropped as it ended the link keeps its message for the next receive, which ends the link first. | `7025aa1`, `cf5feba`, `890b93c` | `link::tests`, CS74, CS83, CS91 |
+| What an admission recorded when no session followed (a refused dial, a dial or an answer without a slot) was not made durable and was lost by a restart. | It is made durable before the refusal is returned; a write that finds changes after its snapshot writes again before its outcome is out. | `6431341`, `fc239e2`, `3649b11`, `a849abc` | `tests/credentials.rs` (four restart tests), `persist::tests`, CS68 to CS72, CS88, CS89 |
+| A deleted identity still signed cards, listed capabilities, and handed out a party to dial or answer with. | Every getter of a secret, a party or a signed card fails after the deletion; the identity's copies of its secret bytes are erased. | `d7c8f95` | `tests/identities.rs`, `identity::tests`, CS60 to CS62 |
+| A publication under way was not ended by the deletion of its identity, and its service was reported available. | The wait for Tor ends on deletion and drops the publication; a service returned for a deleted identity is removed and not reported. | `493dcb7` | `tests/supervisor.rs`, CS75, CS76 |
+| An invitation was listed and its card could be had before the capability was durable. | A capability is listed, carried and admits requests only once durable. | `2230ad9` | `tests/invitations.rs`, `requests::tests`, CS64, CS65 |
+| Answering a request took it from the queue before the record changed: a refused answer (a full list) lost it, and a block could slip between the reading of a record and the queuing of a request. | The queue is locked while the record is read or changed. | `2bf7cad` | `tests/invitations.rs`, `identity::tests` (a hook), CS66, CS67 |
+| `restore_identity` accepted secrets the vault refuses (all zero), which made the vault fail to open; a stored rotation to a clamping-equivalent key was accepted. | One rule for the secrets; the new key must be another public key. | `646cd05` | `tests/identities.rs`, CS57 to CS59 |
+| The stored identity and rotation printed their secrets in `Debug`. | `Debug` written out, with the secrets redacted. | `854fcf7` | `record::tests`, CS56 |
+| `apply` took a session of any identity. | The store that admits a session binds it; another identity refuses it. | `8e76687` | T-MI-10, CS63 |
+| Buffers that held a capability or message content were not erased. | The signed bytes of a card, the copies of a card in a record and in its text form, the plaintext of every frame, the CLI passphrase and the passphrase normalization. Not observable without `unsafe`; `CRYPTOGRAPHY.md` section 8 lists what remains. | `f4d1a19` | none |
+
+A second review of the whole Phase 4 code, and two reviews of its own
+fixes, found more, all fixed:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| A dial waiting for its slot when its identity was deleted opened a stream; a session that outlived its identity, or a request considered as the identity was deleted, queued a request. | The deletion is looked at after the wait and with the queue locked. | `4c4f53d`, `90b9cbe` | `tests/identities.rs`, `identity::tests`, CS81, CS82, CS90 |
+| A write job started a second job after its outcome was out, so an installation closed at once could find its directory locked, and on a runtime shutting down the installation was marked failed. | The job writes again before its outcome, bounded while a waiter is left; a later failure keeps what an earlier write made durable; the job holds the installation weakly. | `3649b11`, `a849abc` | `persist::tests`, CS70, CS88, CS89 |
+| An invitation card could state a key the identity no longer answered with. | Signed once the capability is durable. | `3d4aa84` | `tests/invitations.rs`, CS84 |
+| The successor card and a new identity were shown before they were durable. | Shown only once durable. | `fedbf5a`, `1e343a6` | `tests/credentials.rs`, `tests/identities.rs`, CS85, CS86 |
+| The rotation numbers of two identities were the same. | Each identity starts at random. | `ea8ed63` | `tests/identities.rs`, CS87 |
+| An admission that failed after it changed a record would not stamp the change. No path reaches it. | It is stamped and the sessions are reconciled. | `3289cdc` | none |
+
+The mutation suite: CS28, until then expected to survive, is caught by a
+hook between taking a stranger's first message and delivering it; CS52
+is back, caught by a hook between the two slots of a decline, and CS51
+by a hook between the slots a snapshot reads. Faults that the fixes had
+moved were retargeted (`b06758c` and with their fixes). The structure
+test read each source only up to its first `#[cfg(test)]`, indented
+ones too, and so skipped most of `session.rs`; it reads up to the first
+top-level test item now (`2da1a2c`).

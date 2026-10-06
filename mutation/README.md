@@ -62,12 +62,11 @@ With Phase 4:
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
-| Phase 4 | 54 | 53 | CS28 |
+| Phase 4 | 91 | 91 | none |
 
-269 faults, 259 to be caught, 10 expected to survive.
+306 faults, 297 to be caught, 9 expected to survive.
 
-The Phase 4 list, CS1 to CS55 without CS52, covers the contact store and
-the vault:
+The Phase 4 list, CS1 to CS91, covers the contact store and the vault:
 
 - one decision about a card and no rollback: an older card of the active
   key that rolls the contact back, a stale card promoted, a conflicting
@@ -107,11 +106,29 @@ the vault:
   forgotten (CS53), a rotation ended before its switch is durable (CS54),
   and a failed write that withdraws nothing when no waiter is left
   (CS55). CS52, a decline that lets go of the map between its two slots,
-  was dropped: its window is a few instructions, and the snapshot test
-  caught it only some of the time.
+  is caught by a test that takes a snapshot at a hook between the two
+  slots; CS51 by one that runs a decline at a hook between the slots a
+  snapshot reads (it misses the fault in the one order of 1024 in which
+  the map yields the oldest declined identity first);
+- the closure of the review of the Phase 4 code
+  (`docs/DESIGN_QUESTIONS.md` section 11.5): stored secrets in `Debug`
+  output (CS56), keys the vault would refuse or a rotation to the same
+  public key (CS57 to CS59), a deleted identity that signs, hands out a
+  party, keeps its secret bytes, or takes what a late session or a
+  waiting dial brings (CS60 to CS62, CS81, CS82, CS90), a session of one
+  identity applied at another (CS63), what is shown or admits before it
+  is durable: an invitation, its card, the successor card, a new identity
+  (CS64, CS65, CS84 to CS86), the order of a request and the record of
+  its sender (CS66, CS67), what a refused or slot-less admission recorded
+  and the writes of a job (CS68 to CS72, CS88, CS89), the withdrawal
+  looked at before every write, a link whose write or receive was
+  dropped (CS73, CS74, CS83, CS91), a publication when its identity is
+  deleted (CS75, CS76), and the progress of one rotation counted for
+  another (CS77 to CS80, CS87).
 
-CS28 is expected to survive, below. CS17 and CS30 are caught by the
-timeout of the runner: the tests they break do not end. Without the
+CS28 is caught by a test that evicts the stranger at a hook between
+taking its first message and delivering it. CS17 and CS30 are caught by
+the timeout of the runner: the tests they break do not end. Without the
 refusal a dial with no contact slot never returns.
 
 Phase 4 moved P1 to P3, H15, H16, Q25, Q26, Q30, CR1, CR2, CR9, CR18,
@@ -218,16 +235,6 @@ Why these survive:
 - Q29, unreachable. `Endpoint` is opaque and only its validating
   constructors make one; the second check in the connection code cannot be
   reached from a test.
-- CS28, needs two threads. A stranger's first message and its eviction
-  race on one state, and each side decides with a compare-and-swap. A
-  link also looks for the eviction at the top of every turn of its loop
-  and while it waits for the peer, so on one thread nothing can evict
-  between that look and the swap of the first message, and ignoring the
-  result of the swap changes nothing a test of the link can arrange. The
-  swap decides when the eviction runs on another thread, as it can on a
-  runtime with several. `strangers::tests` races the two swaps on threads
-  and checks that exactly one wins.
-
 A survivor that is not in this list is a gap in the tests, or a check that
 does nothing. Either is fixed before a phase is called done; F9 was such a
 gap at the end of Phase 2, and in Phase 3 a handle that ignored control
@@ -236,9 +243,12 @@ listener-error paths of the core were; all have tests since. In Phase 4
 the targeted run found three: a confirmation for an identity that is not
 a contact (CS12), a dial without a contact slot (CS17), and a stranger
 answered without a slot while evicted ones drain (Q30); all have tests
-since. Two fixes of the review have no fault: the flush of the parent of
-a new directory, which only a power loss would show, and the erasure of
-an outgrown encoder buffer, which no test can read without `unsafe`.
+since. Some fixes of the reviews have no fault: the flush of the parent
+of a new directory, which only a power loss would show; the erasure of
+an outgrown encoder buffer and of the card, frame and passphrase buffers
+of the review closure, which no test can read without `unsafe`; and the
+handling of an admission that fails after it changed a record, which no
+path reaches today.
 
 ## Adding a fault
 

@@ -616,9 +616,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
         self.withdrawal.is_withdrawn()
     }
 
-    /// Returns true once the link is over. Every later call fails.
+    /// Returns true once the link is over. Every later call fails. A link
+    /// that still holds a message a dropped receive took is not over until
+    /// a receive has returned it.
     pub const fn is_over(&self) -> bool {
-        self.session.is_over() || self.writing
+        (self.session.is_over() || self.writing) && self.taken.is_none()
     }
 
     /// Returns true while the link holds a slot of `MAX_UNKNOWN_SESSIONS`.
@@ -960,7 +962,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
 
     /// Ends the session: writes the Close, if one is due, and shuts the
     /// stream down, each within `FRAME_WRITE_TIMEOUT`. On a link that is
-    /// over already it returns at once.
+    /// over already it returns at once. A message a dropped receive took
+    /// and no receive returned yet is dropped with the link.
     pub async fn close(mut self) -> Result<(), LinkError> {
         if let Some(error) = self.interrupted().await {
             return Err(error);
@@ -1842,6 +1845,7 @@ mod tests {
                     poll_fn(|cx| Poll::Ready(receiving.as_mut().poll(cx).is_pending())).await;
                 assert!(pending);
             }
+            assert!(!link.is_over());
             let received = link.receive().await.unwrap();
             assert_eq!(received.message, request());
             assert!(received.actions.contains(&Action::ConsiderRequest));

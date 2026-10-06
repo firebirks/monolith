@@ -230,8 +230,9 @@ where
                 // A run whose write failed shows nothing it could not make
                 // durable: a capability or a successor card, which differ
                 // from the first run's anyway, and a new identity, which
-                // the run then does not show at all.
-                if succeeded || before.identities.len() == after.identities.len() {
+                // the run then does not show at all; its state is checked
+                // unless it adds one.
+                if succeeded || before.identities.len() >= after.identities.len() {
                     assert_eq!(
                         after_here == after,
                         !draws_randomness(&before, &after),
