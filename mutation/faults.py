@@ -935,5 +935,8 @@ PHASE4 = [
     fault("CS62", CORE + "identity.rs", "a deleted identity keeps the bytes of its secrets",
           ("            keys.seed.zeroize();\n            keys.transport.zeroize();\n            keys.onion = None;\n",
            "")),
+    fault("CS63", CORE + "identity.rs", "a session of one identity is applied at another",
+          ("        if !self.contacts.admitted(session.withdrawal) {\n            return Err(StoreError::OtherIdentity);\n        }\n",
+           "")),
 ]
 

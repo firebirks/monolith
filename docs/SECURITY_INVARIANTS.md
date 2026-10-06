@@ -460,7 +460,11 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   all identities, if one is ever offered, is a separate record and an
   explicit choice. Each `LocalIdentity` has its own contact store, and
   every operation is a method of one identity; `link::answer` and
-  `link::dial` take the identity a link is for. The vault holds the
+  `link::dial` take the identity a link is for. The store that admits a
+  session binds the session's withdrawal to itself in the admission step,
+  and an identity applies what arrived on a session only if its own store
+  admitted it: a session of A handed to B, or to an identity made again
+  from A's keys, is refused (`StoreError::OtherIdentity`). The vault holds the
   records of each identity apart. Deleting an identity closes it before
   it leaves the installation: it refuses every change and admission, its
   waits for durability fail, it holds no Onion Service key, and its accept
@@ -477,8 +481,8 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   test (step 8: two identities of one node hold one peer differently),
   `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity
   admits nobody, changes nothing, hands out no secret, and is taken
-  down), `identity::tests`, mutation faults CS46 to CS48 and CS60 to
-  CS62.
+  down), T-MI-10, `identity::tests`, mutation faults CS46 to CS48 and
+  CS60 to CS63.
 
 ### S41. An invitation capability admits requests only to the identity that issued it
 

@@ -57,7 +57,7 @@ threads) and snapshots taken while operations run at the bounds
 (`contacts::tests`); two more fuzz targets
 (`vault_payload`, `contact_store`); the Phase 4 mutation list; and the
 private Tor network test extended to nodes over a vault. Covered now:
-T-INV-1 to 11, T-MI-1 to 9, T-CRASH for the vault and the contact store,
+T-INV-1 to 11, T-MI-1 to 10, T-CRASH for the vault and the contact store,
 T-CONTACT-1 and 3, T-CONTACT-2 between two stores (`common::befriend`:
 both import the other's card, one session makes both accepted), T-ID-2
 and 3, T-CONFIRM-1, T-ORACLE-6, the later
@@ -246,7 +246,7 @@ Local identities (T-MI)
 
 `ARCHITECTURE.md` section 1.1, invariants S39 to S46. Since Phase 4 an
 installation holds several identities, and these tests run against it:
-`tests/identities.rs` in the core (T-MI-1 to 4, 7 to 9),
+`tests/identities.rs` in the core (T-MI-1 to 4, 7 to 10),
 `tests/link.rs` (T-MI-5 and 6: each of two local identities answers at
 its own service and dials the same contact with its own isolation
 group), `tests/system.rs` in the Tor crate (two publications coexist on
@@ -274,6 +274,9 @@ test (two identities of one node).
 9. Deleting B leaves every record of A byte for byte unchanged, and a
    backup of one identity restores its keys, capabilities and contacts
    together.
+10. What arrives on a session of A is applied to A's state only: handed
+   to B, or to an identity made again from A's keys after A was deleted,
+   it is refused and changes nothing.
 
 Duplicate sessions (T-DUP)
 

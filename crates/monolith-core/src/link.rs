@@ -49,8 +49,8 @@ use core::fmt;
 use core::future::{Future, poll_fn};
 use core::pin::pin;
 use core::task::Poll;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
 
 use monolith_protocol::SessionState;
@@ -171,7 +171,14 @@ struct WithdrawalState {
     withdrawn: AtomicBool,
     ended: AtomicBool,
     wake: Notify,
+    /// The contact store that admitted the session, set once, by that
+    /// store, in the admission step.
+    owner: OnceLock<Weak<Owner>>,
 }
+
+/// What a contact store binds the withdrawals of its sessions to. Nothing
+/// outside the store can make one or bind to one.
+pub(crate) struct Owner;
 
 impl Withdrawal {
     fn new() -> Self {
@@ -179,7 +186,22 @@ impl Withdrawal {
             withdrawn: AtomicBool::new(false),
             ended: AtomicBool::new(false),
             wake: Notify::new(),
+            owner: OnceLock::new(),
         }))
+    }
+
+    /// Binds the session to the store of `owner`, in its admission. A
+    /// session is admitted once; a later binding changes nothing.
+    pub(crate) fn bind(&self, owner: &Arc<Owner>) {
+        let _ = self.0.owner.set(Arc::downgrade(owner));
+    }
+
+    /// Returns true if the store of `owner` admitted the session.
+    pub(crate) fn admitted_by(&self, owner: &Arc<Owner>) -> bool {
+        self.0
+            .owner
+            .get()
+            .is_some_and(|held| Weak::ptr_eq(held, &Arc::downgrade(owner)))
     }
 
     fn end(&self) {

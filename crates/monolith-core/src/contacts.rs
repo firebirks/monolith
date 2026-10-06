@@ -53,7 +53,7 @@ use monolith_protocol::text::DisplayName;
 use monolith_session::{Admitted, InboundPeer, OutboundAdmission, OutboundPeer, SessionError};
 use monolith_storage::record::StoredContact;
 
-use crate::link::Withdrawal;
+use crate::link::{Owner, Withdrawal};
 use crate::persist::Durability;
 
 /// Why an operation on the contact store was refused.
@@ -81,6 +81,9 @@ pub enum StoreError {
     Commit(crate::persist::CommitError),
     /// The installation failed earlier and refuses every change.
     Failed,
+    /// The session was admitted by another local identity, or by an
+    /// earlier identity of the same keys.
+    OtherIdentity,
 }
 
 impl fmt::Display for StoreError {
@@ -95,6 +98,7 @@ impl fmt::Display for StoreError {
             Self::Protocol(error) => write!(f, "{error}"),
             Self::Commit(error) => write!(f, "{error}"),
             Self::Failed => f.write_str("storage failed; restart needed"),
+            Self::OtherIdentity => f.write_str("session of another local identity"),
         }
     }
 }
@@ -271,6 +275,11 @@ pub(crate) struct ContactStore {
     durability: Arc<Durability>,
     /// The local identity was deleted: the store refuses everything.
     closed: AtomicBool,
+    /// What the withdrawal of every session this store admits is bound
+    /// to, so that the store applies what arrives on its own sessions
+    /// only. One per store: a store made again for the same keys has
+    /// another.
+    owner: Arc<Owner>,
 }
 
 impl fmt::Debug for ContactStore {
@@ -287,7 +296,13 @@ impl ContactStore {
             counts: Mutex::new(Counts::default()),
             durability,
             closed: AtomicBool::new(false),
+            owner: Arc::new(Owner),
         }
+    }
+
+    /// Returns true if this store admitted the session of `withdrawal`.
+    pub(crate) fn admitted(&self, withdrawal: &Withdrawal) -> bool {
+        withdrawal.admitted_by(&self.owner)
     }
 
     /// Rebuilds a store from the vault. The records were validated when
@@ -427,6 +442,7 @@ impl ContactStore {
         withdrawal: &Withdrawal,
     ) -> Result<(Admitted, u64), SessionError> {
         self.check_failed().map_err(|_| SessionError::Internal)?;
+        withdrawal.bind(&self.owner);
         let identity = *peer.card().identity();
         let card = peer.card().clone();
         let admitted = self.with_entry(&identity, false, |entry| match entry {
@@ -450,6 +466,7 @@ impl ContactStore {
         withdrawal: &Withdrawal,
     ) -> Result<(OutboundAdmission, u64), SessionError> {
         self.check_failed().map_err(|_| SessionError::Internal)?;
+        withdrawal.bind(&self.owner);
         let identity = *peer.card().identity();
         let card = peer.card().clone();
         let admitted = self.with_entry(&identity, false, |entry| match entry {

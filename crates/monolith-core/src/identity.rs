@@ -177,15 +177,18 @@ pub struct Applied {
 }
 
 /// What the store needs to know about one session to apply what arrived
-/// on it.
+/// on it. Only a link makes one ([`crate::link::Link::session_ref`]), and
+/// only the identity whose contact store admitted the session accepts it:
+/// a session of one local identity changes nothing at another, nor at a
+/// later identity of the same keys (S40).
 #[derive(Clone, Copy, Debug)]
 pub struct SessionRef<'a> {
     /// The card that stands for the peer.
-    pub peer: &'a ContactCard,
+    pub(crate) peer: &'a ContactCard,
     /// The local card the session was made with.
-    pub local: &'a ContactCard,
+    pub(crate) local: &'a ContactCard,
     /// The withdrawal of its link.
-    pub withdrawal: &'a Withdrawal,
+    pub(crate) withdrawal: &'a Withdrawal,
 }
 
 /// What to dial for a contact: with which local party, and which cards.
@@ -512,6 +515,9 @@ impl LocalIdentity {
         session: SessionRef<'_>,
         received: &Received,
     ) -> Result<Applied, StoreError> {
+        if !self.contacts.admitted(session.withdrawal) {
+            return Err(StoreError::OtherIdentity);
+        }
         let mut applied = Applied::default();
         let mut generation = self.durability.applied();
         if received.actions.contains(&Action::MarkAccepted) {
@@ -766,6 +772,9 @@ impl LocalIdentity {
     /// steps 3 and 5). The caller sends it in an EndpointUpdate and then
     /// calls [`Self::mark_announced`].
     pub fn announcement_for(&self, session: SessionRef<'_>) -> Option<ContactCard> {
+        if !self.contacts.admitted(session.withdrawal) {
+            return None;
+        }
         let durable = self.durability.durable();
         let successor = {
             let keys = lock(&self.keys);

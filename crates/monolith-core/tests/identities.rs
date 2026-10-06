@@ -1,4 +1,4 @@
-//! Several local identities in one installation: T-MI-1 to T-MI-9 of
+//! Several local identities in one installation: T-MI-1 to T-MI-10 of
 //! `docs/TEST_PLAN.md`, invariants S39 to S46.
 
 // Test code builds its own inputs.
@@ -303,6 +303,67 @@ fn t_mi_4_a_capability_of_one_identity_admits_nothing_at_another() {
             .await
             .unwrap();
         assert_eq!(applied.request, Some(Ok(())));
+    });
+}
+
+#[test]
+fn t_mi_10_a_session_of_one_identity_changes_nothing_at_another() {
+    // Carol asks A for contact on a session of A. What she sent is applied
+    // to A's state, never to B's, even if the caller hands B the session:
+    // a session belongs to the identity whose store admitted it.
+    run(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let (mut a, b) = two(&network, &installation).await;
+        a.identity
+            .set_request_mode(RequestMode::Open)
+            .await
+            .unwrap();
+        b.identity
+            .set_request_mode(RequestMode::Open)
+            .await
+            .unwrap();
+        let carol = node(&network, 3).await;
+        carol.identity.import(&a.card()).await.unwrap();
+        let (asking, answering) = connect(&carol, &mut a).await;
+        let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
+        send_first(&mut asking, &carol.identity).await;
+        let received = answering.link.receive().await.unwrap();
+        assert!(
+            b.identity
+                .apply(answering.link.session_ref(), &received)
+                .await
+                .is_err()
+        );
+        assert!(b.identity.requests().is_empty());
+        assert_eq!(b.identity.kind(carol.identity.identity()), RecordKind::None);
+        let applied = a
+            .identity
+            .apply(answering.link.session_ref(), &received)
+            .await
+            .unwrap();
+        assert_eq!(applied.request, Some(Ok(())));
+        assert_eq!(a.identity.requests().len(), 1);
+        // Nor at an identity made again from A's keys: the session belongs
+        // to the store that admitted it, which is gone.
+        let endpoint = a.identity.endpoint();
+        installation
+            .delete_identity(a.identity.identity())
+            .await
+            .unwrap();
+        let again = installation
+            .restore_identity(keys(1, 1, 1, endpoint), None)
+            .await
+            .unwrap();
+        again.set_request_mode(RequestMode::Open).await.unwrap();
+        assert_eq!(
+            again
+                .apply(answering.link.session_ref(), &received)
+                .await
+                .err(),
+            Some(StoreError::OtherIdentity)
+        );
+        assert!(again.requests().is_empty());
     });
 }
 
