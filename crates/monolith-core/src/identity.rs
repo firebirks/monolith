@@ -1760,10 +1760,18 @@ mod tests {
                 *lock(&thread) = Some(std::thread::spawn(move || {
                     run(blocking.block(&carol_id)).unwrap();
                 }));
-                // Blocked in the store; the thread may still be on its way
-                // to the queue.
+                // With the queue locked here, the block waits for the
+                // consideration to end. Where it is not, the block runs
+                // now, and its change of the record is waited for.
                 let started = std::time::Instant::now();
                 while identity.kind(&carol_id) != RecordKind::Blocked {
+                    if matches!(
+                        identity.requests.try_lock(),
+                        Err(std::sync::TryLockError::WouldBlock)
+                    ) && identity.kind(&carol_id) != RecordKind::Blocked
+                    {
+                        break;
+                    }
                     assert!(started.elapsed() < core::time::Duration::from_secs(10));
                     std::thread::yield_now();
                 }
