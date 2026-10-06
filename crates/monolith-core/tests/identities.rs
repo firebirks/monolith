@@ -518,11 +518,11 @@ fn a_deleted_identity_hands_out_no_secret() {
         );
         assert!(b.identity.invitations().is_empty());
         assert!(b.identity.dial_plan(carol.identity.identity()).is_none());
-        assert!(b.identity.answering_party().is_err());
+        assert!(common::answers_nobody(&b.identity).await);
         assert!(b.identity.onion_secret().is_none());
         assert!(a.identity.invitation_card(kept).is_ok());
         assert!(a.identity.dial_plan(carol.identity.identity()).is_some());
-        assert!(a.identity.answering_party().is_ok());
+        assert!(a.identity.dial_plan(carol.identity.identity()).is_some());
         assert!(a.identity.onion_secret().is_some());
     });
 }
@@ -722,7 +722,7 @@ fn closing_the_installation_ends_the_authority_of_what_it_handed_out() {
         let (mut kept_link, _carol_link) = confirm_both(&a, &mut carol).await;
         let kept = a.identity.clone();
         drop(a);
-        assert!(kept.answering_party().is_err());
+        assert!(common::answers_nobody(&kept).await);
         assert!(kept.onion_secret().is_none());
         assert_eq!(
             kept.invitation_card(invitation).err(),
@@ -766,7 +766,7 @@ fn a_write_under_way_when_the_installation_closes_still_ends() {
         assert!(change.await.unwrap_err().is_cancelled());
         drop(installation);
         assert!(identity.is_closed());
-        assert!(identity.answering_party().is_err());
+        assert!(common::answers_nobody(&identity).await);
         drop(released);
         let written = tokio::time::timeout(Duration::from_secs(10), async {
             loop {

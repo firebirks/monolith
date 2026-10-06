@@ -26,14 +26,64 @@ use monolith_protocol::body::Message;
 use monolith_protocol::contact::RecordKind;
 use monolith_protocol::credential::{CardRelation, CredentialChange};
 use monolith_protocol::limits::{
-    HANDSHAKE_MSG1_LEN, MAX_CONCURRENT_DIALS, MAX_INBOUND_HANDSHAKES, MAX_UNKNOWN_SESSIONS,
+    HANDSHAKE_MSG2_LEN, MAX_CONCURRENT_DIALS, MAX_INBOUND_HANDSHAKES, MAX_UNKNOWN_SESSIONS,
 };
 use monolith_protocol::session::{Action, Admission, Standing};
-use monolith_session::HandshakeResponder;
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{MockNetwork, OnionService};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+/// A stream that ends after `left` more bytes were written to it: reads
+/// find its end, and further writes fail.
+struct CutAfterWrite<S> {
+    inner: S,
+    left: usize,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for CutAfterWrite<S> {
+    fn poll_read(
+        mut self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+        buffer: &mut tokio::io::ReadBuf<'_>,
+    ) -> core::task::Poll<std::io::Result<()>> {
+        if self.left == 0 {
+            return core::task::Poll::Ready(Ok(()));
+        }
+        core::pin::Pin::new(&mut self.inner).poll_read(cx, buffer)
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for CutAfterWrite<S> {
+    fn poll_write(
+        mut self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+        bytes: &[u8],
+    ) -> core::task::Poll<std::io::Result<usize>> {
+        if self.left == 0 {
+            return core::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()));
+        }
+        let room = bytes.len().min(self.left);
+        let written = core::pin::Pin::new(&mut self.inner).poll_write(cx, &bytes[..room]);
+        if let core::task::Poll::Ready(Ok(n)) = written {
+            self.left -= n;
+        }
+        written
+    }
+
+    fn poll_flush(
+        mut self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<std::io::Result<()>> {
+        core::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<std::io::Result<()>> {
+        core::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
 
 fn refused(standing: Standing, change: Option<CredentialChange>) -> Option<LinkError> {
     Some(LinkError::Refused(Admission { standing, change }))
@@ -155,7 +205,7 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
                 .unwrap()
         );
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
-        assert_eq!(plan.local.card(), &successor);
+        assert_eq!(plan.local_card(), &successor);
         let (alice_t2, bob_t2) = connect(&alice, &mut bob).await;
         let (mut alice_t2, mut bob_t2) = (alice_t2.unwrap(), bob_t2.unwrap());
         assert_eq!(bob_t2.admission.change, Some(CredentialChange::Promoted));
@@ -612,20 +662,23 @@ fn a_promotion_stands_when_message_3_cannot_be_written() {
             .switch_rotation(bob.identity.rotation_id().unwrap(), true)
             .await
             .unwrap();
-        let party = bob.identity.answering_party().unwrap();
-        assert_eq!(party.card(), &successor);
+        assert_eq!(bob.card(), successor);
+        let bob_identity = bob.identity.clone();
+        let bob_budgets = bob.budgets.clone();
         let service = &mut bob.service;
-        // A responder that answers message 1 and then breaks the stream.
+        // Bob answers message 1, and his stream breaks right after message
+        // 2: what he reads next is its end, and he lets it go.
         let answering = async {
-            let mut stream = service.accept().await.unwrap();
-            let responder = HandshakeResponder::new(&party, std::time::Instant::now()).unwrap();
-            let mut message_1 = [0_u8; HANDSHAKE_MSG1_LEN];
-            stream.read_exact(&mut message_1).await.unwrap();
-            let (_, message_2) = responder
-                .read_message_1(&message_1, std::time::Instant::now())
-                .unwrap();
-            stream.write_all(&message_2).await.unwrap();
-            drop(stream);
+            let stream = service.accept().await.unwrap();
+            let cut = CutAfterWrite {
+                inner: stream,
+                left: HANDSHAKE_MSG2_LEN,
+            };
+            assert!(
+                monolith_core::link::answer(cut, &bob_budgets, &bob_identity)
+                    .await
+                    .is_err()
+            );
         };
         let (dialed, ()) = both(
             dial(&alice.tor, &alice.budgets, &alice.identity, &successor),
@@ -756,7 +809,7 @@ fn a_rotation_switches_and_finishes_only_when_due() {
         );
         // Bob is dialed with the old key until the switch.
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
-        assert_eq!(plan.local.card(), &old_card);
+        assert_eq!(plan.local_card(), &old_card);
         // Carol too: due.
         assert!(announce(&alice, &mut carol).await);
         assert!(
@@ -849,14 +902,14 @@ fn the_new_key_reaches_no_peer_before_it_is_durable() {
         });
         held().await;
         assert_eq!(alice.card(), old_card);
-        assert_eq!(alice.identity.answering_party().unwrap().card(), &old_card);
+        assert_eq!(alice.identity.card(), old_card);
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
-        assert_eq!(plan.local.card(), &old_card);
+        assert_eq!(plan.local_card(), &old_card);
         dir.release_writes();
         assert!(switch.await.unwrap().unwrap());
         assert_eq!(alice.card(), successor);
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
-        assert_eq!(plan.local.card(), &successor);
+        assert_eq!(plan.local_card(), &successor);
     });
 }
 

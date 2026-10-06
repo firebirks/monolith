@@ -125,3 +125,18 @@ fn no_crate_holds_state_in_a_static_or_a_thread_local() {
         }
     }
 }
+
+#[test]
+fn no_party_of_a_local_identity_leaves_the_core() {
+    // A party holds a transport key. The core hands none out: `link`
+    // answers and dials with it, and a caller gets cards only.
+    let identity = production_sources()
+        .into_iter()
+        .find(|(name, _)| name == "monolith-core/src/identity.rs")
+        .unwrap()
+        .1;
+    assert!(!identity.contains("pub fn answering_party"));
+    assert!(identity.contains("pub(crate) fn answering_party"));
+    assert!(!identity.contains("    pub local: Arc<LocalParty>,"));
+    assert!(identity.contains("    pub(crate) local: Arc<LocalParty>,"));
+}

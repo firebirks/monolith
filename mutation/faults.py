@@ -1070,5 +1070,8 @@ PHASE4 = [
     fault("CS105", CORE + "identity.rs", "a card is made for a capability revoked as it is created",
           ("        let card = self.invitation_card(id)?;\n        Ok((id, card))",
            "        let card = self.card_with(lock(&self.invitations).capability(id, u64::MAX).cloned().or(Some(InvitationCapability::from_bytes([0; 16]))))?;\n        Ok((id, card))")),
+    fault("CS107", CORE + "identity.rs", "the party that answers leaves the core",
+          ("    pub(crate) fn answering_party(&self)",
+           "    pub fn answering_party(&self)")),
 ]
 

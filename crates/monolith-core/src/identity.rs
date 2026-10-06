@@ -268,13 +268,24 @@ pub struct SessionRef<'a> {
 }
 
 /// What to dial for a contact: with which local party, and which cards.
+/// The party, which holds the transport key, stays in this crate: only
+/// [`crate::link::dial`] uses it, after it made the plan again itself, so a
+/// plan kept by a caller holds no key to authenticate with.
 #[derive(Clone)]
 pub struct DialPlan {
     /// The local party to dial with.
-    pub local: Arc<LocalParty>,
+    pub(crate) local: Arc<LocalParty>,
     /// The cards to dial, in order. Empty if the user has to confirm where
     /// to connect first.
     pub cards: Vec<ContactCard>,
+}
+
+impl DialPlan {
+    /// The local card the contact is dialed with: of the old key or, after
+    /// a switch it was announced, of the new one.
+    pub fn local_card(&self) -> &ContactCard {
+        self.local.card()
+    }
 }
 
 impl fmt::Debug for DialPlan {
@@ -403,10 +414,11 @@ impl LocalIdentity {
         &self.strangers
     }
 
-    /// The party that answers inbound handshakes. Fails with
-    /// [`StoreError::Failed`] once the identity was deleted: its keys are
-    /// used for nothing more.
-    pub fn answering_party(&self) -> Result<Arc<LocalParty>, StoreError> {
+    /// The party that answers inbound handshakes, for [`crate::link::answer`]
+    /// and nothing else: it holds the transport key, and does not leave this
+    /// crate. Fails with [`StoreError::Failed`] once the identity was
+    /// closed: its keys are used for nothing more.
+    pub(crate) fn answering_party(&self) -> Result<Arc<LocalParty>, StoreError> {
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
         // Read under the lock of the keys, which the deletion takes to

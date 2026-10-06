@@ -420,3 +420,15 @@ pub fn request_of(
         .expect("a request of the sender waits")
         .id
 }
+
+/// Returns true if `identity` refuses to answer a stream at once, before
+/// it reads anything: it is closed, and has no party to answer with.
+pub async fn answers_nobody(identity: &LocalIdentity) -> bool {
+    let (stream, _peer) = tokio::io::duplex(1024);
+    matches!(
+        answer(stream, &Budgets::new(), identity).await.err(),
+        Some(LinkError::Storage(
+            monolith_core::persist::CommitError::Failed
+        ))
+    )
+}
