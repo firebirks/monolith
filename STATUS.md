@@ -1,9 +1,8 @@
 # Status of the Phase 4 work
 
-Written on 2026-10-05, and brought up to date the same day so that the
-work can be picked up on another machine: the owner stopped the final
-verification to fix findings of their own, and asked for the branch to
-be pushed. This file describes work in progress on the branch
+Written on 2026-10-05, when the owner stopped the final verification to
+have findings of their own fixed, and brought up to date on 2026-10-06,
+when those findings were closed. This file describes work in progress on the branch
 `phase-4-contact-store`. It is removed when Phase 4 is closed; it does not
 belong on `main`.
 
@@ -94,6 +93,7 @@ Commits on the branch, oldest first:
 | `e35f7e9`, `3e5965b`, `c6bdd58`, `2c077e0` | Tests of what peers observe (T-ORACLE-6 and 7, T-CONFIRM-1, T-CONTACT-1 and 3, T-INJ), and of the gaps the targeted mutation run found. |
 | `d5f7721` to `a5383cb`, `6d26193` to `c42c698`, `9c5ce64` | The fixes of the two reviews of the Phase 4 code (`docs/DESIGN_QUESTIONS.md` 11.4): the write job, which also fails closed on its own and holds nothing of the installation once its outcome is out, the closing of a deleted identity, durable rotation steps, an end of rotation only after a durable switch, the snapshot as one cut, cancelled admissions forgotten, the flush of a new directory, the erasing encoder, and their mutation faults. |
 | `e29d7f2`, `49a225a`, `d84eb80` | CS45 following the write job; deadlines instead of hangs in two tests, so that CS46 and CS50 are caught at once; the runner's note for a fault caught by its timeout alone. |
+| `854fcf7` to `881ed27` | The closure of the owner's review (`docs/DESIGN_QUESTIONS.md` 11.5): thirteen findings reproduced and fixed, a second review of the whole Phase 4 code and reviews of its fixes, all fixed; CS28 caught and CS52 back by hooks; faults retargeted; the structure scan fixed. |
 | `86c2b40` onwards, between the above | Documents. |
 
 Where things are:
@@ -112,7 +112,7 @@ Where things are:
   `persist.rs` and `contacts.rs`, the tests in `crates/monolith-storage/`
   (`src/`, `tests/vault_format.rs`, `tests/kdf_benchmark.rs`), fuzz
   targets `vault_payload`, `contact_store` and the extended
-  `credential_sequence`, mutation faults `CS1` to `CS55` without `CS52`,
+  `credential_sequence`, mutation faults `CS1` to `CS94`,
   `tests/tor-network/two-node.sh` steps 4 to 11.
 
 ## 4. What was verified
@@ -131,7 +131,7 @@ None of this is the final verification; code changed after it.
 - A targeted mutation run of the 43 Phase 4 faults of then and the 15
   faults carried over, on `5706c1d`: 54 caught, 4 survived. Q30, CS12 and
   CS17 were gaps in the tests and have tests since (`c6bdd58`,
-  `2c077e0`); CS28 needs two threads and is expected to survive
+  `2c077e0`); CS28 needed two threads and was expected to survive then
   (`mutation/README.md`). A targeted run of every new or changed fault
   (CS12, CS15, CS17, CS28, CS30, CS44 to CS51, CS53 to CS55, Q30) on
   `e29d7f2`: 16 caught, CS28 survived as expected, exit code 0.
@@ -151,6 +151,12 @@ None of this is the final verification; code changed after it.
   the mutation runner's baseline then found that the write job held the
   installation too long. All fixed (`docs/DESIGN_QUESTIONS.md` section
   11.4).
+- The closure of the owner's review, on top of `03a626c`: thirteen
+  findings, each reproduced by a test that failed before its fix, and the
+  findings of a second review of the whole Phase 4 code and of three
+  reviews of the fixes; recorded with commits, tests and faults in
+  `docs/DESIGN_QUESTIONS.md` section 11.5. Every new or retargeted fault
+  was applied by hand and seen caught by the tests named there.
 
 ### 4.2 Final verification, stopped after its first stage
 
@@ -181,10 +187,8 @@ final verification starts again on the commit that ends them.
 
 ### 5.1 The owner's findings
 
-The owner has findings to fix; they are not recorded here. Each fix
-comes with its tests, and with a mutation fault where a test can catch
-the fault; `docs/DESIGN_QUESTIONS.md` section 11.4 is where the earlier
-review findings are recorded.
+Closed; `docs/DESIGN_QUESTIONS.md` section 11.5 records them, and what
+the reviews of their fixes found.
 
 ### 5.2 Final verification on the final commit
 
@@ -228,9 +232,9 @@ Stage 2, side by side:
 Stage 3, alone:
 
 - `python3 mutation/run.py all 4` (four workers on a machine with twelve
-  threads; fewer on a smaller one). Expected: 269 faults, 259 caught, 10
+  threads; fewer on a smaller one). Expected: 309 faults, 300 caught, 9
   survivors, exactly those of `mutation/README.md` (B3, B4, S15, S24,
-  CAP2, CAP3, Q14, Q18, Q29, CS28), exit code 0. CS17 and CS30 are caught
+  CAP2, CAP3, Q14, Q18, Q29), exit code 0. CS17 and CS30 are caught
   by the runner's timeout of 20 minutes each. The run takes several
   hours. The runner works on copies of `HEAD` under `mutation/work/`, so
   everything has to be committed first; its results go to
