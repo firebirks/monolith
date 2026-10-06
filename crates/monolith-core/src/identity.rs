@@ -779,7 +779,9 @@ impl LocalIdentity {
 
     /// Creates a new invitation capability with a local label and returns
     /// it with the card that carries it. The capability is in the active
-    /// set, durably, before the card is returned. Fails with
+    /// set, durably, before the card is returned, and still in it: a
+    /// capability revoked before the card is made gives
+    /// [`StoreError::NotFound`]. Fails with
     /// [`StoreError::Full`] when the active set is full; no capability is
     /// revoked to make room.
     pub async fn create_invitation(
@@ -792,15 +794,18 @@ impl LocalIdentity {
         self.card_with(Some(capability.clone()))?;
         let (id, generation) = {
             let mut invitations = lock(&self.invitations);
-            let id = invitations.add(capability.clone(), label)?;
+            let id = invitations.add(capability, label)?;
             let generation = self.durability.bump();
             invitations.stamp(id, generation);
             (id, generation)
         };
         self.commit(generation).await?;
+        self.hook("invitation durable");
         // Signed now, with the key the identity answers with once the
-        // capability is durable: a switch made durable meanwhile is in it.
-        let card = self.card_with(Some(capability))?;
+        // capability is durable, a switch made durable meanwhile included,
+        // and only while the capability is still in the active set: one
+        // revoked meanwhile is carried by no card.
+        let card = self.invitation_card(id)?;
         Ok((id, card))
     }
 
@@ -1975,6 +1980,30 @@ mod tests {
             1,
             "the request queued after the block was lost"
         );
+    }
+
+    #[test]
+    fn an_invitation_revoked_as_it_is_created_hands_out_no_card() {
+        // The capability is durable, and revoked before the creation that
+        // made it returns. No card carries it.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            move || {
+                let (id, _) = lock(&identity.invitations).list(u64::MAX).remove(0);
+                let revoking = identity.clone();
+                std::thread::spawn(move || run(revoking.revoke_invitation(id)).unwrap())
+                    .join()
+                    .unwrap();
+            }
+        });
+        lock(&identity.hooks).insert("invitation durable", step);
+        assert_eq!(
+            run(identity.create_invitation(None)).err(),
+            Some(StoreError::NotFound)
+        );
+        assert!(identity.invitations().is_empty());
     }
 
     #[test]

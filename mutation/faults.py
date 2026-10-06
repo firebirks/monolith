@@ -1008,8 +1008,8 @@ PHASE4 = [
     fault("CS84", CORE + "identity.rs", "an invitation card is signed before the capability is durable",
           ("        self.card_with(Some(capability.clone()))?;\n        let (id, generation) = {",
            "        let early = self.card_with(Some(capability.clone()))?;\n        let (id, generation) = {"),
-          ("        let card = self.card_with(Some(capability))?;\n        Ok((id, card))",
-           "        let _ = capability;\n        Ok((id, early))")),
+          ("        let card = self.invitation_card(id)?;\n        Ok((id, card))",
+           "        Ok((id, early))")),
     fault("CS85", CORE + "identity.rs", "the successor card is handed out before it is durable",
           ("            .filter(|rotation| rotation.announced_from(durable))\n            .map(|rotation| rotation.party.card().clone())",
            "            .map(|rotation| rotation.party.card().clone())")),
@@ -1067,5 +1067,8 @@ PHASE4 = [
     fault("CS104", CORE + "identity.rs", "an import takes out a request queued after it",
           ("            let mut requests = lock(&self.requests);\n            let imported = self.contacts.import(card)?;\n            self.hook(\"forgetting\");\n            requests.forget(card.identity());\n",
            "            let imported = self.contacts.import(card)?;\n            self.hook(\"forgetting\");\n            lock(&self.requests).forget(card.identity());\n")),
+    fault("CS105", CORE + "identity.rs", "a card is made for a capability revoked as it is created",
+          ("        let card = self.invitation_card(id)?;\n        Ok((id, card))",
+           "        let card = self.card_with(lock(&self.invitations).capability(id, u64::MAX).cloned().or(Some(InvitationCapability::from_bytes([0; 16]))))?;\n        Ok((id, card))")),
 ]
 
