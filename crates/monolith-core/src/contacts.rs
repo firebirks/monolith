@@ -489,7 +489,8 @@ impl ContactStore {
             None => peer.admit(PeerRecord::None),
             Some(entry) => {
                 let before = entry.record.clone();
-                let admitted = peer.admit(entry.record.peer_record())?;
+                let admitted = peer.admit(entry.record.peer_record());
+                let admitted = self.kept_on_error(entry, &before, admitted)?;
                 self.after_admission(entry, &before, &card, admitted.1.standing, withdrawal);
                 Ok(admitted)
             }
@@ -513,7 +514,8 @@ impl ContactStore {
             None => peer.admit(PeerRecord::None),
             Some(entry) => {
                 let before = entry.record.clone();
-                let admitted = peer.admit(entry.record.peer_record())?;
+                let admitted = peer.admit(entry.record.peer_record());
+                let admitted = self.kept_on_error(entry, &before, admitted)?;
                 let standing = match &admitted {
                     OutboundAdmission::Granted { admission, .. }
                     | OutboundAdmission::Refused(admission) => admission.standing,
@@ -523,6 +525,23 @@ impl ContactStore {
             }
         })?;
         Ok((admitted, self.depends()))
+    }
+
+    /// An admission that failed after it changed the record (no path does
+    /// today: what fails after the credentials changed is internal) keeps
+    /// the change as any other: stamped, so that it is written, and with
+    /// the sessions that no longer stand withdrawn.
+    fn kept_on_error<T>(
+        &self,
+        entry: &mut Entry,
+        before: &Record,
+        admitted: Result<T, SessionError>,
+    ) -> Result<T, SessionError> {
+        if admitted.is_err() && entry.record != *before {
+            self.durability.bump();
+            entry.reconcile();
+        }
+        admitted
     }
 
     /// What follows an admission in the same step: the generation if the
