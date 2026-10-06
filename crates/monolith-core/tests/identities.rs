@@ -705,14 +705,10 @@ fn the_rotation_of_one_identity_counts_for_no_other() {
         common::befriend(&b, &mut carol).await;
         a.identity.begin_rotation().await.unwrap();
         b.identity.begin_rotation().await.unwrap();
-        let of_a = a.identity.rotation_id().unwrap();
-        assert_ne!(Some(of_a), b.identity.rotation_id());
-        assert!(
-            !b.identity
-                .mark_announced(carol.identity.identity(), of_a)
-                .await
-                .unwrap()
-        );
+        assert_ne!(a.identity.rotation_id(), b.identity.rotation_id());
+        let (a_link, _carol_link) = confirm_both(&a, &mut carol).await;
+        let of_a = a.identity.announcement_for(a_link.session_ref()).unwrap();
+        assert!(!b.identity.mark_announced(&of_a).await.unwrap());
         assert!(!b.identity.switch_rotation(false).await.unwrap());
         let _ = (&mut a, &mut b);
     });

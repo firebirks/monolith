@@ -353,12 +353,12 @@ impl Node {
                 };
                 say(&format!("confirmed {index} {} key={key}", short(&peer)));
                 if let Some(announcement) = local.announcement_for(link.session_ref()) {
-                    let update = Message::EndpointUpdate(Box::new(announcement.card));
+                    let update = Message::EndpointUpdate(Box::new(announcement.card().clone()));
                     if let Err(error) = link.send(&update).await {
                         return error.to_string();
                     }
                     if local
-                        .mark_announced(&peer, announcement.rotation)
+                        .mark_announced(&announcement)
                         .await
                         .is_ok_and(|recorded| recorded)
                     {

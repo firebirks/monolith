@@ -15,8 +15,8 @@
 mod common;
 
 use common::{
-    Released, befriend, both, chat, confirm_both, connect, dial_and_answer, node, node_in,
-    node_with, party, request, run, run_paused, send_first, step,
+    Released, announce, befriend, both, chat, confirm_both, connect, dial_and_answer, node,
+    node_in, node_with, party, request, run, run_paused, send_first, step,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::contacts::ImportOutcome;
@@ -115,18 +115,16 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
 
         // T2 is announced on the T1 session and authorized.
         let successor = alice.identity.begin_rotation().await.unwrap();
+        let announcement = alice
+            .identity
+            .announcement_for(alice_t1.session_ref())
+            .unwrap();
+        assert_eq!(announcement.card(), &successor);
         alice_t1
             .send(&Message::EndpointUpdate(Box::new(successor.clone())))
             .await
             .unwrap();
-        alice
-            .identity
-            .mark_announced(
-                bob.identity.identity(),
-                alice.identity.rotation_id().unwrap(),
-            )
-            .await
-            .unwrap();
+        assert!(alice.identity.mark_announced(&announcement).await.unwrap());
         let received = bob_t1.receive().await.unwrap();
         let applied = bob
             .identity
@@ -387,17 +385,15 @@ fn a_key_retired_while_the_admission_is_made_durable_gets_no_message_3() {
         befriend(&alice, &mut bob).await;
         let (mut alice_link, mut bob_link) = confirm_both(&alice, &mut bob).await;
         let successor = bob.identity.begin_rotation().await.unwrap();
+        let announcement = bob
+            .identity
+            .announcement_for(bob_link.session_ref())
+            .unwrap();
         bob_link
             .send(&Message::EndpointUpdate(Box::new(successor.clone())))
             .await
             .unwrap();
-        bob.identity
-            .mark_announced(
-                alice.identity.identity(),
-                bob.identity.rotation_id().unwrap(),
-            )
-            .await
-            .unwrap();
+        assert!(bob.identity.mark_announced(&announcement).await.unwrap());
         step(&mut alice_link, &alice.identity).await.unwrap();
         bob.identity.switch_rotation(false).await.unwrap();
         drop((alice_link, bob_link));
@@ -720,27 +716,13 @@ fn a_rotation_switches_and_finishes_only_when_due() {
         assert!(!alice.identity.finish_rotation(false).await.unwrap());
         assert_eq!(alice.card(), old_card);
         // Bob only: still not due.
-        alice
-            .identity
-            .mark_announced(
-                bob.identity.identity(),
-                alice.identity.rotation_id().unwrap(),
-            )
-            .await
-            .unwrap();
+        assert!(announce(&alice, &mut bob).await);
         assert!(!alice.identity.switch_rotation(false).await.unwrap());
         // Bob is dialed with the old key until the switch.
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
         assert_eq!(plan.local.card(), &old_card);
         // Carol too: due.
-        alice
-            .identity
-            .mark_announced(
-                carol.identity.identity(),
-                alice.identity.rotation_id().unwrap(),
-            )
-            .await
-            .unwrap();
+        assert!(announce(&alice, &mut carol).await);
         assert!(alice.identity.switch_rotation(false).await.unwrap());
         assert_eq!(alice.card(), successor);
         // Nobody confirmed the new key yet: the old key stays.
@@ -789,27 +771,20 @@ fn the_new_key_reaches_no_peer_before_it_is_durable() {
         // Decided, and handed out nowhere: not even as the successor card.
         assert_ne!(alice.identity.rotation(), RotationState::None);
         assert_eq!(alice.identity.successor_card(), None);
-        assert_eq!(
-            alice.identity.announcement_for(alice_link.session_ref()),
-            None
-        );
-        dir.release_writes();
-        let successor = begin.await.unwrap().unwrap();
-        assert_eq!(
+        assert!(
             alice
                 .identity
                 .announcement_for(alice_link.session_ref())
-                .map(|announcement| announcement.card),
-            Some(successor.clone())
+                .is_none()
         );
-        alice
+        dir.release_writes();
+        let successor = begin.await.unwrap().unwrap();
+        let announcement = alice
             .identity
-            .mark_announced(
-                bob.identity.identity(),
-                alice.identity.rotation_id().unwrap(),
-            )
-            .await
+            .announcement_for(alice_link.session_ref())
             .unwrap();
+        assert_eq!(announcement.card(), &successor);
+        assert!(alice.identity.mark_announced(&announcement).await.unwrap());
 
         dir.hold_writes();
         let identity = alice.identity.clone();
@@ -1137,9 +1112,7 @@ fn the_progress_of_one_rotation_never_counts_for_the_next() {
         let network = MockNetwork::new();
         let alice = node(&network, 1).await;
         let mut bob = node(&network, 2).await;
-        let mut carol = node(&network, 3).await;
         befriend(&alice, &mut bob).await;
-        befriend(&alice, &mut carol).await;
         let (alice_link, _bob_link) = confirm_both(&alice, &mut bob).await;
         alice.identity.begin_rotation().await.unwrap();
         let first = alice
@@ -1149,26 +1122,11 @@ fn the_progress_of_one_rotation_never_counts_for_the_next() {
         assert!(alice.identity.switch_rotation(true).await.unwrap());
         assert!(alice.identity.finish_rotation(true).await.unwrap());
         let second = alice.identity.begin_rotation().await.unwrap();
-        assert_ne!(first.card, second);
+        assert_ne!(first.card(), &second);
         // The late record of what was sent in R1: it is for R1, which is
-        // over, and counts for nothing.
-        assert!(
-            !alice
-                .identity
-                .mark_announced(bob.identity.identity(), first.rotation)
-                .await
-                .unwrap()
-        );
-        assert!(
-            alice
-                .identity
-                .mark_announced(
-                    carol.identity.identity(),
-                    alice.identity.rotation_id().unwrap()
-                )
-                .await
-                .unwrap()
-        );
+        // over, and counts for nothing. Bob is the only contact, so the
+        // switch would be due on his account alone.
+        assert!(!alice.identity.mark_announced(&first).await.unwrap());
         assert!(!alice.identity.switch_rotation(false).await.unwrap());
         // Dave becomes a contact on a session of the old key, which he
         // confirms: that is no confirmation of the new key.
@@ -1178,7 +1136,6 @@ fn the_progress_of_one_rotation_never_counts_for_the_next() {
         assert!(!view.successor_promoted);
         assert!(alice.identity.switch_rotation(true).await.unwrap());
         assert!(!alice.identity.finish_rotation(false).await.unwrap());
-        let _ = &mut carol;
     });
 }
 
@@ -1199,16 +1156,8 @@ fn the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further() {
         befriend(&alice, &mut bob).await;
         befriend(&alice, &mut carol).await;
         alice.identity.begin_rotation().await.unwrap();
-        let first = alice.identity.rotation_id().unwrap();
-        for contact in [&bob, &carol] {
-            assert!(
-                alice
-                    .identity
-                    .mark_announced(contact.identity.identity(), first)
-                    .await
-                    .unwrap()
-            );
-        }
+        assert!(announce(&alice, &mut bob).await);
+        assert!(announce(&alice, &mut carol).await);
         let open = |dir: &MemoryDir| {
             Installation::open(Box::new(dir.clone()), &passphrase)
                 .unwrap()
@@ -1240,4 +1189,129 @@ fn the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further() {
         assert!(!local.switch_rotation(false).await.unwrap());
         let _ = (&mut bob, &mut carol);
     });
+}
+
+#[test]
+fn a_late_announcement_counts_only_for_the_contact_it_was_made_to() {
+    // Alice announces the successor to Bob on a session of the old key and
+    // records it late. Meanwhile Bob was deleted and became a contact
+    // again: a new contact, that never got the successor. The late record
+    // counts for nobody, and the switch is not due on its account.
+    run(async {
+        let network = MockNetwork::new();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        befriend(&alice, &mut bob).await;
+        let (alice_link, _bob_link) = confirm_both(&alice, &mut bob).await;
+        alice.identity.begin_rotation().await.unwrap();
+        let announcement = alice
+            .identity
+            .announcement_for(alice_link.session_ref())
+            .unwrap();
+        alice
+            .identity
+            .delete(bob.identity.identity())
+            .await
+            .unwrap();
+        befriend(&alice, &mut bob).await;
+        assert!(!alice.identity.mark_announced(&announcement).await.unwrap());
+        assert!(
+            !alice
+                .identity
+                .contact(bob.identity.identity())
+                .unwrap()
+                .successor_announced
+        );
+        assert!(!alice.identity.switch_rotation(false).await.unwrap());
+    });
+}
+
+/// What happens to Bob, or to the session Alice announced on, between the
+/// announcement and its late completion.
+#[derive(Clone, Copy, Debug)]
+enum Meanwhile {
+    /// Deleted, and his card imported again: a requested contact anew.
+    ImportedAgain,
+    /// Blocked.
+    Blocked,
+    /// He changed his own key, and Alice promoted it: the session Alice
+    /// announced on was withdrawn.
+    Promoted,
+    /// Deleted, and a contact again on another transport key.
+    OtherKey,
+    /// Deleted and a contact again, and Alice's rotation ended and another
+    /// began.
+    NextRotation,
+}
+
+#[test]
+fn a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed() {
+    for meanwhile in [
+        Meanwhile::ImportedAgain,
+        Meanwhile::Blocked,
+        Meanwhile::Promoted,
+        Meanwhile::OtherKey,
+        Meanwhile::NextRotation,
+    ] {
+        run(async {
+            let network = MockNetwork::new();
+            let mut alice = node(&network, 1).await;
+            let mut bob = node(&network, 2).await;
+            befriend(&alice, &mut bob).await;
+            let (mut alice_link, mut bob_link) = confirm_both(&alice, &mut bob).await;
+            alice.identity.begin_rotation().await.unwrap();
+            let announcement = alice
+                .identity
+                .announcement_for(alice_link.session_ref())
+                .unwrap();
+            let bob_id = *bob.identity.identity();
+            match meanwhile {
+                Meanwhile::ImportedAgain => {
+                    alice.identity.delete(&bob_id).await.unwrap();
+                    alice.identity.import(&bob.card()).await.unwrap();
+                }
+                Meanwhile::Blocked => alice.identity.block(&bob_id).await.unwrap(),
+                Meanwhile::Promoted => {
+                    let successor = bob.identity.begin_rotation().await.unwrap();
+                    let of_bob = bob
+                        .identity
+                        .announcement_for(bob_link.session_ref())
+                        .unwrap();
+                    bob_link
+                        .send(&Message::EndpointUpdate(Box::new(successor)))
+                        .await
+                        .unwrap();
+                    assert!(bob.identity.mark_announced(&of_bob).await.unwrap());
+                    step(&mut alice_link, &alice.identity).await.unwrap();
+                    assert!(bob.identity.switch_rotation(false).await.unwrap());
+                    let (dialed, answered) = connect(&bob, &mut alice).await;
+                    assert_eq!(
+                        answered.unwrap().admission.change,
+                        Some(CredentialChange::Promoted)
+                    );
+                    drop(dialed);
+                    assert!(alice_link.is_withdrawn());
+                }
+                Meanwhile::OtherKey => {
+                    alice.identity.delete(&bob_id).await.unwrap();
+                    let mut moved = node_with(&network, 2, 22, 1).await;
+                    befriend(&alice, &mut moved).await;
+                }
+                Meanwhile::NextRotation => {
+                    alice.identity.delete(&bob_id).await.unwrap();
+                    befriend(&alice, &mut bob).await;
+                    assert!(alice.identity.switch_rotation(true).await.unwrap());
+                    assert!(alice.identity.finish_rotation(true).await.unwrap());
+                    alice.identity.begin_rotation().await.unwrap();
+                }
+            }
+            assert!(
+                !alice.identity.mark_announced(&announcement).await.unwrap(),
+                "{meanwhile:?}"
+            );
+            if let Some(view) = alice.identity.contact(&bob_id) {
+                assert!(!view.successor_announced, "{meanwhile:?}");
+            }
+        });
+    }
 }

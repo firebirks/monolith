@@ -39,7 +39,7 @@
 
 use core::fmt;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use monolith_identity::IdentityPublicKey;
@@ -121,6 +121,11 @@ impl From<crate::persist::CommitError> for StoreError {
 /// A requested or accepted contact.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ContactRecord {
+    /// Which contact this record is, of the contacts this store has made
+    /// for any identity: a contact deleted and made again for the same
+    /// identity is another one. What was started for one (an announcement)
+    /// completes for it only.
+    instance: u64,
     kind: RecordKind,
     credentials: Credentials,
     /// The card the user confirmed for dialing (`docs/PROTOCOL.md` section
@@ -297,6 +302,8 @@ pub(crate) struct ContactStore {
     /// only. One per store: a store made again for the same keys has
     /// another.
     owner: Arc<Owner>,
+    /// The number of the next contact record this store makes.
+    instances: AtomicU64,
     /// Steps a test runs at named points, with the identity of the slot
     /// at hand, until one returns true: to place another operation exactly
     /// there.
@@ -319,6 +326,7 @@ impl ContactStore {
             counts: Mutex::new(Counts::default()),
             durability,
             closed: AtomicBool::new(false),
+            instances: AtomicU64::new(0),
             owner: Arc::new(Owner),
             #[cfg(test)]
             hooks: Mutex::new(HashMap::new()),
@@ -335,6 +343,59 @@ impl ContactStore {
                 lock(&self.hooks).insert(point, step);
             }
         }
+    }
+
+    /// A number for a new contact record.
+    fn next_instance(&self) -> u64 {
+        self.instances.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Which contact the record of `identity` is now, if it is one.
+    pub(crate) fn contact_instance(&self, identity: &IdentityPublicKey) -> Option<u64> {
+        self.with_entry(identity, false, |entry| match entry {
+            Some(Entry {
+                record: Record::Contact(contact),
+                ..
+            }) => Some(contact.instance),
+            _ => None,
+        })
+    }
+
+    /// Records that the successor of `rotation` was sent to the contact
+    /// `instance` on the session of `card` and `withdrawal`, if all of them
+    /// still hold: the record of the identity is that very contact, and the
+    /// session was admitted as its own and still stands for it. Returns
+    /// the generation the mark depends on, or `None` if it was not made: a
+    /// completion for a contact that was deleted, blocked or made again, or
+    /// on a session withdrawn meanwhile, counts for nothing. The caller
+    /// holds the keys of the identity, with `rotation` in progress.
+    pub(crate) fn mark_announced_on(
+        &self,
+        card: &ContactCard,
+        withdrawal: &Withdrawal,
+        instance: u64,
+        rotation: RotationId,
+    ) -> Result<Option<u64>, StoreError> {
+        self.check_failed()?;
+        Ok(self.with_entry(card.identity(), false, |entry| {
+            let entry = entry?;
+            let tracked = entry
+                .sessions
+                .iter()
+                .any(|session| session.withdrawal.same_link(withdrawal));
+            let stands = !withdrawal.is_withdrawn() && tracked && entry.record.stands(card);
+            let Record::Contact(contact) = &mut entry.record else {
+                return None;
+            };
+            if contact.instance != instance || !stands {
+                return None;
+            }
+            if contact.announced != Some(rotation) {
+                contact.announced = Some(rotation);
+                self.durability.bump();
+            }
+            Some(self.depends())
+        }))
     }
 
     /// Returns true if this store admitted the session of `withdrawal`.
@@ -374,6 +435,7 @@ impl ContactStore {
                 insert(
                     identity,
                     Record::Contact(Box::new(ContactRecord {
+                        instance: store.next_instance(),
                         kind: stored.kind,
                         credentials: stored.credentials,
                         dial: stored.dial,
@@ -622,6 +684,7 @@ impl ContactStore {
                 }
                 drop(counts);
                 entry.record = Record::Contact(Box::new(ContactRecord {
+                    instance: self.next_instance(),
                     kind: decision.after,
                     credentials,
                     dial: card.clone(),
@@ -842,6 +905,7 @@ impl ContactStore {
             counts.declined.retain(|held| held != card.identity());
             drop(counts);
             entry.record = Record::Contact(Box::new(ContactRecord {
+                instance: self.next_instance(),
                 kind: RecordKind::Accepted,
                 credentials: Credentials::new(card.clone()),
                 dial: card.clone(),

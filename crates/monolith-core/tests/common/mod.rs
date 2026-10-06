@@ -395,3 +395,15 @@ pub async fn held(dir: &MemoryDir) {
         tokio::time::sleep(core::time::Duration::from_millis(1)).await;
     }
 }
+
+/// `a`, in a rotation, announces its successor to `b` on a session of
+/// its old key and records that, as a node does. Returns whether the
+/// record was made.
+pub async fn announce(a: &Node, b: &mut Node) -> bool {
+    let (a_link, _b_link) = confirm_both(a, b).await;
+    let announcement = a
+        .identity
+        .announcement_for(a_link.session_ref())
+        .expect("an announcement is due");
+    a.identity.mark_announced(&announcement).await.unwrap()
+}

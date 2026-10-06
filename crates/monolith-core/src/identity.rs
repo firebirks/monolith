@@ -186,14 +186,38 @@ pub struct RotationId {
     number: u64,
 }
 
-/// A successor card to announce on a session, and the rotation it belongs
-/// to, for [`LocalIdentity::mark_announced`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A successor card to announce on one session, with what its completion
+/// ([`LocalIdentity::mark_announced`]) is checked against: the rotation it
+/// belongs to, the contact it is for (that very contact, not another one
+/// made later for the same identity) and the session it goes out on. Only
+/// [`LocalIdentity::announcement_for`] makes one.
+#[derive(Clone)]
 pub struct Announcement {
-    /// The successor card.
-    pub card: ContactCard,
-    /// Its rotation.
-    pub rotation: RotationId,
+    card: ContactCard,
+    rotation: RotationId,
+    peer: ContactCard,
+    withdrawal: Withdrawal,
+    contact: u64,
+}
+
+impl Announcement {
+    /// The successor card, to send in an EndpointUpdate.
+    pub const fn card(&self) -> &ContactCard {
+        &self.card
+    }
+
+    /// The rotation it belongs to.
+    pub const fn rotation(&self) -> RotationId {
+        self.rotation
+    }
+}
+
+impl fmt::Debug for Announcement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Announcement")
+            .field("rotation", &self.rotation)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Where a local rotation stands.
@@ -944,6 +968,7 @@ impl LocalIdentity {
         let view = self
             .contacts
             .view(session.peer.identity(), Some(rotation.id))?;
+        let contact = self.contacts.contact_instance(session.peer.identity())?;
         (view.kind == RecordKind::Accepted
             && !view.successor_announced
             && self
@@ -952,30 +977,41 @@ impl LocalIdentity {
         .then(|| Announcement {
             card: rotation.party.card().clone(),
             rotation: rotation.id,
+            peer: session.peer.clone(),
+            withdrawal: session.withdrawal.clone(),
+            contact,
         })
     }
 
-    /// The successor of `rotation` was sent to `contact` on a confirmed
-    /// session of the old key. Recorded only while `rotation` is the one in
-    /// progress: a completion that comes after that rotation ended counts
-    /// for no other, and returns false. Durable when this returns true.
-    pub async fn mark_announced(
-        &self,
-        contact: &IdentityPublicKey,
-        rotation: RotationId,
-    ) -> Result<bool, StoreError> {
+    /// The successor of `announcement` was sent on its session. Recorded
+    /// only while what it was made for still holds: its rotation is the one
+    /// in progress, the record of the peer is the very contact it was made
+    /// for, and its session still stands for that contact. A completion
+    /// that comes after any of them changed (the rotation ended, the
+    /// contact was deleted, blocked or made again, the session withdrawn)
+    /// counts for nothing and returns false; the successor is announced
+    /// again on a later session. Durable when this returns true.
+    pub async fn mark_announced(&self, announcement: &Announcement) -> Result<bool, StoreError> {
         self.check_open()?;
         let generation = {
             let keys = lock(&self.keys);
             if keys
                 .rotation
                 .as_ref()
-                .is_none_or(|held| held.id != rotation)
+                .is_none_or(|held| held.id != announcement.rotation)
             {
                 return Ok(false);
             }
-            self.contacts
-                .mark_rotation(contact, rotation, Progress::Announced)?
+            let marked = self.contacts.mark_announced_on(
+                &announcement.peer,
+                &announcement.withdrawal,
+                announcement.contact,
+                announcement.rotation,
+            )?;
+            let Some(generation) = marked else {
+                return Ok(false);
+            };
+            generation
         };
         self.commit(generation).await?;
         Ok(true)
@@ -1596,6 +1632,17 @@ mod tests {
     /// A step placed at a point of an operation (`LocalIdentity::hooks`).
     type Hook = Box<dyn FnOnce() + Send>;
 
+    /// Marks `contact` as sent the successor of the rotation in progress,
+    /// as a completion of an announcement does.
+    fn mark(identity: &LocalIdentity, contact: &IdentityPublicKey) {
+        let keys = lock(&identity.keys);
+        let rotation = keys.rotation_id().unwrap();
+        identity
+            .contacts
+            .mark_rotation(contact, rotation, Progress::Announced)
+            .unwrap();
+    }
+
     impl RotationId {
         /// The rotation `number` of the instance `instance`.
         pub(crate) const fn for_test(instance: u64, number: u64) -> Self {
@@ -1700,9 +1747,8 @@ mod tests {
         let bob = stranger(2);
         identity.contacts.accept_request(&bob).unwrap();
         run(identity.begin_rotation()).unwrap();
-        assert!(
-            run(identity.mark_announced(bob.identity(), identity.rotation_id().unwrap())).unwrap()
-        );
+        // Bob was sent the successor (marked as its completion marks it).
+        mark(&identity, bob.identity());
         let step: Hook = Box::new({
             let identity = identity.clone();
             move || {
@@ -1755,10 +1801,16 @@ mod tests {
             move || {
                 while !done.load(std::sync::atomic::Ordering::SeqCst) {
                     if let Some(rotation) = identity.rotation_id() {
-                        let recorded = run(identity.mark_announced(&bob, rotation)).unwrap();
+                        // As a completion marks it: for the rotation in
+                        // progress, with the keys held.
+                        let keys = lock(&identity.keys);
+                        let recorded = keys.rotation_id() == Some(rotation)
+                            && identity
+                                .contacts
+                                .mark_rotation(&bob, rotation, Progress::Announced)
+                                .is_ok();
                         // Recorded only for the rotation that was in
                         // progress; while it still is, the mark shows.
-                        let keys = lock(&identity.keys);
                         if recorded && keys.rotation_id() == Some(rotation) {
                             let view = identity.contacts.view(&bob, keys.rotation_id());
                             assert!(view.unwrap().successor_announced);

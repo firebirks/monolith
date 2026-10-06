@@ -1443,8 +1443,10 @@ P4-10 Rotation (CR-1). One rotation at a time. Beginning one makes the
     (section 11.4). Each rotation has a
     number of its own, and what a contact did (it was sent the successor,
     it confirmed the new key) is recorded for that number: an
-    announcement is completed with the rotation it was made for, and a
-    completion that comes after that rotation ended counts for no other.
+    announcement is completed with what it was made for, its rotation,
+    its contact (that very record, not another one made later for the
+    same identity) and its session, and a completion that comes after
+    any of them changed counts for nothing.
     The switch and the end read their condition with the keys held,
     against the rotation they change, and a snapshot stores the rotation
     with the progress made for it and nothing else.
