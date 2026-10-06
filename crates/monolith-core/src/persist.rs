@@ -25,8 +25,9 @@
 //! waiter that started it, so a waiter that is cancelled (a deadline, an
 //! aborted task) loses neither the vault nor its lock, and no other waiter
 //! misses the outcome. A failed write marks the installation failed: every
-//! later wait fails, and the store refuses everything until the process
-//! starts again.
+//! later wait for a generation that is not durable fails, and the store
+//! refuses everything until the process starts again. What an earlier
+//! write made durable stays durable, and its wait says so.
 
 use core::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -122,6 +123,11 @@ impl Durability {
     pub(crate) fn subscribe(&self) -> watch::Receiver<u64> {
         self.durable.subscribe()
     }
+
+    /// Returns true while a wait is under way.
+    fn waiting(&self) -> bool {
+        self.durable.receiver_count() > 0
+    }
 }
 
 /// Why a change could not be made durable.
@@ -151,11 +157,11 @@ impl core::error::Error for CommitError {}
 pub(crate) type Snapshot =
     Box<dyn FnMut() -> Result<(u64, zeroize::Zeroizing<Vec<u8>>), StorageError> + Send>;
 
-/// How many times one job writes at most: once, and again while changes
-/// were applied after its last snapshot. The bound keeps the waiters of the
-/// first write from waiting for ever when changes keep coming; a change
-/// left after the last of them has a waiter of its own, or is written by
-/// the next write.
+/// How many times one job writes, at most, while a waiter is left: once,
+/// and again while changes were applied after its last snapshot. The bound
+/// keeps waiters from waiting for ever when changes keep coming; a waiter
+/// left then starts the next write itself. A job that has no waiter left
+/// writes on until nothing is left to write.
 const WRITES_PER_JOB: usize = 4;
 
 /// What a write of the installation needs from it.
@@ -220,6 +226,9 @@ struct Job {
     durability: Arc<Durability>,
     vault: Option<Box<dyn Writer>>,
     outcome: Option<Result<u64, StorageError>>,
+    /// The generation the last write that succeeded covers: published as
+    /// durable even if a later write of the job failed.
+    written: Option<u64>,
     failed: Option<Box<dyn FnOnce() + Send>>,
 }
 
@@ -231,15 +240,24 @@ impl Job {
     /// the outcome is published, so once it is, the job holds nothing.
     fn run(mut self, mut take: Snapshot) {
         let mut outcome = Err(StorageError::Internal);
-        for _ in 0..WRITES_PER_JOB {
-            let Some(vault) = self.vault.as_mut() else {
-                break;
-            };
+        let mut writes = 0_usize;
+        while let Some(vault) = self.vault.as_mut() {
             outcome =
                 take().and_then(|(covered, plaintext)| vault.write(&plaintext).map(|()| covered));
+            writes = writes.saturating_add(1);
             match outcome {
-                Ok(covered) if self.durability.applied() > covered => {}
-                _ => break,
+                Ok(covered) => {
+                    self.written = Some(covered);
+                    let behind = self.durability.applied() > covered;
+                    // Past the bound only for changes nobody waits for: a
+                    // waiter starts the next write itself once this one
+                    // is out.
+                    let waited = self.durability.waiting();
+                    if !behind || (writes >= WRITES_PER_JOB && waited) {
+                        break;
+                    }
+                }
+                Err(_) => break,
             }
         }
         drop(take);
@@ -264,7 +282,15 @@ impl Drop for Job {
                 self.durability.mark_durable(covered);
             }
             outcome => {
-                // An error, or a write that did not finish.
+                // An error, or a write that did not finish. What an earlier
+                // write of the job made durable is durable all the same; it
+                // goes out with the failure, in one notification.
+                if let Some(written) = self.written {
+                    self.durability.durable.send_if_modified(|durable| {
+                        *durable = (*durable).max(written);
+                        false
+                    });
+                }
                 self.durability.mark_failed(outcome.and_then(Result::err));
                 if let Some(failed) = self.failed.take() {
                     failed();
@@ -313,6 +339,7 @@ impl Store {
                     durability: durability.clone(),
                     vault: Some(vault),
                     outcome: None,
+                    written: None,
                     failed: None,
                 })
             } else {
@@ -357,11 +384,12 @@ impl Store {
             // Seen before the state is looked at: an outcome published
             // after this point ends the wait below at once.
             durable.borrow_and_update();
-            if durability.is_failed() {
-                return Err(durability.failure());
-            }
+            // What is durable is durable, also once a later write failed.
             if durability.durable() >= generation {
                 return Ok(());
+            }
+            if durability.is_failed() {
+                return Err(durability.failure());
             }
             self.start(durability, &runtime, &write)?;
             if durable.changed().await.is_err() {
@@ -546,6 +574,105 @@ mod tests {
             assert_eq!(writes.load(Ordering::SeqCst), 2);
             assert!(vault_of(&store));
             assert!(!durability.is_failed());
+        });
+    }
+
+    /// A vault whose writes follow a script: each write calls `during`
+    /// with its number, from 1, and fails if `during` says so.
+    struct Scripted<F: FnMut(usize) -> bool + Send> {
+        writes: usize,
+        during: F,
+    }
+
+    impl<F: FnMut(usize) -> bool + Send> Writer for Scripted<F> {
+        fn write(&mut self, _plaintext: &[u8]) -> Result<(), StorageError> {
+            self.writes += 1;
+            if (self.during)(self.writes) {
+                Ok(())
+            } else {
+                Err(StorageError::Io)
+            }
+        }
+    }
+
+    #[test]
+    fn changes_that_keep_coming_with_nobody_waiting_are_all_written() {
+        // A change is applied during each of the first writes, more of
+        // them than a job writes for its waiters, and the only wait is
+        // cancelled at once. Every change is written all the same.
+        let durability = Durability::new();
+        let changing = durability.clone();
+        let held = gate(false);
+        let opened = held.clone();
+        let store = Store::vault(Box::new(Scripted {
+            writes: 0,
+            during: move |write| {
+                if write == 1 {
+                    let (open, wake) = &*opened;
+                    let mut open = lock(open);
+                    while !*open {
+                        open = wake
+                            .wait(open)
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    }
+                }
+                if write <= WRITES_PER_JOB + 2 {
+                    changing.bump();
+                }
+                true
+            },
+        }));
+        runtime().block_on(async {
+            let first = durability.bump();
+            let waited = tokio::time::timeout(
+                Duration::from_millis(10),
+                store.wait(&durability, first, snapshot(&durability)),
+            )
+            .await;
+            assert!(waited.is_err());
+            open_gate(&held);
+            let written = tokio::time::timeout(Duration::from_secs(10), async {
+                while durability.durable() < durability.applied() {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await;
+            assert!(written.is_ok(), "a change was left unwritten");
+            assert!(vault_of(&store));
+        });
+    }
+
+    #[test]
+    fn a_write_that_failed_after_one_that_succeeded_keeps_its_success() {
+        // The first write of a job succeeds; a change comes during it, and
+        // the second write, for that change, fails. What the first wrote is
+        // durable, and its wait says so; the installation has failed.
+        let durability = Durability::new();
+        let changing = durability.clone();
+        let store = Store::vault(Box::new(Scripted {
+            writes: 0,
+            during: move |write| {
+                if write == 1 {
+                    changing.bump();
+                }
+                write == 1
+            },
+        }));
+        runtime().block_on(async {
+            let first = durability.bump();
+            assert_eq!(
+                store.wait(&durability, first, snapshot(&durability)).await,
+                Ok(())
+            );
+            assert!(durability.is_failed());
+            assert!(durability.durable() >= first);
+            let later = durability.applied();
+            assert!(
+                store
+                    .wait(&durability, later, snapshot(&durability))
+                    .await
+                    .is_err()
+            );
         });
     }
 

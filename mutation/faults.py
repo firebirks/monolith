@@ -955,8 +955,8 @@ PHASE4 = [
           ("            let Some(slot) = budgets.contact_session(identity) else {\n                withdrawal.end();\n                keep_recorded(identity, depends).await?;",
            "            let Some(slot) = budgets.contact_session(identity) else {\n                withdrawal.end();")),
     fault("CS70", CORE + "persist.rs", "changes after a snapshot wait for the next waiter",
-          ("                Ok(covered) if self.durability.applied() > covered => {}",
-           "                Ok(covered) if covered == u64::MAX => {}")),
+          ("                    if !behind || (writes >= WRITES_PER_JOB && waited) {",
+           "                    if !behind || writes >= 1 || waited {")),
     fault("CS71", CORE + "link.rs", "what a dial without a contact slot recorded is not made durable",
           ("        let Some(contact_slot) = budgets.contact_session(identity) else {\n            withdrawal.end();\n            keep_recorded(identity, depends).await?;",
            "        let Some(contact_slot) = budgets.contact_session(identity) else {\n            withdrawal.end();")),
@@ -1012,5 +1012,11 @@ PHASE4 = [
     fault("CS87", CORE + "identity.rs", "every identity numbers its rotations alike",
           ("    random::<8>().map(|bytes| u64::from_be_bytes(*bytes))",
            "    random::<8>().map(|_| 0)")),
+    fault("CS88", CORE + "persist.rs", "a job stops at its bound with nobody waiting for the rest",
+          ("                    if !behind || (writes >= WRITES_PER_JOB && waited) {",
+           "                    if !behind || writes >= WRITES_PER_JOB {")),
+    fault("CS89", CORE + "persist.rs", "a failed write hides what an earlier write made durable",
+          ("                if let Some(written) = self.written {\n                    self.durability.durable.send_if_modified(",
+           "                if let Some(written) = self.written.filter(|_| false) {\n                    self.durability.durable.send_if_modified(")),
 ]
 

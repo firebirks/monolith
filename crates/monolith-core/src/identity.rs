@@ -1105,14 +1105,17 @@ impl Shared {
 
     /// What a write of the installation needs from it.
     fn write(self: &Arc<Self>) -> Write {
-        let reading = self.clone();
+        // Held weakly between the writes of a job, so that the job keeps
+        // nothing of the installation, its keys included, while it writes.
+        let reading = Arc::downgrade(self);
         let failing = Arc::downgrade(self);
         Write {
             snapshot: Box::new(move || {
+                let shared = reading.upgrade().ok_or(StorageError::Internal)?;
                 // The generation first: the state read after it holds every
                 // change up to it.
-                let covered = reading.durability.applied();
-                let contents = reading.contents();
+                let covered = shared.durability.applied();
+                let contents = shared.contents();
                 Ok((covered, contents.encode()?))
             }),
             // Nothing can be made durable any more: every session is

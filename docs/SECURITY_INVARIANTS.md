@@ -830,10 +830,12 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   never an operation half done, and never the progress of one rotation
   with another. When the write fails, the job itself withdraws
   every session, whether or not a waiter is left; when changes came after
-  its snapshot, it writes again before it publishes its outcome (at most
-  four writes in all), so a change is written also when its waiter was
-  cancelled or nothing waits for it, and the job holds nothing once its
-  outcome is out.
+  its snapshot, it writes again before it publishes its outcome (up to
+  four writes while a waiter is left, which then starts the next write
+  itself; on until nothing is left when nobody waits), so a change is
+  written also when its waiter was cancelled or nothing waits for it, and
+  the job holds nothing once its outcome is out. A later write that fails
+  does not take back what an earlier one made durable.
   What an admission records without a session following (a refused dial,
   an answer or a dial without a slot) is made durable before the refusal
   is returned.
