@@ -998,5 +998,10 @@ PHASE4 = [
     fault("CS83", CORE + "link.rs", "a message taken by a dropped receive is lost",
           ("        if let Some(received) = self.taken.take() {\n            return Ok(received);\n        }\n",
            "")),
+    fault("CS84", CORE + "identity.rs", "an invitation card is signed before the capability is durable",
+          ("        self.card_with(Some(capability.clone()))?;\n        let (id, generation) = {",
+           "        let early = self.card_with(Some(capability.clone()))?;\n        let (id, generation) = {"),
+          ("        let card = self.card_with(Some(capability))?;\n        Ok((id, card))",
+           "        let _ = capability;\n        Ok((id, early))")),
 ]
 

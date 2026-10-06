@@ -704,15 +704,19 @@ impl LocalIdentity {
     ) -> Result<(InvitationId, ContactCard), StoreError> {
         self.check_open()?;
         let capability = InvitationCapability::from_bytes(*random::<INVITATION_CAPABILITY_LEN>()?);
-        let card = self.card_with(Some(capability.clone()))?;
+        // A card can be made for it: checked before anything changes.
+        self.card_with(Some(capability.clone()))?;
         let (id, generation) = {
             let mut invitations = lock(&self.invitations);
-            let id = invitations.add(capability, label)?;
+            let id = invitations.add(capability.clone(), label)?;
             let generation = self.durability.bump();
             invitations.stamp(id, generation);
             (id, generation)
         };
         self.commit(generation).await?;
+        // Signed now, with the key the identity answers with once the
+        // capability is durable: a switch made durable meanwhile is in it.
+        let card = self.card_with(Some(capability))?;
         Ok((id, card))
     }
 

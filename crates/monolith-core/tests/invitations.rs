@@ -521,3 +521,34 @@ fn a_request_stays_pending_when_answering_it_fails() {
         );
     });
 }
+
+#[test]
+fn an_invitation_card_states_the_key_that_answers_when_it_is_returned() {
+    // Bob creates an invitation while his switch to a new key is being
+    // made durable in the same write. The card he gets states the key he
+    // answers with then, not the one he answered with when he asked.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let passphrase = Passphrase::new("invitations test").unwrap();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase, KdfParams::FLOOR).unwrap();
+        let bob = node_in(installation, &network, 2, 2, 1).await;
+        bob.identity.begin_rotation().await.unwrap();
+        let old = bob.card();
+
+        dir.hold_writes();
+        let released = Released(&dir);
+        let creating = bob.identity.clone();
+        let create = tokio::spawn(async move { creating.create_invitation(None).await });
+        held(&dir).await;
+        let switching = bob.identity.clone();
+        let switch = tokio::spawn(async move { switching.switch_rotation(true).await });
+        tokio::task::yield_now().await;
+        drop(released);
+        let (_, card) = create.await.unwrap().unwrap();
+        assert!(switch.await.unwrap().unwrap());
+        assert_ne!(bob.card(), old);
+        assert_eq!(card.transport(), bob.card().transport());
+    });
+}
