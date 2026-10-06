@@ -18,7 +18,10 @@
 //!   once a publication stayed up for a minute. There is no loop without
 //!   a delay;
 //! - shutdown ends the loop at once, wherever it is, and removes the
-//!   service, and so does the deletion of the identity.
+//!   service, and so does the deletion of the identity: a publication
+//!   under way is dropped, which removes whatever Tor published with its
+//!   control connection, and a service that Tor returns for an identity
+//!   deleted meanwhile is removed at once and never reported available.
 //!
 //! The supervisor reaches Tor only through the backend, which fails
 //! closed: it never falls back to a direct connection, a resolver or
@@ -129,14 +132,22 @@ enum Waited<T> {
     Gone,
 }
 
-/// Runs `work` unless `shutdown` changes first.
+/// Runs `work` unless `shutdown` changes or `identity` is deleted first.
+/// A deletion ends it as a change of `shutdown` does: the caller reads both
+/// again. `work` is dropped then, unfinished.
 async fn unless_stopped<T>(
     work: impl Future<Output = T>,
     shutdown: &mut watch::Receiver<bool>,
+    identity: &LocalIdentity,
 ) -> Waited<T> {
+    let mut deletion = identity.deletion();
     let mut work = core::pin::pin!(work);
     let mut changed = core::pin::pin!(shutdown.changed());
+    let mut deleted = core::pin::pin!(deletion.wait_for(|deleted| *deleted));
     core::future::poll_fn(|cx| {
+        if deleted.as_mut().poll(cx).is_ready() {
+            return core::task::Poll::Ready(Waited::Changed);
+        }
         if let core::task::Poll::Ready(value) = work.as_mut().poll(cx) {
             return core::task::Poll::Ready(Waited::Done(value));
         }
@@ -179,7 +190,7 @@ async fn sleep_or_stop(
             })
             .await
         };
-        match unless_stopped(sleep, shutdown).await {
+        match unless_stopped(sleep, shutdown, identity).await {
             Waited::Done(slept) => {
                 return !slept || *shutdown.borrow() || identity.is_deleted();
             }
@@ -222,13 +233,22 @@ where
             secret,
             expected: identity.endpoint(),
         };
-        let published = match unless_stopped(backend.publish_onion(key), &mut shutdown).await {
-            Waited::Done(published) => published,
-            // The value is read at the top.
-            Waited::Changed => continue,
-            Waited::Gone => break,
-        };
+        // A deletion while Tor publishes drops the publication: its
+        // control connection closes, which removes whatever Tor published.
+        let published =
+            match unless_stopped(backend.publish_onion(key), &mut shutdown, identity).await {
+                Waited::Done(published) => published,
+                // The values are read at the top.
+                Waited::Changed => continue,
+                Waited::Gone => break,
+            };
         let failure = match published {
+            // Deleted as Tor answered: the service is removed, and never
+            // reported available.
+            Ok(service) if identity.is_deleted() => {
+                let _ = service.close().await;
+                break;
+            }
             Ok(mut service) => {
                 state.send_replace(Publication::Available);
                 let started = tokio::time::Instant::now();

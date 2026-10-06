@@ -971,5 +971,11 @@ PHASE4 = [
     fault("CS74", CORE + "link.rs", "a link whose write was dropped part way goes on",
           ("        if !self.writing {\n            return None;\n        }",
            "        if !self.writing || true {\n            return None;\n        }")),
+    fault("CS75", CORE + "supervisor.rs", "a deletion does not end a publication under way",
+          ("        if deleted.as_mut().poll(cx).is_ready() {\n            return core::task::Poll::Ready(Waited::Changed);\n        }\n",
+           "        let _ = &mut deleted;\n")),
+    fault("CS76", CORE + "supervisor.rs", "a service published for a deleted identity is reported available",
+          ("            Ok(service) if identity.is_deleted() => {\n                let _ = service.close().await;\n                break;\n            }\n",
+           "")),
 ]
 

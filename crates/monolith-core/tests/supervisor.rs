@@ -24,7 +24,10 @@ use monolith_core::link::{answer, dial};
 use monolith_core::supervisor::{Publication, supervise};
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::session::Action;
-use monolith_tor::{MockNetwork, MockTorBackend, TorError};
+use monolith_tor::{
+    IsolationGroup, KeySource, MockNetwork, MockOnionService, MockTorBackend, OnionService,
+    OnionServiceSecret, TorBackend, TorError, TorStatus,
+};
 use tokio::sync::watch;
 use zeroize::Zeroizing;
 
@@ -342,5 +345,197 @@ fn a_deleted_identity_is_taken_down_and_not_published_again() {
             .unwrap();
         assert_eq!(ended(task).await, Publication::Stopped);
         assert!(asked.elapsed() < Duration::from_secs(1));
+    });
+}
+
+/// A backend whose publications go through `gate`: each waits there for
+/// `release`, if one is set, and then runs `during` before it returns. The
+/// services it returns note the state of the publication when they are
+/// removed.
+struct Gated {
+    inner: MockTorBackend,
+    entered: Arc<tokio::sync::Notify>,
+    release: Option<Arc<tokio::sync::Notify>>,
+    during: std::sync::Mutex<Option<(&'static Installation, monolith_identity::IdentityPublicKey)>>,
+    states: watch::Receiver<Publication>,
+    removed_while_available: Arc<std::sync::atomic::AtomicBool>,
+}
+
+struct Watched {
+    inner: MockOnionService,
+    states: watch::Receiver<Publication>,
+    removed_while_available: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl OnionService for Watched {
+    type Stream = <MockOnionService as OnionService>::Stream;
+
+    fn service_key(&self) -> &OnionServiceKey {
+        self.inner.service_key()
+    }
+
+    fn take_generated_secret(&mut self) -> Option<OnionServiceSecret> {
+        self.inner.take_generated_secret()
+    }
+
+    fn is_published(&mut self) -> bool {
+        self.inner.is_published()
+    }
+
+    fn accept(
+        &mut self,
+    ) -> impl core::future::Future<Output = Result<Self::Stream, TorError>> + Send {
+        self.inner.accept()
+    }
+
+    fn close(self) -> impl core::future::Future<Output = Result<(), TorError>> + Send {
+        if *self.states.borrow() == Publication::Available {
+            self.removed_while_available
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.inner.close()
+    }
+}
+
+impl TorBackend for Gated {
+    type Stream = <MockTorBackend as TorBackend>::Stream;
+    type Service = Watched;
+
+    fn status(&self) -> impl core::future::Future<Output = TorStatus> + Send {
+        self.inner.status()
+    }
+
+    fn connect_onion(
+        &self,
+        target: &OnionServiceKey,
+        isolation: &IsolationGroup,
+    ) -> impl core::future::Future<Output = Result<Self::Stream, TorError>> + Send {
+        self.inner.connect_onion(target, isolation)
+    }
+
+    async fn publish_onion(&self, key: KeySource) -> Result<Self::Service, TorError> {
+        self.entered.notify_one();
+        if let Some(release) = &self.release {
+            release.notified().await;
+        }
+        let inner = self.inner.publish_onion(key).await?;
+        let during = self.during.lock().unwrap().take();
+        if let Some((installation, identity)) = during {
+            installation.delete_identity(&identity).await.unwrap();
+        }
+        Ok(Watched {
+            inner,
+            states: self.states.clone(),
+            removed_while_available: self.removed_while_available.clone(),
+        })
+    }
+}
+
+/// Runs the supervisor of `local` on `backend` until it ends, with the
+/// state sender whose receiver `backend` holds.
+fn supervised_on(
+    backend: Gated,
+    local: Arc<LocalIdentity>,
+    state: watch::Sender<Publication>,
+) -> (tokio::task::JoinHandle<Publication>, watch::Sender<bool>) {
+    let (stop, shutdown) = watch::channel(false);
+    let task = tokio::spawn(async move {
+        let budgets = Budgets::new();
+        supervise(&backend, &budgets, &local, shutdown, &state, |_, _| async {
+        })
+        .await
+    });
+    (task, stop)
+}
+
+fn gated(
+    network: &MockNetwork,
+    release: Option<Arc<tokio::sync::Notify>>,
+    during: Option<(&'static Installation, monolith_identity::IdentityPublicKey)>,
+) -> (
+    Gated,
+    watch::Sender<Publication>,
+    Arc<std::sync::atomic::AtomicBool>,
+) {
+    let (state, states) = watch::channel(Publication::Publishing);
+    let removed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    (
+        Gated {
+            inner: network.backend(),
+            entered: Arc::new(tokio::sync::Notify::new()),
+            release,
+            during: std::sync::Mutex::new(during),
+            states,
+            removed_while_available: removed.clone(),
+        },
+        state,
+        removed,
+    )
+}
+
+#[test]
+fn a_publication_under_way_ends_when_the_identity_is_deleted() {
+    // Tor has not answered the publication yet when the identity is
+    // deleted. The supervisor does not wait for it: it ends at once, and
+    // the publication is dropped, which removes whatever Tor would have
+    // published with its control connection. The service never appears.
+    run_paused(async {
+        let network = MockNetwork::new();
+        let installation = Box::leak(Box::new(Installation::ephemeral()));
+        let bob = installation
+            .restore_identity(
+                IdentityKeys {
+                    seed: Zeroizing::new([2; 32]),
+                    transport: Zeroizing::new([2 ^ 0xA5; 32]),
+                    onion: Some(Zeroizing::new([2; 64])),
+                    epoch: EndpointEpoch::FIRST,
+                    endpoint: endpoint(2),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (backend, state, _) = gated(&network, Some(release.clone()), None);
+        let entered = backend.entered.clone();
+        let (task, _stop) = supervised_on(backend, bob.clone(), state);
+        entered.notified().await;
+        let asked = tokio::time::Instant::now();
+        installation.delete_identity(bob.identity()).await.unwrap();
+        assert_eq!(ended(task).await, Publication::Stopped);
+        assert!(asked.elapsed() < Duration::from_secs(1));
+        release.notify_waiters();
+        tokio::task::yield_now().await;
+        assert!(!network.is_published(&bob.endpoint()));
+    });
+}
+
+#[test]
+fn a_service_published_for_a_deleted_identity_is_never_reported_available() {
+    // The identity is deleted while Tor publishes its service, and Tor
+    // answers after that. The service is removed at once, and the
+    // publication is never reported available.
+    run_paused(async {
+        let network = MockNetwork::new();
+        let installation: &'static Installation = Box::leak(Box::new(Installation::ephemeral()));
+        let bob = installation
+            .restore_identity(
+                IdentityKeys {
+                    seed: Zeroizing::new([2; 32]),
+                    transport: Zeroizing::new([2 ^ 0xA5; 32]),
+                    onion: Some(Zeroizing::new([2; 64])),
+                    epoch: EndpointEpoch::FIRST,
+                    endpoint: endpoint(2),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        let (backend, state, removed_while_available) =
+            gated(&network, None, Some((installation, *bob.identity())));
+        let (task, _stop) = supervised_on(backend, bob.clone(), state);
+        assert_eq!(ended(task).await, Publication::Stopped);
+        assert!(!removed_while_available.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!network.is_published(&bob.endpoint()));
     });
 }
