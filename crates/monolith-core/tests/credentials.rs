@@ -1577,3 +1577,32 @@ fn a_card_of_someone_who_is_no_contact_is_not_dialed() {
         });
     }
 }
+
+#[test]
+fn a_request_is_made_with_the_card_of_its_session() {
+    // Alice has switched to a new key and asks Bob, a requested contact,
+    // for contact. Bob was announced nothing, so she dials him with her
+    // old key: the request she sends carries the card of that session,
+    // which the session sends, and not the card she answers with now.
+    run(async {
+        let network = MockNetwork::new();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        alice.identity.begin_rotation().await.unwrap();
+        let rotation = alice.identity.rotation_id().unwrap();
+        assert!(
+            alice
+                .identity
+                .switch_rotation(rotation, true)
+                .await
+                .unwrap()
+        );
+        alice.identity.import(&bob.card()).await.unwrap();
+        let (asking, answering) = connect(&alice, &mut bob).await;
+        let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
+        assert_ne!(asking.link.session().local_card(), &alice.card());
+        send_first(&mut asking, &alice.identity).await;
+        let received = answering.link.receive().await.unwrap();
+        assert!(matches!(received.message, Message::ContactRequest(_)));
+    });
+}

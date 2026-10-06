@@ -262,6 +262,13 @@ impl AuthenticatedSession {
         &self.local_card
     }
 
+    /// Returns the invitation capability a contact request on this session
+    /// carries: the one of the card held of the peer when the session was
+    /// admitted, or none. A request with any other is not sent.
+    pub const fn invitation(&self) -> Option<&InvitationCapability> {
+        self.invitation.as_ref()
+    }
+
     /// Returns which side opened the session.
     pub const fn initiator(&self) -> Initiator {
         self.logic.initiator()

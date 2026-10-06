@@ -243,18 +243,15 @@ pub fn request(card: &ContactCard, invitation: Option<InvitationCapability>) -> 
 }
 
 /// Sends what the session logic asked for when the session authenticated.
-pub async fn send_first(end: &mut Established<DuplexStream>, identity: &LocalIdentity) {
+pub async fn send_first(end: &mut Established<DuplexStream>, _identity: &LocalIdentity) {
     for action in end.first.clone() {
         match action {
             Action::SendContactAccept => end.link.send(&Message::ContactAccept).await.unwrap(),
             Action::SendContactRequest => {
-                // A request carries the capability of the card held of
-                // the peer, and no other.
-                let card = identity.card();
-                let invitation = identity
-                    .contact(end.link.session().peer())
-                    .and_then(|view| view.credentials)
-                    .and_then(|held| held.invitation().cloned());
+                // A request carries the card and the capability of its
+                // session, and no other.
+                let card = end.link.session().local_card().clone();
+                let invitation = end.link.session().invitation().cloned();
                 end.link.send(&request(&card, invitation)).await.unwrap();
             }
             _ => {}

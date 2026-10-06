@@ -268,11 +268,11 @@ impl Node {
             let sent = match action {
                 Action::SendContactAccept => link.send(&Message::ContactAccept).await,
                 Action::SendContactRequest => {
-                    let invitation = local
-                        .contact(&peer)
-                        .and_then(|view| view.credentials)
-                        .and_then(|held| held.invitation().cloned());
-                    let Ok(request) = request(local.card(), invitation) else {
+                    // The card and the capability of this session, which
+                    // it sends; not those of the moment, which can differ.
+                    let card = link.session().local_card().clone();
+                    let invitation = link.session().invitation().cloned();
+                    let Ok(request) = request(card, invitation) else {
                         return "invalid request".to_owned();
                     };
                     link.send(&request).await
