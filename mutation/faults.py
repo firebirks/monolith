@@ -1076,5 +1076,8 @@ PHASE4 = [
     fault("CS107", CORE + "identity.rs", "the party that answers leaves the core",
           ("    pub(crate) fn answering_party(&self)",
            "    pub fn answering_party(&self)")),
+    fault("CS108", CORE + "link.rs", "a card of someone who is no contact is dialed",
+          ("    let Some(plan) = identity.dial_plan(&contact) else {\n        let standing",
+           "    let Some(plan) = identity.dial_plan(&contact).or_else(|| {\n        identity.answering_party().ok().map(|local| crate::identity::DialPlan { local, cards: Vec::new() })\n    }) else {\n        let standing")),
 ]
 

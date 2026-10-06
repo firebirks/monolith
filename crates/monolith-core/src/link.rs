@@ -61,11 +61,12 @@ use std::time::Instant;
 use monolith_protocol::SessionState;
 use monolith_protocol::body::Message;
 use monolith_protocol::card::ContactCard;
+use monolith_protocol::contact::RecordKind;
 use monolith_protocol::limits::{
     FRAME_WRITE_TIMEOUT, HANDSHAKE_MSG1_LEN, HANDSHAKE_MSG2_LEN, HANDSHAKE_MSG3_LEN,
     HANDSHAKE_TIMEOUT,
 };
-use monolith_protocol::session::{Action, Admission};
+use monolith_protocol::session::{Action, Admission, Standing};
 use tokio::sync::Notify;
 
 use crate::budget::{Budgets, ContactPermit};
@@ -361,7 +362,10 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// When message 2 has authenticated the responder, the contact store of
 /// `identity` admits it against the record of its identity as it is then,
 /// and keeps the [`Withdrawal`] of the link with the session in the same
-/// step. The record is never read before.
+/// step. The record decides the session only then: before, it is read
+/// only to find what to dial with, and a card of anyone who is not a
+/// contact (no record, declined, blocked) is not dialed at all: the dial
+/// fails with [`LinkError::Refused`] before a stream is opened.
 ///
 /// Message 3 exists only if the responder may learn the local identity:
 /// its key stands for a contact the identity holds as requested or
@@ -375,9 +379,9 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// and a slot of the contact session budgets is taken
 /// ([`LinkError::Budget`] if none is free). What an admission recorded (a
 /// pending successor, a conflict, a newer card) stands also when no
-/// session follows, and is made durable before the refusal is returned. The withdrawal is looked at
-/// before the write starts and while it is pending; a withdrawal ends the
-/// dial with [`LinkError::Withdrawn`]. Bytes the stream accepted before
+/// session follows, and is made durable before the refusal is returned.
+/// The withdrawal is looked at before the write starts and while it is
+/// pending; a withdrawal ends the dial with [`LinkError::Withdrawn`]. Bytes the stream accepted before
 /// that cannot be called back.
 pub async fn dial<B>(
     backend: &B,
@@ -389,11 +393,24 @@ where
     B: TorBackend,
 {
     let contact = *card.identity();
-    // A deleted identity dials nobody: it has no party any more.
-    let local = identity
-        .dial_plan(&contact)
-        .map_or_else(|| identity.answering_party(), |plan| Ok(plan.local))
-        .map_err(|_| LinkError::Storage(CommitError::Failed))?;
+    // A closed identity dials nobody: it has no party any more. Only a
+    // contact is dialed: for anyone else (no record, declined, blocked)
+    // no stream is opened and no handshake begins.
+    if identity.is_closed() {
+        return Err(LinkError::Storage(CommitError::Failed));
+    }
+    let Some(plan) = identity.dial_plan(&contact) else {
+        let standing = match identity.kind(&contact) {
+            RecordKind::Blocked => Standing::Blocked,
+            RecordKind::Declined => Standing::Declined,
+            RecordKind::None | RecordKind::Requested | RecordKind::Accepted => Standing::None,
+        };
+        return Err(LinkError::Refused(Admission {
+            standing,
+            change: None,
+        }));
+    };
+    let local = plan.local;
     let isolation = identity.isolation(&contact).map_err(LinkError::Tor)?;
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     // The identity may have been deleted while the dial waited: it opens

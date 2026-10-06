@@ -1539,3 +1539,41 @@ fn a_decision_for_one_rotation_changes_nothing_in_the_next() {
         let _ = &mut bob;
     });
 }
+
+#[test]
+fn a_card_of_someone_who_is_no_contact_is_not_dialed() {
+    // Alice blocks Bob, or deletes him, and dials his card all the same
+    // (a retry planned earlier, a card kept by the caller). No stream is
+    // opened and no handshake begins: the refusal says why.
+    for blocking in [true, false] {
+        run(async {
+            let network = MockNetwork::new();
+            let alice = node(&network, 1).await;
+            let mut bob = node(&network, 2).await;
+            befriend(&alice, &mut bob).await;
+            let card = bob.card();
+            if blocking {
+                alice.identity.block(bob.identity.identity()).await.unwrap();
+            } else {
+                alice
+                    .identity
+                    .delete(bob.identity.identity())
+                    .await
+                    .unwrap();
+            }
+            let dials = network.dials();
+            let standing = if blocking {
+                Standing::Blocked
+            } else {
+                Standing::None
+            };
+            assert_eq!(
+                dial(&alice.tor, &alice.budgets, &alice.identity, &card)
+                    .await
+                    .err(),
+                refused(standing, None)
+            );
+            assert_eq!(network.dials(), dials);
+        });
+    }
+}
