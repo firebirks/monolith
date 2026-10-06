@@ -824,10 +824,15 @@ impl LocalIdentity {
 
     /// The successor card of a rotation in progress: what is announced in
     /// an EndpointUpdate on sessions of the old key, once it is durable.
+    ///
+    /// `None` until the beginning of the rotation is durable: the card is
+    /// handed out nowhere before a crash can no longer lose it.
     pub fn successor_card(&self) -> Option<ContactCard> {
+        let durable = self.durability.durable();
         lock(&self.keys)
             .rotation
             .as_ref()
+            .filter(|rotation| rotation.announced_from(durable))
             .map(|rotation| rotation.party.card().clone())
     }
 

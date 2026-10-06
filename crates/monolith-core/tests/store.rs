@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use common::{State, befriend, confirm_both, party, run, state, step};
 use monolith_core::contacts::{ContactView, ImportOutcome, StoreError};
-use monolith_core::identity::{Installation, LocalIdentity};
+use monolith_core::identity::{Installation, LocalIdentity, RotationState};
 use monolith_identity::{IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::Message;
 use monolith_protocol::card::ContactCard;
@@ -244,7 +244,9 @@ where
                         found == before
                             || found == after_here
                             || (one_more_invitation(&before, &after)
-                                && one_more_invitation(&before, &found)),
+                                && one_more_invitation(&before, &found))
+                            || (successor_begun(&before, &after)
+                                && successor_shown(&after_here, &found)),
                         "step {step} {outcome:?}"
                     );
                 }
@@ -308,6 +310,33 @@ fn one_more_invitation(before: &State, after: &State) -> bool {
         }
     }
     added == 1
+}
+
+/// True if the operation that turned `before` into `after` began a
+/// rotation.
+fn successor_begun(before: &State, after: &State) -> bool {
+    before
+        .identities
+        .iter()
+        .zip(&after.identities)
+        .any(|(b, a)| b.successor.is_none() && a.successor.is_some())
+}
+
+/// True if `found` is `shown` with the successor card of a rotation that
+/// `shown` has begun but does not show, as it is not durable there.
+fn successor_shown(shown: &State, found: &State) -> bool {
+    shown.identities.len() == found.identities.len()
+        && shown
+            .identities
+            .iter()
+            .zip(&found.identities)
+            .all(|(s, f)| {
+                let mut f = f.clone();
+                if s.successor.is_none() && s.rotation != RotationState::None {
+                    f.successor = None;
+                }
+                f == *s
+            })
 }
 
 fn setup_rich(dir: MemoryDir) -> std::pin::Pin<Box<dyn core::future::Future<Output = ()>>> {

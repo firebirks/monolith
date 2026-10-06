@@ -20,7 +20,7 @@ use common::{
 };
 use monolith_core::budget::Budgets;
 use monolith_core::contacts::ImportOutcome;
-use monolith_core::identity::Installation;
+use monolith_core::identity::{Installation, RotationState};
 use monolith_core::link::{LinkError, dial};
 use monolith_protocol::body::Message;
 use monolith_protocol::contact::RecordKind;
@@ -786,7 +786,9 @@ fn the_new_key_reaches_no_peer_before_it_is_durable() {
         let identity = alice.identity.clone();
         let begin = tokio::spawn(async move { identity.begin_rotation().await });
         held().await;
-        assert!(alice.identity.successor_card().is_some());
+        // Decided, and handed out nowhere: not even as the successor card.
+        assert_ne!(alice.identity.rotation(), RotationState::None);
+        assert_eq!(alice.identity.successor_card(), None);
         assert_eq!(
             alice.identity.announcement_for(alice_link.session_ref()),
             None

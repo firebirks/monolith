@@ -1003,5 +1003,8 @@ PHASE4 = [
            "        let early = self.card_with(Some(capability.clone()))?;\n        let (id, generation) = {"),
           ("        let card = self.card_with(Some(capability))?;\n        Ok((id, card))",
            "        let _ = capability;\n        Ok((id, early))")),
+    fault("CS85", CORE + "identity.rs", "the successor card is handed out before it is durable",
+          ("            .filter(|rotation| rotation.announced_from(durable))\n            .map(|rotation| rotation.party.card().clone())",
+           "            .map(|rotation| rotation.party.card().clone())")),
 ]
 
