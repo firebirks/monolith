@@ -32,7 +32,13 @@ pub fn run<F: Future>(future: F) -> F::Output {
         .enable_all()
         .build()
         .unwrap()
-        .block_on(future)
+        .block_on(async {
+            // A test that waits for something that never comes fails
+            // instead of hanging.
+            tokio::time::timeout(core::time::Duration::from_secs(120), future)
+                .await
+                .expect("the test did not end in time")
+        })
 }
 
 /// As `run`, with time that advances only when every task waits.

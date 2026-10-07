@@ -547,6 +547,16 @@ mod tests {
             .unwrap()
     }
 
+    /// Runs `future` on a runtime of its own. A test whose waits never end
+    /// fails instead of hanging.
+    fn within<F: core::future::Future>(future: F) -> F::Output {
+        runtime().block_on(async {
+            tokio::time::timeout(Duration::from_secs(30), future)
+                .await
+                .expect("the test did not end in time")
+        })
+    }
+
     /// Ends a job as a failing one does: what it made durable is
     /// published, and then the failure, before anyone is woken.
     fn fail_after(durability: &Arc<Durability>, written: u64) -> Box<dyn FnOnce() + Send> {
@@ -575,8 +585,7 @@ mod tests {
             }));
             let generation = durability.bump();
             lock(&durability.hooks).insert(point, fail_after(&durability, generation));
-            let waited =
-                runtime().block_on(store.wait(&durability, generation, snapshot(&durability)));
+            let waited = within(store.wait(&durability, generation, snapshot(&durability)));
             assert!(waited.is_ok(), "{point}");
         }
     }
@@ -591,7 +600,7 @@ mod tests {
             gate: held.clone(),
             fail: false,
         }));
-        runtime().block_on(async {
+        within(async {
             let first = durability.bump();
             // The wait starts the write and is cancelled while it runs.
             let waited = tokio::time::timeout(
@@ -658,7 +667,7 @@ mod tests {
         }));
         let (taken, snapshots) = std::sync::mpsc::channel();
         let write = reported(&durability, &taken);
-        runtime().block_on(async {
+        within(async {
             let first = durability.bump();
             let waited = tokio::time::timeout(
                 Duration::from_millis(10),
@@ -666,7 +675,10 @@ mod tests {
             )
             .await;
             assert!(waited.is_err());
-            assert_eq!(snapshots.recv().unwrap(), first);
+            assert_eq!(
+                snapshots.recv_timeout(Duration::from_secs(30)).unwrap(),
+                first
+            );
             let second = durability.bump();
             let waited = tokio::time::timeout(
                 Duration::from_millis(10),
@@ -731,7 +743,7 @@ mod tests {
                 true
             },
         }));
-        runtime().block_on(async {
+        within(async {
             let first = durability.bump();
             let waited = tokio::time::timeout(
                 Duration::from_millis(10),
@@ -767,7 +779,7 @@ mod tests {
                 write == 1
             },
         }));
-        runtime().block_on(async {
+        within(async {
             let first = durability.bump();
             assert_eq!(
                 store.wait(&durability, first, snapshot(&durability)).await,
@@ -801,7 +813,7 @@ mod tests {
                 true
             },
         }));
-        runtime().block_on(async {
+        within(async {
             let first = durability.bump();
             store
                 .wait(&durability, first, snapshot(&durability))
@@ -856,7 +868,7 @@ mod tests {
                 }
             }
         };
-        runtime().block_on(async {
+        within(async {
             let first = durability.bump();
             assert_eq!(store.wait(&durability, first, &write).await, Ok(()));
             assert!(withdrawn.load(Ordering::SeqCst));
@@ -881,7 +893,7 @@ mod tests {
             gate: gate(true),
             fail: true,
         }));
-        runtime().block_on(async {
+        within(async {
             let generation = durability.bump();
             assert_eq!(
                 store
