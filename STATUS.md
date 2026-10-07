@@ -2,9 +2,10 @@
 
 Written on 2026-10-05, when the owner stopped the final verification to
 have findings of their own fixed, and brought up to date on 2026-10-06,
-when those findings were closed, and again at the end of that day, in the
-middle of a further round of review closure (section 5.1), so that the
-work can be picked up on another machine. This file describes work in
+when those findings were closed, again at the end of that day, in the
+middle of a further round of review closure, and on 2026-10-07, when that
+round was closed (section 5.1), so that the work can be picked up on
+another machine. This file describes work in
 progress on the branch
 `phase-4-contact-store`. It is removed when Phase 4 is closed; it does not
 belong on `main`.
@@ -223,42 +224,64 @@ it and a mutation fault, in commits of their own:
 | Independent review | A contact request was made with the card of the moment, refused while switched. | It is made with the card and capability of its session (`AuthenticatedSession::invitation`). | `069ad2c`, `ffb81cd` | `tests/credentials.rs`, CS109 |
 | Independent review | The dev node answered a request by sender, took ambiguous prefixes, and kept non-contact sessions as a peer's. | Fixed in `dev-node`. No automated test; the private Tor network test runs these commands. | `c8322e9` | none |
 
-The mutation manifest at `c8322e9`: 324 faults, 109 of Phase 4 (CS1 to
-CS109).
+On 2026-10-07 the round went on, in commits of their own, each with a
+test that fails on the code before it and a fault where one can show it
+(`docs/DESIGN_QUESTIONS.md` section 11.5, the last two tables, has the
+rows):
 
-Left of this round, in order:
+- CS81 removes both checks of the closing on the path of a late session
+  (`73b4273`); CS38 is caught by
+  `kdf_parameters_outside_the_bounds_are_refused` (checked by hand and
+  in a focused run).
+- Two tests hung since `9f91b1f` (a dial refused before a stream, the
+  other side waiting for one): fixed (`5d8caf2`, `d17ac9d`), and the
+  test helpers and the tests of the core and of persistence now fail
+  instead of hanging (`97eb6f0`, `eadc925`, `64e8354`, `4577d19`). The
+  workspace suite had not run whole since `9f91b1f`.
+- Two independent reviews of the round, then two more of their fixes,
+  found, all fixed: a confirmation of the new key marked for a contact
+  made again (`b3767ba`); `dial` dialing any card it was given, not
+  only those of the dial plan (`9d368dc`); `apply` taking the actions
+  of a message from its caller (`2b22dd1`, `Arrived`); a wait reporting
+  a failure for a durable generation (`fda2a25`); an acceptance or a
+  new card counted for a contact made again (`049de25`); an `Arrived`
+  applied twice (`b4ab8b4`); an announcement counted without being sent
+  (`bbda16f`, `Sent`); a `DialPlan` holding the party (`eb6cbf4`);
+  `onion_secret` reading the closing before the keys (`c9b31ff`); a
+  snapshot test whose hook ran before any read (`ae46ffd`); and in the
+  dev node, an invitation handle printed with spaces, which broke the
+  network test since `b3a7cb5` (`8b7d4b0`), sessions aborted by `serve`
+  left behind, unsent texts dropped silently, and the peer's
+  acceptance printed as the user's (`8ea3ca9`, `1646bb0`).
+- Looked at and left, with the reasons in section 11.5: a wait of a
+  deleted identity fails for a change that was made durable; `dial_plan`
+  reads a mark of progress before it is durable; `link::answer` is not
+  bound to the service its stream came from (a decision for the owner:
+  binding it would change the Tor adapter and the `answer` API); a
+  stranger's link is not withdrawn at the closing.
+- Documents: `mutation/README.md`, `docs/SECURITY_INVARIANTS.md` (S17,
+  S31, S40, S48, S51), `docs/ARCHITECTURE.md` section 1.1 (logical
+  identity, lifecycle instance, durable record, runtime handles),
+  `docs/DESIGN_QUESTIONS.md` P4-10, P4-11 and section 11.5.
 
-1. CS81 survives since `90b9cbe`: `consider` checks the closing itself,
-   so removing the check in `apply` changes nothing seen. Retarget it to
-   remove both, or drop it.
-2. CS38 came out as a build failure, not a kill, in a run of every
-   Phase 4 fault on `e6b8e18`; check it by hand. In that run CS6 and
-   CS45 were caught with one test that also hung, CS17 and CS30 by the
-   timeout as known, all others by failing tests.
-3. A run of every Phase 4 fault on the final commit, recording for each
-   the tests that kill it (the script of that run was in the session's
-   scratch space and is to be written again, or `mutation/run.py`
-   extended), and from it, for every Phase 4 fault: the invariant, the
-   change, the test expected to kill it and why it fails. Repeat the
-   new hook tests a number of times as a check.
-4. Documents: `mutation/README.md` (counts 324 and 109, the new faults),
-   `docs/DESIGN_QUESTIONS.md` section 11.5 (the rows of this round),
-   `docs/SECURITY_INVARIANTS.md` and `docs/ARCHITECTURE.md` (instance
-   handles: logical identity, lifecycle instance, durable record,
-   runtime handle; `RequestId`, `DialPlan::local_card`, parties kept in
-   the core, the dial refusal, `delete_identity` by instance), the
-   public API changes in `docs/` wherever they are named.
-5. fmt, clippy, all workspace tests, the fuzz smoke run of all 16
-   targets, `tests/network/fail-closed.sh`, and the private Tor network
-   test (the dev node changed).
-6. Independent reviews of the round's fixes, for the three patterns:
-   a handle that survives its parent's closure, an identifier that
-   addresses another instance, a completion that reaches a replacement.
-   Fix what is real.
-7. The report of the round, of 23 items, ending with `READY TO FREEZE
-   FOR PRE-FINAL CHECKS` or `NOT READY TO FREEZE`; then the final
-   verification of section 5.2 on the frozen commit, when the owner
-   says so.
+The mutation manifest at `7eff0c4`: 336 faults, 121 of Phase 4 (CS1 to
+CS121). Focused runs with `mutation/run.py`: 35 faults on `51973c5`
+(CS38, CS47, CS48, CS51, CS81, CS95 to CS115 and the faults retargeted
+in the round) and the 19 changed since on `7eff0c4`: all caught, each by
+the test meant for it (`mutation/results-phase4-*.json`, not in git).
+The new hook tests passed 20 times out of 20 each, under load.
+
+Checked on `7eff0c4`: fmt, clippy with `-D warnings`, all workspace
+tests, the fuzz smoke run of all 16 targets (25 seconds each, no crash),
+`tests/network/fail-closed.sh`, and the private Tor network test (see
+the report of the round).
+
+Left, in order:
+
+1. The owner's decisions on the points left above, `link::answer` above
+   all.
+2. The final verification of section 5.2 on the frozen commit, when the
+   owner says so, the full mutation run included.
 
 ### 5.2 Final verification on the final commit
 
@@ -302,11 +325,10 @@ Stage 2, side by side:
 Stage 3, alone:
 
 - `python3 mutation/run.py all 4` (four workers on a machine with twelve
-  threads; fewer on a smaller one). Expected, at `c8322e9`: 324
-  faults, 315 caught, 9 survivors, exactly those of
+  threads; fewer on a smaller one). Expected, at `7eff0c4`: 336
+  faults, 327 caught, 9 survivors, exactly those of
   `mutation/README.md` (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29),
-  exit code 0, once CS81 and CS38 are settled; the numbers change with
-  the faults the round still adds. CS17 and CS30 are caught
+  exit code 0. CS17 and CS30 are caught
   by the runner's timeout of 20 minutes each. The run takes several
   hours. The runner works on copies of `HEAD` under `mutation/work/`, so
   everything has to be committed first; its results go to
