@@ -50,7 +50,7 @@ async fn watch(end: &mut Established<DuplexStream>) -> View {
     let mut seen = Vec::new();
     let ended = loop {
         match end.link.receive().await {
-            Ok(received) => seen.push(received.message),
+            Ok(received) => seen.push(received.message.clone()),
             Err(_) => break true,
         }
     };
@@ -77,11 +77,7 @@ async fn session(
     let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
     send_first(&mut asking, &from.identity).await;
     let received = answering.link.receive().await.unwrap();
-    let applied = to
-        .identity
-        .apply(answering.link.session_ref(), &received)
-        .await
-        .unwrap();
+    let applied = to.identity.apply(&received).await.unwrap();
     (watch(&mut asking).await, applied.request)
 }
 

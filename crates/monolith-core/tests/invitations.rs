@@ -54,15 +54,11 @@ async fn ask(from: &Node, to: &mut Node, card: &ContactCard) -> Asked {
     assert_eq!(asking.first, vec![Action::SendContactRequest]);
     send_first(&mut asking, &from.identity).await;
     let received = answering.link.receive().await.unwrap();
-    let applied = to
-        .identity
-        .apply(answering.link.session_ref(), &received)
-        .await
-        .unwrap();
+    let applied = to.identity.apply(&received).await.unwrap();
     let mut seen = Vec::new();
     let ended = loop {
         match asking.link.receive().await {
-            Ok(received) => seen.push(received.message),
+            Ok(received) => seen.push(received.message.clone()),
             Err(_) => break true,
         }
     };
@@ -409,11 +405,7 @@ fn request_modes_decide_what_a_stranger_can_ask() {
         // from an identity without a record is considered. The sender sees
         // the same Close.
         assert_eq!(received.actions, vec![Action::SendClose]);
-        let applied = bob
-            .identity
-            .apply(answering.link.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = bob.identity.apply(&received).await.unwrap();
         assert_eq!(applied.request, None);
         assert_eq!(asking.link.receive().await.unwrap().message, Message::Close);
         assert_eq!(

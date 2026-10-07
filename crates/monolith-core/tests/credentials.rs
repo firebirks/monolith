@@ -177,11 +177,7 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
             .unwrap();
         assert!(alice.identity.mark_announced(&announcement).await.unwrap());
         let received = bob_t1.receive().await.unwrap();
-        let applied = bob
-            .identity
-            .apply(bob_t1.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = bob.identity.apply(&received).await.unwrap();
         assert_eq!(applied.announced, Some(CredentialChange::Authorized));
         let view = bob.identity.contact(alice.identity.identity()).unwrap();
         assert_eq!(
@@ -227,11 +223,7 @@ fn a_rotation_withdraws_the_link_of_the_retired_key() {
         send_first(&mut alice_t2, &alice.identity).await;
         send_first(&mut bob_t2, &bob.identity).await;
         let received = alice_t2.link.receive().await.unwrap();
-        let applied = alice
-            .identity
-            .apply(alice_t2.link.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = alice.identity.apply(&received).await.unwrap();
         assert!(applied.promoted_successor);
         assert!(
             alice
@@ -542,11 +534,7 @@ fn a_card_the_dial_plan_does_not_name_is_not_dialed() {
             .await
             .unwrap();
         let received = alice_link.receive().await.unwrap();
-        alice
-            .identity
-            .apply(alice_link.session_ref(), &received)
-            .await
-            .unwrap();
+        alice.identity.apply(&received).await.unwrap();
         let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
         assert_eq!(plan.cards, vec![bob.card()]);
         let dialed = dial(&alice.tor, &alice.budgets, &alice.identity, &moved.card()).await;
@@ -677,11 +665,7 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
             .await
             .unwrap();
         let received = alice_link.receive().await.unwrap();
-        let applied = alice
-            .identity
-            .apply(alice_link.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = alice.identity.apply(&received).await.unwrap();
         assert_eq!(applied.announced, Some(CredentialChange::Authorized));
         drop(bob.service);
         let mut answering =
@@ -698,11 +682,7 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
                 .await
                 .unwrap();
             let received = alice_link.receive().await.unwrap();
-            let applied = alice
-                .identity
-                .apply(alice_link.session_ref(), &received)
-                .await
-                .unwrap();
+            let applied = alice.identity.apply(&received).await.unwrap();
             assert_eq!(applied.announced, Some(CredentialChange::Authorized));
             *before.borrow_mut() = Some(alice.identity.contact(&id).unwrap().credentials);
         })
@@ -821,11 +801,7 @@ fn a_stranger_request_reaches_the_queue_and_nothing_durable() {
             .await
             .unwrap();
         let received = bob_end.link.receive().await.unwrap();
-        let applied = bob
-            .identity
-            .apply(bob_end.link.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = bob.identity.apply(&received).await.unwrap();
         assert_eq!(applied.request, Some(Ok(())));
         assert_eq!(bob.identity.requests().len(), 1);
         assert_eq!(

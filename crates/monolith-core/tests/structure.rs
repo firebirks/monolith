@@ -9,6 +9,8 @@
 //!   admission the store returns, and writes the message 3 of a granted
 //!   one, once.
 //! - S46: no crate holds state in a static item or a thread-local.
+//! - What `LocalIdentity::apply` applies is what a link received, bound
+//!   to the session it arrived on: no caller makes one or changes it.
 
 // Test code builds its own inputs.
 #![allow(
@@ -139,4 +141,52 @@ fn no_party_of_a_local_identity_leaves_the_core() {
     assert!(identity.contains("pub(crate) fn answering_party"));
     assert!(!identity.contains("    pub local: Arc<LocalParty>,"));
     assert!(identity.contains("    pub(crate) local: Arc<LocalParty>,"));
+}
+
+#[test]
+fn only_what_a_link_received_is_applied() {
+    // `apply` takes an `Arrived` and nothing else. Only the link makes
+    // one: its fields are the crate's, nothing outside `link.rs` builds
+    // one, and nothing hands out a way to change it.
+    let sources = production_sources();
+    let source = |file: &str| {
+        sources
+            .iter()
+            .find(|(name, _)| name == file)
+            .unwrap()
+            .1
+            .clone()
+    };
+    let identity = source("monolith-core/src/identity.rs");
+    let link = source("monolith-core/src/link.rs");
+    assert!(identity.contains("pub async fn apply(&self, arrived: &Arrived)"));
+    let fields = link
+        .split("pub struct Arrived {")
+        .nth(1)
+        .unwrap()
+        .split('}')
+        .next()
+        .unwrap();
+    assert!(
+        fields
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .all(|line| line.starts_with("pub(crate) "))
+    );
+    let methods = link
+        .split("impl Arrived {")
+        .nth(1)
+        .unwrap()
+        .split("\n}\n")
+        .next()
+        .unwrap();
+    assert!(!methods.contains("-> Self") && !methods.contains("-> Arrived"));
+    assert!(!methods.contains("&mut self"));
+    assert!(!link.contains("DerefMut for Arrived"));
+    for (name, text) in &sources {
+        if name != "monolith-core/src/link.rs" {
+            assert!(!text.contains("Arrived {"), "{name}");
+        }
+    }
 }

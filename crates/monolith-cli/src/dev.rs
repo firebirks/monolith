@@ -116,7 +116,7 @@ async fn confirm<S: AsyncRead + AsyncWrite + Unpin>(
     loop {
         let received = established.link.receive().await?;
         local
-            .apply(established.link.session_ref(), &received)
+            .apply(&received)
             .await
             .map_err(|_| LinkError::Withdrawn)?;
         if received.actions.contains(&Action::SendContactAccept) {
@@ -133,7 +133,7 @@ async fn next_chat<S: AsyncRead + AsyncWrite + Unpin>(
 ) -> Result<String, LinkError> {
     loop {
         let received = link.receive().await?;
-        if let Message::ChatMessage { text, .. } = received.message {
+        if let Message::ChatMessage { text, .. } = &received.message {
             return Ok(text.as_str().to_owned());
         }
     }

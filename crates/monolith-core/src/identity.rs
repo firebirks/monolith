@@ -31,7 +31,7 @@ use monolith_protocol::limits::{
 use monolith_protocol::session::Action;
 use monolith_protocol::text::DisplayName;
 use monolith_session::{
-    Admitted, InboundPeer, LocalParty, OutboundAdmission, OutboundPeer, Received, SessionError,
+    Admitted, InboundPeer, LocalParty, OutboundAdmission, OutboundPeer, SessionError,
     TransportSecretKey,
 };
 use monolith_storage::StorageError;
@@ -44,7 +44,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::contacts::{ContactStore, ContactView, ImportOutcome, Progress, StoreError};
 use crate::dialplan;
-use crate::link::Withdrawal;
+use crate::link::{Arrived, Withdrawal};
 use crate::persist::{CommitError, Durability, Store, Write};
 use crate::requests::{Dropped, InvitationId, Invitations, PendingRequest, RequestId, Requests};
 use crate::strangers::Strangers;
@@ -252,8 +252,10 @@ pub struct Applied {
     pub promoted_successor: bool,
 }
 
-/// What the store needs to know about one session to apply what arrived
-/// on it. Only a link makes one ([`crate::link::Link::session_ref`]), and
+/// What the store needs to know about one session, to announce a successor
+/// on it ([`LocalIdentity::announcement_for`]) and to apply what arrived on
+/// it ([`crate::link::Arrived`]). Only a link makes one
+/// ([`crate::link::Link::session_ref`]), and
 /// only the identity whose contact store admitted the session accepts it:
 /// a session of one local identity changes nothing at another, nor at a
 /// later identity of the same keys (S40).
@@ -654,13 +656,13 @@ impl LocalIdentity {
     /// the store and only while its session stands for the contact:
     /// `MarkAccepted`, an EndpointUpdate, a contact request from a
     /// stranger, and the confirmation of a session made with the new key
-    /// of a local rotation. Durable when this returns; the caller carries
-    /// out the visible actions of the message afterwards.
-    pub async fn apply(
-        &self,
-        session: SessionRef<'_>,
-        received: &Received,
-    ) -> Result<Applied, StoreError> {
+    /// of a local rotation. Only what a link returned is applied, for the
+    /// session it arrived on: the message and the actions are the ones
+    /// that session delivered and decided. Durable when this returns; the
+    /// caller carries out the visible actions of the message afterwards.
+    pub async fn apply(&self, arrived: &Arrived) -> Result<Applied, StoreError> {
+        let session = arrived.session_ref();
+        let received = arrived.received();
         if !self.contacts.admitted(session.withdrawal) {
             return Err(StoreError::OtherIdentity);
         }
@@ -1690,6 +1692,8 @@ impl From<CommitError> for InstallationError {
 mod tests {
     #![allow(clippy::unwrap_used)]
 
+    use monolith_session::Received;
+
     use super::*;
 
     /// A step placed at a point of an operation (`LocalIdentity::hooks`).
@@ -1947,16 +1951,16 @@ mod tests {
             }
         });
         lock(&identity.hooks).insert("confirming", step);
-        let session = SessionRef {
-            peer: bob.card(),
-            local: local.card(),
-            withdrawal: &withdrawal,
+        let arrived = Arrived {
+            received: Received {
+                message: Message::Close,
+                actions: vec![Action::Confirmed],
+            },
+            peer: bob.card().clone(),
+            local: local.card().clone(),
+            withdrawal,
         };
-        let received = Received {
-            message: Message::Close,
-            actions: vec![Action::Confirmed],
-        };
-        let applied = run(identity.apply(session, &received)).unwrap();
+        let applied = run(identity.apply(&arrived)).unwrap();
         assert!(!applied.promoted_successor);
         let view = identity.contact(bob.card().identity()).unwrap();
         assert!(!view.successor_promoted);

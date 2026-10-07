@@ -1093,5 +1093,8 @@ PHASE4 = [
     fault("CS112", CORE + "link.rs", "any card of the contact counts as one the plan names",
           ("    one.identity() == other.identity()\n        && one.transport() == other.transport()\n        && one.epoch() == other.epoch()\n        && one.endpoints() == other.endpoints()",
            "    one.identity() == other.identity()")),
+    fault("CS113", CORE + "link.rs", "a caller can make what a link received, or change it",
+          ("pub struct Arrived {\n    pub(crate) received: Received,",
+           "pub struct Arrived {\n    /// What arrived.\n    pub received: Received,")),
 ]
 

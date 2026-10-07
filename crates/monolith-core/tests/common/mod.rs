@@ -301,9 +301,9 @@ pub async fn send_first(end: &mut Established<DuplexStream>, _identity: &LocalId
 pub async fn step(
     link: &mut Link<DuplexStream>,
     identity: &LocalIdentity,
-) -> Result<monolith_session::Received, LinkError> {
+) -> Result<monolith_core::link::Arrived, LinkError> {
     let received = link.receive().await?;
-    let _ = identity.apply(link.session_ref(), &received).await;
+    let _ = identity.apply(&received).await;
     if received.actions.contains(&Action::SendContactAccept) {
         let _ = link.send(&Message::ContactAccept).await;
     }

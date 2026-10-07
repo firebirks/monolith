@@ -163,6 +163,43 @@ fn now() -> Instant {
     tokio::time::Instant::now().into_std()
 }
 
+/// A message that arrived on a link, and what the session logic decided
+/// about it ([`Received`]), bound to the session it arrived on. Only
+/// [`Link::receive`] makes one, so what
+/// [`crate::identity::LocalIdentity::apply`] applies is what a session
+/// delivered and decided, for that session and no other.
+#[derive(Debug)]
+pub struct Arrived {
+    pub(crate) received: Received,
+    pub(crate) peer: ContactCard,
+    pub(crate) local: ContactCard,
+    pub(crate) withdrawal: Withdrawal,
+}
+
+impl Arrived {
+    /// What arrived, and what to do about it.
+    pub const fn received(&self) -> &Received {
+        &self.received
+    }
+
+    /// The session it arrived on, for the store.
+    pub(crate) const fn session_ref(&self) -> SessionRef<'_> {
+        SessionRef {
+            peer: &self.peer,
+            local: &self.local,
+            withdrawal: &self.withdrawal,
+        }
+    }
+}
+
+impl core::ops::Deref for Arrived {
+    type Target = Received;
+
+    fn deref(&self) -> &Received {
+        &self.received
+    }
+}
+
 /// The power to withdraw one link from outside the task that runs it.
 ///
 /// The contact store receives it in the admission of [`dial`] and
@@ -892,7 +929,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// dropped after it took a message, while it ends the link, does not
     /// lose the message: the next receive returns it, and the one after
     /// fails.
-    pub async fn receive(&mut self) -> Result<Received, LinkError> {
+    pub async fn receive(&mut self) -> Result<Arrived, LinkError> {
+        let received = self.next_message().await?;
+        Ok(Arrived {
+            received,
+            peer: self.session.peer_card().clone(),
+            local: self.session.local_card().clone(),
+            withdrawal: self.withdrawal.clone(),
+        })
+    }
+
+    async fn next_message(&mut self) -> Result<Received, LinkError> {
         if self.taken.is_some() {
             // The receive that took it was dropped while it ended the link,
             // which ends now, before the message is returned. It is kept

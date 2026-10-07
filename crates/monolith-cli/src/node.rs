@@ -333,7 +333,7 @@ impl Node {
                 Ok(Err(error)) => return reason(error),
                 Ok(Ok(received)) => received,
             };
-            match local.apply(link.session_ref(), &received).await {
+            match local.apply(&received).await {
                 Ok(applied) => {
                     if applied.accepted {
                         say(&format!("accepted {index} {}", short(&peer)));

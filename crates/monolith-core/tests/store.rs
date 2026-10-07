@@ -502,10 +502,7 @@ fn an_announced_successor_is_atomic() {
                     .await
                     .unwrap();
                 let received = alice_link.receive().await.unwrap();
-                let applied = alice
-                    .identity
-                    .apply(alice_link.session_ref(), &received)
-                    .await;
+                let applied = alice.identity.apply(&received).await;
                 // Bob's successor key is new in every run.
                 let after_here = state(&alice.installation);
                 assert_ne!(after_here, before);

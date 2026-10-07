@@ -114,10 +114,7 @@ async fn confirm<S: AsyncRead + AsyncWrite + Unpin>(
     }
     loop {
         let received = established.link.receive().await.unwrap();
-        identity
-            .apply(established.link.session_ref(), &received)
-            .await
-            .unwrap();
+        identity.apply(&received).await.unwrap();
         if received.actions.contains(&Action::SendContactAccept) {
             established
                 .link
@@ -134,7 +131,7 @@ async fn confirm<S: AsyncRead + AsyncWrite + Unpin>(
 async fn next_chat<S: AsyncRead + AsyncWrite + Unpin>(link: &mut Link<S>) -> String {
     loop {
         let received = link.receive().await.unwrap();
-        if let Message::ChatMessage { text, .. } = received.message {
+        if let Message::ChatMessage { text, .. } = &received.message {
             return text.as_str().to_owned();
         }
     }

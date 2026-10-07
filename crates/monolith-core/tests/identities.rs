@@ -236,10 +236,7 @@ fn t_mi_2_and_3_contact_state_belongs_to_one_identity() {
         let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
         send_first(&mut asking, &dave.identity).await;
         let received = answering.link.receive().await.unwrap();
-        b.identity
-            .apply(answering.link.session_ref(), &received)
-            .await
-            .unwrap();
+        b.identity.apply(&received).await.unwrap();
         assert_eq!(b.identity.requests().len(), 1);
         assert!(a.identity.requests().is_empty());
 
@@ -278,11 +275,7 @@ fn t_mi_4_a_capability_of_one_identity_admits_nothing_at_another() {
         let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
         send_first(&mut asking, &carol.identity).await;
         let received = answering.link.receive().await.unwrap();
-        let applied = b
-            .identity
-            .apply(answering.link.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = b.identity.apply(&received).await.unwrap();
         assert_eq!(
             applied.request,
             Some(Err(monolith_core::requests::Dropped::Capability))
@@ -297,11 +290,7 @@ fn t_mi_4_a_capability_of_one_identity_admits_nothing_at_another() {
         let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
         send_first(&mut asking, &dave.identity).await;
         let received = answering.link.receive().await.unwrap();
-        let applied = b
-            .identity
-            .apply(answering.link.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = b.identity.apply(&received).await.unwrap();
         assert_eq!(applied.request, Some(Ok(())));
     });
 }
@@ -329,19 +318,10 @@ fn t_mi_10_a_session_of_one_identity_changes_nothing_at_another() {
         let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
         send_first(&mut asking, &carol.identity).await;
         let received = answering.link.receive().await.unwrap();
-        assert!(
-            b.identity
-                .apply(answering.link.session_ref(), &received)
-                .await
-                .is_err()
-        );
+        assert!(b.identity.apply(&received).await.is_err());
         assert!(b.identity.requests().is_empty());
         assert_eq!(b.identity.kind(carol.identity.identity()), RecordKind::None);
-        let applied = a
-            .identity
-            .apply(answering.link.session_ref(), &received)
-            .await
-            .unwrap();
+        let applied = a.identity.apply(&received).await.unwrap();
         assert_eq!(applied.request, Some(Ok(())));
         assert_eq!(a.identity.requests().len(), 1);
         // Nor at an identity made again from A's keys: the session belongs
@@ -354,10 +334,7 @@ fn t_mi_10_a_session_of_one_identity_changes_nothing_at_another() {
             .unwrap();
         again.set_request_mode(RequestMode::Open).await.unwrap();
         assert_eq!(
-            again
-                .apply(answering.link.session_ref(), &received)
-                .await
-                .err(),
+            again.apply(&received).await.err(),
             Some(StoreError::OtherIdentity)
         );
         assert!(again.requests().is_empty());
@@ -551,10 +528,7 @@ fn a_session_that_outlives_its_deleted_identity_changes_nothing() {
         send_first(&mut asking, &carol.identity).await;
         let received = answering.link.receive().await.unwrap();
         assert_eq!(
-            b.identity
-                .apply(answering.link.session_ref(), &received)
-                .await
-                .err(),
+            b.identity.apply(&received).await.err(),
             Some(StoreError::Failed)
         );
         assert!(b.identity.requests().is_empty());
