@@ -619,10 +619,10 @@ fn a_dial_to_an_identity_without_a_record_sends_nothing_of_the_local_identity() 
         let network = MockNetwork::new();
         let alice = node(&network, 1).await;
         let mut bob = node(&network, 2).await;
-        // Alice holds no record of Bob: the dial is refused after message
-        // 2, and Bob never gets message 3.
+        // Alice holds no record of Bob: the dial is refused before a
+        // stream is opened, and Bob gets nothing at all.
         let card = bob.card();
-        let (dialed, answered) = dial_and_answer(&alice, &card, &mut bob).await;
+        let dialed = dial(&alice.tor, &alice.budgets, &alice.identity, &card).await;
         assert_eq!(
             dialed.err(),
             Some(LinkError::Refused(monolith_protocol::session::Admission {
@@ -630,7 +630,11 @@ fn a_dial_to_an_identity_without_a_record_sends_nothing_of_the_local_identity() 
                 change: None
             }))
         );
-        assert_eq!(answered.err(), Some(LinkError::Stream));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), bob.service.accept())
+                .await
+                .is_err()
+        );
     });
 }
 
