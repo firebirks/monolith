@@ -218,9 +218,11 @@ impl Entry {
     /// Returns true if the session of `card` and `withdrawal` stands for
     /// this very record: it was admitted as the contact's here (a session
     /// of an earlier record, made again since, is not tracked here), it
-    /// was not withdrawn, and its card still stands.
+    /// was not withdrawn, its link has not ended (whether or not the
+    /// record has forgotten it yet), and its card still stands.
     fn stands_for(&self, card: &ContactCard, withdrawal: &Withdrawal) -> bool {
         !withdrawal.is_withdrawn()
+            && !withdrawal.is_ended()
             && self
                 .sessions
                 .iter()

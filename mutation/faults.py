@@ -1120,5 +1120,8 @@ PHASE4 = [
     fault("CS115", CORE + "persist.rs", "a wait whose write cannot start fails without looking again",
           ("            if self.start(durability, &runtime, &write).is_err() {\n                // The installation failed meanwhile, maybe after its last\n                // job made this generation durable: looked at again.\n                continue;\n            }",
            "            self.start(durability, &runtime, &write)?;")),
+    fault("CS122", CORE + "contacts.rs", "what arrived on a link that ended counts until the record forgets the link",
+          ("        !withdrawal.is_withdrawn()\n            && !withdrawal.is_ended()\n            && self",
+           "        !withdrawal.is_withdrawn()\n            && self")),
 ]
 

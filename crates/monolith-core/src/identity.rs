@@ -688,7 +688,9 @@ impl LocalIdentity {
     /// stranger, and the confirmation of a session made with the new key
     /// of a local rotation. Only what a link returned is applied, for the
     /// session it arrived on: the message and the actions are the ones
-    /// that session delivered and decided. Durable when this returns; the
+    /// that session delivered and decided, while its link lives and once:
+    /// an apply that is cancelled counts as done, and a second one fails
+    /// with [`StoreError::AlreadyApplied`]. Durable when this returns; the
     /// caller carries out the visible actions of the message afterwards.
     pub async fn apply(&self, arrived: &Arrived) -> Result<Applied, StoreError> {
         let session = arrived.session_ref();
@@ -2074,9 +2076,9 @@ mod tests {
     #[test]
     fn a_message_of_an_ended_link_changes_no_contact_made_again() {
         // Bob, a requested contact, sent his acceptance, and then a new
-        // card, on a link that has ended since. Bob is deleted and
-        // imported again. Neither message changes the new contact: it is
-        // still requested, with no successor.
+        // card, on a link that has ended since. Whether or not Bob is
+        // deleted and imported again meanwhile, neither message changes
+        // the contact: it is still requested, with no successor.
         let successor = LocalParty::issue(
             &IdentitySecretKey::from_seed(&[2; 32]),
             TransportSecretKey::from_bytes(&[0x33; 32]).unwrap(),
@@ -2086,11 +2088,22 @@ mod tests {
         .unwrap()
         .card()
         .clone();
-        for message in [
-            (Message::ContactAccept, Action::MarkAccepted),
+        for (message, again) in [
+            ((Message::ContactAccept, Action::MarkAccepted), true),
             (
-                Message::EndpointUpdate(Box::new(successor.clone())),
-                Action::Deliver,
+                (
+                    Message::EndpointUpdate(Box::new(successor.clone())),
+                    Action::Deliver,
+                ),
+                true,
+            ),
+            ((Message::ContactAccept, Action::MarkAccepted), false),
+            (
+                (
+                    Message::EndpointUpdate(Box::new(successor.clone())),
+                    Action::Deliver,
+                ),
+                false,
             ),
         ] {
             let installation = Installation::ephemeral();
@@ -2119,8 +2132,10 @@ mod tests {
             };
             // The link is dropped.
             withdrawal.end();
-            run(identity.delete(bob.card().identity())).unwrap();
-            run(identity.import(bob.card())).unwrap();
+            if again {
+                run(identity.delete(bob.card().identity())).unwrap();
+                run(identity.import(bob.card())).unwrap();
+            }
             let _ = run(identity.apply(&arrived));
             let view = identity.contact(bob.card().identity()).unwrap();
             assert_eq!(view.kind, RecordKind::Requested);
