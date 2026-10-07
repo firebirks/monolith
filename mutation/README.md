@@ -62,11 +62,11 @@ With Phase 4:
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
-| Phase 4 | 94 | 94 | none |
+| Phase 4 | 115 | 115 | none |
 
-309 faults, 300 to be caught, 9 expected to survive.
+330 faults, 321 to be caught, 9 expected to survive.
 
-The Phase 4 list, CS1 to CS94, covers the contact store and the vault:
+The Phase 4 list, CS1 to CS115, covers the contact store and the vault:
 
 - one decision about a card and no rollback: an older card of the active
   key that rolls the contact back, a stale card promoted, a conflicting
@@ -124,7 +124,24 @@ The Phase 4 list, CS1 to CS94, covers the contact store and the vault:
   withdrawal looked at before every write, a link whose write or receive
   was dropped (CS73, CS74, CS83, CS91), a publication when its identity
   is deleted (CS75, CS76), and the progress of one rotation counted for
-  another (CS77 to CS80, CS87).
+  another (CS77 to CS80, CS87);
+- a logical name taken for an object instance, and what the reviews of
+  those fixes found (`docs/DESIGN_QUESTIONS.md` section 11.5, the last
+  two tables): the identities of a closed installation that keep their
+  authority (CS95), a handle of an invitation or a request that names no
+  instance or no request (CS96, CS99), an announcement or a confirmation
+  counted for a contact made again or on a session that no longer
+  stands (CS97, CS98, CS110), a deletion that takes the identity of the
+  same keys (CS100), a switch or an end decided for one rotation that
+  changes another (CS101, CS102), an import or a block that takes out a
+  request queued after it (CS103, CS104), a card for a capability
+  revoked as it is made (CS105), a closed identity that shows a card it
+  no longer answered with (CS106), the answering party outside the core
+  (CS107), a card dialed of someone who is not a contact or that the
+  dial plan does not name (CS108, CS111, CS112), a session that reports
+  no capability for its request (CS109), what a link received made or
+  changed by a caller (CS113), and a wait that reports a failure for a
+  generation that is durable (CS114, CS115).
 
 CS28 is caught by a test that evicts the stranger at a hook between
 taking its first message and delivering it. CS17 and CS30 are caught by

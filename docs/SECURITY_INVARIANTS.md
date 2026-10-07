@@ -348,6 +348,12 @@ Test area names refer to `docs/TEST_PLAN.md`.
   dial and the session. A refused dial returns `LinkError::Refused` with
   the admission, so a conflict stays visible to the local side; the peer
   sees the stream close, as for a failed handshake.
+  What is dialed at all is a card the dial plan of the contact names when
+  the dial starts (PROTOCOL.md section 11.4): a contact's, of the active
+  key or its announced successor, at the endpoints the user confirmed.
+  Any other card, and any card of an identity that is not a contact,
+  fails before a stream is opened. A refusal after message 2 therefore
+  comes from a record that changed while the dial was in progress.
   Since Phase 4 message 3 does not exist before that decision:
   `HandshakeInitiator::read_message_2` returns the authenticated
   responder (`OutboundPeer`), and `OutboundPeer::admit` makes message 3
@@ -371,8 +377,11 @@ Test area names refer to `docs/TEST_PLAN.md`.
   of `handshake` in the session crate (no message 3 for a standing that
   may not learn the local identity), `tests/structure.rs` in the core
   (only the store admits an outbound peer; `link::dial` writes the
-  message 3 of a granted admission once), mutation faults CR18, CR22 to
-  CR24, CR35, CR40, CS15 and CS16.
+  message 3 of a granted admission once), `tests/credentials.rs`
+  (`a_card_the_dial_plan_does_not_name_is_not_dialed`; the refusals above
+  are reached by changing the record while the dial waits for message
+  2), mutation faults CR18, CR22 to CR24, CR35, CR40, CS15, CS16, CS108,
+  CS111 and CS112.
 
 ### S52. Every session ends at its deadlines and on every failure
 
@@ -466,16 +475,23 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   `link::dial` take the identity a link is for. The store that admits a
   session binds the session's withdrawal to itself in the admission step,
   and an identity applies what arrived on a session only if its own store
-  admitted it: a session of A handed to B, or to an identity made again
-  from A's keys, is refused (`StoreError::OtherIdentity`). The vault holds the
-  records of each identity apart. Deleting an identity closes it before
-  it leaves the installation: it refuses every change and admission, its
-  waits for durability fail, it holds no Onion Service key, and its accept
-  loop and supervisor end and remove its service; nothing it held is
-  written again. It hands out nothing that holds or uses a secret: no
-  party to dial or answer with (`answering_party` fails, `dial_plan` is
-  `None`, so `dial` and `answer` fail before a stream or a handshake), no
-  card signed for a capability, no capability, no Onion Service secret.
+  admitted it, and only what a link received (`link::Arrived`, which only
+  `Link::receive` makes and which carries its session, so a caller can
+  neither make the actions of a message nor apply the message of one
+  session as another's): a session of A handed to B, or to an identity
+  made again from A's keys, is refused (`StoreError::OtherIdentity`).
+  The vault holds the records of each identity apart. A deletion names
+  the instance it deletes (`Installation::delete_identity` takes the
+  `LocalIdentity`, matched as that object, not by its keys), so a handle
+  kept of an earlier instance deletes nothing of a later one. Deleting
+  an identity closes it before it leaves the installation: it refuses
+  every change and admission, its waits for durability fail, it holds no
+  Onion Service key, and its accept loop and supervisor end and remove
+  its service; nothing it held is written again. It hands out nothing
+  that holds or uses a secret: no party to dial or answer with
+  (`answering_party` fails, `dial_plan` is `None`, so `dial` and `answer`
+  fail before a stream or a handshake), no card signed for a capability,
+  no capability, no Onion Service secret.
   The copies of its secret bytes are erased and its capabilities and
   pending requests dropped when it is closed. A party handed out before,
   to a handshake in progress, keeps its transport key until it is
@@ -493,8 +509,10 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   test (step 8: two identities of one node hold one peer differently),
   `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity
   admits nobody, changes nothing, hands out no secret, and is taken
-  down), T-MI-10, `identity::tests`, mutation faults CS46 to CS48 and
-  CS60 to CS63.
+  down), T-MI-10, `identity::tests`, `tests/structure.rs` (no party
+  leaves the core; only what a link received is applied), mutation
+  faults CS46 to CS48, CS60 to CS63, CS95, CS100, CS106, CS107 and
+  CS113.
 
 ### S41. An invitation capability admits requests only to the identity that issued it
 
@@ -846,12 +864,14 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   four writes while a waiter is left, which then starts the next write
   itself if changes are left; on until nothing is left when nobody waits),
   so a change is written also when its waiter was cancelled or nothing
-  waits for it, and the job holds nothing once its outcome is out. A
+  waits for it while the installation is open, and the job holds
+  nothing once its outcome is out. A
   waiter cancelled in the instant the job decides leaves its change to the
   next write. A later write that fails does not take back what an earlier
-  one made durable; a failure is recorded before the vault is back, so no
-  write follows it, and every session is withdrawn before any waiter
-  learns the outcome. An installation closed while changes are still
+  one made durable, and a wait reads the failure before what is durable,
+  so it reports a generation the failing job wrote as durable; a failure
+  is recorded before the vault is back, so no write follows it, and
+  every session is withdrawn before any waiter learns the outcome. An installation closed while changes are still
   being written keeps the lock of its directory until that write ends.
   What an admission records without a session following (a refused dial,
   an answer or a dial without a slot) is made durable before the refusal
@@ -876,9 +896,10 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   snapshots on several threads), `contacts::tests`
   (`the_progress_of_a_rotation_counts_only_for_that_rotation`),
   `tests/credentials.rs` (`the_progress_of_one_rotation_...`,
-  `the_progress_of_a_rotation_survives_...`), mutation faults CS13 to
-  CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65, CS68 to CS72 and CS77
-  to CS80.
+  `the_progress_of_a_rotation_survives_...`), `persist::tests`
+  (`a_wait_sees_what_a_failing_job_made_durable`), mutation faults CS13 to
+  CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65, CS68 to CS72, CS77
+  to CS80, CS114 and CS115.
 
 ### S32. No hidden network traffic
 

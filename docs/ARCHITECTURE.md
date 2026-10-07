@@ -135,6 +135,30 @@ instances of the same logical identities, with their durable state; no
 handle, link or session of the old instances is accepted by the new
 ones.
 
+Four things are kept apart, and a name of one is never taken for
+another:
+
+- the logical identity: the identity key, local or remote; the same in
+  every run;
+- the lifecycle instance: one `LocalIdentity` object, with a random
+  instance number drawn when it is made; deletion takes the object
+  (`Installation::delete_identity`), not the keys;
+- the durable record: a contact record of an identity, with a number of
+  its own in the store, so a record deleted and made again for the same
+  remote identity is another record;
+- the runtime handles: `InvitationId`, `RequestId` and `RotationId`
+  carry the instance number of the identity that made them; an
+  `Announcement` carries its rotation, its contact record and its
+  session; a link's `Withdrawal` is bound to the store that admitted
+  it; what a link received (`Arrived`) carries the session it arrived
+  on. A handle of one instance, record or rotation finds nothing at
+  another, and a completion that comes after its object was replaced
+  counts for nothing.
+
+The parties that hold a transport key stay in the core: `link` dials
+and answers with them, and callers get cards (`DialPlan::local_card`).
+`link::dial` dials only a card the dial plan of a contact names.
+
 ### 1.2 Admission and credentials
 
 Which transport key stands for a contact is held in its `Credentials`
