@@ -345,8 +345,8 @@ Stage 3, alone:
   threads; fewer on a smaller one). Expected, at `6225b3d`: 338
   faults, 329 caught, 9 survivors, exactly those of
   `mutation/README.md` (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29),
-  exit code 0. CS17 and CS30 are caught
-  by the runner's timeout of 20 minutes each. The run takes several
+  exit code 0. CS30 is caught by the runner's timeout of 20 minutes,
+  with two failing tests of the supervisor. The run takes several
   hours. The runner works on copies of `HEAD` under `mutation/work/`, so
   everything has to be committed first; its results go to
   `mutation/results-all-<commit>.json` (ignored by git).

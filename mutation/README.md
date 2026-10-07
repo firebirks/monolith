@@ -154,9 +154,11 @@ The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
   own.
 
 CS28 is caught by a test that evicts the stranger at a hook between
-taking its first message and delivering it. CS17 and CS30 are caught by
-the timeout of the runner: the tests they break do not end. Without the
-refusal a dial with no contact slot never returns.
+taking its first message and delivering it. CS30 is caught by the
+timeout of the runner, with two tests of the supervisor that fail: with
+no delay between attempts its loop does not end. CS17 lets a dial go on
+without a contact slot, and the tests that expect `LinkError::Budget`
+fail at once.
 
 Phase 4 moved P1 to P3, H15, H16, Q25, Q26, Q30, CR1, CR2, CR9, CR18,
 CR19, CR24 and CR35 to the code they test now, and removed CR36, CR37 and
