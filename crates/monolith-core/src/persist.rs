@@ -55,6 +55,11 @@ pub(crate) struct Durability {
     failed: AtomicBool,
     /// Why, if a write said so.
     error: Mutex<Option<StorageError>>,
+    /// Steps a test runs at named points of a wait, to place the end of a
+    /// job exactly there.
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
+    hooks: Mutex<std::collections::HashMap<&'static str, Box<dyn FnOnce() + Send>>>,
 }
 
 impl fmt::Debug for Durability {
@@ -74,8 +79,22 @@ impl Durability {
             durable: watch::Sender::new(0),
             failed: AtomicBool::new(false),
             error: Mutex::new(None),
+            #[cfg(test)]
+            hooks: Mutex::new(std::collections::HashMap::new()),
         })
     }
+
+    #[cfg(test)]
+    fn hook(&self, point: &'static str) {
+        let step = lock(&self.hooks).remove(point);
+        if let Some(step) = step {
+            step();
+        }
+    }
+
+    #[cfg(not(test))]
+    #[expect(clippy::unused_self, reason = "a point where tests place a step")]
+    const fn hook(&self, _point: &'static str) {}
 
     /// Stamps a change that was just applied in memory, under the lock of
     /// what it changed. Returns its generation.
@@ -422,6 +441,11 @@ impl Store {
             // Seen before the state is looked at: an outcome published
             // after this point ends the wait below at once.
             durable.borrow_and_update();
+            // The failure is read before what is durable: a job that fails
+            // publishes what it made durable before it marks the failure,
+            // so a failure seen here comes with all of it.
+            let failed = durability.is_failed();
+            durability.hook("read");
             // What is durable is durable, also once a later write failed.
             if durability.durable() >= generation {
                 // A job that stopped for its waiters may have left changes
@@ -431,10 +455,15 @@ impl Store {
                 }
                 return Ok(());
             }
-            if durability.is_failed() {
+            if failed {
                 return Err(durability.failure());
             }
-            self.start(durability, &runtime, &write)?;
+            durability.hook("start");
+            if self.start(durability, &runtime, &write).is_err() {
+                // The installation failed meanwhile, maybe after its last
+                // job made this generation durable: looked at again.
+                continue;
+            }
             if durable.changed().await.is_err() {
                 return Err(CommitError::Failed);
             }
@@ -513,6 +542,40 @@ mod tests {
             .enable_all()
             .build()
             .unwrap()
+    }
+
+    /// Ends a job as a failing one does: what it made durable is
+    /// published, and then the failure, before anyone is woken.
+    fn fail_after(durability: &Arc<Durability>, written: u64) -> Box<dyn FnOnce() + Send> {
+        let durability = durability.clone();
+        Box::new(move || {
+            durability.durable.send_if_modified(|durable| {
+                *durable = (*durable).max(written);
+                false
+            });
+            durability.fail_quietly(None);
+        })
+    }
+
+    #[test]
+    fn a_wait_sees_what_a_failing_job_made_durable() {
+        // A job made the generation of a wait durable and then failed. It
+        // ends while the wait looks at the state: once between what the
+        // wait reads, once before the wait starts a write. Either way the
+        // generation is durable, and the wait says so.
+        for point in ["read", "start"] {
+            let durability = Durability::new();
+            let store = Store::vault(Box::new(TestWriter {
+                writes: Arc::new(AtomicUsize::new(0)),
+                gate: gate(true),
+                fail: false,
+            }));
+            let generation = durability.bump();
+            lock(&durability.hooks).insert(point, fail_after(&durability, generation));
+            let waited =
+                runtime().block_on(store.wait(&durability, generation, snapshot(&durability)));
+            assert!(waited.is_ok(), "{point}");
+        }
     }
 
     #[test]

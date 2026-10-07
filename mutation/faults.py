@@ -1096,5 +1096,11 @@ PHASE4 = [
     fault("CS113", CORE + "link.rs", "a caller can make what a link received, or change it",
           ("pub struct Arrived {\n    pub(crate) received: Received,",
            "pub struct Arrived {\n    /// What arrived.\n    pub received: Received,")),
+    fault("CS114", CORE + "persist.rs", "a wait reads what is durable before the failure",
+          ("            let failed = durability.is_failed();\n            durability.hook(\"read\");\n            // What is durable is durable, also once a later write failed.\n            if durability.durable() >= generation {",
+           "            let durable_now = durability.durable();\n            durability.hook(\"read\");\n            let failed = durability.is_failed();\n            // What is durable is durable, also once a later write failed.\n            if durable_now >= generation {")),
+    fault("CS115", CORE + "persist.rs", "a wait whose write cannot start fails without looking again",
+          ("            if self.start(durability, &runtime, &write).is_err() {\n                // The installation failed meanwhile, maybe after its last\n                // job made this generation durable: looked at again.\n                continue;\n            }",
+           "            self.start(durability, &runtime, &write)?;")),
 ]
 
