@@ -227,7 +227,10 @@ start_node() {
     mkfifo "$work/$name.in"
     touch "$work/$name.out"
     traces=$((traces + 1))
-    strace -f -qq -e trace=socket,connect,sendto,sendmsg -o "$work/trace-$name-$traces.log" \
+    # Reads are traced with their first two bytes only, enough for the
+    # reply code of the SOCKS endpoint (step 9).
+    strace -f -qq -s 2 -x -e trace=socket,connect,sendto,sendmsg,read,recvfrom \
+        -o "$work/trace-$name-$traces.log" \
         "$monolith" "$@" dev-node "$data" "$work/pass" --kdf-floor --echo \
         <"$work/$name.in" >>"$work/$name.out" 2>&1 &
     pids[$name]=$!
@@ -438,6 +441,93 @@ expect b "^ended 1 $id_a withdrawn$" 1 30
 echo "ok   requests decided by mode and capability; identities apart; deletion withdrew the session"
 
 echo "9. Tor B restarts: the supervisor publishes both services again; hello again."
+# The reply codes Tor A's SOCKS endpoint gave node A, in order, read from
+# the trace of A. On each connection to the endpoint `monolith-tor` reads
+# the method reply and the authentication reply, two bytes each, and then
+# the CONNECT reply a byte at a time: its code is the fourth read.
+socks_replies() {
+    python3 - "$1" "$2" <<'PY'
+import re, sys
+trace, port = sys.argv[1], sys.argv[2]
+reads, replies = {}, []
+for line in open(trace, errors="replace"):
+    connect = re.search(r"connect\((\d+), \{sa_family=AF_INET, sin_port=htons\((\d+)\)", line)
+    if connect:
+        if connect.group(2) == port:
+            reads[connect.group(1)] = 0
+        else:
+            reads.pop(connect.group(1), None)
+        continue
+    read = re.search(r"(?:read|recvfrom)\((\d+), \"((?:\\x[0-9a-f]{2})+)\"", line)
+    if read and read.group(1) in reads:
+        reads[read.group(1)] += 1
+        if reads[read.group(1)] == 4:
+            replies.append("0x" + read.group(2)[2:4])
+print(" ".join(replies))
+PY
+}
+socks_port_a=$(endpoint_of "$a" | sed 's/.*://')
+# After a restart of Tor B, A sends to B0 until a session is confirmed. A
+# dial refused by Tor A's SOCKS endpoint (Tor may refuse while the service
+# comes back) is sent again; any other failure fails the test, and so does
+# no session within $recovery_window seconds of the first try. The
+# attempts, the time and the SOCKS replies are printed.
+# Tor may hold the first stream after the restart for its SocksTimeout,
+# 120 seconds, and then refuse it with 0x01; the window allows two such
+# waits and no more.
+restart_cycles=${RESTART_CYCLES:-3}
+recovery_window=${RECOVERY_WINDOW:-240}
+recover() {
+    local cycle=$1 started elapsed attempts=0 confirmed failed messages retries reason trace seen replies
+    local lines_a lines_b
+    trace=$(ls -t "$work"/trace-a-*.log | head -1)
+    seen=$(socks_replies "$trace" "$socks_port_a" | wc -w)
+    retries=$(count a "^dial-retry 0 $id_b ")
+    messages=$(count a "^message 0 $id_b \"hello back\"$")
+    lines_a=$(wc -l <"$work/a.out")
+    lines_b=$(wc -l <"$work/b.out")
+    started=$(date +%s)
+    while :; do
+        attempts=$((attempts + 1))
+        confirmed=$(count a "^confirmed 0 $id_b ")
+        failed=$(count a "^dial-failed 0 $id_b ")
+        tell a send 0 "$id_b" hello
+        while [ "$(count a "^confirmed 0 $id_b ")" -eq "$confirmed" ] &&
+            [ "$(count a "^dial-failed 0 $id_b ")" -eq "$failed" ]; do
+            elapsed=$(($(date +%s) - started))
+            if [ "$elapsed" -ge "$recovery_window" ]; then
+                replies=$(socks_replies "$trace" "$socks_port_a" | cut -d' ' -f$((seen + 1))-)
+                echo "FAIL cycle $cycle: no session within ${recovery_window}s; attempts=$attempts socks replies: ${replies:-none}"
+                tail -20 "$work/a.out"
+                exit 1
+            fi
+            sleep 1
+        done
+        if [ "$(count a "^confirmed 0 $id_b ")" -gt "$confirmed" ]; then
+            break
+        fi
+        reason=$(last a "^dial-failed 0 $id_b " | cut -d' ' -f4-)
+        elapsed=$(($(date +%s) - started))
+        if [ "$reason" != "Tor SOCKS endpoint refused the request" ] ||
+            [ "$elapsed" -ge "$recovery_window" ]; then
+            replies=$(socks_replies "$trace" "$socks_port_a" | cut -d' ' -f$((seen + 1))-)
+            echo "FAIL cycle $cycle: dial failed: $reason; attempts=$attempts after ${elapsed}s; socks replies: ${replies:-none}"
+            exit 1
+        fi
+        sleep 1
+    done
+    expect a "^message 0 $id_b \"hello back\"$" $((messages + 1)) 120
+    elapsed=$(($(date +%s) - started))
+    replies=$(socks_replies "$trace" "$socks_port_a" | cut -d' ' -f$((seen + 1))-)
+    echo "     cycle $cycle: attempts=$attempts elapsed=${elapsed}s" \
+        "dial-retries=$(($(count a "^dial-retry 0 $id_b ") - retries))" \
+        "socks replies: ${replies:-none}"
+    # What a slow recovery went through, for the record.
+    if [ "$elapsed" -gt 10 ]; then
+        tail -n +$((lines_a + 1)) "$work/a.out" | sed 's/^/       a: /'
+        tail -n +$((lines_b + 1)) "$work/b.out" | sed 's/^/       b: /'
+    fi
+}
 # A contact of B0 again, and a session between them before the restart.
 tell a card 0
 expect a '^card 0 ' 2 10
@@ -446,28 +536,41 @@ tell b add 0 "$card_a"
 expect b "^added 0 $id_a created$" 2 10
 tell a send 0 "$id_b" hello
 expect a "^message 0 $id_b \"hello back\"$" 7 400
-before_b=$(count b '^published 0$')
-before_b1=$(count b '^published 1$')
-stop_tor "$b"
-expect b '^unavailable 0 ' 1 60
-expect b '^unavailable 1 ' 1 60
-tor -f "$b/torrc" >"$work/tor-b-restarted.log" 2>&1 &
-tor_b_pid=$!
-# Test tooling restarted it; Chutney stops it, and step 12 ends it, by
-# its pid file.
-echo "$tor_b_pid" >"$b/pid"
-expect b '^published 0$' $((before_b + 1)) 300
-expect b '^published 1$' $((before_b1 + 1)) 300
-tell b card 0
-expect b '^card 0 ' 3 10
-test "$(last b '^card 0 ' | cut -d' ' -f3)" = "$card_b"
-# A's session ended with the stream, when its Tor learned that the circuit
-# is gone, or at the latest at the idle deadline of the session.
-expect a "^ended 0 $id_b " 8 300
-tell a send 0 "$id_b" hello
-expect a "^confirmed 0 $id_b " 8 600
-expect a "^message 0 $id_b \"hello back\"$" 8 120
-echo "ok   republished under the same name after the restart of Tor B; Noise XK and hello again"
+for ((cycle = 1; cycle <= restart_cycles; cycle++)); do
+    # From the second cycle on, the services ran long enough for the
+    # supervisor to reset its delays (RECONNECT_RESET_AFTER, 60 seconds,
+    # docs/RESOURCE_LIMITS.md section 7): each restart finds them as a
+    # restart after a while does, and is followed by the first delay only.
+    if [ "$cycle" -gt 1 ]; then
+        sleep 65
+    fi
+    before_b=$(count b '^published 0$')
+    before_b1=$(count b '^published 1$')
+    gone_b=$(count b '^unavailable 0 ')
+    gone_b1=$(count b '^unavailable 1 ')
+    cards_b=$(count b '^card 0 ')
+    ended_a=$(count a "^ended 0 $id_b ")
+    stop_tor "$b"
+    expect b '^unavailable 0 ' $((gone_b + 1)) 60
+    expect b '^unavailable 1 ' $((gone_b1 + 1)) 60
+    tor -f "$b/torrc" >>"$work/tor-b-restarted.log" 2>&1 &
+    tor_b_pid=$!
+    # Test tooling restarted it; Chutney stops it, and step 12 ends it, by
+    # its pid file.
+    echo "$tor_b_pid" >"$b/pid"
+    expect b '^published 0$' $((before_b + 1)) 300
+    expect b '^published 1$' $((before_b1 + 1)) 300
+    # The same card, so the same Onion Service name and key.
+    tell b card 0
+    expect b '^card 0 ' $((cards_b + 1)) 10
+    test "$(last b '^card 0 ' | cut -d' ' -f3)" = "$card_b"
+    # A's session ended with the stream, when its Tor learned that the
+    # circuit is gone, or at the latest at the idle deadline of the session.
+    expect a "^ended 0 $id_b " $((ended_a + 1)) 300
+    # A session confirmed is Noise XK with B0's key at that name.
+    recover "$cycle"
+done
+echo "ok   republished under the same name after $restart_cycles restart(s) of Tor B; Noise XK and hello again"
 
 echo "10. Without SOCKS, and without Tor while direct Internet access exists: nothing."
 stop_node a

@@ -37,9 +37,19 @@ its standard input:
    capability is dropped, one with a capability is queued and accepted;
    the two identities hold A differently; revoking the capability leaves
    the contact; deleting the contact withdraws its open session.
-9. Tor B is restarted while a session is open: B reports both services
-   unavailable, its supervisor publishes them again under the same names,
-   and A completes Noise XK with B again.
+9. Tor B is restarted while a session is open, `RESTART_CYCLES` times
+   (3 unless set), each time after the services ran longer than the
+   supervisor's `RECONNECT_RESET_AFTER`: B reports both services
+   unavailable, its supervisor publishes them again under the same names
+   and the same card, and A completes Noise XK with B again. A dial that
+   Tor A's SOCKS endpoint refuses is sent again; any other failure, or
+   no session within `RECOVERY_WINDOW` seconds of the first try (240
+   unless set), fails the test. Tor may hold the first stream after the
+   restart for its `SocksTimeout` of 120 seconds and then refuse it with
+   0x01; the window allows two such waits, so a refusal that persists
+   fails. Each cycle prints its attempts, its time, the dial retries of
+   the node and the SOCKS reply codes, read from the trace of node A; a
+   cycle slower than 10 seconds also prints what A and B logged.
 10. A without its SOCKS endpoint, and A without any Tor while the machine
     has direct Internet access: every dial fails at once, and nothing is
     contacted.
