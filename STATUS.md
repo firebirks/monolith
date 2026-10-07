@@ -282,8 +282,16 @@ The new hook tests passed 20 times out of 20 each, under load.
 
 Checked on `7eff0c4`: fmt, clippy with `-D warnings`, all workspace
 tests, the fuzz smoke run of all 16 targets (25 seconds each, no crash),
-`tests/network/fail-closed.sh`, and the private Tor network test (see
-the report of the round).
+`tests/network/fail-closed.sh`, and the private Tor network test.
+Checked again on `5ae483b`, the code of the end of the round: fmt,
+clippy, all workspace tests (682 passed, 2 ignored), the unit tests of
+the core four at a time five times, a focused run of 22 faults (all
+caught), the fuzz smoke run of `contact_store`, `credential_sequence`
+and `vault_payload`, and the private Tor network test. Its first run
+there failed at step 9: after Tor B was restarted, A's dial got the SOCKS
+reply 0x01, which `monolith-tor` maps to `SocksRefused` and the dev node
+does not try again; the second run passed. Whether 0x01 is tried again
+is for the owner to decide (`TOR_INTEGRATION.md`).
 
 Left, in order:
 
