@@ -1049,8 +1049,8 @@ PHASE4 = [
           ("            let stands = !withdrawal.is_withdrawn() && tracked && entry.record.stands(card);",
            "            let stands = tracked || !tracked;")),
     fault("CS98", CORE + "contacts.rs", "a late announcement marks whatever contact holds the identity now",
-          ("            if contact.instance != instance || !stands {",
-           "            if instance == u64::MAX && !stands {")),
+          ("            if instance.is_some_and(|instance| contact.instance != instance) || !stands {",
+           "            if instance == Some(u64::MAX) && !stands {")),
     fault("CS99", CORE + "requests.rs", "every request of an identity has the same handle",
           ("        let id = RequestId {\n            instance: self.instance,\n            number: self.next,\n        };",
            "        let id = RequestId {\n            instance: self.instance,\n            number: 0,\n        };")),
@@ -1084,5 +1084,8 @@ PHASE4 = [
     fault("CS109", SE + "session.rs", "a session reports no capability for its contact request",
           ("    pub const fn invitation(&self) -> Option<&InvitationCapability> {\n        self.invitation.as_ref()",
            "    pub const fn invitation(&self) -> Option<&InvitationCapability> {\n        None")),
+    fault("CS110", CORE + "contacts.rs", "a confirmation counts for whatever contact holds the identity",
+          ("            let stands = !withdrawal.is_withdrawn() && tracked && entry.record.stands(card);",
+           "            let stands = matches!(progress, Progress::Promoted)\n                || (!withdrawal.is_withdrawn() && tracked && entry.record.stands(card));")),
 ]
 

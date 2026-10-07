@@ -376,6 +376,36 @@ impl ContactStore {
         instance: u64,
         rotation: RotationId,
     ) -> Result<Option<u64>, StoreError> {
+        self.mark_on(card, withdrawal, Some(instance), rotation, Progress::Announced)
+    }
+
+    /// Records that the contact confirmed the new key of `rotation` on the
+    /// session of `card` and `withdrawal`, made with that key, if the
+    /// session was admitted as the own of the contact the record of the
+    /// identity is now and still stands for it. Read and marked in one
+    /// step: a confirmation does not count for a contact deleted, blocked
+    /// or made again after its session was admitted. Returns `None` if the
+    /// mark was not made. The caller holds the keys of the identity, with
+    /// `rotation` in progress.
+    pub(crate) fn mark_promoted_on(
+        &self,
+        card: &ContactCard,
+        withdrawal: &Withdrawal,
+        rotation: RotationId,
+    ) -> Result<Option<u64>, StoreError> {
+        self.mark_on(card, withdrawal, None, rotation, Progress::Promoted)
+    }
+
+    /// Marks `progress` of `rotation` at the contact `instance` (any, if
+    /// `None`) while the session of `card` and `withdrawal` stands for it.
+    fn mark_on(
+        &self,
+        card: &ContactCard,
+        withdrawal: &Withdrawal,
+        instance: Option<u64>,
+        rotation: RotationId,
+        progress: Progress,
+    ) -> Result<Option<u64>, StoreError> {
         self.check_failed()?;
         Ok(self.with_entry(card.identity(), false, |entry| {
             let entry = entry?;
@@ -387,11 +417,15 @@ impl ContactStore {
             let Record::Contact(contact) = &mut entry.record else {
                 return None;
             };
-            if contact.instance != instance || !stands {
+            if instance.is_some_and(|instance| contact.instance != instance) || !stands {
                 return None;
             }
-            if contact.announced != Some(rotation) {
-                contact.announced = Some(rotation);
+            let mark = match progress {
+                Progress::Announced => &mut contact.announced,
+                Progress::Promoted => &mut contact.promoted,
+            };
+            if *mark != Some(rotation) {
+                *mark = Some(rotation);
                 self.durability.bump();
             }
             Some(self.depends())
@@ -1005,6 +1039,7 @@ impl ContactStore {
     /// its successor was sent to it, or it confirmed the new key. The
     /// caller holds the keys of the identity, so that `rotation` is the
     /// one in progress while the mark is made.
+    #[cfg(test)]
     pub(crate) fn mark_rotation(
         &self,
         identity: &IdentityPublicKey,

@@ -187,7 +187,7 @@ struct WithdrawalState {
 pub(crate) struct Owner;
 
 impl Withdrawal {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(Arc::new(WithdrawalState {
             withdrawn: AtomicBool::new(false),
             ended: AtomicBool::new(false),

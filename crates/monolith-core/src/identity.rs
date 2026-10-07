@@ -692,22 +692,21 @@ impl LocalIdentity {
         if received.actions.contains(&Action::Confirmed) {
             // The rotation whose new key the session was made with, read
             // and marked with the keys held: the mark is for that rotation
-            // and no other.
+            // and no other. It is made in the step that finds the session
+            // standing for the contact it was admitted for.
             let keys = lock(&self.keys);
             if let Some(rotation) = keys
                 .rotation
                 .as_ref()
                 .filter(|rotation| rotation.party.card() == session.local)
             {
-                if self
-                    .contacts
-                    .session_stands(session.peer, session.withdrawal)
-                {
-                    generation = self.contacts.mark_rotation(
-                        session.peer.identity(),
-                        rotation.id,
-                        Progress::Promoted,
-                    )?;
+                self.hook("confirming");
+                if let Some(depends) = self.contacts.mark_promoted_on(
+                    session.peer,
+                    session.withdrawal,
+                    rotation.id,
+                )? {
+                    generation = depends;
                     applied.promoted_successor = true;
                 }
             }
@@ -1742,8 +1741,8 @@ mod tests {
         }
     }
 
-    /// The card of a stranger of seed `seed`.
-    fn stranger(seed: u8) -> ContactCard {
+    /// The party of a remote identity of seed `seed`.
+    fn party(seed: u8) -> LocalParty {
         LocalParty::issue(
             &IdentitySecretKey::from_seed(&[seed; 32]),
             TransportSecretKey::from_bytes(&[seed ^ 0xA5; 32]).unwrap(),
@@ -1751,8 +1750,11 @@ mod tests {
             EndpointSet::single(endpoint(seed)),
         )
         .unwrap()
-        .card()
-        .clone()
+    }
+
+    /// The card of a stranger of seed `seed`.
+    fn stranger(seed: u8) -> ContactCard {
+        party(seed).card().clone()
     }
 
     fn request(card: &ContactCard) -> ContactRequest {
@@ -1909,6 +1911,51 @@ mod tests {
         }
         rotating.join().unwrap();
         marking.join().unwrap();
+    }
+
+    #[test]
+    fn a_confirmation_counts_for_no_contact_made_again_meanwhile() {
+        // A session made with the new key of a rotation confirms that Bob
+        // promoted it. Right after the session was found to stand for him,
+        // Bob is deleted and imported again. The new contact never saw the
+        // new key, and the confirmation does not count for it.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        let bob = party(2);
+        run(identity.import(bob.card())).unwrap();
+        run(identity.begin_rotation()).unwrap();
+        let local = lock(&identity.keys).rotation.as_ref().unwrap().party.clone();
+        let now = std::time::Instant::now;
+        let (initiator, message_1) =
+            monolith_session::HandshakeInitiator::start(&local, bob.card(), now()).unwrap();
+        let responder = monolith_session::HandshakeResponder::new(&bob, now()).unwrap();
+        let (_, message_2) = responder.read_message_1(&message_1, now()).unwrap();
+        let outbound = initiator.read_message_2(&message_2, now()).unwrap();
+        let withdrawal = Withdrawal::new();
+        let (admission, _) = identity.admit_outbound(outbound, &withdrawal).unwrap();
+        assert!(matches!(admission, OutboundAdmission::Granted { .. }));
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            let card = bob.card().clone();
+            move || {
+                identity.contacts.delete(card.identity()).unwrap();
+                identity.contacts.import(&card).unwrap();
+            }
+        });
+        lock(&identity.hooks).insert("confirming", step);
+        let session = SessionRef {
+            peer: bob.card(),
+            local: local.card(),
+            withdrawal: &withdrawal,
+        };
+        let received = Received {
+            message: Message::Close,
+            actions: vec![Action::Confirmed],
+        };
+        let applied = run(identity.apply(session, &received)).unwrap();
+        assert!(!applied.promoted_successor);
+        let view = identity.contact(bob.card().identity()).unwrap();
+        assert!(!view.successor_promoted);
     }
 
     #[test]
