@@ -521,6 +521,16 @@ mod tests {
         gate.1.notify_all();
     }
 
+    /// Opens `gate` when dropped: a test that fails while a job waits at
+    /// the gate unwinds instead of waiting for that job forever.
+    struct Opens(Arc<(Mutex<bool>, Condvar)>);
+
+    impl Drop for Opens {
+        fn drop(&mut self) {
+            open_gate(&self.0);
+        }
+    }
+
     /// A write of nothing, covering what is applied when it is taken.
     fn snapshot(durability: &Arc<Durability>) -> impl Fn() -> Write + use<> {
         let durability = durability.clone();
@@ -601,6 +611,7 @@ mod tests {
             fail: false,
         }));
         within(async {
+            let _opens = Opens(held.clone());
             let first = durability.bump();
             // The wait starts the write and is cancelled while it runs.
             let waited = tokio::time::timeout(
@@ -668,6 +679,7 @@ mod tests {
         let (taken, snapshots) = std::sync::mpsc::channel();
         let write = reported(&durability, &taken);
         within(async {
+            let _opens = Opens(held.clone());
             let first = durability.bump();
             let waited = tokio::time::timeout(
                 Duration::from_millis(10),
@@ -744,6 +756,7 @@ mod tests {
             },
         }));
         within(async {
+            let _opens = Opens(held.clone());
             let first = durability.bump();
             let waited = tokio::time::timeout(
                 Duration::from_millis(10),
