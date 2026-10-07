@@ -139,8 +139,15 @@ fn no_party_of_a_local_identity_leaves_the_core() {
         .1;
     assert!(!identity.contains("pub fn answering_party"));
     assert!(identity.contains("pub(crate) fn answering_party"));
-    assert!(!identity.contains("    pub local: Arc<LocalParty>,"));
-    assert!(identity.contains("    pub(crate) local: Arc<LocalParty>,"));
+    let plan = identity
+        .split("pub struct DialPlan {")
+        .nth(1)
+        .unwrap()
+        .split('}')
+        .next()
+        .unwrap();
+    assert!(!plan.contains("LocalParty"));
+    assert!(identity.contains("pub(crate) fn dial_party("));
 }
 
 #[test]

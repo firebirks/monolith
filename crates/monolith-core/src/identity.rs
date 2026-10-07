@@ -269,14 +269,14 @@ pub struct SessionRef<'a> {
     pub(crate) withdrawal: &'a Withdrawal,
 }
 
-/// What to dial for a contact: with which local party, and which cards.
-/// The party, which holds the transport key, stays in this crate: only
-/// [`crate::link::dial`] uses it, after it made the plan again itself, so a
-/// plan kept by a caller holds no key to authenticate with.
+/// What to dial for a contact: with which local card, and which cards.
+/// It holds no party: the party, which holds the transport key, stays in
+/// this crate, and [`crate::link::dial`] makes the plan again itself, with
+/// the party, when it dials.
 #[derive(Clone)]
 pub struct DialPlan {
-    /// The local party to dial with.
-    pub(crate) local: Arc<LocalParty>,
+    /// The local card the contact is dialed with.
+    local: ContactCard,
     /// The cards to dial, in order. Empty if the user has to confirm where
     /// to connect first.
     pub cards: Vec<ContactCard>,
@@ -285,8 +285,8 @@ pub struct DialPlan {
 impl DialPlan {
     /// The local card the contact is dialed with: of the old key or, after
     /// a switch it was announced, of the new one.
-    pub fn local_card(&self) -> &ContactCard {
-        self.local.card()
+    pub const fn local_card(&self) -> &ContactCard {
+        &self.local
     }
 }
 
@@ -628,6 +628,19 @@ impl LocalIdentity {
     /// What to dial for `identity`, or `None` if it is not a contact or
     /// the local identity was deleted.
     pub fn dial_plan(&self, identity: &IdentityPublicKey) -> Option<DialPlan> {
+        let (local, cards) = self.dial_party(identity)?;
+        Some(DialPlan {
+            local: local.card().clone(),
+            cards,
+        })
+    }
+
+    /// The plan of [`Self::dial_plan`] with the party to dial with, for
+    /// [`crate::link::dial`] alone.
+    pub(crate) fn dial_party(
+        &self,
+        identity: &IdentityPublicKey,
+    ) -> Option<(Arc<LocalParty>, Vec<ContactCard>)> {
         let durable = self.durability.durable();
         let keys = lock(&self.keys);
         if self.is_closed() {
@@ -647,7 +660,7 @@ impl LocalIdentity {
             }
             _ => keys.party.clone(),
         };
-        Some(DialPlan { local, cards })
+        Some((local, cards))
     }
 
     // --- Messages -------------------------------------------------------

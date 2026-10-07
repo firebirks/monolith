@@ -452,7 +452,7 @@ where
     if identity.is_closed() {
         return Err(LinkError::Storage(CommitError::Failed));
     }
-    let Some(plan) = identity.dial_plan(&contact) else {
+    let Some((local, cards)) = identity.dial_party(&contact) else {
         let standing = match identity.kind(&contact) {
             RecordKind::Blocked => Standing::Blocked,
             RecordKind::Declined => Standing::Declined,
@@ -468,14 +468,9 @@ where
     // not confirm) is not dialed. The card may carry an invitation
     // capability the planned one does not: it states the same all the
     // same.
-    if !plan
-        .cards
-        .iter()
-        .any(|planned| same_statement(planned, card))
-    {
+    if !cards.iter().any(|planned| same_statement(planned, card)) {
         return Err(LinkError::NoEndpoint);
     }
-    let local = plan.local;
     let isolation = identity.isolation(&contact).map_err(LinkError::Tor)?;
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;
     // The identity may have been deleted while the dial waited: it opens
