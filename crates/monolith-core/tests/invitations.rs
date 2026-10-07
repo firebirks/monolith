@@ -591,3 +591,35 @@ fn an_answer_is_for_the_request_it_was_given_for() {
         );
     });
 }
+
+#[test]
+fn what_arrived_counts_once() {
+    // Carol's request reached Bob, who accepted it and later deleted her.
+    // The request, applied again, is not queued again: what arrived on a
+    // session counts once.
+    run(async {
+        let network = MockNetwork::new();
+        let mut bob = node(&network, 2).await;
+        bob.identity
+            .set_request_mode(RequestMode::Open)
+            .await
+            .unwrap();
+        let carol = node(&network, 3).await;
+        let card = bob.identity.card();
+        carol.identity.import(&card).await.unwrap();
+        let (asking, answering) = dial_and_answer(&carol, &card, &mut bob).await;
+        let (mut asking, mut answering) = (asking.unwrap(), answering.unwrap());
+        send_first(&mut asking, &carol.identity).await;
+        let received = answering.link.receive().await.unwrap();
+        let applied = bob.identity.apply(&received).await.unwrap();
+        assert_eq!(applied.request, Some(Ok(())));
+        let request = bob.identity.requests().remove(0);
+        bob.identity.accept_request(request.id).await.unwrap();
+        bob.identity
+            .delete(carol.identity.identity())
+            .await
+            .unwrap();
+        assert!(bob.identity.apply(&received).await.is_err());
+        assert!(bob.identity.requests().is_empty());
+    });
+}

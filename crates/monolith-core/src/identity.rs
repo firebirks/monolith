@@ -669,6 +669,11 @@ impl LocalIdentity {
         // A session can outlive the identity it belongs to; nothing it
         // brings is taken then.
         self.check_open()?;
+        // A message counts once: applied again later, a request would be
+        // queued again after its answer, as if it had been sent again.
+        if arrived.applied.swap(true, Ordering::SeqCst) {
+            return Err(StoreError::AlreadyApplied);
+        }
         let mut applied = Applied::default();
         let mut generation = self.durability.applied();
         if received.actions.contains(&Action::MarkAccepted) {
@@ -1967,6 +1972,7 @@ mod tests {
             peer: bob.card().clone(),
             local: local.card().clone(),
             withdrawal,
+            applied: core::sync::atomic::AtomicBool::new(false),
         };
         let applied = run(identity.apply(&arrived)).unwrap();
         assert!(!applied.promoted_successor);
@@ -2018,6 +2024,7 @@ mod tests {
                 peer: bob.card().clone(),
                 local: local.card().clone(),
                 withdrawal: withdrawal.clone(),
+                applied: core::sync::atomic::AtomicBool::new(false),
             };
             // The link is dropped.
             withdrawal.end();

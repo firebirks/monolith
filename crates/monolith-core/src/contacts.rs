@@ -85,6 +85,8 @@ pub enum StoreError {
     /// The session was admitted by another local identity, or by an
     /// earlier identity of the same keys.
     OtherIdentity,
+    /// What arrived on a session was applied already: it counts once.
+    AlreadyApplied,
 }
 
 impl fmt::Display for StoreError {
@@ -100,6 +102,7 @@ impl fmt::Display for StoreError {
             Self::Commit(error) => write!(f, "{error}"),
             Self::Failed => f.write_str("storage failed; restart needed"),
             Self::OtherIdentity => f.write_str("session of another local identity"),
+            Self::AlreadyApplied => f.write_str("applied already"),
         }
     }
 }

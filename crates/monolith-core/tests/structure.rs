@@ -171,7 +171,7 @@ fn only_what_a_link_received_is_applied() {
         fields
             .lines()
             .map(str::trim)
-            .filter(|line| !line.is_empty())
+            .filter(|line| !line.is_empty() && !line.starts_with("//"))
             .all(|line| line.starts_with("pub(crate) "))
     );
     let methods = link

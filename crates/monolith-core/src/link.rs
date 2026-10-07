@@ -167,13 +167,15 @@ fn now() -> Instant {
 /// about it ([`Received`]), bound to the session it arrived on. Only
 /// [`Link::receive`] makes one, so what
 /// [`crate::identity::LocalIdentity::apply`] applies is what a session
-/// delivered and decided, for that session and no other.
+/// delivered and decided, for that session and no other, and once.
 #[derive(Debug)]
 pub struct Arrived {
     pub(crate) received: Received,
     pub(crate) peer: ContactCard,
     pub(crate) local: ContactCard,
     pub(crate) withdrawal: Withdrawal,
+    /// Set by the first application.
+    pub(crate) applied: AtomicBool,
 }
 
 impl Arrived {
@@ -936,6 +938,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
             peer: self.session.peer_card().clone(),
             local: self.session.local_card().clone(),
             withdrawal: self.withdrawal.clone(),
+            applied: AtomicBool::new(false),
         })
     }
 
