@@ -1644,7 +1644,8 @@ A third pair of reviews, of everything above, found:
 | A `DialPlan` kept by a caller held the party, with the transport key, past the closing. | It holds the local card; `link::dial` takes the party from the identity. | `eb6cbf4` | `tests/structure.rs`, CS107, CS108 |
 | `onion_secret` read the closing before taking the keys. | It reads it with the keys held. | `c9b31ff` | CS48 |
 | The dev node printed an invitation handle in a form with spaces, which the network test read as several words. | One word, the same when shown and when named. | `8b7d4b0` | the private Tor network test |
-| The snapshot test ran its step before the snapshot read anything; tests of persistence could hang on a failed assertion while a write waited at a gate. | A hook between the reads of a snapshot; the gate opens on unwinding. | `ae46ffd`, `4577d19` | `identity::tests`, `persist::tests`, CS121 |
+| The snapshot test ran its step before the snapshot read anything; tests of persistence could hang on a failed assertion while a write waited at a gate. | A hook between the reads of a snapshot; the gate opens on unwinding. | `ae46ffd`, `4577d19`, `d24ab14` | `identity::tests`, `persist::tests`, CS121 |
+| A message or an announcement used after its link was dropped counted until the record forgot the link. | Refused once the link ended. A cancelled `apply` counts as done. | `d490292` | `identity::tests`, CS122 |
 
 Looked at and left as they are: `LocalIdentity::wait_durable` fails
 for a change made durable while its identity was being deleted; a

@@ -264,8 +264,14 @@ rows):
   identity, lifecycle instance, durable record, runtime handles),
   `docs/DESIGN_QUESTIONS.md` P4-10, P4-11 and section 11.5.
 
-The mutation manifest at `7eff0c4`: 336 faults, 121 of Phase 4 (CS1 to
-CS121). Focused runs with `mutation/run.py`: 35 faults on `51973c5`
+A last review of `51973c5..7eff0c4` found no defect in the production
+code; it showed that the snapshot test killed CS121 only by a race and
+that the check of `Sent` could be dodged (both fixed, `d24ab14`), and
+that what arrived on a link that ended counted until its record forgot
+the link (refused now, `d490292`, CS122).
+
+The mutation manifest at `d490292`: 337 faults, 122 of Phase 4 (CS1 to
+CS122). Focused runs with `mutation/run.py`: 35 faults on `51973c5`
 (CS38, CS47, CS48, CS51, CS81, CS95 to CS115 and the faults retargeted
 in the round) and the 19 changed since on `7eff0c4`: all caught, each by
 the test meant for it (`mutation/results-phase4-*.json`, not in git).
@@ -325,8 +331,8 @@ Stage 2, side by side:
 Stage 3, alone:
 
 - `python3 mutation/run.py all 4` (four workers on a machine with twelve
-  threads; fewer on a smaller one). Expected, at `7eff0c4`: 336
-  faults, 327 caught, 9 survivors, exactly those of
+  threads; fewer on a smaller one). Expected, at `d490292`: 337
+  faults, 328 caught, 9 survivors, exactly those of
   `mutation/README.md` (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29),
   exit code 0. CS17 and CS30 are caught
   by the runner's timeout of 20 minutes each. The run takes several
