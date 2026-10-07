@@ -288,17 +288,42 @@ clippy, all workspace tests (682 passed, 2 ignored), the unit tests of
 the core four at a time five times, a focused run of 22 faults (all
 caught), the fuzz smoke run of `contact_store`, `credential_sequence`
 and `vault_payload`, and the private Tor network test. Its first run
-there failed at step 9: after Tor B was restarted, A's dial got the SOCKS
-reply 0x01, which `monolith-tor` maps to `SocksRefused` and the dev node
-does not try again; the second run passed. Whether 0x01 is tried again
-is for the owner to decide (`TOR_INTEGRATION.md`).
+there failed at step 9: after Tor B was restarted, A's dial was refused
+by Tor A's SOCKS endpoint and the dev node did not try again; the second
+run passed.
 
-Left, in order:
+The owner's decisions on these points: `link::answer` stays bound to its
+service by `serve` (type-level binding is later hardening); the SOCKS
+semantics of `monolith-tor` stay as they are; the gap S20 to S24 stays.
+Then, before the freeze, two commits:
 
-1. The owner's decisions on the points left above, `link::answer` above
-   all.
-2. The final verification of section 5.2 on the frozen commit, when the
-   owner says so, the full mutation run included.
+- CS17 lets a dial go on without a contact slot (`c413a9f`): it is
+  caught at once by `a_dial_without_a_contact_slot_writes_no_message_3`
+  and `what_a_dial_without_a_slot_recorded_survives_a_restart`, no
+  longer by the runner's timeout.
+- Step 9 of the private network test restarts Tor B in cycles and
+  requires recovery within a bounded window (`b41cdeb`, test tooling
+  only). The reply codes of Tor A's SOCKS endpoint are read from the
+  trace of node A. Measured over 15 cycles: 14 recoveries in 1 to 13
+  seconds with one attempt and reply 0x00; in one, Tor held the first
+  stream for its `SocksTimeout` of 120 seconds and refused it with 0x01,
+  and the next dial succeeded at once. That is the refusal of the failed
+  run. The window is 240 seconds, two such waits, so a refusal that
+  persists fails; the slowest recovery seen over 59 cycles in four runs
+  took 186 seconds. With the committed script and the default window, a
+  run of 15 cycles on `b41cdeb` recovered every time, in 3 to 11
+  seconds, with one attempt and reply 0x00, and the test passed. On
+  `b41cdeb` too: fmt, clippy, and CS17 alone with `mutation/run.py`
+  (caught by the two tests above, 134 seconds for the whole suite). No
+  Rust code changed since `5ae483b`.
+
+The fuzz targets are 16 (`fuzz/Cargo.toml`); the 17th file under
+`fuzz/fuzz_targets/` is `session_fixtures.rs`, a module the session
+targets share. No target was ever removed.
+
+Left: the final verification of section 5.2 on the frozen commit (the
+commit that adds this paragraph), the full mutation run included, when
+the owner says so.
 
 ### 5.2 Final verification on the final commit
 
@@ -323,7 +348,12 @@ Stage 1, in order:
 
 Stage 2, side by side:
 
-- Fuzz smoke run of all 16 targets, 25 seconds each, from `fuzz/`:
+- Fuzz smoke run of all 16 targets (`base32`, `contact_card`,
+  `contact_card_text`, `contact_store`, `credential_sequence`,
+  `frame_plaintext`, `frame_stream`, `handshake_initiator`,
+  `handshake_responder`, `message_body`, `session_frames`,
+  `session_sequence`, `socks_reply`, `text_fields`, `tor_control_reply`,
+  `vault_payload`), 25 seconds each, from `fuzz/`:
 
       cargo +nightly fuzz run <target> corpus/<target> seeds/<target> -- \
           -malloc_limit_mb=64 -timeout=5 -max_total_time=25
@@ -337,7 +367,7 @@ Stage 2, side by side:
   `tor_network` test of `monolith-core`, build the image of
   `tests/tor-network/Dockerfile`, and run `two-node.sh` in it with
   `MONOLITH_BIN` and `MONOLITH_LIFECYCLE_BIN` pointing at the two
-  binaries. It takes about twenty minutes.
+  binaries, and `RESTART_CYCLES=15`. It takes about forty minutes.
 
 Stage 3, alone:
 
