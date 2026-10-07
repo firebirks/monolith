@@ -1864,16 +1864,24 @@ mod tests {
         let bob = stranger(2);
         identity.contacts.accept_request(&bob).unwrap();
         let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // Set when the rotating thread ends, also by a panic: the other
+        // loops end then, and the panic fails the test at the join.
+        struct Done(Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for Done {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
         let rotating = std::thread::spawn({
             let identity = identity.clone();
-            let done = done.clone();
+            let done = Done(done.clone());
             move || {
+                let _done = done;
                 for _ in 0..300 {
                     run(identity.begin_rotation()).unwrap();
                     run(identity.switch_rotation(identity.rotation_id().unwrap(), true)).unwrap();
                     run(identity.finish_rotation(identity.rotation_id().unwrap(), true)).unwrap();
                 }
-                done.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         });
         let marking = std::thread::spawn({
