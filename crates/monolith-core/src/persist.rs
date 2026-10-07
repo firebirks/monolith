@@ -20,9 +20,12 @@
 //! generation covered. A job that finds changes applied after its snapshot
 //! writes again before it publishes its outcome: on and on while nobody
 //! waits, and a bounded number of times while a waiter is left, which
-//! then starts the next write if changes are left. So a change is written
-//! also when its waiter was cancelled or nothing waits for it, and nothing
-//! is held once the outcome is out.
+//! then starts the next write if changes are left. So, while the
+//! installation is open, a change is written also when its waiter was
+//! cancelled or nothing waits for it, and nothing is held once the outcome
+//! is out. A job holds the installation only weakly: once it is closed,
+//! the write under way ends on its own and no other follows, so what was
+//! applied after its snapshot is lost as in a crash, and nothing used it.
 //! The job does all of that whatever becomes of the
 //! waiter that started it, so a waiter that is cancelled (a deadline, an
 //! aborted task) loses neither the vault nor its lock, and no other waiter
