@@ -1123,5 +1123,8 @@ PHASE4 = [
     fault("CS122", CORE + "contacts.rs", "what arrived on a link that ended counts until the record forgets the link",
           ("        !withdrawal.is_withdrawn()\n            && !withdrawal.is_ended()\n            && self",
            "        !withdrawal.is_withdrawn()\n            && self")),
+    fault("CS123", CORE + "persist.rs", "a wait starts a write when the job before it is about to publish what is left",
+          ("            } else if durability.applied() <= durability.durable().max(held.covered) {",
+           "            } else if durability.applied() <= durability.durable() {")),
 ]
 

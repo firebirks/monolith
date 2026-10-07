@@ -231,6 +231,10 @@ pub(crate) struct Slot {
     vault: Option<Box<dyn Writer>>,
     /// A job is writing.
     writing: bool,
+    /// The generation the last job wrote, recorded as it puts the vault
+    /// back, before its outcome is out: a wait that looks in between finds
+    /// nothing left to write.
+    covered: u64,
 }
 
 /// Where the durable state goes.
@@ -333,7 +337,11 @@ impl Drop for Job {
             let mut slot = lock(&slot);
             slot.vault = vault;
             slot.writing = false;
+            if let Some(Ok(covered)) = outcome {
+                slot.covered = slot.covered.max(covered);
+            }
         }
+        self.durability.hook("released");
         match outcome {
             Some(Ok(covered)) => {
                 // Nothing of the installation is held once the outcome is
@@ -363,6 +371,7 @@ impl Store {
         Self::Vault(Arc::new(Mutex::new(Slot {
             vault: Some(vault),
             writing: false,
+            covered: 0,
         })))
     }
 
@@ -391,6 +400,10 @@ impl Store {
             if held.writing {
                 // The write under way covers what was applied before its
                 // snapshot, and starts another for the rest.
+                None
+            } else if durability.applied() <= durability.durable().max(held.covered) {
+                // Nothing is left to write: what was applied is durable,
+                // or written by a job whose outcome is about to be out.
                 None
             } else if let Some(vault) = held.vault.take() {
                 held.writing = true;
@@ -726,6 +739,63 @@ mod tests {
                 Err(StorageError::Io)
             }
         }
+    }
+
+    #[test]
+    fn a_wait_finds_the_vault_back_once_its_outcome_is_out() {
+        // A job put the vault back and is about to publish what it wrote.
+        // Right then another wait looks for a write to start: there is
+        // nothing left to write, so it starts none, and once the outcome
+        // is out the vault is in its slot.
+        let durability = Durability::new();
+        let writes = Arc::new(AtomicUsize::new(0));
+        let held = gate(false);
+        let store = Arc::new(Store::vault(Box::new(Scripted {
+            writes: 0,
+            during: {
+                let writes = writes.clone();
+                let held = held.clone();
+                move |write| {
+                    writes.fetch_add(1, Ordering::SeqCst);
+                    // A write after the first waits at the gate.
+                    if write > 1 {
+                        let (open, opened) = &*held;
+                        let mut open = lock(open);
+                        while !*open {
+                            open = opened
+                                .wait(open)
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        }
+                    }
+                    true
+                }
+            },
+        })));
+        within(async {
+            let _opens = Opens(held.clone());
+            let handle = tokio::runtime::Handle::current();
+            let first = durability.bump();
+            let step: Box<dyn FnOnce() + Send> = Box::new({
+                let store = store.clone();
+                let durability = durability.clone();
+                move || {
+                    let applied = durability.clone();
+                    let _ = store.start(&durability, &handle, move || Write {
+                        snapshot: Box::new(move || {
+                            Ok((applied.applied(), Zeroizing::new(vec![0_u8])))
+                        }),
+                        failed: Box::new(|| {}),
+                    });
+                }
+            });
+            lock(&durability.hooks).insert("released", step);
+            store
+                .wait(&durability, first, snapshot(&durability))
+                .await
+                .unwrap();
+            assert!(vault_of(&store));
+            assert_eq!(writes.load(Ordering::SeqCst), 1);
+        });
     }
 
     #[test]
