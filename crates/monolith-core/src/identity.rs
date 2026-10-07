@@ -196,8 +196,24 @@ pub struct Announcement {
     card: ContactCard,
     rotation: RotationId,
     peer: ContactCard,
-    withdrawal: Withdrawal,
+    pub(crate) withdrawal: Withdrawal,
     contact: u64,
+}
+
+/// Proof that the successor card of an [`Announcement`] was written on the
+/// session it was made for. Only [`crate::link::Link::announce`] makes
+/// one, and only it makes an announcement count
+/// ([`LocalIdentity::mark_announced`]).
+#[derive(Debug)]
+pub struct Sent {
+    pub(crate) announcement: Announcement,
+}
+
+impl Sent {
+    /// The announcement that was sent.
+    pub const fn announcement(&self) -> &Announcement {
+        &self.announcement
+    }
 }
 
 impl Announcement {
@@ -1047,7 +1063,9 @@ impl LocalIdentity {
         })
     }
 
-    /// The successor of `announcement` was sent on its session. Recorded
+    /// The successor of an announcement was sent on its session: `sent`,
+    /// which only [`crate::link::Link::announce`] makes once it wrote the
+    /// update, says so. Recorded
     /// only while what it was made for still holds: its rotation is the one
     /// in progress, the record of the peer is the very contact it was made
     /// for, and its session still stands for that contact. A completion
@@ -1055,7 +1073,8 @@ impl LocalIdentity {
     /// contact was deleted, blocked or made again, the session withdrawn)
     /// counts for nothing and returns false; the successor is announced
     /// again on a later session. Durable when this returns true.
-    pub async fn mark_announced(&self, announcement: &Announcement) -> Result<bool, StoreError> {
+    pub async fn mark_announced(&self, sent: &Sent) -> Result<bool, StoreError> {
+        let announcement = &sent.announcement;
         self.check_open()?;
         let generation = {
             let keys = lock(&self.keys);

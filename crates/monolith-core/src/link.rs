@@ -70,7 +70,7 @@ use monolith_protocol::session::{Action, Admission, Standing};
 use tokio::sync::Notify;
 
 use crate::budget::{Budgets, ContactPermit};
-use crate::identity::{LocalIdentity, SessionRef};
+use crate::identity::{Announcement, LocalIdentity, Sent, SessionRef};
 use crate::persist::CommitError;
 use crate::strangers::StrangerSlot;
 use monolith_session::{
@@ -121,6 +121,9 @@ pub enum LinkError {
     /// pending key is for the user. The peer sees the stream close, as for
     /// a failed handshake.
     Refused(Admission),
+    /// An announcement was given to a link it was not made for
+    /// ([`Link::announce`]). Nothing was sent.
+    OtherSession,
 }
 
 impl fmt::Display for LinkError {
@@ -136,6 +139,7 @@ impl fmt::Display for LinkError {
             Self::Evicted => f.write_str("stranger evicted for a newer one"),
             Self::Storage(error) => write!(f, "{error}"),
             Self::Refused(_) => f.write_str("peer may not learn the local identity"),
+            Self::OtherSession => f.write_str("announcement of another session"),
         }
     }
 }
@@ -857,6 +861,26 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// that may not be sent now fails with the error of the session and
     /// changes nothing.
     pub async fn send(&mut self, message: &Message) -> Result<(), LinkError> {
+        self.send_message(message).await
+    }
+
+    /// Sends the successor card of `announcement` in an EndpointUpdate on
+    /// this link, the one it was made for, and returns the proof that it
+    /// was written, which alone makes the announcement count
+    /// ([`crate::identity::LocalIdentity::mark_announced`]). It fails as
+    /// [`Self::send`] does, also when the session may not send the update
+    /// yet, and with [`LinkError::OtherSession`] for an announcement of
+    /// another link.
+    pub async fn announce(&mut self, announcement: Announcement) -> Result<Sent, LinkError> {
+        if !announcement.withdrawal.same_link(&self.withdrawal) {
+            return Err(LinkError::OtherSession);
+        }
+        let update = Message::EndpointUpdate(Box::new(announcement.card().clone()));
+        self.send_message(&update).await?;
+        Ok(Sent { announcement })
+    }
+
+    async fn send_message(&mut self, message: &Message) -> Result<(), LinkError> {
         if let Some(error) = self.interrupted().await {
             return Err(error);
         }

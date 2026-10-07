@@ -672,8 +672,9 @@ fn the_rotation_of_one_identity_counts_for_no_other() {
         a.identity.begin_rotation().await.unwrap();
         b.identity.begin_rotation().await.unwrap();
         assert_ne!(a.identity.rotation_id(), b.identity.rotation_id());
-        let (a_link, _carol_link) = confirm_both(&a, &mut carol).await;
+        let (mut a_link, _carol_link) = confirm_both(&a, &mut carol).await;
         let of_a = a.identity.announcement_for(a_link.session_ref()).unwrap();
+        let of_a = a_link.announce(of_a).await.unwrap();
         assert!(!b.identity.mark_announced(&of_a).await.unwrap());
         assert!(
             !b.identity

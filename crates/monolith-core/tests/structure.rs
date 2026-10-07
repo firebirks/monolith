@@ -197,3 +197,40 @@ fn only_what_a_link_received_is_applied() {
         }
     }
 }
+
+#[test]
+fn only_a_sent_announcement_counts() {
+    // `mark_announced` takes a `Sent`, which only `Link::announce` makes,
+    // once it wrote the update on the session the announcement is for.
+    let sources = production_sources();
+    let identity = &sources
+        .iter()
+        .find(|(name, _)| name == "monolith-core/src/identity.rs")
+        .unwrap()
+        .1;
+    assert!(identity.contains("pub async fn mark_announced(&self, sent: &Sent)"));
+    let fields = identity
+        .split("pub struct Sent {")
+        .nth(1)
+        .unwrap()
+        .split('}')
+        .next()
+        .unwrap();
+    assert!(
+        fields
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with("//"))
+            .all(|line| line.starts_with("pub(crate) "))
+    );
+    for (name, text) in &sources {
+        let made = text.matches("Sent {").count()
+            - text.matches("pub struct Sent {").count()
+            - text.matches("impl Sent {").count();
+        if name == "monolith-core/src/link.rs" {
+            assert_eq!(made, 1);
+        } else {
+            assert_eq!(made, 0, "{name}");
+        }
+    }
+}
