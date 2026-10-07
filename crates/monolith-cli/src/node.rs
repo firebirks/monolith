@@ -109,6 +109,37 @@ struct OpenSession {
     sender: mpsc::Sender<Outgoing>,
 }
 
+/// A session that runs: taken out of `sessions`, and its end said, when
+/// it is dropped, also when its task is aborted (`serve` aborts the tasks
+/// of its inbound sessions when it ends).
+struct Running {
+    node: Arc<Node>,
+    key: (IdentityPublicKey, IdentityPublicKey),
+    serial: u64,
+    index: usize,
+    ended: Option<String>,
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        {
+            let mut sessions = lock(&self.node.sessions);
+            if let Some(open) = sessions.get_mut(&self.key) {
+                open.retain(|session| session.serial != self.serial);
+                if open.is_empty() {
+                    sessions.remove(&self.key);
+                }
+            }
+        }
+        say(&format!(
+            "ended {} {} {}",
+            self.index,
+            short(&self.key.1),
+            self.ended.as_deref().unwrap_or("aborted")
+        ));
+    }
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -243,6 +274,13 @@ impl Node {
         let (sender, outgoing) = mpsc::channel(SESSION_QUEUE);
         let key = (*local.identity(), peer);
         let serial = self.serial.fetch_add(1, Ordering::Relaxed);
+        let mut running = Running {
+            node: self.clone(),
+            key,
+            serial,
+            index,
+            ended: None,
+        };
         // Only a session that stands for the contact is the peer's for
         // what the user sends or closes; one of a stale or pending key, or
         // of a stranger, is not.
@@ -255,16 +293,11 @@ impl Node {
         let ended = self
             .session(index, &local, established, outgoing, &mut queued)
             .await;
-        {
-            let mut sessions = lock(&self.sessions);
-            if let Some(open) = sessions.get_mut(&key) {
-                open.retain(|session| session.serial != serial);
-                if open.is_empty() {
-                    sessions.remove(&key);
-                }
-            }
+        // Texts that waited for a confirmation that never came.
+        if !queued.is_empty() {
+            say(&format!("unsent {index} {} {}", short(&peer), queued.len()));
         }
-        say(&format!("ended {index} {} {ended}", short(&peer)));
+        running.ended = Some(ended);
     }
 
     async fn session(
