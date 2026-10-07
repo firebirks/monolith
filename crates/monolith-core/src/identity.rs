@@ -402,11 +402,12 @@ impl LocalIdentity {
     /// it. `None` before Tor returned one, and once the identity was
     /// deleted.
     pub fn onion_secret(&self) -> Option<OnionServiceSecret> {
+        // Looked at with the keys held, as the closing erases them.
+        let keys = lock(&self.keys);
         if self.is_closed() {
             return None;
         }
-        lock(&self.keys)
-            .onion
+        keys.onion
             .as_ref()
             .map(|bytes| OnionServiceSecret::from_bytes(bytes))
     }
