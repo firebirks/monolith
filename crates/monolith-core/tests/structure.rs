@@ -223,10 +223,20 @@ fn only_a_sent_announcement_counts() {
             .filter(|line| !line.is_empty() && !line.starts_with("//"))
             .all(|line| line.starts_with("pub(crate) "))
     );
+    let methods = identity
+        .split("impl Sent {")
+        .nth(1)
+        .unwrap()
+        .split("\n}\n")
+        .next()
+        .unwrap()
+        .replace(char::is_whitespace, "");
+    assert!(!methods.contains("Self{") && !methods.contains("->Self"));
     for (name, text) in &sources {
-        let made = text.matches("Sent {").count()
-            - text.matches("pub struct Sent {").count()
-            - text.matches("impl Sent {").count();
+        let text = text.replace(char::is_whitespace, "");
+        let made = text.matches("Sent{").count()
+            - text.matches("pubstructSent{").count()
+            - text.matches("implSent{").count();
         if name == "monolith-core/src/link.rs" {
             assert_eq!(made, 1);
         } else {

@@ -1905,40 +1905,37 @@ mod tests {
         run(identity.begin_rotation()).unwrap();
         mark(&identity, bob.identity());
         let thread = Arc::new(Mutex::new(None));
-        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let step: Hook = Box::new({
             let identity = identity.clone();
             let thread = thread.clone();
-            let done = done.clone();
             move || {
+                // Looked at before the other thread starts, so that a
+                // refusal means only that this thread holds the keys.
+                let held = matches!(
+                    identity.keys.try_lock(),
+                    Err(std::sync::TryLockError::WouldBlock)
+                );
                 let rotating = identity.clone();
-                let finished = done.clone();
-                *lock(&thread) = Some(std::thread::spawn(move || {
+                let changing = std::thread::spawn(move || {
                     let rotation = rotating.rotation_id().unwrap();
                     run(rotating.switch_rotation(rotation, true)).unwrap();
                     run(rotating.finish_rotation(rotation, true)).unwrap();
                     run(rotating.begin_rotation()).unwrap();
-                    finished.store(true, std::sync::atomic::Ordering::SeqCst);
-                }));
-                // With the keys held here, the change waits for the
-                // snapshot. Where they are not, it runs now, and is waited
-                // for.
-                let started = std::time::Instant::now();
-                while !done.load(std::sync::atomic::Ordering::SeqCst) {
-                    if matches!(
-                        identity.keys.try_lock(),
-                        Err(std::sync::TryLockError::WouldBlock)
-                    ) {
-                        break;
-                    }
-                    assert!(started.elapsed() < core::time::Duration::from_secs(10));
-                    std::thread::yield_now();
+                });
+                if held {
+                    // The change waits for the snapshot.
+                    *lock(&thread) = Some(changing);
+                } else {
+                    // It runs now, all of it, between the reads.
+                    changing.join().unwrap();
                 }
             }
         });
         lock(&identity.hooks).insert("snapshot reads", step);
         let stored = identity.snapshot();
-        lock(&thread).take().unwrap().join().unwrap();
+        if let Some(changing) = lock(&thread).take() {
+            changing.join().unwrap();
+        }
         let epoch = stored.rotation.as_ref().unwrap().epoch;
         let held = stored
             .contacts
