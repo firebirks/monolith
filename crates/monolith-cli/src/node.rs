@@ -53,7 +53,7 @@ use monolith_core::budget::Budgets;
 use monolith_core::contacts::{ImportOutcome, StoreError};
 use monolith_core::identity::{Installation, LocalIdentity, RotationState};
 use monolith_core::link::{Established, LinkError, answer, dial};
-use monolith_core::requests::RequestId;
+use monolith_core::requests::{InvitationId, RequestId};
 use monolith_core::supervisor::{Publication, supervise};
 use monolith_identity::IdentityPublicKey;
 use monolith_protocol::body::{ContactRequest, Message, MessageId};
@@ -154,6 +154,12 @@ fn short(identity: &IdentityPublicKey) -> String {
         .take(8)
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// An invitation as one word of a command line: its handle printed
+/// without spaces, the same when it is shown and when it is named.
+fn invitation_token(id: &InvitationId) -> String {
+    format!("{id:?}").split_whitespace().collect()
 }
 
 fn say(line: &str) {
@@ -692,7 +698,11 @@ impl Node {
                     .create_invitation(label)
                     .await
                     .map_err(|error| text(&error))?;
-                say(&format!("invitation {index} {id:?} {}", card.to_text()));
+                say(&format!(
+                    "invitation {index} {} {}",
+                    invitation_token(&id),
+                    card.to_text()
+                ));
                 Ok(())
             }
             ["revoke" | "revoke-discard", n, id] => {
@@ -701,7 +711,7 @@ impl Node {
                     .invitations()
                     .into_iter()
                     .map(|(id, _)| id)
-                    .find(|held| format!("{held:?}") == *id)
+                    .find(|held| invitation_token(held) == *id)
                     .ok_or_else(|| "no such invitation".to_owned())?;
                 if words.first() == Some(&"revoke") {
                     local
