@@ -876,7 +876,8 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   itself if changes are left; on until nothing is left when nobody waits),
   so a change is written also when its waiter was cancelled or nothing
   waits for it while the installation is open, and the job holds
-  nothing once its outcome is out. A
+  nothing once its outcome is out (a wait that looks as it ends starts
+  no write for what it wrote). A
   waiter cancelled in the instant the job decides leaves its change to the
   next write. A later write that fails does not take back what an earlier
   one made durable, and a wait reads the failure before what is durable,
@@ -908,9 +909,10 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   (`the_progress_of_a_rotation_counts_only_for_that_rotation`),
   `tests/credentials.rs` (`the_progress_of_one_rotation_...`,
   `the_progress_of_a_rotation_survives_...`), `persist::tests`
-  (`a_wait_sees_what_a_failing_job_made_durable`), mutation faults CS13 to
-  CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65, CS68 to CS72, CS77
-  to CS80, CS114 and CS115.
+  (`a_wait_sees_what_a_failing_job_made_durable`,
+  `a_wait_finds_the_vault_back_once_its_outcome_is_out`), mutation faults
+  CS13 to CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65, CS68 to CS72,
+  CS77 to CS80, CS114, CS115 and CS123.
 
 ### S32. No hidden network traffic
 

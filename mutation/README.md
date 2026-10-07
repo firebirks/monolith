@@ -62,11 +62,11 @@ With Phase 4:
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
-| Phase 4 | 122 | 122 | none |
+| Phase 4 | 123 | 123 | none |
 
-337 faults, 328 to be caught, 9 expected to survive.
+338 faults, 329 to be caught, 9 expected to survive.
 
-The Phase 4 list, CS1 to CS122, covers the contact store and the vault:
+The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 
 - one decision about a card and no rollback: an older card of the active
   key that rolls the contact back, a stale card promoted, a conflicting
@@ -145,8 +145,10 @@ The Phase 4 list, CS1 to CS122, covers the contact store and the vault:
   that counts for a contact made again (CS116, CS117), what arrived
   applied twice (CS118), an announcement sent on another session or
   counted without being sent (CS119, CS120), a snapshot that lets go
-  of the keys between its reads (CS121), and what arrived on a link that
-  ended counted until its record forgets the link (CS122). CS81 removes both checks of the
+  of the keys between its reads (CS121), what arrived on a link that
+  ended counted until its record forgets the link (CS122), and a write
+  started for what the job before has written and is about to publish
+  (CS123). CS81 removes both checks of the
   closing on the path of a late session; the one in `apply` is a second
   line behind the one in `consider` (CS90) and is not shown on its
   own.

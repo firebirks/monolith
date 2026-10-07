@@ -1646,6 +1646,7 @@ A third pair of reviews, of everything above, found:
 | The dev node printed an invitation handle in a form with spaces, which the network test read as several words. | One word, the same when shown and when named. | `8b7d4b0` | the private Tor network test |
 | The snapshot test ran its step before the snapshot read anything; tests of persistence could hang on a failed assertion while a write waited at a gate. | A hook between the reads of a snapshot; the gate opens on unwinding. | `ae46ffd`, `4577d19`, `d24ab14` | `identity::tests`, `persist::tests`, CS121 |
 | A message or an announcement used after its link was dropped counted until the record forgot the link. | Refused once the link ended. A cancelled `apply` counts as done. | `d490292` | `identity::tests`, CS122 |
+| Found by a test that failed under load: a job put the vault back before it published its outcome, and a wait that looked in between started a write that held the vault after its own wait had returned. | The slot records what the job wrote as it puts the vault back; a start finds nothing to write. | `6225b3d` | `persist::tests` (a hook between the two), CS123 |
 
 Looked at and left as they are: `LocalIdentity::wait_durable` fails
 for a change made durable while its identity was being deleted; a
