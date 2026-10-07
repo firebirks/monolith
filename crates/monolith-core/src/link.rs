@@ -96,7 +96,10 @@ pub enum LinkError {
     /// A deadline passed: the handshake, a write, or one of the session
     /// (a frame, silence, an unconfirmed session, the age limit).
     TimedOut,
-    /// The contact card names no endpoint that can be dialed.
+    /// The card is not one the dial plan of the contact names: a pending
+    /// successor, a card of the retired key, or endpoints the user did not
+    /// confirm for dialing ([`crate::identity::LocalIdentity::dial_plan`]). No stream
+    /// was opened.
     NoEndpoint,
     /// The peer is not a contact and the budget for such sessions is full,
     /// or the peer is a contact and the budget for contact sessions is.
@@ -127,7 +130,7 @@ impl fmt::Display for LinkError {
             Self::Session(error) => write!(f, "{error}"),
             Self::Stream => f.write_str("stream closed"),
             Self::TimedOut => f.write_str("timed out"),
-            Self::NoEndpoint => f.write_str("no endpoint to dial"),
+            Self::NoEndpoint => f.write_str("card not in the dial plan"),
             Self::Budget => f.write_str("session budget full"),
             Self::Withdrawn => f.write_str("session withdrawn"),
             Self::Evicted => f.write_str("stranger evicted for a newer one"),
@@ -143,6 +146,15 @@ impl From<SessionError> for LinkError {
     fn from(error: SessionError) -> Self {
         Self::Session(error)
     }
+}
+
+/// Whether two cards state the same: the identity, the transport key, the
+/// epoch and the endpoints. They may differ in the invitation capability.
+fn same_statement(one: &ContactCard, other: &ContactCard) -> bool {
+    one.identity() == other.identity()
+        && one.transport() == other.transport()
+        && one.epoch() == other.epoch()
+        && one.endpoints() == other.endpoints()
 }
 
 /// The moment the session layer is told. The session never reads a clock;
@@ -365,7 +377,9 @@ async fn read_message<S: AsyncRead + Unpin, const N: usize>(
 /// step. The record decides the session only then: before, it is read
 /// only to find what to dial with, and a card of anyone who is not a
 /// contact (no record, declined, blocked) is not dialed at all: the dial
-/// fails with [`LinkError::Refused`] before a stream is opened.
+/// fails with [`LinkError::Refused`] before a stream is opened. Of a
+/// contact, only a card its dial plan names is dialed; any other fails
+/// with [`LinkError::NoEndpoint`], also before a stream is opened.
 ///
 /// Message 3 exists only if the responder may learn the local identity:
 /// its key stands for a contact the identity holds as requested or
@@ -410,6 +424,18 @@ where
             change: None,
         }));
     };
+    // Where to connect is the user's decision: a card the plan does not
+    // name (a pending successor, the retired key, endpoints the user did
+    // not confirm) is not dialed. The card may carry an invitation
+    // capability the planned one does not: it states the same all the
+    // same.
+    if !plan
+        .cards
+        .iter()
+        .any(|planned| same_statement(planned, card))
+    {
+        return Err(LinkError::NoEndpoint);
+    }
     let local = plan.local;
     let isolation = identity.isolation(&contact).map_err(LinkError::Tor)?;
     let _slot = budgets.dial().await.ok_or(LinkError::Budget)?;

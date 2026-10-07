@@ -1087,5 +1087,11 @@ PHASE4 = [
     fault("CS110", CORE + "contacts.rs", "a confirmation counts for whatever contact holds the identity",
           ("            let stands = !withdrawal.is_withdrawn() && tracked && entry.record.stands(card);",
            "            let stands = matches!(progress, Progress::Promoted)\n                || (!withdrawal.is_withdrawn() && tracked && entry.record.stands(card));")),
+    fault("CS111", CORE + "link.rs", "a card the dial plan does not name is dialed",
+          ("        .any(|planned| same_statement(planned, card))\n    {",
+           "        .any(|planned| same_statement(planned, card) || planned != card)\n    {")),
+    fault("CS112", CORE + "link.rs", "any card of the contact counts as one the plan names",
+          ("    one.identity() == other.identity()\n        && one.transport() == other.transport()\n        && one.epoch() == other.epoch()\n        && one.endpoints() == other.endpoints()",
+           "    one.identity() == other.identity()")),
 ]
 

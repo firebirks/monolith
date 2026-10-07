@@ -208,6 +208,18 @@ pub type End = Result<Established<DuplexStream>, LinkError>;
 /// answer is then `LinkError::Stream`, and nothing waits for a stream that
 /// never comes.
 pub async fn dial_and_answer(from: &Node, card: &ContactCard, to: &mut Node) -> (End, End) {
+    dial_and_answer_meanwhile(from, card, to, async {}).await
+}
+
+/// The same, with `meanwhile` run once `to` took the stream and before it
+/// answers: the dial is past its dial plan and waits for message 2, and
+/// its admission reads the record as `meanwhile` left it.
+pub async fn dial_and_answer_meanwhile<F: Future<Output = ()>>(
+    from: &Node,
+    card: &ContactCard,
+    to: &mut Node,
+    meanwhile: F,
+) -> (End, End) {
     let identity = to.identity.clone();
     let budgets = to.budgets.clone();
     let service = &mut to.service;
@@ -215,6 +227,7 @@ pub async fn dial_and_answer(from: &Node, card: &ContactCard, to: &mut Node) -> 
     let mut answering = core::pin::pin!(async {
         let stream = service.accept().await.unwrap();
         accepted.set(true);
+        meanwhile.await;
         answer(stream, &budgets, &identity).await
     });
     let mut dialing = core::pin::pin!(dial(&from.tor, &from.budgets, &from.identity, card));

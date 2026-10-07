@@ -15,8 +15,9 @@
 mod common;
 
 use common::{
-    Released, announce, befriend, both, chat, confirm_both, connect, dial_and_answer, node,
-    node_in, node_with, party, request, run, run_paused, send_first, step,
+    Released, announce, befriend, both, chat, confirm_both, connect, dial_and_answer,
+    dial_and_answer_meanwhile, node, node_fixed, node_in, node_with, party, request, run,
+    run_paused, send_first, step,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::contacts::ImportOutcome;
@@ -489,9 +490,10 @@ fn a_key_retired_while_the_admission_is_made_durable_gets_no_message_3() {
 
 #[test]
 fn an_older_card_of_the_active_key_still_receives_message_3() {
-    // Alice holds Bob's card of epoch 2, with the same key and another
-    // endpoint, and dials his card of epoch 1. The responder proves the
-    // active key: it is the contact, the card is not taken.
+    // Alice holds Bob's card of epoch 1 and dials it. While the dial waits
+    // for message 2 she imports his card of epoch 2, with the same key and
+    // another endpoint. The responder proves the active key: it is the
+    // contact, the older card is not taken.
     run(async {
         let network = MockNetwork::new();
         let alice = node(&network, 1).await;
@@ -499,8 +501,10 @@ fn an_older_card_of_the_active_key_still_receives_message_3() {
         let first = bob.card();
         alice.identity.import(&first).await.unwrap();
         let moved = party(2, 2, 2, common::elsewhere()).card().clone();
-        alice.identity.import(&moved).await.unwrap();
-        let (dialed, answered) = dial_and_answer(&alice, &first, &mut bob).await;
+        let (dialed, answered) = dial_and_answer_meanwhile(&alice, &first, &mut bob, async {
+            alice.identity.import(&moved).await.unwrap();
+        })
+        .await;
         let dialed = dialed.unwrap();
         assert_eq!(dialed.admission.standing, Standing::Requested);
         assert_eq!(dialed.admission.change, Some(CredentialChange::Superseded));
@@ -511,17 +515,72 @@ fn an_older_card_of_the_active_key_still_receives_message_3() {
 }
 
 #[test]
+fn a_card_the_dial_plan_does_not_name_is_not_dialed() {
+    // Alice dials only what her dial plan for Bob names. A card of a key
+    // Bob never announced, and his card at endpoints Alice did not confirm
+    // yet, open no stream. Once she confirms the new endpoints, the card
+    // there is dialed.
+    run(async {
+        let network = MockNetwork::new();
+        let alice = node(&network, 1).await;
+        let mut bob = node(&network, 2).await;
+        befriend(&alice, &mut bob).await;
+        let quiet = core::time::Duration::from_millis(50);
+        let mut pending = node_with(&network, 2, 22, 2).await;
+        let dialed = dial(&alice.tor, &alice.budgets, &alice.identity, &pending.card()).await;
+        assert_eq!(dialed.err(), Some(LinkError::NoEndpoint));
+        assert!(
+            tokio::time::timeout(quiet, pending.service.accept())
+                .await
+                .is_err()
+        );
+        // Bob moves to another endpoint with the same key, and says so.
+        let mut moved = node_with(&network, 2, 2, 2).await;
+        let (mut alice_link, mut bob_link) = confirm_both(&alice, &mut bob).await;
+        bob_link
+            .send(&Message::EndpointUpdate(Box::new(moved.card())))
+            .await
+            .unwrap();
+        let received = alice_link.receive().await.unwrap();
+        alice
+            .identity
+            .apply(alice_link.session_ref(), &received)
+            .await
+            .unwrap();
+        let plan = alice.identity.dial_plan(bob.identity.identity()).unwrap();
+        assert_eq!(plan.cards, vec![bob.card()]);
+        let dialed = dial(&alice.tor, &alice.budgets, &alice.identity, &moved.card()).await;
+        assert_eq!(dialed.err(), Some(LinkError::NoEndpoint));
+        assert!(
+            tokio::time::timeout(quiet, moved.service.accept())
+                .await
+                .is_err()
+        );
+        alice.identity.confirm_dial(&moved.card()).await.unwrap();
+        let (dialed, answered) = dial_and_answer(&alice, &moved.card(), &mut moved).await;
+        assert!(dialed.is_ok());
+        assert!(answered.is_ok());
+    });
+}
+
+#[test]
 fn a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3() {
     run(async {
         let network = MockNetwork::new();
         let alice = node(&network, 1).await;
         let mut bob = node(&network, 2).await;
         // Bob's key at epoch 1 with another endpoint: two statements for
-        // one epoch.
+        // one epoch. Alice dials the card she holds; while the dial waits
+        // for message 2 she deletes Bob and imports the other statement.
         let other = party(2, 2, 1, common::elsewhere()).card().clone();
-        alice.identity.import(&other).await.unwrap();
         let card = bob.card();
-        let (dialed, answered) = dial_and_answer(&alice, &card, &mut bob).await;
+        alice.identity.import(&card).await.unwrap();
+        let id = *bob.identity.identity();
+        let (dialed, answered) = dial_and_answer_meanwhile(&alice, &card, &mut bob, async {
+            alice.identity.delete(&id).await.unwrap();
+            alice.identity.import(&other).await.unwrap();
+        })
+        .await;
         assert_eq!(
             dialed.err(),
             refused(Standing::StaleCard, Some(CredentialChange::Conflict))
@@ -571,19 +630,23 @@ fn a_contact_deleted_or_blocked_during_the_dial_gets_no_message_3() {
 
 #[test]
 fn a_pending_key_does_not_receive_message_3() {
-    // Alice holds Bob's key T1. Bob now answers with T22 at epoch 2,
-    // announced to nobody. Alice dials that card: the key is pending, it
-    // gets no message 3, and the card is held for the user.
+    // Bob answers with T22 at epoch 2, announced to nobody. Alice holds
+    // that card and dials it; while the dial waits for message 2 she
+    // deletes Bob and imports his card of T1 at epoch 1. T22 is then
+    // pending: it gets no message 3, and the card is held for the user.
     run(async {
         let network = MockNetwork::new();
         let alice = node(&network, 1).await;
         let mut bob = node_with(&network, 2, 22, 2).await;
         let old = party(2, 2, 1, bob.identity.endpoint()).card().clone();
-        alice.identity.import(&old).await.unwrap();
-        // For an accepted contact a new key is never taken by an import, so
-        // make Bob accepted the way a request does: the user accepted it.
         let new = bob.card();
-        let (dialed, answered) = dial_and_answer(&alice, &new, &mut bob).await;
+        alice.identity.import(&new).await.unwrap();
+        let id = *bob.identity.identity();
+        let (dialed, answered) = dial_and_answer_meanwhile(&alice, &new, &mut bob, async {
+            alice.identity.delete(&id).await.unwrap();
+            alice.identity.import(&old).await.unwrap();
+        })
+        .await;
         assert_eq!(
             dialed.err(),
             refused(Standing::PendingSuccessor, Some(CredentialChange::Pending))
@@ -604,11 +667,13 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
         let alice = node(&network, 1).await;
         let mut bob = node(&network, 2).await;
         befriend(&alice, &mut bob).await;
-        // Bob announces a successor at epoch 3 on a session of T1.
+        // Bob announces a successor T22 at epoch 2 on a session of T1, and
+        // his machine then answers with it at his endpoint.
         let (mut alice_link, mut bob_link) = confirm_both(&alice, &mut bob).await;
-        let announced = party(2, 33, 3, bob.identity.endpoint()).card().clone();
+        let endpoint = bob.identity.endpoint();
+        let older = party(2, 22, 2, endpoint).card().clone();
         bob_link
-            .send(&Message::EndpointUpdate(Box::new(announced.clone())))
+            .send(&Message::EndpointUpdate(Box::new(older.clone())))
             .await
             .unwrap();
         let received = alice_link.receive().await.unwrap();
@@ -618,24 +683,38 @@ fn a_key_older_than_the_announced_successor_gets_nothing() {
             .await
             .unwrap();
         assert_eq!(applied.announced, Some(CredentialChange::Authorized));
-        // A responder with another key of epoch 2, which the identity
-        // superseded through its active key.
-        let mut older = node_with(&network, 2, 22, 2).await;
-        let card = older.card();
-        let before = alice.identity.contact(bob.identity.identity()).unwrap();
-        let (dialed, answered) = dial_and_answer(&alice, &card, &mut older).await;
+        drop(bob.service);
+        let mut answering =
+            node_fixed(Installation::ephemeral(), &network, 2, 22, 2, endpoint).await;
+        // Alice dials T22. While her dial waits for message 2, Bob
+        // announces T33 at epoch 3 on the T1 session: T22 is then a key
+        // the identity superseded through its active key.
+        let announced = party(2, 33, 3, endpoint).card().clone();
+        let id = *bob.identity.identity();
+        let before = std::cell::RefCell::new(None);
+        let (dialed, answered) = dial_and_answer_meanwhile(&alice, &older, &mut answering, async {
+            bob_link
+                .send(&Message::EndpointUpdate(Box::new(announced.clone())))
+                .await
+                .unwrap();
+            let received = alice_link.receive().await.unwrap();
+            let applied = alice
+                .identity
+                .apply(alice_link.session_ref(), &received)
+                .await
+                .unwrap();
+            assert_eq!(applied.announced, Some(CredentialChange::Authorized));
+            *before.borrow_mut() = Some(alice.identity.contact(&id).unwrap().credentials);
+        })
+        .await;
         assert_eq!(
             dialed.err(),
             refused(Standing::StaleCard, Some(CredentialChange::Stale))
         );
         assert_eq!(answered.err(), Some(LinkError::Stream));
         assert_eq!(
-            alice
-                .identity
-                .contact(bob.identity.identity())
-                .unwrap()
-                .credentials,
-            before.credentials
+            Some(alice.identity.contact(&id).unwrap().credentials),
+            before.into_inner()
         );
     });
 }
@@ -1082,9 +1161,11 @@ fn a_rotation_ends_only_after_a_durable_switch() {
 
 #[test]
 fn what_a_refused_dial_recorded_survives_a_restart() {
-    // Alice dials Bob's new key, which she holds as nothing yet: it is
-    // pending, the dial is refused, and the card is held for the user.
-    // That is made durable like any change, though no session uses it.
+    // Alice dials Bob's new key, which, while the dial waits for message
+    // 2, she comes to hold as nothing yet: she deletes Bob and imports his
+    // old card. The new key is pending, the dial is refused, and the card
+    // is held for the user. That is made durable like any change, though
+    // no session uses it.
     run(async {
         let network = MockNetwork::new();
         let dir = MemoryDir::new();
@@ -1094,9 +1175,14 @@ fn what_a_refused_dial_recorded_survives_a_restart() {
         let alice = node_in(installation, &network, 1, 1, 1).await;
         let mut bob = node_with(&network, 2, 22, 2).await;
         let old = party(2, 2, 1, bob.identity.endpoint()).card().clone();
-        alice.identity.import(&old).await.unwrap();
         let new = bob.card();
-        let (dialed, _) = dial_and_answer(&alice, &new, &mut bob).await;
+        alice.identity.import(&new).await.unwrap();
+        let id = *bob.identity.identity();
+        let (dialed, _) = dial_and_answer_meanwhile(&alice, &new, &mut bob, async {
+            alice.identity.delete(&id).await.unwrap();
+            alice.identity.import(&old).await.unwrap();
+        })
+        .await;
         assert_eq!(
             dialed.err(),
             refused(Standing::PendingSuccessor, Some(CredentialChange::Pending))
@@ -1155,7 +1241,8 @@ fn what_an_answer_without_a_slot_recorded_survives_a_restart() {
 
 #[test]
 fn what_a_dial_without_a_slot_recorded_survives_a_restart() {
-    // Alice holds Bob's card of epoch 1 and dials his card of epoch 2, the
+    // Alice holds Bob's card of epoch 2 and dials it. While the dial waits
+    // for message 2 she deletes Bob and imports his card of epoch 1, the
     // same key. Her admission takes the newer card, and then she has no
     // slot for a contact session.
     run(async {
@@ -1168,9 +1255,14 @@ fn what_a_dial_without_a_slot_recorded_survives_a_restart() {
         alice.budgets = Budgets::with_limits(MAX_INBOUND_HANDSHAKES, 0, MAX_CONCURRENT_DIALS);
         let mut bob = node_with(&network, 2, 2, 2).await;
         let first = party(2, 2, 1, bob.identity.endpoint()).card().clone();
-        alice.identity.import(&first).await.unwrap();
         let newer = bob.card();
-        let (dialed, _) = dial_and_answer(&alice, &newer, &mut bob).await;
+        alice.identity.import(&newer).await.unwrap();
+        let id = *bob.identity.identity();
+        let (dialed, _) = dial_and_answer_meanwhile(&alice, &newer, &mut bob, async {
+            alice.identity.delete(&id).await.unwrap();
+            alice.identity.import(&first).await.unwrap();
+        })
+        .await;
         assert_eq!(dialed.err(), Some(LinkError::Budget));
         let active = |installation: &Installation| {
             installation.identities()[0]
