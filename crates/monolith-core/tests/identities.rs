@@ -411,7 +411,7 @@ fn t_mi_8_every_dial_names_its_identity() {
         let (a, b) = two(&network, &installation).await;
         let mut carol = node(&network, 3).await;
         // Only A holds Carol: A's dial reaches her with A's party; B's dial
-        // of the same card finds no record of B's and sends nothing.
+        // of the same card finds no record of B's and opens no stream.
         a.identity.import(&carol.card()).await.unwrap();
         let card = carol.card();
         let (dialed, answered) = dial_and_answer(&a, &card, &mut carol).await;
@@ -420,9 +420,13 @@ fn t_mi_8_every_dial_names_its_identity() {
             a.identity.identity()
         );
         assert_eq!(dialed.unwrap().link.session().local_card(), &a.card());
-        let (dialed, answered) = dial_and_answer(&b, &card, &mut carol).await;
+        let dialed = dial(&b.tor, &b.budgets, &b.identity, &card).await;
         assert!(matches!(dialed.err(), Some(LinkError::Refused(_))));
-        assert!(answered.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), carol.service.accept())
+                .await
+                .is_err()
+        );
     });
 }
 
