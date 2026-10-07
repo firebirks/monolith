@@ -149,14 +149,17 @@ another:
 - the runtime handles: `InvitationId`, `RequestId` and `RotationId`
   carry the instance number of the identity that made them; an
   `Announcement` carries its rotation, its contact record and its
-  session; a link's `Withdrawal` is bound to the store that admitted
-  it; what a link received (`Arrived`) carries the session it arrived
-  on. A handle of one instance, record or rotation finds nothing at
-  another, and a completion that comes after its object was replaced
-  counts for nothing.
+  session, and counts only through the `Sent` its link returns once
+  the update is written; a link's `Withdrawal` is bound to the store
+  that admitted it and is tracked by the record it was admitted for;
+  what a link received (`Arrived`) carries the session it arrived on
+  and is applied once. A handle of one instance, record or rotation
+  finds nothing at another, and a completion that comes after its
+  object was replaced counts for nothing.
 
 The parties that hold a transport key stay in the core: `link` dials
-and answers with them, and callers get cards (`DialPlan::local_card`).
+and answers with them, and callers get cards (a `DialPlan` holds the
+local card, not the party).
 `link::dial` dials only a card the dial plan of a contact names.
 
 ### 1.2 Admission and credentials

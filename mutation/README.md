@@ -62,11 +62,11 @@ With Phase 4:
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
-| Phase 4 | 115 | 115 | none |
+| Phase 4 | 121 | 121 | none |
 
-330 faults, 321 to be caught, 9 expected to survive.
+336 faults, 327 to be caught, 9 expected to survive.
 
-The Phase 4 list, CS1 to CS115, covers the contact store and the vault:
+The Phase 4 list, CS1 to CS121, covers the contact store and the vault:
 
 - one decision about a card and no rollback: an older card of the active
   key that rolls the contact back, a stale card promoted, a conflicting
@@ -140,8 +140,15 @@ The Phase 4 list, CS1 to CS115, covers the contact store and the vault:
   (CS107), a card dialed of someone who is not a contact or that the
   dial plan does not name (CS108, CS111, CS112), a session that reports
   no capability for its request (CS109), what a link received made or
-  changed by a caller (CS113), and a wait that reports a failure for a
-  generation that is durable (CS114, CS115).
+  changed by a caller (CS113), a wait that reports a failure for a
+  generation that is durable (CS114, CS115), an acceptance or a new card
+  that counts for a contact made again (CS116, CS117), what arrived
+  applied twice (CS118), an announcement sent on another session or
+  counted without being sent (CS119, CS120), and a snapshot that lets go
+  of the keys between its reads (CS121). CS81 removes both checks of the
+  closing on the path of a late session; the one in `apply` is a second
+  line behind the one in `consider` (CS90) and is not shown on its
+  own.
 
 CS28 is caught by a test that evicts the stranger at a hook between
 taking its first message and delivering it. CS17 and CS30 are caught by

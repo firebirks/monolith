@@ -1461,10 +1461,13 @@ P4-11 Dialing. The cards dialed for a contact are its authorized
     the endpoints leaves the contact undialed until the user confirms the
     new card. Importing a card that changes the active card, and
     confirming a pending card, confirm it for dialing. `link::dial`
-    dials only a card the plan names when the dial starts; any other
-    fails before a stream is opened (`LinkError::NoEndpoint`). A card
-    that differs from a planned one only in its invitation capability
-    states the same and is dialed.
+    dials only a card the plan names when the dial starts, before a
+    stream is opened: a card of an identity that is not a contact is
+    refused (`LinkError::Refused`), and any other card the plan does not
+    name fails with `LinkError::NoEndpoint`. A card that differs from a
+    planned one only in its invitation capability states the same and
+    is dialed. The plan a caller gets holds the local card, not the
+    party.
 
 P4-12 Invitations. `MAX_ACTIVE_INVITATIONS` stays 16. A capability is
     durable before the card that carries it is returned; revocation is
@@ -1631,12 +1634,32 @@ store, one for the dev node, the durability and the tests, found:
 | The dev node kept the entries of inbound sessions that `serve` aborted, dropped unsent texts silently, and printed the peer's acceptance as the user's. | A guard takes the entry out; unsent texts are reported; `peer-accepted`. | `8ea3ca9`, `1646bb0` | the private Tor network test |
 | Two tests hung since `9f91b1f`, which refuses a dial before a stream: they waited for a stream on the other side. A failing test could hang elsewhere too. | The tests expect no stream; the dial helper ends when no stream comes; the tests run under deadlines. | `5d8caf2`, `d17ac9d`, `97eb6f0`, `eadc925`, `64e8354` | the suite itself |
 
-Looked at and left as they are: `onion_secret` reads the closing before
-the keys lock, but the closing erases the secret under that lock before
-it sets the flag, so no secret is returned once the flag is seen. A link
+A third pair of reviews, of everything above, found:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| An acceptance or a new card was checked against the withdrawal and the card of its session, not against the record that tracks it: a message kept from a link that had ended changed a contact deleted and made again since. | Every path asks the record whether it tracks the session. | `049de25` | `identity::tests`, CS116, CS117, CS97, CS110 |
+| An `Arrived` could be applied again: a request applied after its answer and the deletion of its sender was queued again. | The first application marks it; a second fails (`StoreError::AlreadyApplied`). | `b4ab8b4` | `tests/invitations.rs`, CS118 |
+| `mark_announced` took the caller's word that the successor was sent. | `Link::announce` writes it on the session it was made for and returns the `Sent` that `mark_announced` takes. | `bbda16f` | `tests/credentials.rs`, `tests/structure.rs`, CS119, CS120 |
+| A `DialPlan` kept by a caller held the party, with the transport key, past the closing. | It holds the local card; `link::dial` takes the party from the identity. | `eb6cbf4` | `tests/structure.rs`, CS107, CS108 |
+| `onion_secret` read the closing before taking the keys. | It reads it with the keys held. | `c9b31ff` | CS48 |
+| The dev node printed an invitation handle in a form with spaces, which the network test read as several words. | One word, the same when shown and when named. | `8b7d4b0` | the private Tor network test |
+| The snapshot test ran its step before the snapshot read anything; tests of persistence could hang on a failed assertion while a write waited at a gate. | A hook between the reads of a snapshot; the gate opens on unwinding. | `ae46ffd`, `4577d19` | `identity::tests`, `persist::tests`, CS121 |
+
+Looked at and left as they are: `LocalIdentity::wait_durable` fails
+for a change made durable while its identity was being deleted; a
+deleted identity reports nothing as done. `dial_plan` reads the mark
+that a contact was sent the successor before that mark is durable; the
+mark records what the peer already has, and a crash loses only the
+record, which a later session announces again. `link::answer` takes the
+identity and the stream it is given: `serve` gives each stream of a
+service to the identity of that service with a handshake permit (S43),
+and a caller that bypasses `serve` is not prevented; binding a stream
+to its service in its type would change the Tor adapter. A link
 of a stranger is not withdrawn when its identity closes; before
 confirmation it may send nothing but a Close, the identity applies
 nothing from it, and it ends at its first message or at
 `UNKNOWN_SESSION_TIMEOUT`. CS81 now removes both checks of the closing
 on the path of a late session (`73b4273`); with one left, the other
-held.
+held, so the check in `apply` is a second line that no fault shows on
+its own.

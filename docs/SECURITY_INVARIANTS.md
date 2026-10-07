@@ -258,7 +258,11 @@ Test area names refer to `docs/TEST_PLAN.md`.
   before anything that depends on it is used. On the side that rotates,
   the successor is announced, and the new key answers, dials and is
   handed out, only once that step is in the vault, so a crash never
-  leaves a contact with a key the identity no longer holds.
+  leaves a contact with a key the identity no longer holds. An
+  announcement counts for the switch only once its link wrote it on the
+  session it was made for (`Link::announce` returns the `Sent` that
+  `mark_announced` takes), and a confirmation of the new key only for
+  the record its session was admitted for.
 - Residual: a holder of the identity key and the active transport key can
   produce continuity and is indistinguishable from the identity
   (`THREAT_MODEL.md` adversary Q).
@@ -478,8 +482,11 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   admitted it, and only what a link received (`link::Arrived`, which only
   `Link::receive` makes and which carries its session, so a caller can
   neither make the actions of a message nor apply the message of one
-  session as another's): a session of A handed to B, or to an identity
-  made again from A's keys, is refused (`StoreError::OtherIdentity`).
+  session as another's), only for the very record that admitted the
+  session (a record deleted and made again does not track it), and
+  once (`StoreError::AlreadyApplied` after that): a session of A handed
+  to B, or to an identity made again from A's keys, is refused
+  (`StoreError::OtherIdentity`).
   The vault holds the records of each identity apart. A deletion names
   the instance it deletes (`Installation::delete_identity` takes the
   `LocalIdentity`, matched as that object, not by its keys), so a handle
@@ -509,10 +516,12 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   test (step 8: two identities of one node hold one peer differently),
   `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity
   admits nobody, changes nothing, hands out no secret, and is taken
-  down), T-MI-10, `identity::tests`, `tests/structure.rs` (no party
-  leaves the core; only what a link received is applied), mutation
-  faults CS46 to CS48, CS60 to CS63, CS95, CS100, CS106, CS107 and
-  CS113.
+  down), T-MI-10, `identity::tests` (among them
+  `a_message_of_an_ended_link_changes_no_contact_made_again`),
+  `tests/structure.rs` (no party leaves the core; only what a link
+  received is applied), `tests/invitations.rs`
+  (`what_arrived_counts_once`), mutation faults CS46 to CS48, CS60 to
+  CS63, CS95, CS100, CS106, CS107, CS113 and CS116 to CS118.
 
 ### S41. An invitation capability admits requests only to the identity that issued it
 
@@ -740,13 +749,15 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   isolation tokens and the SAFECOOKIE client nonce (and, in the mock
   backend for tests, for mock keys); in `monolith-core` for the identity
   seeds and transport keys of new identities and of a rotation, for
-  invitation capabilities, and for the jitter of the publication
-  supervisor, which is not secret; in `monolith-storage` for the KDF
-  salt, the vault key and the nonces of the vault; in `monolith-cli` for
-  the identity seeds of the `dev-chat` test command and the message
-  identifiers of the development commands. No other generator crate is a
-  dependency of a product build. Non-cryptographic generator crates are banned by `deny.toml`. A
-  failure of the source fails the operation; there is no fallback. A
+  invitation capabilities, for the instance number of each identity
+  object (`new_instance`, which the handles of that instance carry), and
+  for the jitter of the publication supervisor, which is not secret; in
+  `monolith-storage` for the KDF salt, the vault key and the nonces of
+  the vault; in `monolith-cli` for the message identifiers of the
+  development commands. No other generator crate is a dependency of a
+  product build. Non-cryptographic generator crates are banned by
+  `deny.toml`. A failure of the source fails the operation; there is no
+  fallback. A
   handshake with fixed ephemeral keys can be built only in the tests of
   that crate and in a build made with `--cfg fuzzing`; no cargo feature
   enables it, so it cannot be switched on through a dependency. The
@@ -855,7 +866,7 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   The write is a job on the blocking pool that puts the vault back and
   publishes its outcome however the waiting task ends, so a cancelled
   wait loses neither the vault nor the lock of its directory, and the
-  snapshot it writes is one cut through every identity (keys, rotation
+  snapshot it writes is one cut through each identity (keys, rotation
   and the progress made for it, settings, active set, contact store),
   never an operation half done, and never the progress of one rotation
   with another. When the write fails, the job itself withdraws
