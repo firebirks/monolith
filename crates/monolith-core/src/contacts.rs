@@ -212,6 +212,19 @@ struct Entry {
 }
 
 impl Entry {
+    /// Returns true if the session of `card` and `withdrawal` stands for
+    /// this very record: it was admitted as the contact's here (a session
+    /// of an earlier record, made again since, is not tracked here), it
+    /// was not withdrawn, and its card still stands.
+    fn stands_for(&self, card: &ContactCard, withdrawal: &Withdrawal) -> bool {
+        !withdrawal.is_withdrawn()
+            && self
+                .sessions
+                .iter()
+                .any(|session| session.withdrawal.same_link(withdrawal))
+            && self.record.stands(card)
+    }
+
     /// Withdraws every session admitted as the contact's that no longer
     /// stands for it, and forgets those and the links that ended.
     fn reconcile(&mut self) {
@@ -415,11 +428,7 @@ impl ContactStore {
         self.check_failed()?;
         Ok(self.with_entry(card.identity(), false, |entry| {
             let entry = entry?;
-            let tracked = entry
-                .sessions
-                .iter()
-                .any(|session| session.withdrawal.same_link(withdrawal));
-            let stands = !withdrawal.is_withdrawn() && tracked && entry.record.stands(card);
+            let stands = entry.stands_for(card, withdrawal);
             let Record::Contact(contact) = &mut entry.record else {
                 return None;
             };
@@ -961,7 +970,8 @@ impl ContactStore {
 
     /// The peer of a session admitted as a requested contact accepted
     /// (`Action::MarkAccepted`). Applied only while the session still
-    /// stands for the contact.
+    /// stands for the record it was admitted for: not for a contact made
+    /// again since.
     pub(crate) fn mark_accepted(
         &self,
         session: &ContactCard,
@@ -970,7 +980,7 @@ impl ContactStore {
         self.check_failed()?;
         self.with_entry(session.identity(), false, |entry| {
             let entry = entry.ok_or(StoreError::Withdrawn)?;
-            if withdrawal.is_withdrawn() || !entry.record.stands(session) {
+            if !entry.stands_for(session, withdrawal) {
                 return Err(StoreError::Withdrawn);
             }
             if let Record::Contact(contact) = &mut entry.record {
@@ -984,8 +994,9 @@ impl ContactStore {
     }
 
     /// An EndpointUpdate with `card` arrived on a session whose peer is
-    /// `session`. Applied only while the session stands for the contact;
-    /// `contact::decide` judges the card, and only a session of the active
+    /// `session`. Applied only while the session stands for the record it
+    /// was admitted for; `contact::decide` judges the card, and only a
+    /// session of the active
     /// key carries continuity.
     pub(crate) fn announce(
         &self,
@@ -996,7 +1007,7 @@ impl ContactStore {
         self.check_failed()?;
         self.with_entry(session.identity(), false, |entry| {
             let entry = entry.ok_or(StoreError::Withdrawn)?;
-            if withdrawal.is_withdrawn() || !entry.record.stands(session) {
+            if !entry.stands_for(session, withdrawal) {
                 return Err(StoreError::Withdrawn);
             }
             let decision = contact::decide(
@@ -1092,12 +1103,11 @@ impl ContactStore {
     }
 
     /// Returns true if the session whose peer is `card`, admitted with
-    /// `withdrawal`, still stands for a contact.
+    /// `withdrawal`, still stands for the contact it was admitted for.
     pub(crate) fn session_stands(&self, card: &ContactCard, withdrawal: &Withdrawal) -> bool {
-        !withdrawal.is_withdrawn()
-            && self.with_entry(card.identity(), false, |entry| {
-                entry.is_some_and(|entry| entry.record.stands(card))
-            })
+        self.with_entry(card.identity(), false, |entry| {
+            entry.is_some_and(|entry| entry.stands_for(card, withdrawal))
+        })
     }
 
     /// The kind of record of `identity` now.

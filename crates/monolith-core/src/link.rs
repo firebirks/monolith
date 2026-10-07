@@ -259,7 +259,7 @@ impl Withdrawal {
             .is_some_and(|held| Weak::ptr_eq(held, &Arc::downgrade(owner)))
     }
 
-    fn end(&self) {
+    pub(crate) fn end(&self) {
         self.0.ended.store(true, Ordering::SeqCst);
     }
 

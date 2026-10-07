@@ -1975,6 +1975,62 @@ mod tests {
     }
 
     #[test]
+    fn a_message_of_an_ended_link_changes_no_contact_made_again() {
+        // Bob, a requested contact, sent his acceptance, and then a new
+        // card, on a link that has ended since. Bob is deleted and
+        // imported again. Neither message changes the new contact: it is
+        // still requested, with no successor.
+        let successor = LocalParty::issue(
+            &IdentitySecretKey::from_seed(&[2; 32]),
+            TransportSecretKey::from_bytes(&[0x33; 32]).unwrap(),
+            EndpointEpoch::new(2).unwrap(),
+            EndpointSet::single(endpoint(2)),
+        )
+        .unwrap()
+        .card()
+        .clone();
+        for message in [
+            (Message::ContactAccept, Action::MarkAccepted),
+            (
+                Message::EndpointUpdate(Box::new(successor.clone())),
+                Action::Deliver,
+            ),
+        ] {
+            let installation = Installation::ephemeral();
+            let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+            let bob = party(2);
+            run(identity.import(bob.card())).unwrap();
+            let local = lock(&identity.keys).party.clone();
+            let now = std::time::Instant::now;
+            let (initiator, message_1) =
+                monolith_session::HandshakeInitiator::start(&local, bob.card(), now()).unwrap();
+            let responder = monolith_session::HandshakeResponder::new(&bob, now()).unwrap();
+            let (_, message_2) = responder.read_message_1(&message_1, now()).unwrap();
+            let outbound = initiator.read_message_2(&message_2, now()).unwrap();
+            let withdrawal = Withdrawal::new();
+            let (admission, _) = identity.admit_outbound(outbound, &withdrawal).unwrap();
+            assert!(matches!(admission, OutboundAdmission::Granted { .. }));
+            let arrived = Arrived {
+                received: Received {
+                    message: message.0,
+                    actions: vec![message.1],
+                },
+                peer: bob.card().clone(),
+                local: local.card().clone(),
+                withdrawal: withdrawal.clone(),
+            };
+            // The link is dropped.
+            withdrawal.end();
+            run(identity.delete(bob.card().identity())).unwrap();
+            run(identity.import(bob.card())).unwrap();
+            let _ = run(identity.apply(&arrived));
+            let view = identity.contact(bob.card().identity()).unwrap();
+            assert_eq!(view.kind, RecordKind::Requested);
+            assert!(view.credentials.unwrap().authorized_successor().is_none());
+        }
+    }
+
+    #[test]
     fn a_request_considered_as_the_identity_is_deleted_is_not_queued() {
         // A session of the identity passed its check, and the identity is
         // deleted, wholly, before the request is considered. The deleted
