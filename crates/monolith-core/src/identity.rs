@@ -1199,7 +1199,9 @@ impl LocalIdentity {
         let keys = lock(&self.keys);
         let settings = lock(&self.settings);
         let invitations = lock(&self.invitations);
-        let (contacts, blocked, declined) = self.contacts.snapshot(keys.rotation_id());
+        let rotation = keys.rotation_id();
+        self.hook("snapshot reads");
+        let (contacts, blocked, declined) = self.contacts.snapshot(rotation);
         StoredIdentity {
             identity_seed: keys.seed.clone(),
             transport_secret: keys.transport.clone(),
@@ -1854,8 +1856,8 @@ mod tests {
 
     #[test]
     fn a_snapshot_never_joins_the_progress_of_one_rotation_to_another() {
-        // Bob was sent the successor of rotation R1. While the state is
-        // read for a write, R1 ends and R2 begins. What is written holds
+        // Bob was sent the successor of rotation R1. Right before the state
+        // is read for a write, R1 ends and R2 begins. What is written holds
         // R2 and none of R1's progress: after a crash, R2 must not take
         // Bob for announced.
         let installation = Installation::ephemeral();
@@ -1888,6 +1890,65 @@ mod tests {
             .unwrap();
         assert!(!held.successor_announced);
         assert!(!held.successor_promoted);
+    }
+
+    #[test]
+    fn a_snapshot_is_one_cut_while_a_rotation_changes() {
+        // Bob was sent the successor of rotation R1. Between the reads of a
+        // snapshot, another thread ends R1 and begins R2. Either the change
+        // waits until the snapshot is taken, and R1 is stored with its
+        // progress, or it is all in: never R2 with the progress of R1.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        let bob = stranger(2);
+        identity.contacts.accept_request(&bob).unwrap();
+        run(identity.begin_rotation()).unwrap();
+        mark(&identity, bob.identity());
+        let thread = Arc::new(Mutex::new(None));
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            let thread = thread.clone();
+            let done = done.clone();
+            move || {
+                let rotating = identity.clone();
+                let finished = done.clone();
+                *lock(&thread) = Some(std::thread::spawn(move || {
+                    let rotation = rotating.rotation_id().unwrap();
+                    run(rotating.switch_rotation(rotation, true)).unwrap();
+                    run(rotating.finish_rotation(rotation, true)).unwrap();
+                    run(rotating.begin_rotation()).unwrap();
+                    finished.store(true, std::sync::atomic::Ordering::SeqCst);
+                }));
+                // With the keys held here, the change waits for the
+                // snapshot. Where they are not, it runs now, and is waited
+                // for.
+                let started = std::time::Instant::now();
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    if matches!(
+                        identity.keys.try_lock(),
+                        Err(std::sync::TryLockError::WouldBlock)
+                    ) {
+                        break;
+                    }
+                    assert!(started.elapsed() < core::time::Duration::from_secs(10));
+                    std::thread::yield_now();
+                }
+            }
+        });
+        lock(&identity.hooks).insert("snapshot reads", step);
+        let stored = identity.snapshot();
+        lock(&thread).take().unwrap().join().unwrap();
+        let epoch = stored.rotation.as_ref().unwrap().epoch;
+        let held = stored
+            .contacts
+            .iter()
+            .find(|contact| contact.credentials.identity() == bob.identity())
+            .unwrap();
+        assert_eq!(
+            held.successor_announced,
+            epoch == EndpointEpoch::new(2).unwrap()
+        );
     }
 
     #[test]
