@@ -701,11 +701,10 @@ impl LocalIdentity {
                 .filter(|rotation| rotation.party.card() == session.local)
             {
                 self.hook("confirming");
-                if let Some(depends) = self.contacts.mark_promoted_on(
-                    session.peer,
-                    session.withdrawal,
-                    rotation.id,
-                )? {
+                if let Some(depends) =
+                    self.contacts
+                        .mark_promoted_on(session.peer, session.withdrawal, rotation.id)?
+                {
                     generation = depends;
                     applied.promoted_successor = true;
                 }
@@ -1924,7 +1923,12 @@ mod tests {
         let bob = party(2);
         run(identity.import(bob.card())).unwrap();
         run(identity.begin_rotation()).unwrap();
-        let local = lock(&identity.keys).rotation.as_ref().unwrap().party.clone();
+        let local = lock(&identity.keys)
+            .rotation
+            .as_ref()
+            .unwrap()
+            .party
+            .clone();
         let now = std::time::Instant::now;
         let (initiator, message_1) =
             monolith_session::HandshakeInitiator::start(&local, bob.card(), now()).unwrap();

@@ -376,7 +376,13 @@ impl ContactStore {
         instance: u64,
         rotation: RotationId,
     ) -> Result<Option<u64>, StoreError> {
-        self.mark_on(card, withdrawal, Some(instance), rotation, Progress::Announced)
+        self.mark_on(
+            card,
+            withdrawal,
+            Some(instance),
+            rotation,
+            Progress::Announced,
+        )
     }
 
     /// Records that the contact confirmed the new key of `rotation` on the
