@@ -369,7 +369,8 @@ impl Node {
             match local.apply(&received).await {
                 Ok(applied) => {
                     if applied.accepted {
-                        say(&format!("accepted {index} {}", short(&peer)));
+                        // The peer's ContactAccept, not the user's answer.
+                        say(&format!("peer-accepted {index} {}", short(&peer)));
                     }
                     if let Some(change) = applied.announced {
                         say(&format!(

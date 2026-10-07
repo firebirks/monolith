@@ -315,8 +315,8 @@ expect b "^added 0 $id_a created$" 1 10
 tell a send 0 "$id_b" hello
 expect b "^message 0 $id_a \"hello\"$" 1 400
 expect a "^message 0 $id_b \"hello back\"$" 1 60
-expect a "^accepted 0 $id_b$" 1 10
-expect b "^accepted 0 $id_a$" 1 10
+expect a "^peer-accepted 0 $id_b$" 1 10
+expect b "^peer-accepted 0 $id_a$" 1 10
 echo "ok   both accepted each other through the protocol; hello and hello back"
 
 echo "5. B restarts: its contact, its identity and its service are as before."
