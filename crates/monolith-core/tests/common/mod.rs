@@ -203,20 +203,44 @@ pub async fn node_in(
 
 pub type End = Result<Established<DuplexStream>, LinkError>;
 
-/// `from` dials `card`; `to` answers the stream on its service.
+/// `from` dials `card`; `to` answers the stream on its service. A dial
+/// that ends before `to` took a stream leaves nothing to answer: the
+/// answer is then `LinkError::Stream`, and nothing waits for a stream that
+/// never comes.
 pub async fn dial_and_answer(from: &Node, card: &ContactCard, to: &mut Node) -> (End, End) {
     let identity = to.identity.clone();
     let budgets = to.budgets.clone();
     let service = &mut to.service;
-    let answering = async move {
+    let accepted = core::cell::Cell::new(false);
+    let mut answering = core::pin::pin!(async {
         let stream = service.accept().await.unwrap();
+        accepted.set(true);
         answer(stream, &budgets, &identity).await
-    };
-    both(
-        dial(&from.tor, &from.budgets, &from.identity, card),
-        answering,
-    )
-    .await
+    });
+    let mut dialing = core::pin::pin!(dial(&from.tor, &from.budgets, &from.identity, card));
+    let (mut dialed, mut answered) = (None, None);
+    core::future::poll_fn(|cx| {
+        if dialed.is_none() {
+            if let core::task::Poll::Ready(value) = dialing.as_mut().poll(cx) {
+                dialed = Some(value);
+            }
+        }
+        if answered.is_none() {
+            if let core::task::Poll::Ready(value) = answering.as_mut().poll(cx) {
+                answered = Some(value);
+            }
+        }
+        if dialed.is_some() && answered.is_none() && !accepted.get() {
+            answered = Some(Err(LinkError::Stream));
+        }
+        if dialed.is_some() && answered.is_some() {
+            core::task::Poll::Ready(())
+        } else {
+            core::task::Poll::Pending
+        }
+    })
+    .await;
+    (dialed.unwrap(), answered.unwrap())
 }
 
 /// `from` dials `to` at its current card.
