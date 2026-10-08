@@ -1,0 +1,6 @@
+    Checking monolith-storage v0.0.0 (<repo>/crates/monolith-storage)
+    Checking monolith-session v0.0.0 (<repo>/crates/monolith-session)
+    Checking monolith-core v0.0.0 (<repo>/crates/monolith-core)
+    Checking monolith-cli v0.0.0 (<repo>/crates/monolith-cli)
+    Checking monolith-desktop v0.0.0 (<repo>/crates/monolith-desktop)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.28s

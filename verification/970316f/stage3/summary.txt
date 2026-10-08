@@ -1,0 +1,5 @@
+start 2026-10-08 11:06 commit 970316fc76d0ea19c1c65239b16556253a2894c8 workers 4 phases phase1 phase2
+phase1 exit=0 94min done: {'caught': 43, 'survived': 2}
+phase2 exit=0 150min done: {'caught': 95, 'survived': 4}
+T6 alone exit=0 16min done: {'caught': 1}
+end 2026-10-08 15:28

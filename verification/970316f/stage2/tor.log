@@ -1,0 +1,404 @@
+
+Launching chutney using Python 3.11.2
+INFO:chutney.TorNet:2026-10-08 07:53:47,457:Loading network config from chutney network script path: '/src/tests/tor-network/monolith-two-clients'
+INFO:chutney.TorNet:2026-10-08 07:53:47,465:Loading network from nodes dir: '/tmp/tmp.MyBSy1IXN8/net/nodes'
+INFO:chutney.TorNet:2026-10-08 07:53:47,465:creating '/tmp/tmp.MyBSy1IXN8/net/nodes.1791446027', linking to '/tmp/tmp.MyBSy1IXN8/net/nodes'
+
+Launching chutney using Python 3.11.2
+INFO:chutney.TorNet:2026-10-08 07:53:47,642:Loading network from nodes dir: '/tmp/tmp.MyBSy1IXN8/net/nodes'->'/tmp/tmp.MyBSy1IXN8/net/nodes.1791446027'
+WARNING:chutney.TorNet:2026-10-08 07:53:51,804:Only configuring 3 dirauths; at least 4 recommended for reliable bootstrapping
+Creating identity key for test000a     with tor-gencert
+Creating identity key for test001a     with tor-gencert
+Creating identity key for test002a     with tor-gencert
+
+Launching chutney using Python 3.11.2
+INFO:chutney.TorNet:2026-10-08 07:53:52,045:Loading network from nodes dir: '/tmp/tmp.MyBSy1IXN8/net/nodes'->'/tmp/tmp.MyBSy1IXN8/net/nodes.1791446027'
+Starting nodes
+
+Launching chutney using Python 3.11.2
+INFO:chutney.TorNet:2026-10-08 07:53:52,301:Loading network from nodes dir: '/tmp/tmp.MyBSy1IXN8/net/nodes'->'/tmp/tmp.MyBSy1IXN8/net/nodes.1791446027'
+Waiting for nodes to bootstrap...
+
+Bootstrap in progress: 10 seconds
+  test000a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test001a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test002a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test003r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test004r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test005r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test006r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test007r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test008c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+  test009c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+
+Bootstrap in progress: 20 seconds
+  test000a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test001a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test002a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test003r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test004r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test005r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test006r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test007r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, all formats
+  test008c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+  test009c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+
+Bootstrap in progress: 31 seconds
+  test000a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test001a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test002a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test003r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test004r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test005r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test006r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test007r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: -400 (MISSING_FILE), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD NS_CONS
+  test008c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+  test009c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+
+Bootstrap in progress: 41 seconds
+  test000a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), caches and clients, MD_CONS NS_CONS
+  test001a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), caches and clients, MD_CONS NS_CONS
+  test002a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), caches and clients, MD_CONS NS_CONS
+  test003r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test004r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test005r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test006r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test007r:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test008c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+  test009c:
+    bootstrap progress: 45, requesting_descriptors, Asking for relay descriptors
+
+Bootstrap in progress: 52 seconds
+  test000a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test001a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test002a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test003r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test004r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test005r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test006r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test007r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test008c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+  test009c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+
+Bootstrap in progress: 62 seconds
+  test000a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test001a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test002a:
+    bootstrap progress: 0, starting, Starting
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test003r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test004r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test005r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test006r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test007r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), all nodes, DESC MD MD_CONS NS_CONS
+  test008c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+  test009c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+
+Bootstrap in progress: 73 seconds
+  test000a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test001a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test002a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test003r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD MD_CONS NS_CONS
+  test004r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD MD_CONS NS_CONS
+  test005r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD MD_CONS NS_CONS
+  test006r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD MD_CONS NS_CONS
+  test007r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, DESC MD MD_CONS NS_CONS
+  test008c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+  test009c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+
+Bootstrap in progress: 83 seconds
+  test000a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test001a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test002a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test003r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, MD MD_CONS
+  test004r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, MD MD_CONS
+  test005r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, MD MD_CONS
+  test006r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, MD MD_CONS
+  test007r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 0 (NO_PROGRESS), 000a 001a 002a 003r 004r 005r 006r 007r 008c 009c, MD MD_CONS
+  test008c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+  test009c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+
+Everything bootstrapped after 85 sec
+Bootstrap finished: 85 seconds
+  test000a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test001a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test002a:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test003r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test004r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test005r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test006r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test007r:
+    bootstrap progress: 100 (SUCCESS), done, Done
+    desc publishing: 100 (SUCCESS), all nodes, DESC MD MD_CONS NS_CONS
+  test008c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+  test009c:
+    bootstrap progress: 100 (SUCCESS), done, Done
+
+Waiting an extra 0 seconds for the network to be ready...
+
+Tor version 0.4.9.13.
+Tor SOCKS: reachable
+Tor control: reachable, authenticated
+Tor version: 0.4.9.13
+Tor circuit: established
+Tor bootstrap: done
+Summary: ready
+Tor SOCKS: reachable
+Tor control: reachable, authenticated
+Tor version: 0.4.9.13
+Tor circuit: established
+Tor bootstrap: done
+Summary: ready
+1. A dials B through the private network; one message each way.
+Published; own card written.
+Dial attempt 1: onion service unreachable; trying again.
+Reply: "hello back"
+Done; service removed.
+ok   dial: loopback and Unix sockets only, no DNS
+Published; own card written.
+Received: "hello"
+Done; service removed.
+ok   serve: loopback and Unix sockets only, no DNS
+ok   B received "hello", A received "hello back"
+2. Published again from the key in memory; a dial without SOCKS fails.
+
+running 1 test
+dial attempt 1: onion service unreachable
+Bob received "hello"; Alice received "hello back"
+Published again under the same name.
+Bob received "hello"; Alice received "hello back"
+Without SOCKS the dial failed.
+test a_service_published_again_from_its_key_is_reached_again ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.12s
+
+ok   lifecycle: loopback and Unix sockets only, no DNS
+ok   same name after publishing again, reached twice; no SOCKS, no connection
+4. Two nodes over vaults: each makes an identity, imports the other's card, hello.
+ok   both accepted each other through the protocol; hello and hello back
+5. B restarts: its contact, its identity and its service are as before.
+ok   b trace-b-2: loopback and Unix sockets only, no DNS
+ok   B kept A as an accepted contact across its restart; same card, same service
+6. A rotates its key: B holds the successor across a restart, then promotes it.
+ok   b trace-b-2: loopback and Unix sockets only, no DNS
+ok   b trace-b-3: loopback and Unix sockets only, no DNS
+ok   the authorized successor survived B's restart
+ok   b trace-b-2: loopback and Unix sockets only, no DNS
+ok   b trace-b-3: loopback and Unix sockets only, no DNS
+ok   b trace-b-4: loopback and Unix sockets only, no DNS
+ok   promoted at B, old session withdrawn, retired key kept across a restart
+7. B blocks A while their session is open: it ends, and A is a stranger to B.
+ok   the block withdrew the open session; a blocked peer gets no reply
+8. A second identity at B: invitation mode, a capability, deletion ends the session.
+ok   requests decided by mode and capability; identities apart; deletion withdrew the session
+9. Tor B restarts: the supervisor publishes both services again; hello again.
+     (Tor did not end on SIGTERM; killed)
+     cycle 1: attempts=1 elapsed=4s dial-retries=0 socks replies: 0x00
+     (Tor did not end on SIGTERM; killed)
+/src/tests/tor-network/two-node.sh: line 122:  1495 Killed                  tor -f "$b/torrc" >> "$work/tor-b-restarted.log" 2>&1
+     cycle 2: attempts=1 elapsed=6s dial-retries=0 socks replies: 0x00
+     cycle 3: attempts=1 elapsed=6s dial-retries=0 socks replies: 0x00
+     cycle 4: attempts=1 elapsed=6s dial-retries=0 socks replies: 0x00
+     cycle 5: attempts=1 elapsed=7s dial-retries=0 socks replies: 0x00
+     cycle 6: attempts=1 elapsed=4s dial-retries=0 socks replies: 0x00
+     (Tor did not end on SIGTERM; killed)
+/src/tests/tor-network/two-node.sh: line 122:  2630 Killed                  tor -f "$b/torrc" >> "$work/tor-b-restarted.log" 2>&1
+     cycle 7: attempts=1 elapsed=4s dial-retries=0 socks replies: 0x00
+     cycle 8: attempts=1 elapsed=6s dial-retries=0 socks replies: 0x00
+     cycle 9: attempts=1 elapsed=4s dial-retries=0 socks replies: 0x00
+     cycle 10: attempts=1 elapsed=1s dial-retries=0 socks replies: 0x00
+     cycle 11: attempts=1 elapsed=3s dial-retries=0 socks replies: 0x00
+     (Tor did not end on SIGTERM; killed)
+/src/tests/tor-network/two-node.sh: line 122:  3480 Killed                  tor -f "$b/torrc" >> "$work/tor-b-restarted.log" 2>&1
+     cycle 12: attempts=1 elapsed=3s dial-retries=0 socks replies: 0x00
+     cycle 13: attempts=1 elapsed=10s dial-retries=0 socks replies: 0x00
+     cycle 14: attempts=1 elapsed=4s dial-retries=0 socks replies: 0x00
+     (Tor did not end on SIGTERM; killed)
+/src/tests/tor-network/two-node.sh: line 122:  3926 Killed                  tor -f "$b/torrc" >> "$work/tor-b-restarted.log" 2>&1
+     cycle 15: attempts=1 elapsed=20s dial-retries=0 socks replies: 0x00
+       a: outbound 0 f18c0811392f96ac Accepted
+       a: confirmed 0 f18c0811392f96ac key=old
+       a: sent 0 f18c0811392f96ac
+       a: message 0 f18c0811392f96ac "hello back"
+       b: inbound 0 e1bf99a452656f2f Accepted
+       b: confirmed 0 e1bf99a452656f2f key=old
+       b: message 0 e1bf99a452656f2f "hello"
+ok   republished under the same name after 15 restart(s) of Tor B; Noise XK and hello again
+10. Without SOCKS, and without Tor while direct Internet access exists: nothing.
+ok   a trace-a-1: loopback and Unix sockets only, no DNS
+     (this machine has a default route: direct Internet access is there)
+ok   a trace-a-1: loopback and Unix sockets only, no DNS
+ok   a trace-a-6: loopback and Unix sockets only, no DNS
+ok   a trace-a-1: loopback and Unix sockets only, no DNS
+ok   a trace-a-6: loopback and Unix sockets only, no DNS
+ok   a trace-a-7: loopback and Unix sockets only, no DNS
+ok   both dials failed at once; the traces show only loopback and Unix sockets
+11. Every node run contacted only loopback and Unix sockets, no DNS.
+ok   b trace-b-2: loopback and Unix sockets only, no DNS
+ok   b trace-b-3: loopback and Unix sockets only, no DNS
+ok   b trace-b-4: loopback and Unix sockets only, no DNS
+ok   b trace-b-5: loopback and Unix sockets only, no DNS
+ok   7 node runs checked
+12. Tor B goes away while B waits: the control connection is reported lost.
+Published; own card written.
+monolith dev-chat: Tor control connection lost
+ok   control-lost: loopback and Unix sockets only, no DNS
+ok   B failed with the control connection lost
+Private Tor network test passed.
+exit 0
