@@ -76,3 +76,11 @@ rerun such a fault alone, for example:
 
 A run with fault ids writes the same results file name as the whole
 phase, so copy the phase file aside first.
+
+## Draft of the final report
+
+`phase4-final-report-draft.md` is a draft of the Phase 4 final report
+(the 26 items of the brief). Results not known yet are marked
+`[PENDING: ...]` and points for the owner `[OWNER DECISION: ...]`. It
+becomes `STATUS.md` section 5.3 only after every stage of the final
+verification has completed; until then Phase 4 is not complete.
