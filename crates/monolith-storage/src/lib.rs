@@ -12,6 +12,12 @@
 //!   identity.
 //! - [`dir`]: the directory of a vault, on disk with its lock and its
 //!   permission checks, or in memory with a model of what a crash leaves.
+//! - [`messages`]: the message store file of
+//!   `docs/adr/0008-message-store.md`, beside the vault, under a key
+//!   derived from the vault key.
+//! - [`message_records`]: what the message store holds: the conversations
+//!   of each local identity, their queued, delivered and received
+//!   messages.
 //!
 //! This is the only crate that writes files.
 
@@ -19,6 +25,8 @@
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
 
 pub mod dir;
+pub mod message_records;
+pub mod messages;
 pub mod record;
 pub mod vault;
 

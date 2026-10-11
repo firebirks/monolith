@@ -54,6 +54,10 @@ pub const MAX_PASSPHRASE_LEN: usize = 1024;
 /// The HKDF label of the payload key.
 const PAYLOAD_INFO: &[u8] = b"MONOLITH-VAULT-PAYLOAD-V1";
 
+/// The HKDF label of the key of the message store
+/// (`docs/adr/0008-message-store.md`).
+const MESSAGE_STORE_INFO: &[u8] = b"MONOLITH-MESSAGE-STORE-V1";
+
 /// The cost of the key derivation of a vault.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct KdfParams {
@@ -578,6 +582,38 @@ impl<D: VaultDir> Vault<D> {
     pub const fn dir(&self) -> &D {
         &self.dir
     }
+
+    /// The key of the message store of this vault: HKDF-SHA256 of the vault
+    /// key with its own label. It does not change with the passphrase.
+    pub fn message_store_key(&self) -> Result<crate::messages::StoreKey, StorageError> {
+        let mut key = Zeroizing::new([0_u8; KEY_LEN]);
+        hkdf::Hkdf::<Sha256>::new(None, self.vault_key.as_slice())
+            .expand(MESSAGE_STORE_INFO, key.as_mut_slice())
+            .map_err(|_| StorageError::Internal)?;
+        Ok(crate::messages::StoreKey::new(key))
+    }
+}
+
+/// Encrypts `buffer` in place under `key` and appends the tag; for the
+/// message store, which seals its payload the same way.
+pub(crate) fn seal_with(
+    key: &[u8; KEY_LEN],
+    nonce: &[u8; NONCE_LEN],
+    associated: &[u8],
+    buffer: &mut Vec<u8>,
+) -> Result<(), StorageError> {
+    seal(key, nonce, associated, buffer)
+}
+
+/// Checks the tag at the end of `buffer` under `key` and decrypts the rest
+/// in place; for the message store.
+pub(crate) fn open_with(
+    key: &[u8; KEY_LEN],
+    nonce: &[u8; NONCE_LEN],
+    associated: &[u8],
+    buffer: &mut Vec<u8>,
+) -> Result<(), StorageError> {
+    open_sealed(key, nonce, associated, buffer)
 }
 
 #[cfg(test)]

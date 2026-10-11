@@ -1,14 +1,15 @@
-//! The payload of a vault, version 1: typed records, one set per local
-//! identity (`docs/STORAGE.md` sections 1.1 and 3.4).
+//! The payload of a vault, versions 1 and 2: typed records, one set per
+//! local identity (`docs/STORAGE.md` sections 1.1 and 3.4).
 //!
 //! The layout follows the wire format: big-endian integers, presence bytes
 //! for optional fields, a 16-bit length before every field of variable
 //! size, and one valid encoding for every value.
 //!
 //! ```text
-//! payload    u16 version (1), u32 records length, records, zero padding
+//! payload    u16 version (1 or 2), u32 records length, records, zero padding
 //! records    u16 identity count, identity*
-//! identity   u8 tag (1), identity seed [32], transport secret [32],
+//! identity   u8 tag (1), identity id [16] (version 2 only),
+//!            identity seed [32], transport secret [32],
 //!            presence + onion secret [64], epoch u64, endpoint [32],
 //!            presence + rotation, request mode u8, presence + label,
 //!            u8 invitation count, invitation*, u16 contact count, contact*,
@@ -16,7 +17,8 @@
 //!            u16 declined count, identity key [32]* (oldest first)
 //! rotation   transport secret [32], epoch u64, switched u8
 //! invitation capability [16], presence + label
-//! contact    kind u8 (1 requested, 2 accepted), active card,
+//! contact    contact id [16] (version 2 only),
+//!            kind u8 (1 requested, 2 accepted), active card,
 //!            presence + authorized card, presence + pending card,
 //!            imported u8, presence + retired key [32],
 //!            presence + capability [16], dial card, verified u8,
@@ -24,6 +26,13 @@
 //! card       u16 length, the card as on the wire
 //! label      u16 length, display-name text
 //! ```
+//!
+//! Version 2 adds the durable identifiers of local identities and contact
+//! records (`docs/adr/0008-message-store.md`). A payload of version 1 is
+//! still read, with no identifiers; the core gives its records new ones
+//! and writes version 2 before anything refers to them. What was read is
+//! written back in the version it was read in, so a payload has one valid
+//! encoding.
 //!
 //! Every record is built from validated typed values and read back through
 //! the same validation: cards are decoded and their signatures verified,
@@ -53,8 +62,12 @@ use zeroize::Zeroizing;
 
 use crate::StorageError;
 
-/// The payload version this build writes and reads.
-pub const PAYLOAD_VERSION: u16 = 1;
+/// The payload version this build writes for records with identifiers.
+pub const PAYLOAD_VERSION: u16 = 2;
+
+/// The payload version of Phase 4, without identifiers. Read, and written
+/// back only for what was read in it.
+pub const PAYLOAD_VERSION_1: u16 = 1;
 
 /// The tag of an identity record.
 const IDENTITY_TAG: u8 = 1;
@@ -62,9 +75,90 @@ const IDENTITY_TAG: u8 = 1;
 /// Length of the secret of an Onion Service key in Tor's format.
 pub const ONION_SECRET_LEN: usize = 64;
 
+/// Length of a durable identifier of a local identity or a contact record.
+pub const RECORD_ID_LEN: usize = 16;
+
+macro_rules! record_id {
+    ($(#[$doc:meta])* $name:ident) => {
+        $(#[$doc])*
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $name([u8; RECORD_ID_LEN]);
+
+        impl $name {
+            /// Wraps identifier bytes. Fails for all zero bytes, which no
+            /// random source gives and an unfilled buffer does.
+            pub fn from_bytes(bytes: [u8; RECORD_ID_LEN]) -> Result<Self, StorageError> {
+                if is_usable_secret(&bytes) {
+                    Ok(Self(bytes))
+                } else {
+                    Err(StorageError::BadFormat)
+                }
+            }
+
+            /// A new identifier from the random source of the operating
+            /// system.
+            pub fn generate() -> Result<Self, StorageError> {
+                let mut bytes = [0_u8; RECORD_ID_LEN];
+                getrandom::fill(&mut bytes).map_err(|_| StorageError::Randomness)?;
+                Self::from_bytes(bytes).map_err(|_| StorageError::Randomness)
+            }
+
+            /// The identifier bytes.
+            pub const fn as_bytes(&self) -> &[u8; RECORD_ID_LEN] {
+                &self.0
+            }
+        }
+
+        impl fmt::Debug for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                // The first four bytes tell records apart in a test or a
+                // trace; the identifier is local and grants nothing.
+                let [a, b, c, d, ..] = self.0;
+                write!(
+                    f,
+                    concat!(stringify!($name), "({:02x}{:02x}{:02x}{:02x})"),
+                    a, b, c, d
+                )
+            }
+        }
+    };
+}
+
+record_id!(
+    /// The durable identifier of a local identity: drawn when the identity
+    /// is created or restored, never changed, never given to another
+    /// (`docs/adr/0008-message-store.md`). An identity restored from its
+    /// keys after a deletion is another identity of the same keys, with
+    /// another identifier.
+    IdentityId
+);
+
+record_id!(
+    /// The durable identifier of a contact record: drawn when the record is
+    /// made, never changed, never given to another. A contact deleted or
+    /// blocked and made again for the same remote identity is another
+    /// record, with another identifier; what was bound to the old one stays
+    /// with it.
+    ContactId
+);
+
+/// Which payload version contents were read in, and are written in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PayloadVersion {
+    /// Version 1, of Phase 4: no identifiers.
+    V1,
+    /// Version 2: every identity and contact record has its identifier.
+    #[default]
+    V2,
+}
+
 /// Everything a vault holds.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Contents {
+    /// The version the contents were read in. Version 1 contents carry no
+    /// identifiers, version 2 contents carry all of them; anything else
+    /// is not encoded.
+    pub version: PayloadVersion,
     /// The local identities, each with everything that belongs to it.
     pub identities: Vec<StoredIdentity>,
 }
@@ -75,6 +169,10 @@ pub struct Contents {
 /// the Onion Service secret are redacted (S18).
 #[derive(PartialEq, Eq)]
 pub struct StoredIdentity {
+    /// The durable identifier of the identity. `None` only as read from a
+    /// payload of version 1; every identity has one once the core holds
+    /// it.
+    pub id: Option<IdentityId>,
     /// The 32-byte seed of the identity key.
     pub identity_seed: Zeroizing<[u8; 32]>,
     /// The 32 bytes of the transport secret key that is active.
@@ -118,6 +216,7 @@ pub struct StoredRotation {
 impl fmt::Debug for StoredIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StoredIdentity")
+            .field("id", &self.id)
             .field("identity_seed", &Redacted::new(()))
             .field("transport_secret", &Redacted::new(()))
             .field(
@@ -159,6 +258,9 @@ pub struct StoredInvitation {
 /// A requested or accepted contact.
 #[derive(Debug, PartialEq, Eq)]
 pub struct StoredContact {
+    /// The durable identifier of the record. `None` only as read from a
+    /// payload of version 1.
+    pub id: Option<ContactId>,
     /// [`RecordKind::Requested`] or [`RecordKind::Accepted`].
     pub kind: RecordKind,
     /// Which transport key stands for the contact.
@@ -280,20 +382,25 @@ fn kind_code(kind: RecordKind) -> Result<u8, StorageError> {
 }
 
 impl Contents {
-    /// Encodes the payload, without padding.
+    /// Encodes the payload, without padding, in [`Self::version`].
     ///
     /// Fails with [`StorageError::TooLarge`] if a count is above its limit,
     /// and with [`StorageError::Internal`] for a contact whose kind is not
-    /// requested or accepted.
+    /// requested or accepted, or for identifiers that do not match the
+    /// version: all present for version 2, none for version 1.
     pub fn encode(&self) -> Result<Zeroizing<Vec<u8>>, StorageError> {
+        let with_ids = self.version == PayloadVersion::V2;
         let mut records = Writer::with_capacity(1024);
         records.u16(count_u16(self.identities.len(), MAX_LOCAL_IDENTITIES)?);
         for identity in &self.identities {
-            identity.encode(&mut records)?;
+            identity.encode(&mut records, with_ids)?;
         }
         let records = Zeroizing::new(records.into_bytes());
         let mut payload = Writer::with_capacity(records.len().saturating_add(6));
-        payload.u16(PAYLOAD_VERSION);
+        payload.u16(match self.version {
+            PayloadVersion::V1 => PAYLOAD_VERSION_1,
+            PayloadVersion::V2 => PAYLOAD_VERSION,
+        });
         payload.raw(
             &u32::try_from(records.len())
                 .map_err(|_| StorageError::TooLarge)?
@@ -310,10 +417,12 @@ impl Contents {
     /// for anything that does not validate.
     pub fn decode(payload: &[u8]) -> Result<Self, StorageError> {
         let mut reader = Reader::new(payload);
-        let version = reader.u16().map_err(format)?;
-        if version != PAYLOAD_VERSION {
-            return Err(StorageError::UnsupportedVersion);
-        }
+        let version = match reader.u16().map_err(format)? {
+            PAYLOAD_VERSION_1 => PayloadVersion::V1,
+            PAYLOAD_VERSION => PayloadVersion::V2,
+            _ => return Err(StorageError::UnsupportedVersion),
+        };
+        let with_ids = version == PayloadVersion::V2;
         let len = u32::from_be_bytes(reader.array().map_err(format)?);
         let len = usize::try_from(len).map_err(|_| StorageError::BadFormat)?;
         let records = reader.take(len).map_err(format)?;
@@ -325,18 +434,59 @@ impl Contents {
             usize::from(reader.u16().map_err(format)?),
             MAX_LOCAL_IDENTITIES,
         )?;
-        let mut identities = Vec::with_capacity(count);
+        let mut identities: Vec<StoredIdentity> = Vec::with_capacity(count);
+        let mut contact_ids = HashSet::new();
         for _ in 0..count {
-            identities.push(StoredIdentity::decode(&mut reader)?);
+            let identity = StoredIdentity::decode(&mut reader, with_ids)?;
+            // An identifier names one identity and one contact record, in
+            // the whole vault.
+            if identity.id.is_some() && identities.iter().any(|held| held.id == identity.id) {
+                return Err(StorageError::BadFormat);
+            }
+            for contact in &identity.contacts {
+                if let Some(id) = contact.id {
+                    if !contact_ids.insert(id) {
+                        return Err(StorageError::BadFormat);
+                    }
+                }
+            }
+            identities.push(identity);
         }
         reader.finish().map_err(format)?;
-        Ok(Self { identities })
+        Ok(Self {
+            version,
+            identities,
+        })
     }
 }
 
+fn put_id(
+    writer: &mut Writer,
+    id: Option<&[u8; RECORD_ID_LEN]>,
+    with_ids: bool,
+) -> Result<(), StorageError> {
+    match (id, with_ids) {
+        (Some(id), true) => {
+            writer.raw(id);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+        _ => Err(StorageError::Internal),
+    }
+}
+
+fn get_id(reader: &mut Reader<'_>) -> Result<[u8; RECORD_ID_LEN], StorageError> {
+    let bytes = reader.array::<RECORD_ID_LEN>().map_err(format)?;
+    if !is_usable_secret(&bytes) {
+        return Err(StorageError::BadFormat);
+    }
+    Ok(bytes)
+}
+
 impl StoredIdentity {
-    fn encode(&self, writer: &mut Writer) -> Result<(), StorageError> {
+    fn encode(&self, writer: &mut Writer, with_ids: bool) -> Result<(), StorageError> {
         writer.u8(IDENTITY_TAG);
+        put_id(writer, self.id.as_ref().map(IdentityId::as_bytes), with_ids)?;
         writer.raw(self.identity_seed.as_slice());
         writer.raw(self.transport_secret.as_slice());
         writer.presence(self.onion_secret.is_some());
@@ -363,7 +513,7 @@ impl StoredIdentity {
         }
         writer.u16(count_u16(self.contacts.len(), MAX_CONTACTS)?);
         for contact in &self.contacts {
-            contact.encode(writer)?;
+            contact.encode(writer, with_ids)?;
         }
         writer.u16(count_u16(self.blocked.len(), MAX_BLOCKED_IDENTITIES)?);
         for identity in &self.blocked {
@@ -376,10 +526,15 @@ impl StoredIdentity {
         Ok(())
     }
 
-    fn decode(reader: &mut Reader<'_>) -> Result<Self, StorageError> {
+    fn decode(reader: &mut Reader<'_>, with_ids: bool) -> Result<Self, StorageError> {
         if reader.u8().map_err(format)? != IDENTITY_TAG {
             return Err(StorageError::BadFormat);
         }
+        let id = if with_ids {
+            Some(IdentityId(get_id(reader)?))
+        } else {
+            None
+        };
         let identity_seed = get_secret::<32>(reader)?;
         let transport_secret = get_secret::<32>(reader)?;
         let onion_secret = if get_flag(reader)? {
@@ -437,7 +592,7 @@ impl StoredIdentity {
         let count = get_count(usize::from(reader.u16().map_err(format)?), MAX_CONTACTS)?;
         let mut contacts = Vec::with_capacity(count);
         for _ in 0..count {
-            let contact = StoredContact::decode(reader)?;
+            let contact = StoredContact::decode(reader, with_ids)?;
             if !seen.insert(*contact.credentials.identity()) {
                 return Err(StorageError::BadFormat);
             }
@@ -463,6 +618,7 @@ impl StoredIdentity {
         }
         let [blocked, declined] = lists;
         Ok(Self {
+            id,
             identity_seed,
             transport_secret,
             onion_secret,
@@ -480,8 +636,9 @@ impl StoredIdentity {
 }
 
 impl StoredContact {
-    fn encode(&self, writer: &mut Writer) -> Result<(), StorageError> {
+    fn encode(&self, writer: &mut Writer, with_ids: bool) -> Result<(), StorageError> {
         let credentials = &self.credentials;
+        put_id(writer, self.id.as_ref().map(ContactId::as_bytes), with_ids)?;
         writer.u8(kind_code(self.kind)?);
         put_card(writer, credentials.active())?;
         put_optional_card(writer, credentials.authorized_successor())?;
@@ -503,7 +660,12 @@ impl StoredContact {
         Ok(())
     }
 
-    fn decode(reader: &mut Reader<'_>) -> Result<Self, StorageError> {
+    fn decode(reader: &mut Reader<'_>, with_ids: bool) -> Result<Self, StorageError> {
+        let id = if with_ids {
+            Some(ContactId(get_id(reader)?))
+        } else {
+            None
+        };
         let kind = match reader.u8().map_err(format)? {
             1 => RecordKind::Requested,
             2 => RecordKind::Accepted,
@@ -538,6 +700,7 @@ impl StoredContact {
             return Err(StorageError::BadFormat);
         }
         Ok(Self {
+            id,
             kind,
             credentials,
             dial,
@@ -590,6 +753,7 @@ mod tests {
             .unwrap();
         credentials.admit(&card(identity, 0x62, 5, None)).unwrap();
         StoredContact {
+            id: None,
             kind: RecordKind::Accepted,
             credentials,
             dial: card(identity, identity, 1, None),
@@ -602,6 +766,7 @@ mod tests {
 
     fn identity(seed: u8) -> StoredIdentity {
         StoredIdentity {
+            id: None,
             identity_seed: Zeroizing::new([seed; 32]),
             transport_secret: Zeroizing::new([seed ^ 0xA5; 32]),
             onion_secret: Some(Zeroizing::new([seed; ONION_SECRET_LEN])),
@@ -633,6 +798,7 @@ mod tests {
     #[test]
     fn contents_survive_a_round_trip() {
         let contents = Contents {
+            version: PayloadVersion::V1,
             identities: vec![identity(1), identity(2)],
         };
         let bytes = contents.encode().unwrap();
@@ -648,13 +814,14 @@ mod tests {
     #[test]
     fn anything_unknown_or_left_over_is_refused() {
         let bytes = Contents {
+            version: PayloadVersion::V1,
             identities: vec![identity(1)],
         }
         .encode()
         .unwrap();
         // Another payload version.
         let mut changed = bytes.to_vec();
-        changed[1] = 2;
+        changed[1] = 3;
         assert_eq!(
             Contents::decode(&changed),
             Err(StorageError::UnsupportedVersion)
@@ -696,6 +863,7 @@ mod tests {
             .collect();
         assert_eq!(
             Contents {
+                version: PayloadVersion::V1,
                 identities: vec![invitations]
             }
             .encode()
@@ -717,6 +885,7 @@ mod tests {
     fn duplicates_and_inconsistent_records_are_refused() {
         let encode = |identity: StoredIdentity| {
             Contents {
+                version: PayloadVersion::V1,
                 identities: vec![identity],
             }
             .encode()
@@ -770,6 +939,7 @@ mod tests {
         // A retired key that is also the active one cannot be stored and
         // read back: restore refuses it.
         let bytes = Contents {
+            version: PayloadVersion::V1,
             identities: vec![identity(1)],
         }
         .encode()
@@ -807,6 +977,7 @@ mod tests {
             format!("{:?}", vec![&stored]),
         ];
         let contents = Contents {
+            version: PayloadVersion::V1,
             identities: vec![identity(2), stored],
         };
         texts.push(format!("{contents:?}"));
@@ -818,5 +989,122 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn identified(mut stored: StoredIdentity, id: u8) -> StoredIdentity {
+        stored.id = Some(IdentityId::from_bytes([id; RECORD_ID_LEN]).unwrap());
+        for (n, contact) in stored.contacts.iter_mut().enumerate() {
+            let byte = id
+                .wrapping_mul(16)
+                .wrapping_add(u8::try_from(n).unwrap() + 1);
+            contact.id = Some(ContactId::from_bytes([byte; RECORD_ID_LEN]).unwrap());
+        }
+        stored
+    }
+
+    #[test]
+    fn version_2_keeps_the_identifiers() {
+        let contents = Contents {
+            version: PayloadVersion::V2,
+            identities: vec![identified(identity(1), 1), identified(identity(2), 2)],
+        };
+        let bytes = contents.encode().unwrap();
+        assert_eq!(&bytes[..2], &PAYLOAD_VERSION.to_be_bytes());
+        let decoded = Contents::decode(&bytes).unwrap();
+        assert_eq!(decoded, contents);
+        assert_eq!(decoded.encode().unwrap(), bytes);
+    }
+
+    #[test]
+    fn version_1_is_read_and_written_back_as_it_was() {
+        let contents = Contents {
+            version: PayloadVersion::V1,
+            identities: vec![identity(1)],
+        };
+        let bytes = contents.encode().unwrap();
+        assert_eq!(&bytes[..2], &PAYLOAD_VERSION_1.to_be_bytes());
+        let decoded = Contents::decode(&bytes).unwrap();
+        assert_eq!(decoded.version, PayloadVersion::V1);
+        assert!(decoded.identities[0].id.is_none());
+        assert!(
+            decoded.identities[0]
+                .contacts
+                .iter()
+                .all(|contact| contact.id.is_none())
+        );
+        assert_eq!(decoded.encode().unwrap(), bytes);
+    }
+
+    #[test]
+    fn identifiers_must_match_the_version() {
+        let mut missing = identified(identity(1), 1);
+        missing.contacts[1].id = None;
+        let version_2 = Contents {
+            version: PayloadVersion::V2,
+            identities: vec![missing],
+        };
+        assert_eq!(version_2.encode().err(), Some(StorageError::Internal));
+        let version_1 = Contents {
+            version: PayloadVersion::V1,
+            identities: vec![identified(identity(1), 1)],
+        };
+        assert_eq!(version_1.encode().err(), Some(StorageError::Internal));
+    }
+
+    #[test]
+    fn identifiers_are_unique_and_never_zero() {
+        assert_eq!(
+            IdentityId::from_bytes([0; RECORD_ID_LEN]),
+            Err(StorageError::BadFormat)
+        );
+        assert_eq!(
+            ContactId::from_bytes([0; RECORD_ID_LEN]),
+            Err(StorageError::BadFormat)
+        );
+        // Two identities of one identifier.
+        let mut second = identified(identity(2), 2);
+        second.id = Some(IdentityId::from_bytes([1; RECORD_ID_LEN]).unwrap());
+        let same_identity = Contents {
+            version: PayloadVersion::V2,
+            identities: vec![identified(identity(1), 1), second],
+        };
+        assert_eq!(
+            Contents::decode(&same_identity.encode().unwrap()),
+            Err(StorageError::BadFormat)
+        );
+        // Two contact records of one identifier, at two identities.
+        let first = identified(identity(1), 1);
+        let mut second = identified(identity(2), 2);
+        second.contacts[0].id = first.contacts[0].id;
+        let same_contact = Contents {
+            version: PayloadVersion::V2,
+            identities: vec![first, second],
+        };
+        assert_eq!(
+            Contents::decode(&same_contact.encode().unwrap()),
+            Err(StorageError::BadFormat)
+        );
+        // An identifier of zero bytes, written over a valid one: after the
+        // version, the length, the count and the tag.
+        let mut bytes = Contents {
+            version: PayloadVersion::V2,
+            identities: vec![identified(identity(1), 1)],
+        }
+        .encode()
+        .unwrap()
+        .to_vec();
+        bytes[9..9 + RECORD_ID_LEN].fill(0);
+        assert_eq!(Contents::decode(&bytes), Err(StorageError::BadFormat));
+    }
+
+    #[test]
+    fn generated_identifiers_differ() {
+        let one = ContactId::generate().unwrap();
+        let other = ContactId::generate().unwrap();
+        assert_ne!(one, other);
+        assert_ne!(
+            IdentityId::generate().unwrap(),
+            IdentityId::generate().unwrap()
+        );
     }
 }

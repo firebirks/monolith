@@ -28,6 +28,12 @@ pub const VAULT_NEW: &str = "vault.new";
 /// The name of the single-instance lock file.
 pub const LOCK: &str = "lock";
 
+/// The name of the message store file (`docs/adr/0008-message-store.md`).
+pub const MESSAGES: &str = "messages";
+
+/// The name of a message store file while it is written.
+pub const MESSAGES_NEW: &str = "messages.new";
+
 /// The file operations of a vault directory.
 ///
 /// Names are file names inside the directory, never paths. An
@@ -57,6 +63,34 @@ pub trait VaultDir {
 }
 
 impl<T: VaultDir + ?Sized> VaultDir for Box<T> {
+    fn read(&self, name: &str, max: u64) -> Result<Option<Vec<u8>>, StorageError> {
+        (**self).read(name, max)
+    }
+
+    fn write_new(&self, name: &str, bytes: &[u8]) -> Result<(), StorageError> {
+        (**self).write_new(name, bytes)
+    }
+
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        (**self).rename(from, to)
+    }
+
+    fn link(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        (**self).link(from, to)
+    }
+
+    fn remove(&self, name: &str) -> Result<(), StorageError> {
+        (**self).remove(name)
+    }
+
+    fn sync(&self) -> Result<(), StorageError> {
+        (**self).sync()
+    }
+}
+
+/// One directory shared by the vault and the message store, which write
+/// files of their own names in it under its one lock.
+impl<T: VaultDir + ?Sized> VaultDir for Arc<T> {
     fn read(&self, name: &str, max: u64) -> Result<Option<Vec<u8>>, StorageError> {
         (**self).read(name, max)
     }
