@@ -7,6 +7,7 @@ members = [
     "crates/monolith-tor",
     "crates/monolith-storage",
     "crates/monolith-core",
+    "crates/monolith-runtime",
     "crates/monolith-cli",
     "crates/monolith-desktop",
 ]
@@ -33,6 +34,7 @@ monolith-session = { path = "crates/monolith-session" }
 monolith-tor = { path = "crates/monolith-tor" }
 monolith-storage = { path = "crates/monolith-storage" }
 monolith-core = { path = "crates/monolith-core" }
+monolith-runtime = { path = "crates/monolith-runtime" }
 
 # Third-party crates. Each one is recorded in docs/DEPENDENCIES.md with what
 # was checked before it was added. Features are off unless listed.

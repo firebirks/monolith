@@ -1080,6 +1080,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Link<S> {
     /// over already it returns at once. A message a dropped receive took
     /// and no receive returned yet is dropped with the link.
     pub async fn close(mut self) -> Result<(), LinkError> {
+        self.end().await
+    }
+
+    /// Ends the session as [`Self::close`] does, in place: the link is over
+    /// afterwards, and every later call fails at once.
+    pub async fn end(&mut self) -> Result<(), LinkError> {
         if let Some(error) = self.interrupted().await {
             return Err(error);
         }

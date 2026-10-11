@@ -1,0 +1,21 @@
+[package]
+name = "monolith-runtime"
+description = "The boundary between a Monolith front end and the core: commands, queries and events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+monolith-core.workspace = true
+monolith-storage.workspace = true
+monolith-tor.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+monolith-identity.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

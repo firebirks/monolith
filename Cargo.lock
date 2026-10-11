@@ -359,6 +359,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "monolith-runtime"
+version = "0.0.0"
+dependencies = [
+ "monolith-core",
+ "monolith-identity",
+ "monolith-storage",
+ "monolith-tor",
+ "tokio",
+]
+
+[[package]]
 name = "monolith-session"
 version = "0.0.0"
 dependencies = [

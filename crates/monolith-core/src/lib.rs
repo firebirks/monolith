@@ -9,6 +9,7 @@
 //! Phase 0 defines the states a front end must be able to tell apart. The
 //! command and event types follow with the features that need them.
 
+pub mod api;
 pub mod budget;
 pub mod contacts;
 pub mod dialplan;
@@ -17,6 +18,8 @@ pub mod link;
 pub mod messages;
 pub mod persist;
 pub mod requests;
+pub mod runtime;
+pub mod sessions;
 pub mod strangers;
 pub mod supervisor;
 
