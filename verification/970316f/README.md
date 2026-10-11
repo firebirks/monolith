@@ -95,5 +95,6 @@ phase, so copy the phase file aside first.
 `phase4-final-report-draft.md` is the Phase 4 final report (the 26
 items of the brief), complete now that every stage of the final
 verification has run. The owner decided its four open points on
-2026-10-11; they are recorded in it. It becomes `STATUS.md` section 5.3
-when the owner accepts it; until then Phase 4 is not declared complete.
+2026-10-11; they are recorded in it. The owner accepted it the same day
+and declared Phase 4 complete on `970316f`; it is section 5.3 of
+`STATUS.md` on `phase-4-contact-store` from `d2089b5`.
