@@ -225,6 +225,14 @@ impl<D: monolith_storage::dir::VaultDir + Send> Writer for monolith_storage::vau
     }
 }
 
+impl<D: monolith_storage::dir::VaultDir + Send> Writer
+    for monolith_storage::messages::MessageFile<D>
+{
+    fn write(&mut self, plaintext: &[u8]) -> Result<(), StorageError> {
+        monolith_storage::messages::MessageFile::write(self, plaintext)
+    }
+}
+
 /// The vault of an installation, and whether a write has it.
 pub(crate) struct Slot {
     /// The vault; taken by the job that writes and put back by it.

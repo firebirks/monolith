@@ -27,7 +27,7 @@ use monolith_protocol::contact::{RecordKind, RequestMode};
 use monolith_protocol::limits::MAX_UNKNOWN_SESSIONS;
 use monolith_protocol::session::Standing;
 use monolith_storage::dir::{CrashOutcome, MemoryDir, VAULT, VaultDir};
-use monolith_storage::record::{Contents, StoredIdentity};
+use monolith_storage::record::{Contents, PayloadVersion, StoredIdentity};
 use monolith_storage::vault::{KdfParams, Passphrase, Vault};
 use monolith_tor::{MockNetwork, OnionService};
 use zeroize::Zeroizing;
@@ -75,6 +75,7 @@ fn t_mi_1_no_two_local_identities_share_a_key() {
         // it is opened.
         let dir = MemoryDir::new();
         let identity = |seed: u8, transport: u8, endpoint: u8| StoredIdentity {
+            id: None,
             identity_seed: Zeroizing::new([seed; 32]),
             transport_secret: Zeroizing::new([transport; 32]),
             onion_secret: None,
@@ -88,7 +89,9 @@ fn t_mi_1_no_two_local_identities_share_a_key() {
             blocked: Vec::new(),
             declined: Vec::new(),
         };
+        // A vault of Phase 4, without identifiers.
         let contents = Contents {
+            version: PayloadVersion::V1,
             identities: vec![identity(1, 1, 1), identity(2, 1, 2)],
         };
         Vault::create(
@@ -167,6 +170,7 @@ fn a_rotation_to_the_same_public_key_is_refused_when_the_vault_is_opened() {
     for next in [low, high] {
         let dir = MemoryDir::new();
         let identity = StoredIdentity {
+            id: None,
             identity_seed: Zeroizing::new([1; 32]),
             transport_secret: Zeroizing::new(active),
             onion_secret: None,
@@ -185,6 +189,7 @@ fn a_rotation_to_the_same_public_key_is_refused_when_the_vault_is_opened() {
             declined: Vec::new(),
         };
         let contents = Contents {
+            version: PayloadVersion::V1,
             identities: vec![identity],
         };
         Vault::create(

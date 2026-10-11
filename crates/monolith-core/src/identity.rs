@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use monolith_identity::{EndpointEpoch, IdentityPublicKey, IdentitySecretKey, OnionServiceKey};
+use monolith_protocol::body::MessageId;
 use monolith_protocol::body::{ContactRequest, Message};
 use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
 use monolith_protocol::contact::{RecordKind, RequestMode};
@@ -29,6 +30,7 @@ use monolith_protocol::limits::{
     MAX_UNKNOWN_SESSIONS,
 };
 use monolith_protocol::session::Action;
+use monolith_protocol::text::ChatText;
 use monolith_protocol::text::DisplayName;
 use monolith_session::{
     Admitted, InboundPeer, LocalParty, OutboundAdmission, OutboundPeer, SessionError,
@@ -36,7 +38,12 @@ use monolith_session::{
 };
 use monolith_storage::StorageError;
 use monolith_storage::dir::VaultDir;
-use monolith_storage::record::{self, Contents, ONION_SECRET_LEN, StoredIdentity, StoredRotation};
+use monolith_storage::message_records::MessageContents;
+use monolith_storage::messages::MessageFile;
+use monolith_storage::record::{
+    self, ContactId, Contents, IdentityId, ONION_SECRET_LEN, PayloadVersion, StoredIdentity,
+    StoredRotation,
+};
 use monolith_storage::vault::{KdfParams, Passphrase, Recovery, Vault};
 use monolith_tor::{IsolationGroup, OnionServiceSecret, TorError};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, watch};
@@ -45,6 +52,9 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::contacts::{ContactStore, ContactView, ImportOutcome, Progress, StoreError};
 use crate::dialplan;
 use crate::link::{Arrived, Withdrawal};
+use crate::messages::{
+    Acknowledgement, ConversationView, EntryView, MessageState, Messages, Receipt, Refusal,
+};
 use crate::persist::{CommitError, Durability, Store, Write};
 use crate::requests::{Dropped, InvitationId, Invitations, PendingRequest, RequestId, Requests};
 use crate::strangers::Strangers;
@@ -325,6 +335,10 @@ impl fmt::Debug for DialPlan {
 /// identity is used.
 pub struct LocalIdentity {
     identity: IdentityPublicKey,
+    /// The durable identifier of the identity, kept in the vault: what is
+    /// bound to it beyond the process (its messages) is bound to this
+    /// identity and to no other made later of the same keys.
+    id: IdentityId,
     keys: Mutex<Keys>,
     settings: Mutex<Settings>,
     pub(crate) contacts: ContactStore,
@@ -357,6 +371,7 @@ impl fmt::Debug for LocalIdentity {
 
 impl LocalIdentity {
     fn new(
+        id: IdentityId,
         keys: Keys,
         settings: Settings,
         contacts: ContactStore,
@@ -366,6 +381,7 @@ impl LocalIdentity {
     ) -> Self {
         Self {
             identity: *keys.party.identity(),
+            id,
             keys: Mutex::new(keys),
             settings: Mutex::new(settings),
             contacts,
@@ -400,6 +416,11 @@ impl LocalIdentity {
     /// The identity.
     pub const fn identity(&self) -> &IdentityPublicKey {
         &self.identity
+    }
+
+    /// The durable identifier of this identity.
+    pub const fn id(&self) -> IdentityId {
+        self.id
     }
 
     /// The card of the key the identity answers with: what the user hands
@@ -751,6 +772,268 @@ impl LocalIdentity {
         }
         self.commit(generation).await?;
         Ok(applied)
+    }
+
+    // --- Conversations ----------------------------------------------------
+
+    fn messages(&self) -> Result<Arc<Messages>, MessageError> {
+        self.shared
+            .upgrade()
+            .map(|shared| shared.messages.clone())
+            .ok_or(MessageError::Closed)
+    }
+
+    /// The durable identifier of the contact record `identity` has now, if
+    /// it is a requested or accepted contact.
+    pub fn contact_id(&self, identity: &IdentityPublicKey) -> Option<ContactId> {
+        self.contacts.contact_id(identity)
+    }
+
+    /// Every requested or accepted contact, by the durable identifier of
+    /// its record.
+    pub fn contact_records(&self) -> Vec<(ContactId, IdentityPublicKey)> {
+        self.contacts.contact_ids()
+    }
+
+    /// The remote identity of the contact record `contact`, if it is still
+    /// the record of its identity: a record deleted or blocked, or made
+    /// again since, is not.
+    pub fn current_record(&self, contact: &ContactId) -> Option<IdentityPublicKey> {
+        if self.is_closed() {
+            return None;
+        }
+        self.contacts
+            .contact_ids()
+            .into_iter()
+            .find(|(record, _)| record == contact)
+            .map(|(_, peer)| peer)
+    }
+
+    /// Queues `text` for the contact record `contact`
+    /// (`docs/adr/0007-delivery-semantics.md`). The record has to be the
+    /// current one of a requested or accepted contact. Durable when this
+    /// returns: the message is in the message store and the record in the
+    /// vault. Nothing is sent here.
+    pub async fn queue_message(
+        &self,
+        contact: ContactId,
+        text: ChatText,
+    ) -> Result<Queued, MessageError> {
+        if self.is_closed() || self.durability.is_failed() {
+            return Err(MessageError::Closed);
+        }
+        let peer = self
+            .current_record(&contact)
+            .ok_or(MessageError::NotAContact)?;
+        // The record is durable once the vault is durable up to now.
+        let record = self.durability.applied();
+        let messages = self.messages()?;
+        let time = now_seconds();
+        let mut attempts = 0_u8;
+        let (queued, generation) = loop {
+            let id = MessageId::from_bytes(*random::<16>().map_err(|_| MessageError::Randomness)?);
+            let (result, generation) = messages
+                .change(|state| {
+                    let result = state.queue(self.id, contact, peer, id, text.clone(), time);
+                    let changed = result.is_ok();
+                    (result, changed)
+                })
+                .map_err(MessageError::Storage)?;
+            match result {
+                Ok(sequence) => break (Queued { id, sequence }, generation),
+                // Another identifier: a collision of 128 random bits.
+                Err(Refusal::IdTaken) if attempts < 3 => attempts = attempts.saturating_add(1),
+                Err(refusal) => return Err(MessageError::Refused(refusal)),
+            }
+        };
+        self.wait_durable(record)
+            .await
+            .map_err(MessageError::Storage)?;
+        messages
+            .commit(generation)
+            .await
+            .map_err(MessageError::Storage)?;
+        if self.is_closed() {
+            return Err(MessageError::Closed);
+        }
+        Ok(queued)
+    }
+
+    /// The contact record the session `arrived` came on stands for, read
+    /// under the lock of the contact: only a session this identity admitted
+    /// as that record's, still standing, has one.
+    fn standing_record(&self, arrived: &Arrived) -> Option<ContactId> {
+        let session = arrived.session_ref();
+        if !self.contacts.admitted(session.withdrawal) {
+            return None;
+        }
+        self.contacts
+            .standing_contact(session.peer, session.withdrawal)
+    }
+
+    /// Returns true if `card` states the active transport key of its
+    /// contact.
+    pub(crate) fn is_active_key(&self, card: &ContactCard) -> bool {
+        self.contacts.is_active_key(card)
+    }
+
+    /// The contact record a link's session stands for, if any. Read under
+    /// the lock of the contact.
+    pub(crate) fn record_of(&self, session: SessionRef<'_>) -> Option<ContactId> {
+        if !self.contacts.admitted(session.withdrawal) {
+            return None;
+        }
+        self.contacts
+            .standing_contact(session.peer, session.withdrawal)
+    }
+
+    /// Takes in the ChatMessage of `arrived`
+    /// (`docs/adr/0007-delivery-semantics.md`): in the conversation of the
+    /// contact record its session stands for, stored once by identifier,
+    /// and durable when this returns. Only then may it be acknowledged. A
+    /// message of a session that no longer stands, or one that does not
+    /// fit, is not stored and must not be acknowledged.
+    pub async fn take_in(&self, arrived: &Arrived) -> Result<TakenIn, MessageError> {
+        let Message::ChatMessage { id, text } = &arrived.received().message else {
+            return Err(MessageError::NotAMessage);
+        };
+        if self.is_closed() {
+            return Err(MessageError::Closed);
+        }
+        let contact = self
+            .standing_record(arrived)
+            .ok_or(MessageError::NotStanding)?;
+        let peer = *arrived.session_ref().peer.identity();
+        let messages = self.messages()?;
+        let time = now_seconds();
+        let (receipt, generation) = messages
+            .change(|state| {
+                let receipt = state.receive(self.id, contact, peer, *id, text.clone(), time);
+                let changed = matches!(receipt, Ok(Receipt::Stored(_)));
+                (receipt, changed)
+            })
+            .map_err(MessageError::Storage)?;
+        let receipt = receipt.map_err(MessageError::Refused)?;
+        messages
+            .commit(generation)
+            .await
+            .map_err(MessageError::Storage)?;
+        Ok(TakenIn {
+            contact,
+            id: *id,
+            receipt,
+        })
+    }
+
+    /// Applies the MessageAck of `arrived` to the conversation of the
+    /// contact record its session stands for, and to no other. Returns the
+    /// record and the sequence of the message it delivered, durable when
+    /// this returns, or `None` for an acknowledgement that changed nothing.
+    pub async fn acknowledged(
+        &self,
+        arrived: &Arrived,
+    ) -> Result<Option<(ContactId, u64)>, MessageError> {
+        let Message::MessageAck(id) = &arrived.received().message else {
+            return Err(MessageError::NotAMessage);
+        };
+        if self.is_closed() {
+            return Err(MessageError::Closed);
+        }
+        let contact = self
+            .standing_record(arrived)
+            .ok_or(MessageError::NotStanding)?;
+        let messages = self.messages()?;
+        let (acknowledgement, generation) = messages
+            .change(|state| {
+                let acknowledgement = state.acknowledge(&self.id, &contact, id);
+                let changed = matches!(acknowledgement, Acknowledgement::Delivered(_));
+                (acknowledgement, changed)
+            })
+            .map_err(MessageError::Storage)?;
+        let Acknowledgement::Delivered(sequence) = acknowledgement else {
+            return Ok(None);
+        };
+        messages
+            .commit(generation)
+            .await
+            .map_err(MessageError::Storage)?;
+        Ok(Some((contact, sequence)))
+    }
+
+    /// The oldest queued message of the conversation of `contact`: the one
+    /// to send next.
+    pub fn next_queued(&self, contact: &ContactId) -> Option<(u64, MessageId, ChatText)> {
+        let messages = self.messages().ok()?;
+        messages.read(|state| state.head(&self.id, contact))
+    }
+
+    /// The conversations that have queued messages.
+    pub fn conversations_with_queue(&self) -> Vec<(ContactId, IdentityPublicKey)> {
+        self.messages()
+            .map(|messages| messages.read(|state| state.with_queue(&self.id)))
+            .unwrap_or_default()
+    }
+
+    /// The conversations of this identity, those of records that are gone
+    /// included.
+    pub fn conversations(&self) -> Vec<ConversationView> {
+        self.messages()
+            .map(|messages| messages.read(|state| state.conversations(&self.id)))
+            .unwrap_or_default()
+    }
+
+    /// Up to `limit` messages of the conversation of `contact`, newest
+    /// last, those with a sequence below `before` if it is given.
+    pub fn conversation(
+        &self,
+        contact: &ContactId,
+        before: Option<u64>,
+        limit: usize,
+    ) -> Vec<EntryView> {
+        self.messages()
+            .map(|messages| messages.read(|state| state.entries(&self.id, contact, before, limit)))
+            .unwrap_or_default()
+    }
+
+    /// One message of the conversation of `contact`, by its sequence.
+    pub fn message(&self, contact: &ContactId, sequence: u64) -> Option<EntryView> {
+        let messages = self.messages().ok()?;
+        messages.read(|state| state.entry(&self.id, contact, sequence))
+    }
+
+    /// Deletes the messages of the conversation of `contact` from the
+    /// message store, queued ones included: they are not sent. The
+    /// identifiers of received ones are remembered while the record is the
+    /// current one of its contact. Durable when this returns. Nothing is
+    /// sent to the contact.
+    pub async fn delete_conversation(&self, contact: &ContactId) -> Result<bool, MessageError> {
+        if self.is_closed() {
+            return Err(MessageError::Closed);
+        }
+        let keep = self.current_record(contact).is_some();
+        let messages = self.messages()?;
+        let (deleted, generation) = messages
+            .change(|state| {
+                let deleted = state.delete_conversation(&self.id, contact, keep);
+                (deleted, deleted)
+            })
+            .map_err(MessageError::Storage)?;
+        messages
+            .commit(generation)
+            .await
+            .map_err(MessageError::Storage)?;
+        Ok(deleted)
+    }
+
+    /// Follows the changes of the message store, for the tasks that send.
+    pub(crate) fn message_changes(&self) -> Option<watch::Receiver<u64>> {
+        self.messages().ok().map(|messages| messages.subscribe())
+    }
+
+    /// Returns true once the message store failed: nothing more is stored.
+    pub fn messages_failed(&self) -> bool {
+        self.messages()
+            .map_or(true, |messages| messages.is_failed())
     }
 
     // --- Requests and invitations ----------------------------------------
@@ -1205,6 +1488,7 @@ impl LocalIdentity {
         self.hook("snapshot reads");
         let (contacts, blocked, declined) = self.contacts.snapshot(rotation);
         StoredIdentity {
+            id: Some(self.id),
             identity_seed: keys.seed.clone(),
             transport_secret: keys.transport.clone(),
             onion_secret: keys.onion.clone(),
@@ -1246,11 +1530,79 @@ impl LocalIdentity {
     }
 }
 
+/// A queued message: its identifier on the wire and its place in the
+/// conversation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Queued {
+    /// The identifier, from the random source.
+    pub id: MessageId,
+    /// Its place in the conversation.
+    pub sequence: u64,
+}
+
+/// What became of a received message that was taken in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TakenIn {
+    /// The contact record of the conversation.
+    pub contact: ContactId,
+    /// The identifier, to acknowledge.
+    pub id: MessageId,
+    /// Stored, or held already.
+    pub receipt: Receipt,
+}
+
+/// Why an operation on the messages of an identity failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MessageError {
+    /// The identity is closed, or its installation failed.
+    Closed,
+    /// The record is not the current one of a requested or accepted
+    /// contact of the identity.
+    NotAContact,
+    /// A limit refused the message. Nothing was stored.
+    Refused(Refusal),
+    /// The message store or the vault could not be written.
+    Storage(CommitError),
+    /// The random source failed.
+    Randomness,
+    /// The session no longer stands for a contact record.
+    NotStanding,
+    /// The message is not of the kind the operation takes.
+    NotAMessage,
+}
+
+impl fmt::Display for MessageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Closed => f.write_str("identity closed"),
+            Self::NotAContact => f.write_str("not a contact"),
+            Self::Refused(refusal) => write!(f, "{refusal}"),
+            Self::Storage(error) => write!(f, "{error}"),
+            Self::Randomness => f.write_str("random source failed"),
+            Self::NotStanding => f.write_str("session does not stand for a contact"),
+            Self::NotAMessage => f.write_str("not a message"),
+        }
+    }
+}
+
+impl core::error::Error for MessageError {}
+
+/// The local time in whole seconds since the Unix epoch, for display. A
+/// clock before the epoch gives 0.
+fn now_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+}
+
 /// What all identities of an installation share: the durable state and
 /// the identities themselves.
 pub(crate) struct Shared {
     durability: Arc<Durability>,
     store: Store,
+    /// The messages of every identity, in their own store.
+    messages: Arc<Messages>,
     identities: Mutex<Vec<Arc<LocalIdentity>>>,
     /// One identity is created or deleted at a time.
     changes: AsyncMutex<()>,
@@ -1316,6 +1668,7 @@ impl Shared {
 
     fn contents(&self) -> Contents {
         Contents {
+            version: PayloadVersion::V2,
             identities: lock(&self.identities)
                 .iter()
                 .map(|identity| identity.snapshot())
@@ -1410,14 +1763,19 @@ impl From<StoreError> for InstallationError {
 }
 
 /// The vault of an installation, in whatever directory.
-pub type BoxedDir = Box<dyn VaultDir + Send>;
+pub type BoxedDir = Box<dyn VaultDir + Send + Sync>;
+
+/// The directory of an installation, shared by the vault and the message
+/// store, which write files of their own names in it under its one lock.
+type SharedDir = Arc<dyn VaultDir + Send + Sync>;
 
 impl Installation {
-    fn with_store(store: Store, mode: Mode) -> Self {
+    fn with_store(store: Store, messages: Arc<Messages>, mode: Mode) -> Self {
         Self {
             shared: Arc::new(Shared {
                 durability: Durability::new(),
                 store,
+                messages,
                 identities: Mutex::new(Vec::new()),
                 changes: AsyncMutex::new(()),
             }),
@@ -1427,31 +1785,105 @@ impl Installation {
 
     /// An installation that writes nothing.
     pub fn ephemeral() -> Self {
-        Self::with_store(Store::Ephemeral, Mode::Ephemeral)
+        Self::with_store(
+            Store::Ephemeral,
+            Messages::new(Store::Ephemeral, MessageState::new()),
+            Mode::Ephemeral,
+        )
     }
 
-    /// Creates a new, empty vault in `dir`.
+    /// Creates a new, empty vault in `dir`, and the empty message store
+    /// beside it.
     pub fn create(
         dir: BoxedDir,
         passphrase: &Passphrase,
         params: KdfParams,
     ) -> Result<Self, InstallationError> {
+        let dir: SharedDir = Arc::from(dir);
         let plaintext = Contents::default().encode()?;
-        let vault = Vault::create(dir, passphrase, params, &plaintext)?;
+        let vault = Vault::create(dir.clone(), passphrase, params, &plaintext)?;
+        let state = MessageState::new();
+        let file =
+            MessageFile::create(dir, vault.message_store_key()?, &state.contents().encode()?)?;
         Ok(Self::with_store(
             Store::vault(Box::new(vault)),
+            Messages::new(Store::vault(Box::new(file)), state),
             Mode::Persistent,
         ))
     }
 
     /// Opens the vault in `dir` and rebuilds every identity in it.
+    ///
+    /// The message store beside it is opened with it and matched against
+    /// it (`docs/adr/0008-message-store.md`): what is left of a deleted
+    /// identity is dropped, a conversation of a record of another identity
+    /// is refused. A vault without a message store, one of Phase 4, gets an
+    /// empty one; a vault of payload version 1 is written as version 2,
+    /// with the identifiers its records got, before this returns. A
+    /// message store that does not open fails the installation: nothing is
+    /// repaired by guessing.
     pub fn open(
         dir: BoxedDir,
         passphrase: &Passphrase,
     ) -> Result<(Self, Recovery), InstallationError> {
-        let (vault, plaintext, recovery) = Vault::open(dir, passphrase)?;
-        let contents = Contents::decode(&plaintext)?;
-        let installation = Self::with_store(Store::vault(Box::new(vault)), Mode::Persistent);
+        let dir: SharedDir = Arc::from(dir);
+        let (mut vault, plaintext, recovery) = Vault::open(dir.clone(), passphrase)?;
+        // Everything the vault holds is checked before anything is
+        // written: a vault that does not open is left as it was.
+        Self::check(Contents::decode(&plaintext)?)?;
+        let mut contents = Contents::decode(&plaintext)?;
+        if contents.version == PayloadVersion::V1 {
+            // The records get their identifiers now, and the vault holds
+            // them before anything can refer to them.
+            for identity in &mut contents.identities {
+                identity.id = Some(IdentityId::generate()?);
+                for contact in &mut identity.contacts {
+                    contact.id = Some(ContactId::generate()?);
+                }
+            }
+            contents.version = PayloadVersion::V2;
+            vault.write(&contents.encode()?)?;
+        }
+        let mut records: HashMap<IdentityId, Vec<(ContactId, IdentityPublicKey)>> = HashMap::new();
+        for identity in &contents.identities {
+            let id = identity.id.ok_or(InstallationError::Invalid)?;
+            let contacts = identity
+                .contacts
+                .iter()
+                .map(|contact| {
+                    contact
+                        .id
+                        .map(|record| (record, *contact.credentials.identity()))
+                        .ok_or(InstallationError::Invalid)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            records.insert(id, contacts);
+        }
+        let key = vault.message_store_key()?;
+        let (file, state) = match MessageFile::open(dir.clone(), key) {
+            Ok((mut file, plaintext, _)) => {
+                let mut state = MessageState::load(MessageContents::decode(&plaintext)?);
+                if state.reconcile(&records)? {
+                    file.write(&state.contents().encode()?)?;
+                }
+                (file, state)
+            }
+            Err(StorageError::NotFound) => {
+                let state = MessageState::new();
+                let file = MessageFile::create(
+                    dir,
+                    vault.message_store_key()?,
+                    &state.contents().encode()?,
+                )?;
+                (file, state)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let installation = Self::with_store(
+            Store::vault(Box::new(vault)),
+            Messages::new(Store::vault(Box::new(file)), state),
+            Mode::Persistent,
+        );
         {
             let mut identities = lock(&installation.shared.identities);
             for stored in contents.identities {
@@ -1466,6 +1898,30 @@ impl Installation {
             }
         }
         Ok((installation, recovery))
+    }
+
+    /// Rebuilds the identities of `contents` in an installation of their
+    /// own that writes nothing, and drops them: what [`Self::open`] would
+    /// refuse is refused here, before the vault or the message store is
+    /// written.
+    fn check(contents: Contents) -> Result<(), InstallationError> {
+        let staging = Self::with_store(
+            Store::Ephemeral,
+            Messages::new(Store::Ephemeral, MessageState::new()),
+            Mode::Ephemeral,
+        );
+        let mut identities: Vec<LocalIdentity> = Vec::new();
+        for stored in contents.identities {
+            let identity = staging.restore(stored)?;
+            if identities
+                .iter()
+                .any(|held| held.shares_a_key_with(&identity))
+            {
+                return Err(InstallationError::Invalid);
+            }
+            identities.push(identity);
+        }
+        Ok(())
     }
 
     fn restore(&self, stored: StoredIdentity) -> Result<LocalIdentity, InstallationError> {
@@ -1526,7 +1982,15 @@ impl Installation {
             instance,
             rotations: 1,
         };
+        // An identity read from a vault of version 1 got its identifier
+        // when the vault was opened; one made by hand without one gets one
+        // now.
+        let id = match stored.id {
+            Some(id) => id,
+            None => IdentityId::generate()?,
+        };
         Ok(LocalIdentity::new(
+            id,
             keys,
             Settings {
                 request_mode: stored.request_mode,
@@ -1543,6 +2007,12 @@ impl Installation {
     /// Whether the installation keeps its state.
     pub const fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// Returns true once a write of the message store failed: no message
+    /// is stored or acknowledged any more.
+    pub fn messages_failed(&self) -> bool {
+        self.shared.messages.is_failed()
     }
 
     /// Returns true once a write failed. Every change is refused then.
@@ -1584,6 +2054,7 @@ impl Installation {
             rotations: 0,
         };
         let identity = Arc::new(LocalIdentity::new(
+            IdentityId::generate()?,
             keys,
             Settings {
                 request_mode: RequestMode::default(),
@@ -1620,7 +2091,10 @@ impl Installation {
             .map_err(|_| InstallationError::Invalid)?;
         let id = *party.identity();
         let instance = new_instance()?;
+        // A new identifier, also for keys a deleted identity had: what was
+        // bound to that identity stays with it.
         let identity = Arc::new(LocalIdentity::new(
+            IdentityId::generate()?,
             Keys {
                 seed: keys.seed,
                 transport: keys.transport,
@@ -1718,6 +2192,16 @@ impl Installation {
         }
         let generation = self.shared.durability.bump();
         self.shared
+            .commit(generation)
+            .await
+            .map_err(|error| InstallationError::Store(StoreError::Commit(error)))?;
+        // Its messages go once the vault no longer holds it. A crash in
+        // between leaves them to the next opening, which drops them.
+        let messages = &self.shared.messages;
+        let (_, generation) = messages
+            .change(|state| ((), state.remove_identity(&identity.id)))
+            .map_err(|error| InstallationError::Store(StoreError::Commit(error)))?;
+        messages
             .commit(generation)
             .await
             .map_err(|error| InstallationError::Store(StoreError::Commit(error)))

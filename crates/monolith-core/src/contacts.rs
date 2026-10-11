@@ -51,7 +51,7 @@ use monolith_protocol::limits::{MAX_BLOCKED_IDENTITIES, MAX_CONTACTS, MAX_DECLIN
 use monolith_protocol::session::PeerRecord;
 use monolith_protocol::text::DisplayName;
 use monolith_session::{Admitted, InboundPeer, OutboundAdmission, OutboundPeer, SessionError};
-use monolith_storage::record::StoredContact;
+use monolith_storage::record::{ContactId, StoredContact};
 
 use crate::identity::RotationId;
 use crate::link::{Owner, Withdrawal};
@@ -129,6 +129,10 @@ struct ContactRecord {
     /// identity is another one. What was started for one (an announcement)
     /// completes for it only.
     instance: u64,
+    /// The durable identifier of the record, kept in the vault: what is
+    /// bound to this contact beyond the process (its conversation, its
+    /// queue) is bound to it, and to no other record of the identity.
+    id: ContactId,
     kind: RecordKind,
     credentials: Credentials,
     /// The card the user confirmed for dialing (`docs/PROTOCOL.md` section
@@ -250,6 +254,12 @@ impl Entry {
 #[derive(Debug)]
 struct Slot(Mutex<Entry>);
 
+/// A new durable identifier for a contact record, from the random source.
+fn new_contact_id() -> Result<ContactId, StoreError> {
+    ContactId::generate()
+        .map_err(|error| StoreError::Commit(crate::persist::CommitError::Storage(error)))
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // Every change under these locks is made in one step that cannot
     // panic halfway, so a poisoned lock still guards a consistent state.
@@ -366,6 +376,65 @@ impl ContactStore {
     /// A number for a new contact record.
     fn next_instance(&self) -> u64 {
         self.instances.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// The durable identifier of the contact record `identity` has now, if
+    /// it is a requested or accepted contact.
+    pub(crate) fn contact_id(&self, identity: &IdentityPublicKey) -> Option<ContactId> {
+        self.with_entry(identity, false, |entry| match entry {
+            Some(Entry {
+                record: Record::Contact(contact),
+                ..
+            }) => Some(contact.id),
+            _ => None,
+        })
+    }
+
+    /// The durable identifier of the contact record that the session of
+    /// `card` and `withdrawal` stands for: read under the lock of the
+    /// contact, in the step that finds the session admitted as that very
+    /// record's, not withdrawn, its link not ended and its card still
+    /// standing. `None` for any other session.
+    pub(crate) fn standing_contact(
+        &self,
+        card: &ContactCard,
+        withdrawal: &Withdrawal,
+    ) -> Option<ContactId> {
+        self.with_entry(card.identity(), false, |entry| {
+            let entry = entry?;
+            if !entry.stands_for(card, withdrawal) {
+                return None;
+            }
+            match &entry.record {
+                Record::Contact(contact) => Some(contact.id),
+                Record::None | Record::Declined | Record::Blocked => None,
+            }
+        })
+    }
+
+    /// Returns true if `card` states the transport key of the active
+    /// credential of the contact record of its identity.
+    pub(crate) fn is_active_key(&self, card: &ContactCard) -> bool {
+        self.with_entry(card.identity(), false, |entry| match entry {
+            Some(Entry {
+                record: Record::Contact(contact),
+                ..
+            }) => contact.credentials.active().transport() == card.transport(),
+            _ => false,
+        })
+    }
+
+    /// Every requested or accepted contact, with the durable identifier of
+    /// its record.
+    pub(crate) fn contact_ids(&self) -> Vec<(ContactId, IdentityPublicKey)> {
+        let slots = lock(&self.slots);
+        let mut contacts = Vec::new();
+        for (identity, slot) in slots.iter() {
+            if let Record::Contact(contact) = &lock(&slot.0).record {
+                contacts.push((contact.id, *identity));
+            }
+        }
+        contacts
     }
 
     /// Which contact the record of `identity` is now, if it is one.
@@ -486,10 +555,18 @@ impl ContactStore {
             };
             for stored in contacts {
                 let identity = *stored.credentials.identity();
+                // A record read from a vault of version 1 has no identifier
+                // yet; it gets one now, and the vault is written with it
+                // before anything refers to it.
+                let id = match stored.id {
+                    Some(id) => id,
+                    None => new_contact_id()?,
+                };
                 insert(
                     identity,
                     Record::Contact(Box::new(ContactRecord {
                         instance: store.next_instance(),
+                        id,
                         kind: stored.kind,
                         credentials: stored.credentials,
                         dial: stored.dial,
@@ -704,6 +781,8 @@ impl ContactStore {
         if card.identity() == &self.local {
             return Err(StoreError::OwnIdentity);
         }
+        // Drawn before the lock: used only if a record is made.
+        let id = new_contact_id()?;
         self.with_entry(card.identity(), true, |entry| {
             let entry = entry.ok_or(StoreError::NotFound)?;
             let kind = entry.record.kind();
@@ -739,6 +818,7 @@ impl ContactStore {
                 drop(counts);
                 entry.record = Record::Contact(Box::new(ContactRecord {
                     instance: self.next_instance(),
+                    id,
                     kind: decision.after,
                     credentials,
                     dial: card.clone(),
@@ -944,6 +1024,7 @@ impl ContactStore {
         if card.identity() == &self.local {
             return Err(StoreError::OwnIdentity);
         }
+        let id = new_contact_id()?;
         self.with_entry(card.identity(), true, |entry| {
             let entry = entry.ok_or(StoreError::NotFound)?;
             match entry.record {
@@ -960,6 +1041,7 @@ impl ContactStore {
             drop(counts);
             entry.record = Record::Contact(Box::new(ContactRecord {
                 instance: self.next_instance(),
+                id,
                 kind: RecordKind::Accepted,
                 credentials: Credentials::new(card.clone()),
                 dial: card.clone(),
@@ -1204,6 +1286,7 @@ impl ContactStore {
             let entry = lock(&slot.0);
             match &entry.record {
                 Record::Contact(contact) => contacts.push(StoredContact {
+                    id: Some(contact.id),
                     kind: contact.kind,
                     credentials: contact.credentials.clone(),
                     dial: contact.dial.clone(),

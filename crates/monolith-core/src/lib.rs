@@ -14,6 +14,7 @@ pub mod contacts;
 pub mod dialplan;
 pub mod identity;
 pub mod link;
+pub mod messages;
 pub mod persist;
 pub mod requests;
 pub mod strangers;
