@@ -13,6 +13,7 @@
 compile_error!("monolith must not be built with --cfg fuzzing");
 
 mod dev;
+mod messenger;
 mod node;
 
 use std::process::ExitCode;
@@ -46,6 +47,10 @@ Development node over a persistent vault, driven by commands on standard
 input (see the source of node.rs for the commands):
   dev-node <data dir> <passphrase file> [--kdf-floor] [--echo]
 
+Development node on the messaging runtime, driven the same way (see the
+source of messenger.rs for the commands):
+  dev-runtime <data dir> <passphrase file> [--kdf-floor] [--ack-delay <seconds>]
+
 Options (Tor endpoints, never anything but loopback or a local socket):
   --socks <endpoint>          default 127.0.0.1:9050
   --control <endpoint>        default unix:/run/tor/control
@@ -62,6 +67,24 @@ No command ever prints a private key.";
 const DEFAULT_SOCKS: &str = "127.0.0.1:9050";
 const DEFAULT_CONTROL: &str = "unix:/run/tor/control";
 const DEFAULT_COOKIE: &str = "/run/tor/control.authcookie";
+
+/// The options of `dev-runtime`: whether to use the weakest KDF, and the
+/// delay of acknowledgements.
+fn runtime_flags(flags: &[&str]) -> Option<(bool, std::time::Duration)> {
+    let mut floor = false;
+    let mut delay = std::time::Duration::ZERO;
+    let mut rest = flags.iter();
+    while let Some(flag) = rest.next() {
+        match *flag {
+            "--kdf-floor" => floor = true,
+            "--ack-delay" => {
+                delay = std::time::Duration::from_secs(rest.next()?.parse().ok()?);
+            }
+            _ => return None,
+        }
+    }
+    Some((floor, delay))
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -103,6 +126,19 @@ fn main() -> ExitCode {
                 flags.contains(&"--echo"),
             ))
         }
+        ["dev-runtime", data_dir, passphrase_file, flags @ ..] => match runtime_flags(flags) {
+            Some((floor, delay)) => block_on(messenger::run(
+                config,
+                std::path::PathBuf::from(data_dir),
+                std::path::PathBuf::from(passphrase_file),
+                floor,
+                delay,
+            )),
+            None => {
+                eprintln!("monolith: unknown option of dev-runtime\n\n{USAGE}");
+                ExitCode::from(64)
+            }
+        },
         ["status"]
         | ["identity", "show" | "fingerprint"]
         | ["contact-card", "show"]
