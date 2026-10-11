@@ -2,9 +2,10 @@
 
 Status: the vault (section 3) is implemented in Phase 4, in
 `monolith-storage`, with the record layout of section 3.4 and the crash
-tests of section 8. Its KDF defaults are provisional until the benchmark of
-section 3.3 has been run on every target. The message store (section 5) is
-an open decision.
+tests of section 8; Phase 5 adds the durable identifiers of payload
+version 2. Its KDF defaults are provisional until the benchmark of section
+3.3 has been run on every target. The message store (section 5) is
+implemented in Phase 5 (`adr/0008-message-store.md`).
 
 ## 1. What is stored, and where
 
@@ -13,11 +14,15 @@ Three kinds of state, kept apart:
 | State | Contents | Where |
 | --- | --- | --- |
 | Identity and contacts | identity key, transport key, Onion Service key, card epoch, invitations, contacts with their pinned cards (identity key, transport key, endpoints, epoch), block and declined lists, verification marks, settings that are not secret | the vault |
-| Messages | chat history, outbound queue, per-contact duplicate windows | the message store, if enabled |
+| Messages | the outbound queue, delivered and received messages, the identifiers of deleted received messages | the message store (section 5); in memory in ephemeral mode |
 | Runtime | sessions, session keys, isolation tokens, pending requests and offers, UI queue, partial downloads | memory; partial downloads in temporary files |
 
-Keeping an identity does not imply keeping conversations. The two are
-separate switches (`StateMode`, `HistoryPolicy` in `monolith-storage`).
+Since Phase 5 a persistent installation always has a message store: a
+message is acknowledged only once it is durably held there
+(`adr/0007-delivery-semantics.md`), and a queue survives a restart. What a
+conversation holds is kept until the user deletes it. `HistoryPolicy` in
+`monolith-storage` stays a type for a later choice of keeping less; it
+switches nothing in version 1.
 
 Modes:
 
@@ -26,11 +31,9 @@ Modes:
 - Persistent: the vault exists in a directory the user chose or confirmed.
   Default on other Linux systems and on Whonix.
 
-Message history is off by default on every platform, including ordinary
-Linux and Whonix. Turning it on is an explicit choice and requires a
-persistent vault. With history off, queued unsent messages are held in
-memory only; the interface says so when the user quits with messages still
-queued.
+In ephemeral mode the messages live in memory with everything else and are
+gone when the process exits. In persistent mode they are in the message
+store, encrypted under a key derived from the vault key (section 5).
 
 Data directory: `$XDG_DATA_HOME/monolith`, falling back to
 `~/.local/share/monolith`. On Tails there is no default; see
@@ -40,7 +43,8 @@ Data directory: `$XDG_DATA_HOME/monolith`, falling back to
       vault              0600   encrypted identity and contacts
       vault.new          0600   only during a write
       lock               0600   single-instance lock
-      messages.db        0600   message store, if enabled
+      messages           0600   message store (section 5)
+      messages.new       0600   only during a write
 
 Monolith writes no log file. Logs go to standard error or the journal and
 contain nothing sensitive (S18).
@@ -55,16 +59,19 @@ section 1.1). Every stored record belongs to one of them:
       |                block and declined lists, labels and settings
       +-- identity B   the same, separately
     message store
-      +-- (A, peer)    queue, history, duplicate window
-      +-- (B, peer)    the same, separately
+      +-- (A, record)  queue, messages, identifiers of deleted messages
+      +-- (B, record)  the same, separately
 
 - Records of contacts, blocked, declined and former contacts, verification
-  marks, aliases, pending requests in both directions, queued messages,
-  history and duplicate windows are keyed by the local identity and the
-  remote identity. A conversation is never identified by the remote
-  identity alone. No record of one identity applies to another; a block
-  list for all identities, if ever offered, is a separate record and an
-  explicit choice.
+  marks, aliases and pending requests in both directions are keyed by the
+  local identity and the remote identity. Queued messages, history and the
+  identifiers of deleted messages are keyed by the durable identifier of
+  the local identity and of the contact record (`IdentityId`, `ContactId`,
+  section 3.4). A conversation is never identified by the remote identity
+  alone, and a contact deleted and made again, or an identity deleted and
+  restored from its keys, starts with none of it. No record of one
+  identity applies to another; a block list for all identities, if ever
+  offered, is a separate record and an explicit choice.
 - In version 1 one vault, under one passphrase, may hold several
   identities. A vault per identity is possible later and is not planned.
 - Deleting a local identity removes its keys, its Onion Service key, its
@@ -267,9 +274,10 @@ wire protocol, each set of them belonging to one local identity (section
 a presence byte (0 or 1) before every optional field, and a 16-bit length
 before every field of variable size.
 
-    payload     u16 version (1), u32 records length, records, zero padding
+    payload     u16 version (1 or 2), u32 records length, records, zero padding
     records     u16 identity count, identity*
-    identity    u8 tag (1), identity seed [32], transport secret [32],
+    identity    u8 tag (1), identity id [16] (version 2),
+                identity seed [32], transport secret [32],
                 presence + Onion Service secret [64], card epoch u64,
                 endpoint [32], presence + rotation, request mode u8,
                 presence + local label, u8 invitation count, invitation*,
@@ -277,7 +285,8 @@ before every field of variable size.
                 u16 declined count, key [32]* (oldest first)
     rotation    new transport secret [32], successor epoch u64, switched u8
     invitation  capability [16], presence + local label
-    contact     kind u8 (1 requested, 2 accepted), active card,
+    contact     contact id [16] (version 2),
+                kind u8 (1 requested, 2 accepted), active card,
                 presence + authorized successor card, presence + pending
                 card, pending was imported u8, presence + retired key [32],
                 presence + capability [16], card confirmed for dialing,
@@ -286,6 +295,15 @@ before every field of variable size.
     card        u16 length, the card as on the wire (section 11.1 of
                 PROTOCOL.md)
     label       u16 length, display-name text (section 9 of PROTOCOL.md)
+
+Version 2 (Phase 5) adds the durable identifiers of
+`adr/0008-message-store.md`: 16 random bytes per identity and per contact
+record, drawn when it is made and never changed or reused; zero bytes and
+duplicates are refused. A version 1 payload is still read; its records get
+identifiers when the vault is opened, and the vault is written as version
+2, after everything in it was checked and before anything can refer to
+them. A payload is written back in the version it was read in, so it has
+one encoding.
 
 Secrets are the bytes the keys were made from; the key types themselves
 cannot be exported. The local card is not stored: it is signed again
@@ -387,31 +405,36 @@ partial files it recognizes at the next start.
 
 Received files are plaintext on disk. That is what saving a file means.
 
-## 5. Message store (open decision)
+## 5. Message store
 
-Needed only when the user turns history on. It holds history, the outbound
-queue and duplicate windows.
+Decided in Phase 5: `adr/0008-message-store.md`, which closes ST1 for
+version 1. In short:
 
-Candidates:
+- One file, `messages`, beside the vault and under its lock, a container
+  of the vault's kind without a passphrase: XChaCha20-Poly1305 under
 
-| Option | For | Against |
-| --- | --- | --- |
-| SQLCipher through `rusqlite`, keyed with a raw key derived from the vault key | Mature, transactional, random access, hides table structure, per-page authentication so a modified file is rejected before SQLite parses it. In Debian 13 as `libsqlcipher1`. | C code and OpenSSL's libcrypto in the process. Debian's version (4.6.1) lags upstream. Licence requires attribution in the application. Its own cipher choices. |
-| Plain SQLite with each value encrypted by Monolith | No OpenSSL. Monolith's primitives. | Row counts, sizes and write patterns are visible. SQLite parses an unauthenticated file. |
-| `redb` with each value encrypted by Monolith | Pure Rust, stable file format. | Same visibility as above. |
-| No message store in version 1 | Nothing to get wrong. | No history and no queue across restarts. |
+      store_key = HKDF-SHA256(vault_key, info = "MONOLITH-MESSAGE-STORE-V1")
 
-Recommendation: SQLCipher, linked against the system library on Debian-based
-targets, opened with
-
-    store_key = HKDF-SHA256(vault_key, info = "MONOLITH-MESSAGE-STORE-V1")
-
-passed as a raw key so that SQLCipher's own passphrase KDF is not used. All
-statements are parameterized. The decision is not final; it is taken with
-the outbound queue and the message store, which follow Phase 4 (ST1,
-`DESIGN_QUESTIONS.md` section 11.3), with the dependency review in ADR
-0005. Because history is off by default, the choice does not block earlier
-phases.
+  with the 48-byte header as associated data, the plaintext padded to
+  64 KiB, at most 16 MiB (`MAX_MESSAGE_STORE_FILE_LEN`). It is rewritten
+  whole and replaced atomically like the vault (section 3.5, with the
+  names `messages` and `messages.new`), by a write job of its own, with
+  generations of its own.
+- Its payload holds, per local identity, the conversations of its contact
+  records: queued, delivered and received messages in the order they were
+  stored, with the local time, and the identifiers of received messages
+  the user deleted. Reading checks every count before allocating, the
+  order, the identifiers and every text; nothing that fails is repaired.
+- At opening it is matched against the vault: the messages of an identity
+  the vault does not hold are dropped, a conversation of a record the vault
+  does not hold is kept as ended, and one of a record of another identity
+  is refused. Where no store is in place an empty one is made; for a
+  vault that holds identities (a copy of the vault alone, which is a
+  backup of its identities) that is reported. A vault of version 1 beside
+  a store with messages is refused.
+- SQLCipher through `rusqlite` was not taken: `rusqlite` needs Rust 1.88,
+  above the minimum supported version, and SQLCipher brings C code and
+  OpenSSL into the process. A store for long histories is later work.
 
 ## 6. Deleting
 
@@ -459,7 +482,7 @@ must find:
 | Onion Service key stored | the key Tor returned is in the vault before the contact card is shown |
 | Contact acceptance | the contact exists completely or not at all |
 | Endpoint update | pinned epoch never lower than before |
-| Queue update | no message lost that was acknowledged to the user as queued, when the store is enabled |
+| Queue update | no message lost that was reported queued; no message reported delivered without an acknowledgement; no received message acknowledged before it is durable |
 | File completion | final file complete, or absent |
 
 Each has a test that kills the write at every step (T-CRASH): the vault's
@@ -471,8 +494,14 @@ not flushed kept or lost, contents that were not flushed lost or torn), and
 update, announced successor, promotion, block, deletion, invitation
 creation and revocation, the start of a rotation and identity creation. A
 new process finds the state before or the state after, never a lower
-epoch and never a retired key active again. Queue update and file
-completion come with the message store and file transfer.
+epoch and never a retired key active again. For the message store,
+`messages.rs` in `monolith-storage` stops a write and a creation at each
+step, and `tests/messages.rs` in the core crashes the installation at
+every step of queueing a message and at each boundary of delivery: before
+a message is durable at the sender or at the receiver, after it is
+durable and before it is acknowledged, after the acknowledgement and
+before the delivery is durable. File completion comes with file
+transfer.
 
 What is written is used only once it is durable (`DESIGN_QUESTIONS.md`
 P4-4). The write is a job of its own on the blocking pool, which ends the
@@ -488,7 +517,8 @@ before the vault in it is reported created.
 
 ## 9. Open items
 
-ST1. Message store choice (section 5).
+ST1. Message store choice. Decided in Phase 5 for version 1
+     (`adr/0008-message-store.md`); a store for long histories stays open.
 
 ST2. Locking mechanism. Decided in Phase 4: an exclusive, non-blocking
      `flock` on the `lock` file through `rustix`, which the operating

@@ -1,12 +1,15 @@
 # Architecture
 
-Status: Phase 4 complete (tag `phase-4-complete`); Phase 5 not started.
-The protocol core, the session layer, the integration with a Tor the
-system runs, the contact store, the vault and the publication supervisor
-are implemented and verified; the session manager, the message queue
-and store, and the interface are still design. `DESIGN_QUESTIONS.md`
-section 11.6 records the final verification of Phase 4. This document
-describes the structure the phases build.
+Status: Phase 4 complete (tag `phase-4-complete`); Phase 5, the
+messaging runtime, implemented on `phase-5-messaging-runtime` and not
+complete before its final verification. The protocol core, the session
+layer, the integration with a Tor the system runs, the contact store, the
+vault and the publication supervisor are implemented and verified; Phase 5
+adds the message store, the session manager, the reconnect scheduler and
+the runtime with its command and event interface (`STATUS.md`). The user
+interface is still design. `DESIGN_QUESTIONS.md` section 11.6 records the
+final verification of Phase 4. This document describes the structure the
+phases build.
 
 ## 1. Shape
 
@@ -15,6 +18,9 @@ core talks to peers through a Tor backend and to the disk through a storage
 layer.
 
     monolith-desktop   monolith-cli
+            |             |
+            v             |
+    monolith-runtime      |
             \             /
              v           v
             monolith-core
@@ -36,7 +42,13 @@ the durability of its changes (`persist`), invitations and requests
 (`requests`), the budget for strangers (`strangers`), the dial plan
 (`dialplan`) and the publication supervisor (`supervisor`);
 `monolith-storage` holds the vault and its records, built from the typed
-values of `monolith-protocol`.
+values of `monolith-protocol`. Since Phase 5 the core holds the messages
+of every identity and their durability (`messages`), the session manager
+(`sessions`), the runtime that owns every session and delivers the queues
+(`runtime`) and the plain values of its commands and events (`api`);
+`monolith-storage` holds the message store file and its records
+(`messages`, `message_records`); `monolith-runtime` is the boundary a front
+end depends on.
 
 | Crate | Owns | Must not |
 | --- | --- | --- |
@@ -46,6 +58,7 @@ values of `monolith-protocol`.
 | `monolith-tor` | the `TorBackend` trait and its implementations: SOCKS5 client, control client, listener | know about identities' meaning, messages or contacts |
 | `monolith-storage` | the vault and its records, the message store, transfer files | change contact or session state on its own, interpret peer input |
 | `monolith-core` | contacts, sessions, queues, policy, budgets, the command and event interface | contain UI code, socket code or file formats |
+| `monolith-runtime` | what a front end may use: the commands, queries and events of the core as plain values | hand out a local identity, an installation, a link, a session, a key or a capability |
 | `monolith-cli` | argument parsing, terminal output | contain protocol logic |
 | `monolith-desktop` | windows and widgets | contain protocol logic |
 
@@ -242,14 +255,21 @@ Persistent state is written only at "applied".
     service from the stored key, runs its accept loop, and publishes it
     again after Tor lost it, with the delays of the reconnect schedule
     (`RESOURCE_LIMITS.md` section 7);
-  - one task per session (handshake, then frame loop);
+  - one task per session (handshake, then frame loop), owned by the
+    runtime, which alone sends and receives on it; the session manager of
+    each identity knows which session of a contact record is preferred,
+    and only that one sends the queue (`adr/0009-session-manager.md`);
   - one accept loop per published service, which owns the handshake tasks
     it starts in a `JoinSet`, at most `MAX_INBOUND_HANDSHAKES` of them, and
     aborts them when it ends;
-  - a dial scheduler with at most `MAX_CONCURRENT_DIALS` dials;
+  - one scheduler per conversation with queued messages and no session,
+    which dials with the reconnect delays; at most `MAX_CONCURRENT_DIALS`
+    dials run at once;
   - Tor control connections: one held by each published service, which
     ends with it, and short ones for status queries;
-  - vault writes and KDF work run on the blocking pool; a task that
+  - vault writes, message store writes and KDF work run on the blocking
+    pool, the two stores with write jobs and generations of their own; a
+    task that
     waits for a change to be durable and finds no write under way starts
     one, a job that writes the whole installation, as one cut through
     every identity and its contact store, puts the vault back and
@@ -263,8 +283,11 @@ Persistent state is written only at "applied".
   cancellation signal. Nothing is detached. Shutdown cancels, waits with a
   deadline, then drops.
 - No task per message or per frame.
-- Backpressure is end to end: when the front end's event queue or a disk
-  writer is full, the session task stops reading from its stream.
+- Backpressure is end to end where it carries content: a session task
+  acknowledges a message only once it is durable, and reads nothing more
+  until then. Events are notifications in a bounded broadcast: a front end
+  that falls behind is told how many it missed, and nothing waits for it
+  (`RESOURCE_LIMITS.md` section 8).
 
 Panic policy: a panic is a bug. Lints forbid the usual sources in non-test
 code, and release builds check integer overflow. If a session task panics
@@ -305,6 +328,19 @@ may be shown as "secure" merely because Tor is connected:
 - Identity: ephemeral or persistent.
 
 These are the enums in `monolith-core` today.
+
+Implemented in Phase 5 (`monolith_core::api`, and
+`monolith_runtime::Messenger` for a front end): the queries of local
+identities, contacts, conversations and pages of messages; the commands to
+create and delete a local identity, show its card, add, block and delete a
+contact, send a message and delete a conversation; and the events of a
+queued, received, delivered or refused message, a deferred delivery, a
+session that can or can no longer carry a queue, the state of a service, a
+contact that accepted, a request that arrived, an identity that closed,
+and a message store that failed. Every value names identities, contact
+records and messages by opaque identifiers that never name anything of
+another identity. Peer presence is not shown: a session exists only while
+there is something to deliver.
 
 Contact cards and invitations (PROTOCOL.md 12.2, 12.3). Terms for the
 front ends of later phases: "Generate contact card", "Generate another
@@ -476,15 +512,19 @@ the platform's packaging.
 | 1 | Protocol core without cryptography or Tor: framing, encoding, identity types, contact cards, state machine; unit, property and fuzz tests. |
 | 2 | Cryptographic session: Noise XK handshake, the contact card as certificate of the transport key, encrypted frames, session limits, test vectors, hostile-handshake tests. |
 | 3 | System Tor: SOCKS5, control client, mock backend, two-node CLI chat. |
-| 4 | Contact store and persistence: acceptance, pinning, one decision about a card, per-contact serialization, retirement of live sessions, the vault, invitations, several identities, the budget for strangers, the publication supervisor, rotation and dialing. Duplicate resolution, the reconnect scheduler and the message queue follow before Phase 5 (`DESIGN_QUESTIONS.md` section 11.3). |
-| 5 | File transfer. |
+| 4 | Contact store and persistence: acceptance, pinning, one decision about a card, per-contact serialization, retirement of live sessions, the vault, invitations, several identities, the budget for strangers, the publication supervisor, rotation and dialing. |
+| 5 | Messaging runtime: the message store, durable delivery with acknowledgements and deduplication, the session manager with duplicate resolution, the reconnect scheduler, the command and event interface (`DESIGN_QUESTIONS.md` section 12). |
 | 6 | Tails. |
 | 7 | Whonix. |
 | 8 | GUI. |
 | 9 | Hardening: attack simulation, fuzzing corpus, benchmarks, dependency audit. |
 | 10 | Audit candidate: protocol freeze. |
 
-A phase starts after the previous one has been reviewed.
+A phase starts after the previous one has been reviewed. The brief of
+Phase 5 names the GUI on the runtime as Phase 6; the rows after 5 are the
+earlier plan, and the owner's next brief sets their order
+(`DESIGN_QUESTIONS.md` section 12, open points). File transfer, which was
+Phase 5 in the earlier plan, is not part of the messaging runtime.
 
 Preconditions beyond review:
 

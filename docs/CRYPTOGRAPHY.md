@@ -4,7 +4,8 @@ Status: the session layer is decided and implemented. It is Noise XK with
 a transport key that the identity certifies in the contact card (ADR
 0002). Sections 4 to 8 describe it, and the crate `monolith-session`
 implements it. The vault of section 9 is specified in `STORAGE.md` and
-implemented in `monolith-storage` in Phase 4.
+implemented in `monolith-storage` in Phase 4; the message store beside it
+in Phase 5 (`adr/0008-message-store.md`).
 
 Monolith defines no primitive, no key exchange and no key schedule of its
 own. It uses the Noise Protocol Framework and Ed25519 as specified, and
@@ -70,14 +71,24 @@ made:
   asks the resolver for random bytes, and the resolver reads the
   operating system source) and a transport key it generates;
 - the core: identity seeds, transport keys of new identities and of a
-  rotation, and invitation capabilities; and the jitter of the delays
-  between attempts to publish a service, which is not secret;
-- the storage crate: the salt, the vault key and the nonces of the vault;
+  rotation, invitation capabilities and message identifiers; and, none of
+  them secret, the jitter of the delays between attempts to publish a
+  service and between attempts to reach a contact, the spread of the
+  first attempts at startup and the nonce of a Ping that probes a
+  duplicate session;
+- the storage crate: the salt, the vault key and the nonces of the vault
+  and of the message store, and the identifiers of local identities and
+  contact records;
 - the Tor crate: SOCKS isolation tokens and the client nonce of
   SAFECOOKIE;
 - the development commands of the CLI: message identifiers.
 
-In production there is no way to supply any of them from outside.
+In production there is no way to supply any of them from outside. A
+value that is not secret falls back to a fixed one when the source
+fails: the middle of the jitter, half the startup spread, a fixed probe
+nonce. They only spread attempts in time or tell a live session from a
+dead one; a Pong for an older probe is refused by the state of the
+probe, not by its nonce. Every other value fails its operation.
 
 Tests that need a reproducible handshake fix the ephemeral keys. The means
 to do that is a second random source in the resolver that returns fixed
@@ -481,6 +492,7 @@ reduced values exists only in test builds of the session crate.
 | Frame cipher keys | by Noise | one session: at most 24 hours, 48 with a file transfer, plus the grace of section 7 for receiving | never | no | when the session ends: on a violation, when a Close was received, when the local Close has been made, or when the stream is reported closed |
 | Invitation capability | by Monolith | until revoked | vault, and inside every card that carries it | only by an explicit `clone`: with a card that carries it, and once into a session that sends a request with it | by its type on drop, every copy |
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
+| Message store key | derived from the vault key at unlock | while the vault is unlocked | never | no | by its type on drop |
 
 Session keys and ephemeral keys are never written to storage. Types that
 hold a secret do not derive `Debug`; that includes the records of the
@@ -568,6 +580,16 @@ identity seed, the transport private key, a transport key in rotation and
 the Onion Service private key, with the contacts and invitation
 capabilities. The default Argon2id setting is provisional until the
 measurement of `STORAGE.md` section 3.3 is made on the four targets.
+
+The message store (`STORAGE.md` section 5) is a second container of the
+same kind, encrypted with XChaCha20-Poly1305 under a key that HKDF-SHA256
+derives from the vault key with its own label
+(`MONOLITH-MESSAGE-STORE-V1`, apart from the label of the vault payload),
+with its whole header as associated data and a random nonce for every
+write. It has no passphrase and no KDF of its own; a passphrase change
+that keeps the vault key keeps its key. Its payload is padded to a
+multiple of `MESSAGE_STORE_PADDING_BLOCK_LEN`, so its length shows the
+amount of history only to that granularity.
 
 ## 10. Implementation rules
 

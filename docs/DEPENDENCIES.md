@@ -419,7 +419,10 @@ Build-time only: `proc-macro2`, `quote`, `syn`, `unicode-ident` (for
 
 `monolith-protocol` also lists `ed25519-dalek` as a development
 dependency. One test needs point arithmetic to build a key with a torsion
-component.
+component. Since Phase 5 `monolith-core` uses `proptest` too, for the
+models of the message state and of the runtime; no crate was added to the
+lock file for it. The crate `monolith-runtime` of Phase 5 depends only on
+crates of the workspace and on `tokio`, which was there.
 
 `proptest` brings a random number stack (`rand` 0.9, `rand_core` 0.9 and
 others) into test builds. None of it is linked into a release binary. The

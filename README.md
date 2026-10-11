@@ -16,8 +16,12 @@ over Tor streams with their budgets and deadlines. Phase 4, complete and
 verified (tag `phase-4-complete`), adds the contact store of each local
 identity, the encrypted vault that keeps it, invitations, several local
 identities, the publication supervisor and the rotation of a transport
-key, with a development node in the command-line binary. The session
-manager, the message queue, the user interface and the Tails and Whonix
+key, with a development node in the command-line binary. Phase 5, on the
+branch `phase-5-messaging-runtime` and not yet verified, adds the
+messaging runtime without a user interface: an encrypted message store,
+delivery acknowledged only once the receiver stored a message, the
+session manager, reconnecting, and commands and events for a later
+interface (`STATUS.md`). The user interface and the Tails and Whonix
 integration are designs and are not implemented. `docs/DESIGN_QUESTIONS.md`
 sections 10.4 and 11.6 record the final verifications of Phases 3 and 4.
 Nothing here has been audited. Do not rely on it for anything.
@@ -93,18 +97,21 @@ Checks run in CI:
     crates/monolith-session    handshake and encrypted session
     crates/monolith-tor        Tor backend: SOCKS5 client, control client,
                                Onion Service publication, mock backend
-    crates/monolith-storage    the vault: format, records, atomic replace
+    crates/monolith-storage    the vault and the message store: formats,
+                               records, atomic replace
     crates/monolith-core       the contact store, local identities,
                                sessions over Tor streams, budgets, the
-                               publication supervisor
+                               publication supervisor, messages, the
+                               session manager and the runtime
+    crates/monolith-runtime    what a front end may use of the runtime
     crates/monolith-cli        the monolith binary: Tor status, doctor,
-                               development chat and a development node
+                               development chat and development nodes
     crates/monolith-desktop    desktop front end (placeholder)
     integrations/tails         Tails control port profile (draft)
     integrations/whonix        Whonix profile and firewall rule (draft)
     fuzz/                      fuzz targets for the protocol core, the
-                               session layer, the Tor replies, the vault
-                               and the contact store
+                               session layer, the Tor replies, the vault,
+                               the contact store and the messages
     tests/network              fail-closed network test (Linux)
     tests/tor-network          two-node test over a private Tor network
     docs/                      specifications and decision records

@@ -117,10 +117,22 @@ A message is reported queued only once the vault holds its contact record
 As the vault (`STORAGE.md` section 3.5) with the names `messages` and
 `messages.new`: a new complete file, flushed, renamed over the old one,
 the directory flushed. The store is created, empty, with the installation,
-or when a vault without one is opened, by a write under the other name
-linked into place. Recovery at open follows section 3.5 with these names:
-an unauthenticated file is never removed, except a `messages.new` beside
-a `messages` that authenticates.
+by a write under the other name linked into place. Recovery at open
+follows section 3.5 with these names: an unauthenticated file is never
+removed, except a `messages.new` beside a `messages` that authenticates.
+
+Where no store is in place, an empty one is made, and a `messages.new`
+without a `messages`, what an interrupted creation left, is removed
+first unless it is a complete store. A vault of payload version 1 never
+had a store, and a vault without identities has nothing one could hold.
+A vault with identities is a backup of them on its own (Phase 4, T-MI-9),
+so it opens without its store too, with an empty one; that the messages
+from before are not there is reported (`Installation::message_store_missing`,
+`Messenger::message_store_missing`), never passed over. For a vault of
+version 1 the store is made, and read, before the vault is written as
+version 2. A vault of version 1 beside a store that holds messages (a
+vault restored from before the upgrade) is refused: its identities would
+get new identifiers, and matching would drop every message.
 
 The store has its own generations and its own write job, the job of the
 vault (`monolith-core` `persist`) with another writer: a change is applied

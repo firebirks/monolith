@@ -12,7 +12,7 @@ key kept.
 
 ## Files
 
-- `faults.py`: the lists `PHASE1`, `PHASE2`, `PHASE3` and `PHASE4`. An entry names the
+- `faults.py`: the lists `PHASE1` to `PHASE5`. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
@@ -20,6 +20,7 @@ key kept.
 ## Running
 
     python3 mutation/run.py all 3
+    python3 mutation/run.py phase5 3
     python3 mutation/run.py phase4 3
     python3 mutation/run.py phase3 3
     python3 mutation/run.py phase2 3
@@ -46,7 +47,7 @@ Outcomes:
 
 The results go to `mutation/results-<list>-<commit>.json`. The exit code
 is 0 if every fault had the outcome its entry expects, and 1 otherwise. A
-full run of all four lists takes several hours with three workers; a
+full run of all five lists takes several hours with three workers; a
 fault caught only by the timeout takes the whole of it (20 minutes).
 
 When code moves, a pattern may no longer match. The runner then stops
@@ -69,6 +70,61 @@ with exit code 0 for each list:
 
 Phase 4 was closed on 2026-10-11. From then on the faults CS1 to CS123
 and the regression tests of Phase 4 are a baseline to preserve.
+
+Phase 5 adds the list MR1 to MR49, all expected to be caught; the table
+gets its row from the run of the final verification of Phase 5.
+
+The Phase 5 list, MR1 to MR49, covers the messaging runtime
+(`docs/adr/0007-delivery-semantics.md` to `0009-session-manager.md`):
+
+- acknowledgements: a message acknowledged before it is durable (MR1),
+  recorded delivered when it is queued, when it is handed to a session or
+  reported so when its session ends (MR2, MR29, MR30), an
+  acknowledgement that delivers a message of another conversation or of
+  another local identity (MR4, MR5), or counted on a session that no
+  longer stands (MR17);
+- deduplication: a message received again stored again, a deleted one
+  taken in again (MR3, MR20);
+- durability: queued messages not written, a delivery written as queued,
+  a message reported queued before it is durable, a header of the message
+  store that is not authenticated (MR6, MR15, MR16, MR18);
+- lifecycle: a contact made again with the identifier of its earlier
+  record, a scheduler that goes on after its record ended, the messages of
+  a deleted identity kept, a conversation of a record of another remote
+  identity accepted, a vault of version 1 not written with its new
+  identifiers, an identity restored from its keys with the identifier of
+  the deleted one (MR7, MR8, MR21 to MR24);
+- sessions: the duplicate rule of `PROTOCOL.md` section 14 broken three
+  ways (MR10, MR11, MR27), an idle session that never ends (MR25), a
+  message whose acknowledgement does not come that keeps its session
+  waiting (MR26), and a second message sent before the first is
+  acknowledged (MR28);
+- reconnecting and limits: attempts without a delay (MR9), a conversation,
+  the queue of a contact or of an identity one past its bound (MR12 to
+  MR14);
+- diagnostics: message text in `Debug` output (MR19);
+- the fixes of the reviews of the Phase 5 code (`docs/DESIGN_QUESTIONS.md`
+  sections 12.4 and 12.5): a message offered or sent before it is durable
+  (MR31, MR32), a session or a scheduler that goes on after a store failed
+  (MR33, MR34, MR44), a dial or a scheduler a block or a deletion does not
+  stop (MR35, MR36), a deleted message sent after the wait for the store
+  (MR37), a session task aborted with its service that stays registered
+  (MR38), delays that start again after a session that ended for want of
+  an acknowledgement (MR39), a missing store made again without saying so,
+  and a vault of Phase 4 taken beside a store with messages (MR40, MR41),
+  what an interrupted creation of the store left that stops it from being
+  made (MR42), a runtime dropped without a shutdown that runs on (MR43),
+  more identities or sequences than a payload holds (MR45, MR46), a change
+  of nothing that wakes every session (MR47), a message of an identity
+  being deleted added after its messages were removed (MR48), and a send
+  left half done when its caller stops waiting (MR49).
+
+A retry that goes around Tor has no fault: no crate outside `monolith-tor`
+opens a socket (`docs/SECURITY_INVARIANTS.md` S1), and every attempt of
+the runtime goes through `TorBackend::connect_onion`; a path around it
+would be new code, not a changed check. The bound on the length of a
+message is that of `ChatText`, which X1 and X2 of Phase 1 keep; the
+runtime checks the text with it before anything is stored.
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

@@ -690,10 +690,16 @@ received are discarded without being processed.
     [8] nonce
 
 A side that has received no frame for a randomized interval between
-`PING_INTERVAL_MIN` and `PING_INTERVAL_MAX` sends a Ping with a random
-nonce. The receiver answers with a Pong carrying the same nonce. A Pong
-that does not match an outstanding Ping is a violation. A Ping that is not
-answered within `PONG_TIMEOUT` ends the session.
+`PING_INTERVAL_MIN` and `PING_INTERVAL_MAX`, and wants to keep the session,
+may send a Ping with a random nonce. The receiver answers every Ping with
+a Pong carrying the same nonce. A Pong that does not match an outstanding
+Ping is a violation. A Ping that is not answered within `PONG_TIMEOUT`
+ends the session.
+
+Monolith keeps no idle session (ADR 0009): it closes a session with
+nothing to carry after `SESSION_LINGER`, and sends a Ping only to probe a
+duplicate session (section 14), with `DUPLICATE_PROBE_TIMEOUT` for its
+Pong. A session neither side uses ends at `IDLE_TIMEOUT` at the latest.
 
 ### 8.3 ContactRequest (0x0010)
 
@@ -743,15 +749,19 @@ Received in `AuthenticatedContact`, a ContactAccept is ignored.
 `message_id` is 16 bytes from the CSPRNG, chosen by the sender. It carries no
 time or counter.
 
-The receiver looks the identifier up in the per-contact window of the last
-`MESSAGE_DEDUP_WINDOW` received identifiers. If it is present, the receiver
-sends MessageAck again and does nothing else. If not, it hands the message
-to the application (and to the history store, if enabled), records the
-identifier, and then sends MessageAck.
+The receiver looks the identifier up among the messages it holds from
+that contact record, and among the identifiers of received messages the
+user deleted (the newest `MESSAGE_DEDUP_WINDOW` of them), in the same
+step in which it would store the message (ADR 0008). If the identifier
+is held, it stores nothing and, once the state that holds it is durable,
+sends MessageAck again. If not, it stores the message with its
+identifier, waits until that is durable, and only then sends
+MessageAck. A message it cannot store (a limit, a failed write) is
+not acknowledged; the sender keeps it and sends it again later.
 
-The window is kept in memory, and in the message store when history is
-enabled. With history off, a restart of the receiver empties it, and a
-message that the sender resends afterwards is delivered a second time.
+The message store keeps all of this across restarts, so a message the
+sender resends after a restart of the receiver is acknowledged and not
+taken in a second time (ADR 0007).
 
 No timestamp is transmitted. Each side records its own local time of
 sending and receiving if it wants one.
@@ -760,13 +770,17 @@ sending and receiving if it wants one.
 
     [16] message_id
 
-The message with this identifier was received, validated and handed to the
-application or the store. It says nothing about the message having been
-displayed or read, or about a person being present.
+The message with this identifier was received, validated and is durably
+held in the receiver's message store. It says nothing about the message
+having been displayed or read, or about a person being present.
 
-The sender keeps a message queued until it is acknowledged and resends
-unacknowledged messages, in their original order, on the next session. An
-acknowledgement for an unknown identifier is ignored.
+The sender keeps a message queued until it is acknowledged on a session
+of the contact record it was queued for, and resends unacknowledged
+messages, in their original order, on the next session. It has one
+message in flight per contact and sends the next one only once the
+acknowledgement of the previous one is durable. An acknowledgement for an
+identifier that no outbound message of that contact record has is
+ignored, and so is a second one.
 
 ### 8.7 Profile (0x0030)
 
@@ -2033,7 +2047,10 @@ P4. Whether a declined requester should, after all, receive a distinct
 P5. Whether to drop `Profile.profile_text` from version 1.
 
 P6. Receiver behavior when ChatMessage ordering matters across reconnects.
-    The current design preserves the sender's queue order and nothing more.
+    The sender keeps one message in flight per contact and resends from
+    the head of its queue (ADR 0007), so the receiver stores the sender's
+    order. Nothing else is ordered: messages of the two directions are
+    stored in the order each side took them.
 
 P7. Closed. Display names had to be in Normalization Form C, which is
     decided with the tables of the Unicode version an implementation was

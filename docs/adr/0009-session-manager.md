@@ -117,6 +117,15 @@ stored, ended. An identity that closes ends its supervisor, its sessions
 and its schedulers; commands for it fail. Old tasks find their record or
 identity gone and change nothing.
 
+A session leaves the manager when its task ends, however it ends: the
+end is handled when the task is dropped, also when the accept loop of a
+service that went away aborts it. A scheduler that ended a session for
+want of an acknowledgement keeps its delays growing; only a session that
+ended otherwise after `RECONNECT_RESET_AFTER` starts them again. A
+failed vault or message store ends every session and scheduler of the
+runtime. A runtime whose last handle is dropped without a shutdown stops
+as at a shutdown.
+
 ## Consequences
 
 - Sessions exist only while there is something to deliver, so an idle

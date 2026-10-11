@@ -64,8 +64,24 @@ both import the other's card, one session makes both accepted), T-ID-2
 and 3, T-CONFIRM-1, T-ORACLE-6, the later
 sessions of T-ORACLE-7, T-INJ for the text the vault stores, and T-BLOCK.
 
-The rest need the session manager, the message queue, file transfer or a
-user interface, and are not written yet.
+What Phase 5 added, which waits for its final verification: in
+`monolith-storage`, the message store file (`messages.rs`: a crash at
+every step of a write and of a creation, a changed byte anywhere, the
+largest payload) and its records (`message_records.rs`), and the
+identifiers of payload version 2 of the vault; in `monolith-core`, the
+message state machine (`messages::tests`), the session manager
+(`sessions::tests`: both sides dialing at once, in every order of
+arrival, keep the same session), the messages of an identity step by
+step over links (`tests/messages.rs`, section 3b: every crash boundary
+of delivery, duplicates, isolation, lifecycle) and the runtime over the
+in-memory Tor (`tests/runtime.rs`); in `monolith-runtime`, the boundary
+for a front end; two more fuzz targets (`message_store`,
+`message_sequence`, the second against a model written apart from the
+state machine); the Phase 5 mutation list (MR1 to MR28); and the private
+Tor network test extended to the runtime. Covered now: T-MSG-1 to 13.
+
+The rest need file transfer or a user interface, and are not written
+yet.
 
 ## 1. Principles
 
@@ -531,6 +547,31 @@ that Close has been made.
 Two-party harness: two sessions connected in memory carry out what the
 session logic tells them. Everything one side writes is recorded, so that
 "the peer sees the same thing" is compared byte for byte.
+
+## 3b. Messaging (T-MSG)
+
+The delivery semantics of `adr/0007-delivery-semantics.md`, the store of
+`adr/0008-message-store.md`, the sessions of
+`adr/0009-session-manager.md`. Each is a deterministic test: the steps of
+two nodes are taken one at a time over links, a crash is placed with the
+model of `MemoryDir` or a held write, and the runtime runs with paused
+time.
+
+| Id | What | Where |
+| --- | --- | --- |
+| T-MSG-1 | A message queued while the peer or Tor is away is delivered once it is back, through Tor | `tests/runtime.rs` |
+| T-MSG-2 | A message is stored once and delivered only by its acknowledgement; a second acknowledgement and an unknown one change nothing | `tests/messages.rs` |
+| T-MSG-3 | Crash boundaries: the sender before sending, after writing, before the delivery is durable; the receiver before the message is durable, after it and before acknowledging; a delivered message stays delivered; a crash at every step of queueing; nothing is offered for sending before it is durable | `tests/messages.rs`, `tests/structure.rs` |
+| T-MSG-4 | Duplicates: the same identifier twice, concurrent copies on two sessions, a retry after a restart, a retry over a replacement session, a retry of a deleted message | `tests/messages.rs`, `tests/runtime.rs`, `messages::tests` |
+| T-MSG-5 | Isolation: an acknowledgement reaches only the conversation of its session; the identities of one installation keep messages, queues and sessions apart | `tests/messages.rs`, `tests/runtime.rs` |
+| T-MSG-6 | Lifecycle: block, delete, a contact made again, a new card of the same contact, an identity deleted and restored, a deleted identity that stops dialing, a block or a deletion during a dial | `tests/messages.rs`, `tests/runtime.rs` |
+| T-MSG-7 | Sessions: both sides sending at once end with one session and every message once; the duplicate rule in every order; a probe answered or not | `tests/runtime.rs`, `sessions::tests` |
+| T-MSG-8 | Reconnecting: nothing is dialed without a queued message; a failed attempt is not repeated at once; an acknowledgement that does not come closes the session and the message is sent again later, with growing delays; a session that ends with a message in flight reports nothing delivered; a session that ends with its service leaves no registration behind; an idle session ends; a failed message store or vault ends every session and attempt; a runtime dropped without a shutdown stops; a send its caller stops waiting for completes | `tests/runtime.rs` |
+| T-MSG-9 | Limits: text at `MAX_CHAT_TEXT_LEN` - 1, at it and + 1, empty and with forbidden characters, checked before anything is stored; the queue of a contact and of an identity; a conversation in bytes | `tests/runtime.rs`, `tests/messages.rs`, `messages::tests` |
+| T-MSG-10 | Storage: a store that does not authenticate fails the installation and is left as it was; a vault of Phase 4 is opened with identifiers and an empty store; a vault with identities and no store opens and reports it, a vault of Phase 4 beside a store with messages is refused; a crash at every step of making the store leaves an installation that opens; corrupt, truncated, out of order or impossible contents are refused | `tests/messages.rs`, `message_records.rs`, `messages.rs` in `monolith-storage` |
+| T-MSG-11 | Model: any sequence of queueing, receiving, acknowledging, deleting, removing an identity and restarting leaves the state a separate model holds; any sequence of sending from either side, crashes and restarts of either side, Tor going and coming back, closed sessions, time passing and a block leaves the runtime delivering, in order and once, what a model of the sent texts says | `tests/message_model.rs`, `tests/runtime_model.rs` (property tests), fuzz target `message_sequence` |
+| T-MSG-12 | Diagnostics: no message text in `Debug` output | `messages::tests`, `api::tests`, `message_records.rs` |
+| T-MSG-13 | Structure: a message is delivered only by an acknowledgement a link received, acknowledged only once `take_in` returned, sent only once durable; the boundary of a front end hands out no authority | `tests/structure.rs` |
 
 ## 4. Property tests
 

@@ -2,11 +2,13 @@
 
 Status: the vault is decided and implemented in `monolith-storage` (Phase
 4); its default KDF parameters are
-provisional until measured on the four targets; the message store is
-open.
+provisional until measured on the four targets; the message store of
+version 1 is decided by ADR 0008 (Phase 5).
 Date: 2026-10-01. Amended 2026-10-05 by Phase 4: the vault implemented,
 the payload layout written down (`STORAGE.md` section 3.4), ST2, ST4 and
-ST7 decided (`DESIGN_QUESTIONS.md` P4-6).
+ST7 decided (`DESIGN_QUESTIONS.md` P4-6). Amended 2026-10-11 by Phase 5:
+the message store decided in ADR 0008, the payload of version 2 with
+durable identifiers (`DESIGN_QUESTIONS.md` P5-3, P5-4).
 
 ## Context
 
@@ -66,6 +68,14 @@ store, and the message store comes with the outbound queue
 History is off by default on every platform, so the store is not needed for
 a working messenger.
 
+Decided in Phase 5 by ADR 0008, otherwise than recommended here: a
+whole-file container of the vault's kind under a key derived from the
+vault key, not SQLCipher, which would need Rust 1.88 and bring C code and
+OpenSSL into the process. Acknowledged delivery needs the queue and the
+identifiers of received messages on disk, so a persistent installation
+always has the store, and history is kept until the user deletes it; the
+two paragraphs above are what was planned before.
+
 ## Why not one mechanism for both
 
 Putting identity and contacts into SQLCipher would bring a C library and
@@ -114,8 +124,9 @@ generation (`chacha20poly1305` 0.10, `sha2` 0.10); that conflict is ADR
 
 ## Open questions
 
-STORAGE.md section 9: ST1, ST3, ST5 and ST6 are open; ST2, ST4 and ST7 are
-decided.
+STORAGE.md section 9: ST3, ST5 and ST6 are open; ST2, ST4 and ST7 are
+decided; ST1 is decided for version 1 by ADR 0008, with a store for long
+histories open.
 
 ## Sources
 

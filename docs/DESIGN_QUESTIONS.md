@@ -234,7 +234,12 @@ Nothing below is settled. Each is described in the document named.
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
-| ST1, ST3, ST5, ST6 | Message store, previous generation, passphrase policy, Argon2id defaults (measured on the development machine only; the four targets of STORAGE.md 3.3 remain) | STORAGE.md 9 |
+| ST3, ST5, ST6 | Previous generation, passphrase policy, Argon2id defaults (measured on the development machine only; the four targets of STORAGE.md 3.3 remain) | STORAGE.md 9 |
+| ST1 | A message store for long histories; the store of version 1 is decided (ADR 0008) | DESIGN_QUESTIONS.md 12.3 |
+| - | Whether history may be kept less: a "history off" mode, automatic retention, deleting single messages | DESIGN_QUESTIONS.md 12.3 |
+| - | The per-contact rates of RESOURCE_LIMITS.md section 6, not enforced yet | DESIGN_QUESTIONS.md 12.3 |
+| - | Several messages in flight per contact | DESIGN_QUESTIONS.md 12.3 |
+| - | The order of the phases after Phase 5 | DESIGN_QUESTIONS.md 12.3 |
 | - | Closing the oldest unauthenticated stream for a new one when the handshake budget is full | RESOURCE_LIMITS.md 5, 12 |
 | - | A test of the idle run of S32: no traffic besides Tor's own | TEST_PLAN.md 11 |
 | - | Pinning the Tor version or the image digest of the private network test | tests/tor-network/README.md |
@@ -1780,3 +1785,216 @@ Notes kept for the record:
 - Left outside Phase 4, besides section 11.3: closing the oldest
   unauthenticated stream for a new one, a test of the idle run, and
   pinning Tor in the network test (section 3).
+
+## 12. Phase 5: the messaging runtime
+
+Phase 5 began on 2026-10-11 from `phase-4-complete` (`3c013f5`; the
+verified commit of Phase 4 is `970316f`), on the branch
+`phase-5-messaging-runtime`. Its brief: a reliable, persistent messaging
+runtime without a user interface. A message is queued durably before it
+is sent, stored durably at the receiver before it is acknowledged, sent
+again while its delivery is uncertain, taken in once, recorded delivered
+only by its acknowledgement, and survives restarts of either side, of
+Tor, and the loss of a session; one owner for the sessions of each
+identity, which keeps one when both sides dial, dials only through Tor
+and only when there is something to deliver, and stops at once when a
+contact or an identity is gone; commands and events a later interface
+can use without any of the authority of the core; every resource
+bounded. No wire change, no change of Noise XK.
+
+### 12.1 What Phase 4 left, and what became of it
+
+- `DESIGN_QUESTIONS.md` 11.3: the session manager with the duplicate
+  rule, the reconnect scheduler, the outbound queue and the message store
+  (ST1), and the command and event interface. Done: P5-1 to P5-12 below.
+  The per-contact rates are not (section 12.3).
+- A contact record and a local identity had no durable name: a record
+  deleted and made again, or an identity restored from its keys, could not
+  be told from the old one after a restart. Durable identifiers (P5-4).
+
+### 12.2 Decisions
+
+P5-1 Delivery semantics (`adr/0007-delivery-semantics.md`): durable
+    at-least-once transport and exactly-once local acceptance through
+    deduplication. A message is `Queued` until the acknowledgement of its
+    identifier, from a session of the contact record it was queued for,
+    is durable; then `Delivered`, for good. The receiver stores a message
+    and its identifier in one locked step and acknowledges it only once
+    that is durable; a duplicate is acknowledged again and stored nothing.
+    One message in flight per contact, first in, first out.
+
+P5-2 No wire change. ChatMessage and MessageAck (`PROTOCOL.md` sections
+    8.5 and 8.6) carry what the runtime needs; their texts now say that the
+    acknowledgement follows durable storage and that the duplicate check
+    is in the message store. Noise XK, the frames and the known-answer
+    vectors are unchanged.
+
+P5-3 The message store (`adr/0008-message-store.md`): a container of
+    the vault's kind, `messages`, under a key HKDF derives from the vault
+    key, rewritten whole and replaced atomically, at most 16 MiB, with a
+    write job and generations of its own. SQLCipher was not taken:
+    `rusqlite` needs Rust 1.88, above the minimum version 1.85.1, and it
+    brings C code and OpenSSL into the process. ST1 is closed for version
+    1; a store for long histories stays open.
+
+P5-4 Durable identifiers. Vault payload version 2 gives every local
+    identity an `IdentityId` and every contact record a `ContactId`, 16
+    random bytes each, never changed or reused. Messages are bound to
+    them. A vault of version 1 is still read; its records get identifiers
+    when it is opened, after everything in it was checked, and it is
+    written as version 2 before anything refers to them.
+
+P5-5 A persistent installation always has a message store: acknowledged
+    acceptance needs it. Messages are kept until the user deletes their
+    conversation. This replaces "history off by default" of `STORAGE.md`
+    section 1, which held queued messages in memory and so could not
+    survive a restart; whether history may be kept less is open (section
+    12.3). An ephemeral installation keeps everything in memory, messages
+    included.
+
+P5-6 The session manager (`adr/0009-session-manager.md`): one per local
+    identity instance, keyed by `ContactId`. A session is registered when
+    it is confirmed and stands for the record; the duplicate rule of
+    `PROTOCOL.md` section 14 keeps one, with a Ping that probes an older
+    preferred session; only the preferred session sends the queue; any
+    registered session takes messages and acknowledgements in.
+
+P5-7 No keepalive. A Ping is sent only to probe a duplicate session; a
+    session with nothing queued or in flight for `SESSION_LINGER` is
+    closed by the local side. `PROTOCOL.md` section 8.2 makes keepalive
+    Pings optional; Pings from a peer are answered.
+
+P5-8 Reconnecting: one scheduler per conversation with queued messages,
+    a current record and no session; it dials through the Tor backend
+    with the delays of `RESOURCE_LIMITS.md` section 7, the first attempt
+    at once after a send and spread over `STARTUP_DIAL_SPREAD` at
+    startup. A contact with nothing queued is not dialed.
+
+P5-9 Lifecycle. Blocking or deleting a contact ends its record: its
+    sessions are withdrawn (Phase 4), its scheduler ends, its queue stays
+    stored, ended, and is never sent; a record made again starts empty. A
+    new card or a rotation of the same contact keeps the record and its
+    queue. Deleting an identity drops its messages, after the vault no
+    longer holds it; an identity restored from its keys starts empty.
+
+P5-10 `MESSAGE_ACK_TIMEOUT`, 60 seconds: a message whose acknowledgement
+    does not come is uncertain; the session is closed and the message is
+    sent again on a later session, after the reconnect delay.
+
+P5-11 Events are a bounded broadcast of `MAX_UI_EVENTS`
+    (`RESOURCE_LIMITS.md` section 8): raised after the state they report
+    is durable, never with message text; a consumer that falls behind is
+    told how many it missed and reads the state again. Nothing waits for a
+    slow consumer.
+
+P5-12 The boundary of a front end: the plain values of `monolith_core::api`
+    and the crate `monolith-runtime`, whose `Messenger` hands out no local
+    identity, installation, link, session, key or capability. A front end
+    that depends on it alone cannot reach them.
+
+P5-13 What arrived on a link that ended counts for nothing, for a chat
+    message and an acknowledgement as for a change of the contact store
+    (CS122): it is not stored and not applied; the sender sends again.
+
+P5-14 Limits (`RESOURCE_LIMITS.md` sections 4, 5 and 9): the queue per
+    identity, the conversations per identity, the bytes per conversation,
+    the messages and the size of the store, and the two timeouts above.
+    `MAX_QUEUED_MESSAGE_BYTES` is lowered from 64 MiB to 8 MiB, half of
+    the store.
+
+P5-15 Test tooling: `dev-runtime` in the CLI, a node on the runtime for the
+    private Tor network test, and `RuntimeOptions::acknowledgement_delay`,
+    which can only delay an acknowledgement, to place a crash between
+    storing and acknowledging. `dev-node` stays as it was for the steps of
+    Phase 4.
+
+### 12.3 Not part of Phase 5, and open points
+
+- The order of the phases after Phase 5: `ARCHITECTURE.md` section 12
+  numbered file transfer as Phase 5 and the GUI as Phase 8; the brief of
+  Phase 5 names the GUI on the runtime as Phase 6. The table is changed
+  for Phase 5 only; the owner's next brief sets the rest.
+- Keeping less history: a "history off" mode, automatic retention,
+  deleting single messages. Version 1 deletes whole conversations.
+- The per-contact rates of `RESOURCE_LIMITS.md` section 6
+  (`CHAT_MESSAGE_RATE` and the others) are not enforced: a contact is
+  bounded by the limits of its conversation and of the store, not by a
+  rate.
+- A message store for long histories (an append-only log, or SQLCipher
+  with a higher minimum Rust version).
+- Several messages in flight per contact, for throughput on slow
+  circuits.
+- The queued messages of an ended conversation (a contact blocked or
+  deleted) stay stored and count toward the limits of the queue of the
+  identity until the user deletes that conversation. Whether they should
+  be dropped, or counted apart, is a decision about what the user keeps.
+- An identity whose deletion is cancelled after its vault commit, outside
+  the runtime, keeps its messages in the store until the next opening,
+  which drops them. Through the runtime a deletion is not cancelled.
+- Commands for contact requests and invitations through the runtime: the
+  core has them (Phase 4); the runtime offers adding, blocking and
+  deleting a contact only. A front end of a later phase wraps the rest.
+- What the runtime does not take in yet: Profile messages and file
+  transfer are ignored when they arrive.
+- From Phase 4, unchanged: the review of `MaxStreams` (C1), the KDF
+  measurement on the four targets (ST6), a target port per identity on
+  Tails and Whonix (MI-1), the phase that offers several identities in an
+  interface (MI-4).
+
+### 12.4 The internal review of the Phase 5 code
+
+A source-first review of the code of commits `06dceb8` to `7aebaf4`,
+against the list of the brief (a stale generation, a contact or an
+identity made again, an acknowledgement or a queue that reaches another
+owner, an effect outside before durability, cancellation after work that
+cannot be undone). Each finding was reproduced by a test that failed
+before its fix.
+
+| Id | Finding | Fix | Regression |
+| --- | --- | --- | --- |
+| R5-1 | A message queued while a session of its record was open could be sent before its queueing was durable: the change woke the task of the session before the message store was written. A crash then left the peer with a message the sender did not keep. | `LocalIdentity::next_to_send` returns the head only once the message store holds it; the runtime sends only what it returned. | `tests/messages.rs` (offered only once durable), `tests/structure.rs`; MR31, MR32 |
+| R5-2 | After a failed write of the message store, a session resent the head of its queue after every acknowledgement it could not record, without end, and schedulers went on dialing. | A failed message store ends every session and scheduler of the runtime; an acknowledgement that could not be recorded raises `StorageFailed`. | `tests/runtime.rs` (a failed message store ends every session and attempt); MR33, MR34 |
+| R5-3 | Blocking or deleting a contact did not wake its scheduler: a delay ran out and a dial in progress went on, and its failure was reported as a deferred delivery of the ended record. | Closing the sessions of a record wakes whoever follows the sessions, and the scheduler cuts a delay or a dial short when its record ends. | `tests/runtime.rs` (blocking or deleting ends the attempt in progress); MR35, MR36 |
+| R5-4 | Two candidates of the brief for faults had none: a message recorded delivered once it is handed to a session, and a message in flight reported delivered when its session ends. | Faults MR29 and MR30, and a test of a session that ends with a message in flight. | `tests/runtime.rs`; MR29, MR30 |
+| R5-5 | A new function of the contact store repeated the text of fault CS51, which then matched twice. | The new code is worded otherwise; CS51 is unchanged. | the precheck of `mutation/run.py` |
+| R5-6 | The comment of `SessionManager::register` said that `current` is asked under no lock of the manager; it is asked under it. The lock order (manager, then contact) holds everywhere. | The comment says what happens. | - |
+| R5-7 | The duplicate check is per contact record: a contact made again can take in again a message its old record had taken in. | Kept, as S56 requires; written down in ADR 0007. | - |
+
+### 12.5 The two independent reviews
+
+Two reviews of the same tree (commit `7aebaf4` with the changes of
+section 12.4), each made without the other's findings, against the list
+of the brief. Every finding was checked against the code; the ones that
+hold were reproduced by a test that failed before its fix, and each fix
+has a mutation fault.
+
+| Id | Finding (review) | Fix | Regression |
+| --- | --- | --- | --- |
+| R5-8 | A session that a service's accept loop ran was aborted with the loop when the service went away (Tor restarted) and stayed registered for good: no scheduler started for its record, a duplicate probe went to a task that was gone, and the front end saw a session (A, B) | The end of a session is handled when its task is dropped, however it ends | `tests/runtime.rs` (a session that ends with its service leaves no registration behind); MR38 |
+| R5-9 | A session that ended for want of an acknowledgement always lasted `RECONNECT_RESET_AFTER`, so the delays started again each time: a peer that never acknowledges was dialed every minute or so for good (A) | Only a session that ended otherwise starts the delays again | `tests/runtime.rs` (growing delays); MR39 |
+| R5-10 | A head that waited for the store to be written was sent even if the user deleted the conversation meanwhile (A, B) | `next_to_send` looks again after the wait and sends only what is still the head | `tests/messages.rs`; MR37 |
+| R5-11 | A vault with identities and no message store got an empty store, silently, and a vault of Phase 4 put back beside a store with messages had them dropped (A, B) | The first opens, as a copy of the vault alone has to (Phase 4, T-MI-9), and says that the messages are not there (`message_store_missing`); the second is refused (`InstallationError::MessageStore`). Refusing the first was tried and broke T-MI-9 | `tests/messages.rs`, `tests/identities.rs` T-MI-9; MR40, MR41 |
+| R5-12 | A crash while the message store was being made left a `messages.new` that stopped the installation from opening for good (B) | Where nothing can be lost the store is made again over what the creation left; for a vault of Phase 4 the store is made and read before the vault is written as version 2 | `tests/messages.rs` (a crash at every step of both); MR42 |
+| R5-13 | A runtime dropped without a shutdown ran on for nobody: its tasks held it, services stayed published, keys in memory, the directory locked (B) | The last handle stops it as a shutdown does | `tests/runtime.rs`; MR43 |
+| R5-14 | After a failed vault write the schedulers went on dialing (B), and `StorageFailed` was not raised on every path (A, B) | A failed vault or message store ends every session and scheduler, and is reported once | `tests/runtime.rs` (a failed vault ends every attempt); MR44 |
+| R5-15 | A message or a received message of an identity being deleted could enter the state after its messages were removed, between the check of the identity and the change (A, B) | The check is made under the lock of the messages | unit test in `identity.rs` (with a hook); MR48 |
+| R5-16 | A send its caller stopped waiting for left the message in memory without its event or a scheduler, and a vault that failed under a send left it there too; the same for the other commands (A, B) | Commands run as tasks of their own and complete; the record is made durable before the message enters the state | `tests/runtime.rs`; MR49 |
+| R5-17 | Sections of identities that had to go could exceed what a payload holds (8) and fail the store (B); a conversation whose sequences ran out overwrote an entry (B) | The state refuses a ninth identity section and a full sequence | unit tests in `messages.rs`; MR45, MR46 |
+| R5-18 | A change that changed nothing woke every session task (B); a scheduler looked up its record in O(contacts) on every wake (A) | Only a change wakes them; `LocalIdentity::is_current` reads one slot | unit test in `messages.rs`; MR47 |
+| R5-19 | `Runtime::connect` dialed with a session in place (B); `dev-runtime send` took the text from the wrong place with repeated spaces (A, B) | Fixed | - |
+
+Not changed, with the reason:
+
+- Queries show the state in memory, which can be ahead of the store by a
+  write under way (A). Written down in ADR 0007: if that write fails, the
+  store fails closed and is reported.
+- Blocking or deleting by the record names the remote identity of the
+  record; a deletion and a new import of the same identity between the
+  two steps of one command, on another thread, would act on the new
+  record (A). No await separates them; the outcome is that of the other
+  order.
+- The queued messages of ended conversations count toward the limits of
+  the identity (B): section 12.3.
+- Two sessions of the same initiator registered in different orders at
+  the two sides can close each other; only an explicit `connect` makes a
+  second one, and the scheduler dials again (B).

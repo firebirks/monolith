@@ -21,9 +21,10 @@ contact store, the message 3 gate of S51, the deadlines and single end of
 S52, and the parts of S42, S43, S45 and S46 named in their entries.
 Since Phase 4, the contact store and the vault: S7, S28 and S31 for the
 vault, S36 and S48 to S51 through the store, S38 and S39 to S46, and S17
-for the new users of the random source. Everything that involves a user
-interface, the message store or file transfer is still a planned
-mechanism.
+for the new users of the random source. Since Phase 5, which waits for
+its final verification, the messaging runtime: S53 to S57, and the parts
+of S12, S18 and S32 named in their entries. Everything that involves a
+user interface or file transfer is still a planned mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single
@@ -597,6 +598,113 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
 - Tests: `tests/structure.rs` in the core (no static item and no
   thread-local in the production code of any crate); review.
 
+## Messages
+
+The messaging runtime of Phase 5 (`adr/0007-delivery-semantics.md`,
+`adr/0008-message-store.md`, `adr/0009-session-manager.md`).
+
+### S53. A message is acknowledged only once the receiver holds it durably
+
+- Mechanism: `LocalIdentity::take_in` stores a ChatMessage in the
+  conversation of the contact record its session stands for, with the
+  duplicate check in the same locked step, and returns only once that
+  step is durable in the message store. The runtime sends the MessageAck
+  only after it returned, on the session the message came on; a message
+  that was not stored (a limit, a failed write, a session that no longer
+  stands) is not acknowledged. A failed write of the message store stops
+  every storing and every acknowledgement until the process starts again,
+  ends every session and every scheduler, and is reported as an event.
+- Tests: `tests/messages.rs` (a receiver that crashes before the message
+  is durable acknowledges nothing; one that crashes after takes the retry
+  in as a duplicate), `tests/runtime.rs` (a lost acknowledgement; a failed
+  message store ends every session and attempt; a failed vault ends every
+  attempt), `tests/structure.rs`, mutation faults MR1, MR33, MR34 and
+  MR44.
+
+### S54. Delivery is recorded only by the acknowledgement of the contact record the message was queued for
+
+- Mechanism: `MessageState::acknowledge` looks the identifier up among the
+  outbound messages of one conversation, named by the durable identifier
+  of the local identity and of the contact record that the session of the
+  acknowledgement stands for, read under the lock of the contact. A
+  written frame, an established session or anything else never marks a
+  message delivered, an acknowledgement of an unknown identifier changes
+  nothing, and a delivered message never becomes queued again. The
+  sender has one message in flight per contact and sends the next only
+  once the delivery of the previous is durable. A message in flight when
+  its session ends stays queued and is not reported delivered.
+- Tests: `tests/messages.rs` (an acknowledgement reaches only the
+  conversation of its session; the identities of one installation keep
+  their messages apart; what arrived on a link that ended counts for
+  nothing; the queue is first in, first out), `tests/runtime.rs` (a
+  session that ends with a message in flight reports nothing delivered),
+  `tests/structure.rs`, `messages::tests`, fuzz target `message_sequence`,
+  the property tests `tests/message_model.rs` and `tests/runtime_model.rs`,
+  mutation faults MR2, MR4, MR5, MR17, MR28, MR29, MR30, MR37 and MR47.
+
+### S55. A received message is stored at most once in its conversation
+
+- Mechanism: the lookup of the identifier, among the messages the
+  conversation holds and the identifiers of received messages the user
+  deleted, and the insertion are one transition under the lock of the
+  message state. Both are in the message store, so a restart keeps them.
+- Tests: `tests/messages.rs` (concurrent copies of one message are stored
+  once; a retry after a restart of the receiver), `messages::tests`,
+  `tests/runtime.rs`, fuzz target `message_sequence`, mutation faults MR3
+  and MR20.
+
+### S56. Messages belong to one contact record of one local identity
+
+- Mechanism: a conversation is named by the durable identifiers of the
+  local identity and of the contact record (`IdentityId`, `ContactId`,
+  16 random bytes kept in the vault); a contact deleted or blocked and
+  made again, or an identity deleted and restored from its keys, gets new
+  ones and starts with nothing. At opening the message store is matched
+  against the vault: the messages of an identity that is gone are
+  dropped, a conversation of a record that is gone is kept ended and its
+  queue is never sent, and one of a record of another identity is
+  refused. A scheduler, a session and a command act for the record they
+  were started for and end when it is no longer the current one; blocking
+  or deleting a contact cuts a delay or a dial of its scheduler short. A
+  session leaves the session manager when its task ends, also when the
+  accept loop of its service aborts it, and a runtime whose last handle is
+  dropped stops. Nothing of an identity being deleted enters the message
+  state after its messages were removed.
+- Tests: `tests/messages.rs` (a contact made again does not inherit the
+  queue; a deleted identity restored from its keys has no messages;
+  blocking ends the record), `tests/runtime.rs` (a contact made again is
+  not dialed for the old queue; a blocked contact gets nothing; blocking
+  or deleting ends the attempt in progress), `messages::tests`
+  (reconciling), unit tests in `identity.rs`, mutation faults MR7, MR8,
+  MR21 to MR24, MR35, MR36, MR38, MR43 and MR48.
+
+### S57. A queued message is not lost to a crash, a restart or a session that ends
+
+- Mechanism: a message is reported queued only once it is durable in the
+  message store and its contact record in the vault, and sent only once
+  it is durable (`LocalIdentity::next_to_send`); it stays queued
+  until its acknowledgement is durable, and is sent again from the head
+  of the queue on the next session, also when its acknowledgement did
+  not come in time (`MESSAGE_ACK_TIMEOUT`). Every attempt goes through
+  the Tor backend, with the reconnect delays, which grow while the peer
+  does not acknowledge. The message store is written like the vault, so a
+  crash leaves the state before or after a change, and one that does not
+  open is not repaired. A vault opened without its store gets an empty
+  one and reports that its messages are not there; a vault of Phase 4
+  beside a store with messages is refused. A send whose caller stops
+  waiting completes.
+- Tests: `tests/messages.rs` (a crash at every step of queueing; a
+  sender that crashes before sending, after writing, before the delivery
+  is durable; a delivered message stays delivered), `messages.rs` in
+  `monolith-storage` (a crash at every step of a write), `tests/runtime.rs`
+  (a restarted sender delivers what it had queued; delivery resumes once
+  Tor is back), `tests/messages.rs` (a queued message is offered for
+  sending only once it is durable; a missing store is reported; a crash
+  while the store is made), `tests/structure.rs`, `tests/runtime.rs` (a
+  send its caller stops waiting for completes; growing delays), mutation
+  faults MR6, MR9, MR15, MR16, MR18, MR26, MR31, MR32, MR39 to MR42, MR45,
+  MR46 and MR49.
+
 ## Protocol and parsing
 
 ### S10. Every network read has a strict upper bound before allocation
@@ -683,10 +791,19 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   pending contact requests of an identity is bounded in total and per
   capability (`MAX_PENDING_CONTACT_REQUESTS`,
   `MAX_PENDING_REQUESTS_PER_INVITATION`), and evicted strangers whose
-  links have not ended are bounded by the budget for strangers.
+  links have not ended are bounded by the budget for strangers. Since
+  Phase 5 the message store is bounded per contact, per identity and in
+  total (`MAX_QUEUED_MESSAGES_PER_CONTACT`,
+  `MAX_QUEUED_MESSAGES_PER_IDENTITY`, `MAX_QUEUED_MESSAGE_BYTES`,
+  `MAX_CONVERSATION_STORE_LEN`, `MAX_STORED_MESSAGES`,
+  `MAX_MESSAGE_STORE_FILE_LEN`), every limit checked before anything is
+  stored, and the events of the runtime go through a broadcast of
+  `MAX_UI_EVENTS` that drops for a slow consumer and tells it so.
 - Tests: lint in CI, T-RES-3, the core tests of the accept loop (a flood
   beyond `MAX_INBOUND_HANDSHAKES` is closed, not queued), T-INV-5 and
-  T-INV-6, `strangers::tests`, mutation faults CS20, CS26 and CS27.
+  T-INV-6, `strangers::tests`, mutation faults CS20, CS26 and CS27;
+  `messages::tests` and `tests/messages.rs` for the limits of the message
+  store, mutation faults MR12 to MR14.
 
 ### S13. File transfer is always offered and explicitly accepted
 
@@ -787,10 +904,15 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
   print `[redacted]`; a session prints its state, its frame and byte
   counters and whether it failed.
   The session crate has no logging at all and returns no key material from
-  any function.
-- Tests: unit tests per type, T-LOG-1 (run the malicious-peer suite with
-  logging at maximum verbosity and search the output for every secret and
-  every peer-supplied string used by the suite).
+  any function. Since Phase 5 the views of a message (`EntryView`,
+  `MessageView`) and the stored entries print neither the text nor the
+  identifier, the events of the runtime carry no message text, and the
+  key of the message store prints `[redacted]`.
+- Tests: unit tests per type (among them `messages::tests` and
+  `api::tests` for message text, mutation fault MR19), T-LOG-1 (run the
+  malicious-peer suite with logging at maximum verbosity and search the
+  output for every secret and every peer-supplied string used by the
+  suite).
 
 ### S34. Session keys and ephemeral keys never leave the session objects
 
@@ -919,8 +1041,14 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
 
 - Mechanism: Monolith has no update check, telemetry, crash reporting or
   time synchronization. The only traffic it causes is peer sessions and the
-  Tor control and SOCKS exchanges needed for them.
+  Tor control and SOCKS exchanges needed for them. Since Phase 5 a contact
+  is dialed only while it has queued messages, no Ping is sent to keep a
+  session alive (one is sent only to probe a duplicate session), and a
+  session with nothing to carry is closed after `SESSION_LINGER`
+  (`adr/0009-session-manager.md`).
 - Tests: ban list in `deny.toml`; T-NET-1 for a dial and for the CLI
   without Tor. T-NET-1 has no idle step: the idle run of
   `docs/TEST_PLAN.md` section 11 (no traffic besides Tor's own) has no
-  test yet.
+  test yet. `tests/runtime.rs` in the core checks that a runtime dials
+  nobody without a queued message and closes an idle session (mutation
+  fault MR25).

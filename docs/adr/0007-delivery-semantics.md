@@ -113,7 +113,13 @@ message per round trip; correctness is the priority in version 1.
 Events are notifications raised after the state they report is durable.
 They are not the state: a consumer that misses some reads the current
 state with queries. No correctness property depends on an event being
-seen.
+seen. Queries read the state in memory, which can be ahead of the store
+by the changes whose write is under way; if that write fails, the store
+fails closed (`StorageFailed`) and a restart shows the store as it was.
+
+A command that changes something runs as a task of its own: once begun,
+it completes and raises its event also if its caller stops waiting for
+it. A message the user sent is never left in memory without its event.
 
 ## Consequences
 
@@ -124,6 +130,12 @@ seen.
 - The duplicate check covers what the conversation holds and a bounded
   window of identifiers of messages the user deleted locally (ADR 0008);
   a retry of a message deleted beyond that window would be accepted again.
+- The duplicate check is per conversation, that is per contact record. A
+  contact blocked or deleted and made again is a new record with a new,
+  empty conversation: a message its peer sends again after that, which
+  the old record had taken in, is stored again in the new conversation.
+  Nothing of the old record is consulted for the new one, on purpose
+  (`SECURITY_INVARIANTS.md` S56).
 - `PROTOCOL.md` sections 8.5 and 8.6 are amended: the acknowledgement
   follows durable storage, and the duplicate window is kept in the
   message store, not in memory.

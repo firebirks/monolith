@@ -129,6 +129,8 @@ extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | `PING_INTERVAL_MIN` / `MAX` | 90 s / 150 s | Each interval is drawn uniformly from this range. |
 | `PONG_TIMEOUT` | 60 s | |
 | `IDLE_TIMEOUT` | 240 s | No complete frame received, measured from the last complete frame or, before the first, from authentication. Bytes of a frame that is not complete do not count. The session ends without a Close. |
+| `MESSAGE_ACK_TIMEOUT` | 60 s | A sender waits this long for the MessageAck of the message in flight. Then delivery is uncertain: the session is closed and the message is sent again on a later one (`adr/0007-delivery-semantics.md`). |
+| `SESSION_LINGER` | 120 s | A confirmed session on which no ChatMessage or MessageAck was sent or received for this long, with nothing queued or in flight, is closed by the local side with Close (`adr/0009-session-manager.md`). |
 | `FRAME_READ_TIMEOUT` | 60 s | From the first byte of a frame's length prefix to its last byte, an absolute deadline: later bytes of the same frame do not move it. The session ends without a Close. |
 | `FRAME_WRITE_TIMEOUT` | 60 s | One frame write. |
 | `FILE_OFFER_TIMEOUT` | 10 min | An unanswered file offer is dropped. |
@@ -177,9 +179,13 @@ written, within `FRAME_WRITE_TIMEOUT`.
 | `MAX_ACTIVE_TRANSFERS` | 4 | |
 | `MAX_ENDED_TRANSFER_IDS` | 64 | Per session; lets messages that crossed an abort be discarded. |
 | `FILE_FREE_SPACE_MARGIN` | 64 MiB | Free space required beyond the declared size. |
-| `MAX_QUEUED_MESSAGES_PER_CONTACT` | 256 | Outbound, not yet acknowledged. |
-| `MAX_QUEUED_MESSAGE_BYTES` | 64 MiB | Outbound, all contacts. |
-| `MESSAGE_DEDUP_WINDOW` | 1024 | Received message identifiers kept per contact. |
+| `MAX_QUEUED_MESSAGES_PER_CONTACT` | 256 | Outbound, not yet acknowledged, per contact record. |
+| `MAX_QUEUED_MESSAGES_PER_IDENTITY` | 1024 | Outbound, not yet acknowledged, all contacts of one local identity. |
+| `MAX_QUEUED_MESSAGE_BYTES` | 8 MiB | Text queued, all identities together: half of the message store, so that a full queue leaves room to take messages in. |
+| `MESSAGE_DEDUP_WINDOW` | 1024 | Identifiers of received messages the user deleted, kept per conversation so that a late retry is not taken in again. Messages that are held are found by their own identifiers. |
+| `MAX_CONVERSATIONS_PER_IDENTITY` | 2048 | Conversations in the message store, those of deleted or blocked contacts included. |
+| `MAX_CONVERSATION_STORE_LEN` | 4 MiB | Bytes the messages of one conversation take in the message store; one contact cannot fill it. |
+| `MAX_STORED_MESSAGES` | 262144 | Messages in the message store, all conversations together. |
 
 Tor applies one limit of its own in front of these: `MaxStreams=8` with
 `MaxStreamsCloseCircuit` on every `ADD_ONION` (`TOR_CONTROL_SURFACE.md`). It
@@ -371,8 +377,16 @@ Since Phase 4 the publication supervisor uses the same schedule to publish
 the service of an identity again after Tor lost it: the first attempt
 follows the loss after the first delay, each failure doubles it, and the
 delay is reset once a publication stayed up for `RECONNECT_RESET_AFTER`.
-There is no attempt without a delay. The dial scheduler that applies the
-schedule to contacts is not implemented yet.
+There is no attempt without a delay.
+
+Since Phase 5 the same schedule paces the dialing of contacts, and only of
+a contact that has queued messages and no session
+(`adr/0009-session-manager.md`): the first attempt follows the command
+that queued the first message, the next ones the delays above after a
+failure or after a session that ended with messages left, and the delay
+starts over once a session of the contact stayed up for
+`RECONNECT_RESET_AFTER`. At startup the first attempts are spread at random
+over `STARTUP_DIAL_SPREAD`. A contact with nothing queued is not dialed.
 
 With 1000 offline contacts at the cap, a dial comes due about every 1.8 s
 on average. Only 4 run at once. A dial that is due waits for a free slot in
@@ -384,7 +398,14 @@ even when our own retry timer is long.
 ## 8. UI event queue
 
 The core sends events to a front end through one bounded queue of
-`MAX_UI_EVENTS` entries. Events that describe state (peer online, request
+`MAX_UI_EVENTS` entries. Since Phase 5 the runtime keeps this as a bounded
+broadcast: events name what changed (a message by its conversation and
+place, never its text) and are raised once the change is durable; a front
+end that falls more than `MAX_UI_EVENTS` behind is told how many it missed
+and reads the state again with the queries. Nothing waits for a slow front
+end, and nothing is lost by it: the state is in the message store. What
+follows was the design before Phase 5 and still describes the events of
+the contact store. Events that describe state (peer online, request
 count, transfer progress) are coalesced: a newer event of the same kind for
 the same subject replaces the queued one. Events that carry content (a chat
 message) are not coalesced; when the queue is full the core stops reading
@@ -404,6 +425,8 @@ window or one desktop notification per request.
 | `MAX_SOCKS_REPLY_LEN` | 262 |
 | `ONION_MAX_STREAMS` | 8, per rendezvous circuit (section 5), provisional |
 | `MAX_VAULT_FILE_LEN` | 16 MiB |
+| `MAX_MESSAGE_STORE_FILE_LEN` | 16 MiB |
+| `MESSAGE_STORE_PADDING_BLOCK_LEN` | 64 KiB |
 | `MIN_KDF_MEMORY_KIB` / `DEFAULT` / `MAX` | 64 MiB / 256 MiB / 1 GiB |
 | `MIN_KDF_ITERATIONS` / `DEFAULT` / `MAX` | 3 / 3 / 16 |
 | `DEFAULT_KDF_PARALLELISM` / `MAX` | 4 / 8 |
@@ -441,22 +464,22 @@ Memory that a peer can influence, with every budget full:
 | Contact sessions: 256 x (read buffer + write buffer, one frame each) | about 32 MiB |
 | Pending handshakes: 16 x about 3 KiB (section 11.1) | about 48 KiB |
 | Unconfirmed sessions: one frame of one block each, plus about 2 KiB of session state | under 1 MiB |
-| Outbound message queue | 64 MiB |
-| UI event queue: 256 x 16.4 KiB | about 4.1 MiB |
-| Duplicate windows: 1000 contacts x 16 KiB | about 15.6 MiB |
+| Message store: the state in memory, at most the 16 MiB of its file, and a write that encodes and encrypts a copy | about 48 MiB at a write, 16 MiB between writes |
+| UI event queue: 256 events, none of them with message text | under 0.1 MiB |
 | Active transfers: 4 x (one chunk + hash state) | about 0.3 MiB |
 | Pending requests, file offers | under 0.1 MiB |
 | Contacts with profiles, block and declined lists | about 2 MiB |
-| Total | about 119 MiB |
+| Total | about 83 MiB |
 
-The outbound queue is filled by the local user, not by peers. Without it the
-peer-driven ceiling is about 55 MiB. Full-size session buffers are allocated
-when a session is confirmed as a contact session and freed when it closes,
-and a duplicate window exists only for a contact that has sent a message,
-so the typical footprint is far lower.
+The message store holds what the user queued and what contacts sent, up to
+its bound (`MAX_MESSAGE_STORE_FILE_LEN`); a contact fills at most its
+conversation (`MAX_CONVERSATION_STORE_LEN`). Full-size session buffers are
+allocated when a session is confirmed as a contact session and freed when
+it closes, so the typical footprint is far lower.
 
-Duplicate windows have to outlive sessions to be of any use, which is why
-they are counted per contact and not per session.
+The identifiers that drop duplicates are those of the messages the store
+holds and, per conversation, at most `MESSAGE_DEDUP_WINDOW` of received
+messages the user deleted; they outlive sessions and restarts.
 
 Not peer-influenced: the Argon2id working memory at vault unlock (256 MiB by
 default, once, then released) and whatever the GUI toolkit uses.
@@ -472,8 +495,9 @@ Other resources:
 - Disk: an incoming transfer is accepted only if free space is at least the
   declared size plus `FILE_FREE_SPACE_MARGIN`. At most 4 transfers of at most
   `DEFAULT_MAX_FILE_SIZE` each are in progress. The vault is capped at
-  16 MiB. The history store quota is defined with the history store
-  (ADR 0005, open item).
+  16 MiB, and so is the message store (`MAX_MESSAGE_STORE_FILE_LEN`);
+  each is rewritten whole, under another name, so a write needs as much
+  again while it runs.
 - CPU: an inbound handshake costs three X25519 operations, two fixed-base
   multiplications and the validation of one contact card, about 0.3 ms
   (section 11.1). At the inbound rate limit that is a
@@ -608,6 +632,14 @@ requests from real strangers are then refused for as long as it lasts.
 Sessions with identities the user holds as accepted or requested are
 counted separately and are not affected. The remedy is to rotate the
 endpoint, which invalidates the leaked card.
+
+A contact can fill its conversation, `MAX_CONVERSATION_STORE_LEN`, and
+several contacts the whole message store. Messages that do not fit are
+not taken in and not acknowledged: their senders keep them and try again
+later, and the user is told (`Event::MessageRefused`). Room is made only
+by the user deleting conversations; nothing stored is dropped by itself.
+The per-contact rates of section 6 are not enforced yet, so a contact is
+bounded by these limits and not by a rate.
 
 Whoever copied a contact's identity key, without its active transport key,
 can make sessions that present new keys. Each is a pending-key session,
