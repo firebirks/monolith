@@ -38,7 +38,8 @@ Chutney network, a service published again from its key, a dial without
 SOCKS, a lost control connection, every node under `strace`. Covered
 now: T-SOCKS, T-CTRL, T-NET-1.
 
-What Phase 4 added, which waits for its final verification: in
+What Phase 4 added, which passed its final verification on `970316f`:
+in
 `monolith-protocol`, the exhaustive table of the credential decision
 against a model written from PROTOCOL.md section 11.4
 (`credential::tests::table`) and the decision about a card for every kind

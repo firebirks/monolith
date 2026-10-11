@@ -1,7 +1,7 @@
 # ADR 0005: Storage encryption
 
 Status: the vault is decided and implemented in `monolith-storage` (Phase
-4, waiting for its final verification); its default KDF parameters are
+4); its default KDF parameters are
 provisional until measured on the four targets; the message store is
 open.
 Date: 2026-10-01. Amended 2026-10-05 by Phase 4: the vault implemented,

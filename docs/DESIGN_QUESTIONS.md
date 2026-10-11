@@ -235,7 +235,9 @@ Nothing below is settled. Each is described in the document named.
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
 | ST1, ST3, ST5, ST6 | Message store, previous generation, passphrase policy, Argon2id defaults (measured on the development machine only; the four targets of STORAGE.md 3.3 remain) | STORAGE.md 9 |
-| T3-7 | The two-node test on a private Tor network runs in a Linux container with Tor 0.4.9.13 and Chutney, with the steps of Phase 3 and 4; for each phase it is settled by the run on the commit of its final verification | tests/tor-network/README.md |
+| - | Closing the oldest unauthenticated stream for a new one when the handshake budget is full | RESOURCE_LIMITS.md 5, 12 |
+| - | A test of the idle run of S32: no traffic besides Tor's own | TEST_PLAN.md 11 |
+| - | Pinning the Tor version or the image digest of the private network test | tests/tor-network/README.md |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Security contact address and key | SECURITY.md |
@@ -1665,3 +1667,58 @@ nothing from it, and it ends at its first message or at
 on the path of a late session (`73b4273`); with one left, the other
 held, so the check in `apply` is a second line that no fault shows on
 its own.
+
+### 11.6 Final verification and completion
+
+The final verification ran on `970316fc76d0ea19c1c65239b16556253a2894c8`
+in the three stages of `STATUS.md` section 5.2, with no file of that
+commit changed while it ran: stages 1 and 2 and mutation lists 1 and 2
+from 2026-10-08, lists 3 and 4 on 2026-10-11 on a second machine (a Linux
+VM with 8 CPUs, 8 GB and two workers). The outputs are on the branch
+`verification-970316f` (`verification/970316f/`). The final report is
+section 5.3 of `STATUS.md`, kept in the history at `d2089b5`. Results:
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo test --workspace --locked`, Rust 1.95.0, 1.85.1 and stable (1.95.0 that day), Linux | 33 test binaries, 682 passed, 0 failed, 2 ignored (the KDF measurement, and the test that the private network test runs), on each |
+| Rust 1.85.1: `check --all-targets` | clean |
+| `cargo deny check` | advisories, bans, licenses and sources ok |
+| `cargo audit` | no advisory for the 82 crates |
+| `cargo tree -d` | one pair: `rand_core` 0.9.5 (tests only, through proptest) and 0.10.1 |
+| Known-answer vectors of `PROTOCOL.md` 16.1 | unchanged, pass |
+| Fuzz, 16 targets, 25 seconds each | no failure |
+| Fuzz, 600 seconds each: `credential_sequence`, `contact_store`, `vault_payload`, `session_frames`, `handshake_initiator`, `handshake_responder`, `tor_control_reply`, `socks_reply` | no failure |
+| Mutation suite, 338 faults | 329 caught, the nine expected survivors (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29), none unexpected, none invalid; exit code 0 for each list; the 123 faults of Phase 4, CS1 to CS123, all caught |
+| `tests/network/fail-closed.sh` (T-NET-1), syscall observation via strace | pass, all four steps |
+| `tests/tor-network/two-node.sh`, Tor 0.4.9.13, Chutney `ae3a33c`, `RESTART_CYCLES=15` | pass, all 12 steps; 15 of 15 restarts of Tor B recovered within the window, in 1 to 20 seconds |
+| Identities of `2f27dcb..970316f` | 171 commits, all with `firebirks <336470935+firebirks@users.noreply.github.com>` as author and committer, no trailers |
+
+The owner decided the four open points of the report on 2026-10-11. The
+finding about eviction concerned the handshake budget, not the budget
+for strangers, which evicts the oldest silent stranger as P4-8 says; so
+`RESOURCE_LIMITS.md` was corrected (`8e7b5aa`) and the code was not. S32
+no longer credits T-NET-1 with the idle run, which has no test
+(`f549842`); not a blocker. T-NET-1 observes system calls through strace
+where `TEST_PLAN.md` section 11 describes a packet capture: accepted.
+The Dockerfile of the network test does not pin Tor: accepted; the run
+used Tor 0.4.9.13, and pinning is hardening of the test infrastructure.
+
+The owner then declared Phase 4 complete on `970316f` on 2026-10-11. The
+commits after it, up to the tag `phase-4-complete`, change documents
+only. From then on the mutation faults CS1 to CS123 and the regression
+tests of Phase 4 are a baseline to preserve. T3-7 is settled for Phase 4
+by the private network test. Phase 5 has not started.
+
+Notes kept for the record:
+
+- Three faults reached the runner's timeout of 20 minutes: T6 (Phase 2,
+  under the load of four workers; alone it was caught in 791 seconds by
+  failing tests), Q1 (also alone: without the SOCKS negotiation the test
+  `an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes`
+  waits for a greeting that never comes) and CS30 (as `mutation/README.md`
+  expects). Each also makes named tests fail, so none is a survivor
+  hidden by the timeout.
+- Left outside Phase 4, besides section 11.3: closing the oldest
+  unauthenticated stream for a new one, a test of the idle run, and
+  pinning Tor in the network test (section 3).

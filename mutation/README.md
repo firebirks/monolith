@@ -55,7 +55,8 @@ stays the same fault.
 
 ## Expected results
 
-With Phase 4:
+With Phase 4; the final verification on `970316f` gave exactly this,
+with exit code 0 for each list:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
@@ -65,6 +66,9 @@ With Phase 4:
 | Phase 4 | 123 | 123 | none |
 
 338 faults, 329 to be caught, 9 expected to survive.
+
+Phase 4 was closed on 2026-10-11. From then on the faults CS1 to CS123
+and the regression tests of Phase 4 are a baseline to preserve.
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

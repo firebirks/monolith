@@ -18,11 +18,11 @@ S35 and S37, and the local party of S47. In the Tor adapter and the core,
 since Phase 3: S1 to S3 and S5, the command set of S6, the connection
 budgets of S12, the withdrawal of S49 and the admission of S50 up to the
 contact store, and the parts of S42, S43, S45 and S46 named in their
-entries. Since Phase 4, which waits for its final verification, the
-contact store and the vault: S7, S28 and S31 for the vault, S36 and S48
-to S51 through the store, S38 and S39 to S46, and S17 for the new users
-of the random source. Everything that involves a user interface, the
-message store or file transfer is still a planned mechanism.
+entries. Since Phase 4, the contact store and the vault: S7, S28 and S31
+for the vault, S36 and S48 to S51 through the store, S38 and S39 to S46,
+and S17 for the new users of the random source. Everything that involves
+a user interface, the message store or file transfer is still a planned
+mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single

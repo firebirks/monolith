@@ -11,14 +11,15 @@ the session layer (the handshake and the encrypted frames) are implemented
 as libraries that do no I/O. The integration with a Tor the system runs is
 implemented: a SOCKS5 client, a control client for status and for
 publishing an Onion Service, sessions over Tor streams with their budgets
-and deadlines. Phase 4, waiting for its final verification, adds the
-contact store of each local identity, the encrypted vault that keeps it,
-invitations, several local identities, the publication supervisor and the
-rotation of a transport key, with a development node in the command-line
-binary. The session manager, the message queue, the user interface and
-the Tails and Whonix integration are designs and are not implemented.
-`STATUS.md` records what is implemented and what has been verified. Nothing
-here has been audited. Do not rely on it for anything.
+and deadlines. Phase 4, complete and verified (tag `phase-4-complete`),
+adds the contact store of each local identity, the encrypted vault that
+keeps it, invitations, several local identities, the publication
+supervisor and the rotation of a transport key, with a development node
+in the command-line binary. The session manager, the message queue, the
+user interface and the Tails and Whonix integration are designs and are
+not implemented. `STATUS.md` records what is implemented and what has
+been verified. Nothing here has been audited. Do not rely on it for
+anything.
 
 ## What it is
 

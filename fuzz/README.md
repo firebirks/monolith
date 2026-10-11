@@ -93,8 +93,13 @@ fixtures they share and is not one); Phase 4 added `vault_payload` and
 `contact_store` and extended `credential_sequence`. During Phase 4 the
 three ran for 60 seconds each from their seeds; `contact_store` found a
 confirmation for a blocked identity that was reported as the wrong card
-instead of not found, fixed in `1897a71`. The smoke and longer runs of a
-phase's final verification are recorded in its report. Before Phase 3, the targets
+instead of not found, fixed in `1897a71`. In the final verification of
+Phase 4 (on `970316f`) each of the sixteen ran for 25 seconds, and
+`credential_sequence`, `contact_store`, `vault_payload`,
+`session_frames`, the two handshake targets and the two Tor parsers for
+600 seconds each, without a failure (`docs/DESIGN_QUESTIONS.md` 11.6).
+The smoke and longer runs of a phase's final verification are recorded
+in its report. Before Phase 3, the targets
 were run from their seeds for short smoke tests only (about 25 seconds
 each, no failure), last for all of them at the end of Phase 2. The eight targets of the protocol core make between 77 thousand
 and 12 million executions in that time. The three session targets make

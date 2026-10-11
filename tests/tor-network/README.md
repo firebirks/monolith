@@ -103,6 +103,8 @@ the run; the script kills a Tor that has not ended 10 seconds after
 SIGTERM. The test is not part of CI, because it needs Tor and takes about
 twenty minutes.
 
-Status: runs with Tor 0.4.9.13 and Chutney at commit `ae3a33c` in the
-container. The result that counts for a phase is the run on the commit of
-its final verification, recorded in the final report.
+Status: passed in the final verification of Phase 4, on `970316f`, with
+Tor 0.4.9.13 and Chutney at commit `ae3a33c` in the container and 15
+restart cycles (`docs/DESIGN_QUESTIONS.md` 11.6). The Dockerfile does not
+pin the version of Tor. The result that counts for a phase is the run on
+the commit of its final verification, recorded in the final report.

@@ -4,8 +4,7 @@ Status: the session layer is decided and implemented. It is Noise XK with
 a transport key that the identity certifies in the contact card (ADR
 0002). Sections 4 to 8 describe it, and the crate `monolith-session`
 implements it. The vault of section 9 is specified in `STORAGE.md` and
-implemented in `monolith-storage` in Phase 4, which waits for its final
-verification.
+implemented in `monolith-storage` in Phase 4.
 
 Monolith defines no primitive, no key exchange and no key schedule of its
 own. It uses the Noise Protocol Framework and Ed25519 as specified, and
