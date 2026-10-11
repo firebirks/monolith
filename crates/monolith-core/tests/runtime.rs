@@ -240,6 +240,8 @@ fn both_sides_sending_at_once_end_with_one_session_and_every_message_once() {
             let (mut a, mut b, at_a, at_b) = pair(&network).await;
             a.start(&network, options()).await;
             b.start(&network, options()).await;
+            let mut at_a_events = a.runtime().subscribe();
+            let mut at_b_events = b.runtime().subscribe();
             a.runtime()
                 .send_message(&a.id(), &at_a, "from a")
                 .await
@@ -267,6 +269,26 @@ fn both_sides_sending_at_once_end_with_one_session_and_every_message_once() {
                     && b.runtime().sessions(&b.id(), &at_b).unwrap() <= 1
             })
             .await;
+            // Whatever sessions came and went, the record was reported
+            // available and unavailable in turn, starting with available.
+            tokio::time::sleep(SESSION_LINGER * 2).await;
+            for events in [&mut at_a_events, &mut at_b_events] {
+                let mut available = false;
+                while let Ok(event) = events.try_recv() {
+                    match event {
+                        Event::SessionAvailable { .. } => {
+                            assert!(!available, "{gap}");
+                            available = true;
+                        }
+                        Event::SessionUnavailable { .. } => {
+                            assert!(available, "{gap}");
+                            available = false;
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(!available, "{gap}");
+            }
             a.stop().await;
             b.stop().await;
         });
@@ -905,6 +927,211 @@ fn a_failed_vault_ends_every_attempt() {
         tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
         assert_eq!(network.dials(), dials);
         a.stop().await;
+    });
+}
+
+#[test]
+fn a_record_with_two_sessions_is_reported_available_once() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = pair(&network).await;
+        a.start(&network, options()).await;
+        b.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        // Both sides ask for a session at the same moment: two sessions of
+        // the record register at each side, and the duplicate rule keeps
+        // one.
+        a.runtime().connect(&a.id(), &at_a).unwrap();
+        b.runtime().connect(&b.id(), &at_b).unwrap();
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+        // The idle session lingers and ends.
+        tokio::time::sleep(SESSION_LINGER * 2).await;
+        let mut reported = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            match event {
+                Event::SessionAvailable { .. } => reported.push(true),
+                Event::SessionUnavailable { .. } => reported.push(false),
+                _ => {}
+            }
+        }
+        assert_eq!(reported, vec![true, false]);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_failed_vault_is_reported_at_once_and_refuses_a_send() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        // Nothing runs: no queue, no session, no attempt.
+        a.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        dir.crash_at(dir.steps() + 1);
+        assert!(
+            a.identity
+                .set_verified(b.identity.identity(), true)
+                .await
+                .is_err()
+        );
+        // Reported at once, by the runtime itself.
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            event(&mut events, |event| matches!(event, Event::StorageFailed)),
+        )
+        .await
+        .expect("the failure was reported");
+        // A send is refused as a store that failed, not as an identity
+        // that is gone.
+        assert_eq!(
+            a.runtime().send_message(&a.id(), &at_a, "x").await,
+            Err(SendError::Storage)
+        );
+        a.stop().await;
+    });
+}
+
+#[test]
+fn an_identity_deleted_while_a_send_waits_for_the_vault_fails_nothing() {
+    // In real time: writes are held on a thread of their own.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        a.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        // A change of the vault waits for its write.
+        dir.hold_writes();
+        let released = Released(&dir);
+        let identity = a.identity.clone();
+        let peer = *b.identity.identity();
+        let verifying = tokio::spawn(async move { identity.set_verified(&peer, true).await });
+        common::held(&dir).await;
+        // A send waits for the vault, and the identity is deleted.
+        let runtime = a.runtime().clone();
+        let id = a.id();
+        let sending = tokio::spawn(async move { runtime.send_message(&id, &at_a, "x").await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let runtime = a.runtime().clone();
+        let deleting = tokio::spawn(async move { runtime.delete_identity(&id).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        drop(released);
+        assert_eq!(sending.await.unwrap(), Err(SendError::UnknownIdentity));
+        deleting.await.unwrap().unwrap();
+        let _ = verifying.await.unwrap();
+        // Nothing failed, and nothing says so.
+        assert!(!a.installation.is_failed());
+        assert!(!a.installation.messages_failed());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        while let Ok(event) = events.try_recv() {
+            assert!(!matches!(event, Event::StorageFailed), "{event:?}");
+        }
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_peer_that_dials_in_and_never_acknowledges_does_not_reset_the_delays() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = pair(&network).await;
+        a.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "from a")
+            .await
+            .unwrap();
+        // B is away: three attempts fail, and the delays grow.
+        for _ in 0..3 {
+            event(&mut events, |event| {
+                matches!(
+                    event,
+                    Event::DeliveryDeferred {
+                        reason: DeferReason::Tor,
+                        ..
+                    }
+                )
+            })
+            .await;
+        }
+        // B comes, dials A for a message of its own and never acknowledges
+        // what A sends on that session.
+        b.start(
+            &network,
+            RuntimeOptions {
+                acknowledgement_delay: MESSAGE_ACK_TIMEOUT * 1000,
+                ..options()
+            },
+        )
+        .await;
+        b.runtime()
+            .send_message(&b.id(), &at_b, "from b")
+            .await
+            .unwrap();
+        event(&mut events, |event| {
+            matches!(event, Event::SessionUnavailable { .. })
+        })
+        .await;
+        // The session ended for want of an acknowledgement: the next
+        // attempt follows the grown delay, not the first one again.
+        let ended = tokio::time::Instant::now();
+        let dials = network.dials();
+        until(|| network.dials() > dials).await;
+        assert!(
+            ended.elapsed() >= Duration::from_secs(20),
+            "{:?}",
+            ended.elapsed()
+        );
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_shutdown_waits_for_a_command_under_way() {
+    // In real time: the write is held on a thread of its own.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        a.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        dir.hold_writes();
+        // Released also if an assertion fails: the runtime of the test
+        // would otherwise wait for ever for the held write.
+        let _released = Released(&dir);
+        let runtime = a.runtime().clone();
+        let id = a.id();
+        let sending = tokio::spawn(async move { runtime.send_message(&id, &at_a, "x").await });
+        common::held(&dir).await;
+        let releasing = dir.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            releasing.release_writes();
+        });
+        // The shutdown waits for the send, which ends once its write is
+        // done: its event is out when the shutdown returns.
+        a.runtime().shutdown(Duration::from_secs(30)).await;
+        let mut queued = false;
+        while let Ok(event) = events.try_recv() {
+            queued |= matches!(event, Event::MessageQueued(_));
+        }
+        assert!(queued);
+        assert!(sending.await.unwrap().is_ok());
     });
 }
 

@@ -328,6 +328,10 @@ impl SessionManager {
                 .is_some_and(|pending| pending.serial == serial)
             {
                 contenders.pending = None;
+            } else {
+                // Not registered (closed when it registered): nothing
+                // changed, and nobody is woken.
+                return;
             }
             if contenders.preferred.is_none() && contenders.pending.is_none() {
                 records.remove(contact);
@@ -562,5 +566,22 @@ mod tests {
         assert!(!first.closing());
         assert!(side.manager.is_preferred(&record(), 1));
         assert!(side.manager.is_preferred(&other, 2));
+    }
+
+    #[test]
+    fn ending_a_session_that_was_not_registered_wakes_nobody() {
+        let (small, large) = pair();
+        let side = Side::new(small, large);
+        let (registration, _control) = side.register(1, Initiator::Local);
+        assert_eq!(registration, Registration::Preferred);
+        let changes = side.manager.subscribe();
+        // A session the record never held (one closed as it registered)
+        // ends: nothing changed.
+        side.manager.unregister(&record(), 7);
+        assert!(!changes.has_changed().unwrap());
+        assert!(side.manager.is_preferred(&record(), 1));
+        // The one it holds ends: that is a change.
+        side.manager.unregister(&record(), 1);
+        assert!(changes.has_changed().unwrap());
     }
 }

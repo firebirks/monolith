@@ -43,7 +43,7 @@ use monolith_protocol::text::{ChatText, DisplayName, IntroductionText};
 use monolith_storage::message_records::EntryKind;
 use monolith_tor::{KeySource, OnionService, TorBackend};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
@@ -57,7 +57,7 @@ use crate::contacts::StoreError;
 use crate::identity::{Installation, InstallationError, LocalIdentity, MessageError};
 use crate::link::{Established, Link, LinkError, answer, dial};
 use crate::messages::{Receipt, Refusal};
-use crate::sessions::{Registration, SessionControl, SessionManager};
+use crate::sessions::{SessionControl, SessionManager};
 use crate::supervisor::{Backoff, Publication, supervise};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -124,6 +124,12 @@ struct IdentityRuntime {
     manager: SessionManager,
     /// The conversations whose scheduler runs.
     schedulers: Mutex<HashSet<ContactId>>,
+    /// The records whose last session ended for want of an
+    /// acknowledgement: their delays do not start again.
+    timed_out: Mutex<HashSet<ContactId>>,
+    /// The records a session was reported available for: an event is
+    /// raised only when that changes.
+    available: Mutex<HashSet<ContactId>>,
 }
 
 impl fmt::Debug for IdentityRuntime {
@@ -246,13 +252,6 @@ impl<B: TorBackend + 'static> Drop for SessionTask<B> {
                 .session_ended(&self.runtime, contact, self.running.serial, self.ended);
         }
     }
-}
-
-/// Runs `work` as a task of its own and waits for it: a command, once
-/// begun, completes and raises its events also if its caller stops
-/// waiting. `None` if the task did not complete.
-async fn detached<T: Send + 'static>(work: impl Future<Output = T> + Send + 'static) -> Option<T> {
-    tokio::spawn(work).await.ok()
 }
 
 fn refused(refusal: Refusal) -> SendError {
@@ -381,6 +380,80 @@ impl<B: TorBackend + 'static> Inner<B> {
         *self.shutdown.borrow()
     }
 
+    /// Runs `work` as a task of the runtime and waits for it: a command,
+    /// once begun, completes and raises its events also if its caller
+    /// stops waiting, and a shutdown waits for it like for every task.
+    /// `None` if it did not complete (a shutdown that ran out of time, or a
+    /// runtime dropped).
+    async fn detached<T: Send + 'static>(
+        &self,
+        work: impl Future<Output = T> + Send + 'static,
+    ) -> Option<T> {
+        let (result, done) = oneshot::channel();
+        self.spawn(async move {
+            let _ = result.send(work.await);
+        });
+        done.await.ok()
+    }
+
+    /// Raises `SessionAvailable` or `SessionUnavailable` for `contact` if
+    /// whether a session of it is registered changed since the last event.
+    /// Decided under one lock, so that the events alternate.
+    fn announce(&self, runtime: &IdentityRuntime, contact: ContactId) {
+        let mut available = lock(&runtime.available);
+        let now = runtime.manager.has_session(&contact);
+        let changed = if now {
+            available.insert(contact)
+        } else {
+            available.remove(&contact)
+        };
+        if changed {
+            let identity = runtime.identity.id();
+            self.emit(if now {
+                Event::SessionAvailable { identity, contact }
+            } else {
+                Event::SessionUnavailable { identity, contact }
+            });
+        }
+    }
+
+    /// Reports a failed store as soon as it fails, also with no session or
+    /// attempt running that would notice it.
+    async fn watch_storage(self: Arc<Self>) {
+        let (mut vault, mut messages) = self.installation.failure_changes();
+        let mut shutdown = self.shutdown.subscribe();
+        loop {
+            if self.installation.is_failed() || self.installation.messages_failed() {
+                self.storage_failure();
+                return;
+            }
+            if *shutdown.borrow_and_update() {
+                return;
+            }
+            let gone = {
+                let mut vault = pin!(vault.changed());
+                let mut messages = pin!(messages.changed());
+                let mut stopping = pin!(shutdown.changed());
+                poll_fn(|cx| {
+                    if let Poll::Ready(result) = vault.as_mut().poll(cx) {
+                        return Poll::Ready(result.is_err());
+                    }
+                    if let Poll::Ready(result) = messages.as_mut().poll(cx) {
+                        return Poll::Ready(result.is_err());
+                    }
+                    if let Poll::Ready(result) = stopping.as_mut().poll(cx) {
+                        return Poll::Ready(result.is_err());
+                    }
+                    Poll::Pending
+                })
+                .await
+            };
+            if gone {
+                return;
+            }
+        }
+    }
+
     /// Reports a failed store, once.
     fn storage_failure(&self) {
         if !self.storage_failed.swap(true, Ordering::SeqCst) {
@@ -413,6 +486,8 @@ impl<B: TorBackend + 'static> Inner<B> {
             manager: SessionManager::new(*identity.identity()),
             identity: identity.clone(),
             schedulers: Mutex::new(HashSet::new()),
+            timed_out: Mutex::new(HashSet::new()),
+            available: Mutex::new(HashSet::new()),
         });
         lock(&self.identities).insert(identity.id(), runtime.clone());
         let inner = self.clone();
@@ -611,7 +686,11 @@ impl<B: TorBackend + 'static> Inner<B> {
                 if ended == Waited::Stop {
                     return;
                 }
-                if since.elapsed() >= RECONNECT_RESET_AFTER {
+                // Unless it ended for want of an acknowledgement, a session
+                // that lasted starts the delays again.
+                if since.elapsed() >= RECONNECT_RESET_AFTER
+                    && !lock(&runtime.timed_out).contains(&contact)
+                {
                     backoff.reset();
                 }
                 delay = backoff.delay(jitter());
@@ -763,15 +842,20 @@ impl<B: TorBackend + 'static> Inner<B> {
         serial: u64,
         ended: Ended,
     ) {
+        {
+            let mut timed_out = lock(&runtime.timed_out);
+            if ended == Ended::AckTimeout {
+                timed_out.insert(contact);
+            } else {
+                timed_out.remove(&contact);
+            }
+        }
         runtime.manager.unregister(&contact, serial);
+        self.announce(runtime, contact);
         if runtime.manager.has_session(&contact) {
             return;
         }
         let identity = &runtime.identity;
-        self.emit(Event::SessionUnavailable {
-            identity: identity.id(),
-            contact,
-        });
         let Some(peer) = identity.current_record(&contact) else {
             return;
         };
@@ -1117,7 +1201,7 @@ impl<B: TorBackend + 'static> Inner<B> {
             let card = link.session().peer_card().clone();
             let held = identity.clone();
             let mine = running.serial;
-            let registration = runtime.manager.register(
+            runtime.manager.register(
                 contact,
                 &remote,
                 running.serial,
@@ -1129,12 +1213,7 @@ impl<B: TorBackend + 'static> Inner<B> {
                 // left or is leaving.
                 |serial| serial != mine || held.is_active_key(&card),
             );
-            if registration == Registration::Preferred {
-                self.emit(Event::SessionAvailable {
-                    identity: identity.id(),
-                    contact,
-                });
-            }
+            self.announce(runtime, contact);
         }
         if let Some(announcement) = identity.announcement_for(link.session_ref()) {
             let sent = link.announce(announcement).await?;
@@ -1253,6 +1332,8 @@ impl<B: TorBackend + 'static> Runtime<B> {
         for identity in inner.installation.identities() {
             inner.add_identity(identity, true);
         }
+        let watching = inner.clone();
+        inner.spawn(async move { watching.watch_storage().await });
         Self {
             owner: Arc::new(Owner {
                 inner: inner.clone(),
@@ -1326,7 +1407,7 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .map(|view| ConversationSummary {
                 contact: view.contact,
                 fingerprint: Fingerprint::of(&view.peer).to_compact_text(),
-                active: held.identity.current_record(&view.contact) == Some(view.peer),
+                active: held.identity.is_current(&view.contact, &view.peer),
                 messages: view.messages,
                 queued: view.queued,
                 latest: view.latest,
@@ -1398,7 +1479,8 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .map_err(|_| SendError::UnknownIdentity)?;
         let inner = self.inner.clone();
         let (identity, contact) = (*identity, *contact);
-        detached(async move { inner.send(&held, identity, contact, text).await })
+        self.inner
+            .detached(async move { inner.send(&held, identity, contact, text).await })
             .await
             .unwrap_or(Err(SendError::Storage))
     }
@@ -1413,19 +1495,20 @@ impl<B: TorBackend + 'static> Runtime<B> {
         let held = self.held(identity)?;
         let inner = self.inner.clone();
         let contact = *contact;
-        detached(async move {
-            held.identity
-                .delete_conversation(&contact)
-                .await
-                .map_err(|error| {
-                    if matches!(error, MessageError::Storage(_)) {
-                        inner.storage_failure();
-                    }
-                    CommandError::Storage
-                })
-        })
-        .await
-        .unwrap_or(Err(CommandError::ShuttingDown))
+        self.inner
+            .detached(async move {
+                held.identity
+                    .delete_conversation(&contact)
+                    .await
+                    .map_err(|error| {
+                        if matches!(error, MessageError::Storage(_)) {
+                            inner.storage_failure();
+                        }
+                        CommandError::Storage
+                    })
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// The card of `identity` in its text form, without a capability.
@@ -1442,14 +1525,15 @@ impl<B: TorBackend + 'static> Runtime<B> {
     ) -> Result<ContactId, CommandError> {
         let held = self.held(identity)?;
         let card = ContactCard::from_text(card).map_err(|_| CommandError::InvalidCard)?;
-        detached(async move {
-            held.identity.import(&card).await.map_err(store_error)?;
-            held.identity
-                .contact_id(card.identity())
-                .ok_or(CommandError::UnknownContact)
-        })
-        .await
-        .unwrap_or(Err(CommandError::ShuttingDown))
+        self.inner
+            .detached(async move {
+                held.identity.import(&card).await.map_err(store_error)?;
+                held.identity
+                    .contact_id(card.identity())
+                    .ok_or(CommandError::UnknownContact)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     fn peer_of(
@@ -1493,18 +1577,19 @@ impl<B: TorBackend + 'static> Runtime<B> {
         let held = self.held(identity)?;
         let peer = Self::peer_of(&held, contact)?;
         let contact = *contact;
-        detached(async move {
-            if block {
-                held.identity.block(&peer).await
-            } else {
-                held.identity.delete(&peer).await
-            }
-            .map_err(store_error)?;
-            held.manager.close(&contact);
-            Ok(())
-        })
-        .await
-        .unwrap_or(Err(CommandError::ShuttingDown))
+        self.inner
+            .detached(async move {
+                if block {
+                    held.identity.block(&peer).await
+                } else {
+                    held.identity.delete(&peer).await
+                }
+                .map_err(store_error)?;
+                held.manager.close(&contact);
+                Ok(())
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// Makes a new local identity: Tor makes the key of its Onion Service,
@@ -1518,27 +1603,28 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .transpose()
             .map_err(|_| CommandError::InvalidText)?;
         let inner = self.inner.clone();
-        detached(async move {
-            let mut service = inner
-                .backend
-                .publish_onion(KeySource::Generate)
-                .await
-                .map_err(|_| CommandError::Tor)?;
-            let secret = service.take_generated_secret().ok_or(CommandError::Tor)?;
-            let endpoint = *service.service_key();
-            // Published again by the supervisor, from the stored key.
-            let _ = service.close().await;
-            let identity = inner
-                .installation
-                .create_identity(endpoint, Some(&secret), label)
-                .await
-                .map_err(installation_error)?;
-            let id = identity.id();
-            inner.add_identity(identity, false);
-            Ok(id)
-        })
-        .await
-        .unwrap_or(Err(CommandError::ShuttingDown))
+        self.inner
+            .detached(async move {
+                let mut service = inner
+                    .backend
+                    .publish_onion(KeySource::Generate)
+                    .await
+                    .map_err(|_| CommandError::Tor)?;
+                let secret = service.take_generated_secret().ok_or(CommandError::Tor)?;
+                let endpoint = *service.service_key();
+                // Published again by the supervisor, from the stored key.
+                let _ = service.close().await;
+                let identity = inner
+                    .installation
+                    .create_identity(endpoint, Some(&secret), label)
+                    .await
+                    .map_err(installation_error)?;
+                let id = identity.id();
+                inner.add_identity(identity, false);
+                Ok(id)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// Deletes a local identity: its keys, its contacts, its messages. Its
@@ -1546,16 +1632,17 @@ impl<B: TorBackend + 'static> Runtime<B> {
     pub async fn delete_identity(&self, identity: &IdentityId) -> Result<(), CommandError> {
         let held = self.held(identity)?;
         let inner = self.inner.clone();
-        detached(async move {
-            held.manager.close_all();
-            inner
-                .installation
-                .delete_identity(&held.identity)
-                .await
-                .map_err(installation_error)
-        })
-        .await
-        .unwrap_or(Err(CommandError::ShuttingDown))
+        self.inner
+            .detached(async move {
+                held.manager.close_all();
+                inner
+                    .installation
+                    .delete_identity(&held.identity)
+                    .await
+                    .map_err(installation_error)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// Asks for a session with the contact of the record `contact` now, an

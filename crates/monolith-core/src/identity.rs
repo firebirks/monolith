@@ -831,8 +831,11 @@ impl LocalIdentity {
         contact: ContactId,
         text: ChatText,
     ) -> Result<Queued, MessageError> {
-        if self.is_closed() || self.durability.is_failed() {
+        if self.is_closed() {
             return Err(MessageError::Closed);
+        }
+        if self.durability.is_failed() {
+            return Err(MessageError::Storage(CommitError::Failed));
         }
         let peer = self
             .current_record(&contact)
@@ -842,9 +845,15 @@ impl LocalIdentity {
         // the vault holds, and one whose record could not be made durable
         // never enters it.
         let record = self.durability.applied();
-        self.wait_durable(record)
-            .await
-            .map_err(MessageError::Storage)?;
+        self.wait_durable(record).await.map_err(|error| {
+            // An identity deleted meanwhile ends the wait too: that is a
+            // closed identity, not a store that failed.
+            if self.is_closed() {
+                MessageError::Closed
+            } else {
+                MessageError::Storage(error)
+            }
+        })?;
         let messages = self.messages()?;
         let time = now_seconds();
         let mut attempts = 0_u8;
@@ -1666,6 +1675,8 @@ pub(crate) struct Shared {
     identities: Mutex<Vec<Arc<LocalIdentity>>>,
     /// One identity is created or deleted at a time.
     changes: AsyncMutex<()>,
+    /// Turns over when a write of the vault fails, for whoever reports it.
+    failures: watch::Sender<u64>,
 }
 
 /// The installation closes when its last handle, and the last wait for a
@@ -1714,6 +1725,9 @@ impl Shared {
             failed: Box::new(move || {
                 if let Some(shared) = failing.upgrade() {
                     shared.withdraw_all();
+                    shared
+                        .failures
+                        .send_modify(|count| *count = count.wrapping_add(1));
                 }
             }),
         }
@@ -1846,6 +1860,7 @@ impl Installation {
                 messages,
                 identities: Mutex::new(Vec::new()),
                 changes: AsyncMutex::new(()),
+                failures: watch::Sender::new(0),
             }),
             mode,
             message_store_missing: false,
@@ -2119,6 +2134,16 @@ impl Installation {
     /// Returns true once a write failed. Every change is refused then.
     pub fn is_failed(&self) -> bool {
         self.shared.durability.is_failed()
+    }
+
+    /// Follows the failures of the vault and the changes of the message
+    /// store, whose failure turns them over too: what a runtime watches to
+    /// report a failed store at once.
+    pub(crate) fn failure_changes(&self) -> (watch::Receiver<u64>, watch::Receiver<u64>) {
+        (
+            self.shared.failures.subscribe(),
+            self.shared.messages.subscribe(),
+        )
     }
 
     /// Creates a local identity whose Onion Service is `endpoint`, with the

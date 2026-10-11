@@ -53,6 +53,10 @@ pub enum OpenError {
     /// The vault or the message store holds something that does not
     /// validate. Nothing was repaired.
     Invalid,
+    /// The message store beside the vault holds the messages of another
+    /// vault: the vault is one from before Phase 5 put back beside a newer
+    /// store. Nothing was changed; the user decides which to keep.
+    MessageStore,
     /// The disk failed.
     Io,
 }
@@ -68,6 +72,7 @@ impl fmt::Display for OpenError {
             Self::Permissions => "unsafe permissions on the data directory",
             Self::RecoveryNeeded => "an interrupted write needs a decision",
             Self::Invalid => "the stored state does not validate",
+            Self::MessageStore => "the message store belongs to another vault",
             Self::Io => "disk failure",
         })
     }
@@ -92,6 +97,7 @@ fn storage(error: StorageError) -> OpenError {
 fn installation(error: InstallationError) -> OpenError {
     match error {
         InstallationError::Storage(error) => storage(error),
+        InstallationError::MessageStore => OpenError::MessageStore,
         _ => OpenError::Invalid,
     }
 }
