@@ -143,3 +143,17 @@ path = "fuzz_targets/contact_store.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "message_store"
+path = "fuzz_targets/message_store.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "message_sequence"
+path = "fuzz_targets/message_sequence.rs"
+test = false
+doc = false
+bench = false

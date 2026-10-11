@@ -1,8 +1,11 @@
-//! Seeds of the fuzz target `contact_store`: operation lists, committed
-//! under `fuzz/seeds/contact_store/`. The layout is that of the target:
-//! three bytes per operation, the operation modulo 7, the remote identity
-//! modulo 3, and the card. The test fails if a committed seed is not what
-//! this file says. To write them again:
+//! Seeds of the fuzz targets `contact_store` and `message_sequence`:
+//! operation lists, committed under `fuzz/seeds/contact_store/` and
+//! `fuzz/seeds/message_sequence/`. The layout is that of each target:
+//! three bytes per operation. For `contact_store` the operation modulo 7,
+//! the remote identity modulo 3, and the card; for `message_sequence` the
+//! operation modulo 7, the identity and record, and the identifier and
+//! length or the deletion mode. The test fails if a committed seed is not
+//! what this file says. To write them again:
 //!
 //!     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-core --test fuzz_seeds
 
@@ -72,6 +75,61 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
     ]
 }
 
+const QUEUE: u8 = 0;
+const RECEIVE: u8 = 1;
+const ACKNOWLEDGE: u8 = 2;
+const DELETE_CONVERSATION: u8 = 3;
+const REMOVE_IDENTITY: u8 = 4;
+const RESTART: u8 = 5;
+const OTHER_PEER: u8 = 6;
+
+fn message_seeds() -> Vec<(String, Vec<u8>)> {
+    let list = |operations: &[(u8, u8, u8)]| -> Vec<u8> {
+        operations
+            .iter()
+            .flat_map(|(operation, target, argument)| [*operation, *target, *argument])
+            .collect()
+    };
+    vec![
+        (
+            "message_sequence/deliver_and_restart.bin".to_owned(),
+            list(&[
+                (QUEUE, 0, 1),
+                (QUEUE, 0, 2),
+                (ACKNOWLEDGE, 0, 1),
+                (RESTART, 0, 0),
+                (ACKNOWLEDGE, 0, 1),
+                (ACKNOWLEDGE, 0, 2),
+            ]),
+        ),
+        (
+            "message_sequence/duplicates_and_deletion.bin".to_owned(),
+            list(&[
+                (RECEIVE, 1, 3),
+                (RECEIVE, 1, 3),
+                (DELETE_CONVERSATION, 1, 1),
+                (RECEIVE, 1, 3),
+                (RESTART, 0, 0),
+                (RECEIVE, 1, 3),
+                (DELETE_CONVERSATION, 1, 0),
+                (RECEIVE, 1, 3),
+            ]),
+        ),
+        (
+            "message_sequence/isolation.bin".to_owned(),
+            list(&[
+                (QUEUE, 2, 4),
+                (ACKNOWLEDGE, 0, 4),
+                (ACKNOWLEDGE, 3, 4),
+                (OTHER_PEER, 2, 5),
+                (REMOVE_IDENTITY, 1, 0),
+                (RESTART, 0, 0),
+                (QUEUE, 1, 4),
+            ]),
+        ),
+    ]
+}
+
 fn seed_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds")
 }
@@ -80,21 +138,25 @@ fn seed_root() -> PathBuf {
 fn committed_seeds_are_current() {
     let root = seed_root();
     let write = std::env::var_os("MONOLITH_WRITE_FUZZ_SEEDS").is_some();
-    let expected = seeds();
-    for (path, content) in &expected {
-        let file = root.join(path);
-        if write {
-            fs::create_dir_all(file.parent().unwrap()).unwrap();
-            fs::write(&file, content).unwrap();
+    for (directory, expected) in [
+        ("contact_store", seeds()),
+        ("message_sequence", message_seeds()),
+    ] {
+        for (path, content) in &expected {
+            let file = root.join(path);
+            if write {
+                fs::create_dir_all(file.parent().unwrap()).unwrap();
+                fs::write(&file, content).unwrap();
+            }
+            let on_disk = fs::read(&file)
+                .unwrap_or_else(|error| panic!("seed {path} cannot be read: {error}"));
+            assert!(on_disk == *content, "seed {path} is out of date");
         }
-        let on_disk =
-            fs::read(&file).unwrap_or_else(|error| panic!("seed {path} cannot be read: {error}"));
-        assert!(on_disk == *content, "seed {path} is out of date");
+        let on_disk = fs::read_dir(root.join(directory)).unwrap().count();
+        assert_eq!(
+            on_disk,
+            expected.len(),
+            "stray or missing files in fuzz/seeds/{directory}"
+        );
     }
-    let on_disk = fs::read_dir(root.join("contact_store")).unwrap().count();
-    assert_eq!(
-        on_disk,
-        expected.len(),
-        "stray or missing files in fuzz/seeds"
-    );
 }
