@@ -190,10 +190,16 @@ provisional; its review with the real connection model and measurements
 (`DESIGN_QUESTIONS.md` T3-6, C1) is still open after Phase 4, which did not
 change it.
 
-When the handshake budget is full, the oldest unauthenticated stream is
-closed to make room for a new one. A flood therefore churns the 16 slots
-instead of pinning them, and a connection that completes its handshake
-quickly gets through unless the flood rate is high enough to evict it first.
+The handshake budget and the budget for strangers are two budgets. The
+first counts streams that have not authenticated, whose peer is not known
+yet; the second counts authenticated peers that are not contacts. When the
+handshake budget is full, the new stream is closed at accept and the accept
+loop pauses for `ACCEPT_BACKOFF`; no held stream is closed for it. A flood
+can therefore keep the 16 slots full, each stream for at most
+`HANDSHAKE_TIMEOUT`, and a connection gets through only when it finds a
+free slot. Closing the oldest unauthenticated stream for a new one, so that
+a flood churns the slots instead of pinning them, is not implemented yet
+(section 12).
 Inbound floods do not affect outbound dials, which have their own budget, so
 two contacts can still reach each other as long as one of the two Onion
 Services is reachable.
