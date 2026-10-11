@@ -211,6 +211,32 @@ impl<D: VaultDir> MessageFile<D> {
         })
     }
 
+    /// Returns true if a store is in place in `dir`: `messages` exists,
+    /// whatever it holds.
+    pub fn in_place(dir: &D) -> Result<bool, StorageError> {
+        Ok(dir.read(MESSAGES, MAX_MESSAGE_STORE_FILE_LEN)?.is_some())
+    }
+
+    /// Creates a store in `dir` where none is in place, over what a
+    /// creation that did not complete left: a `messages.new` without a
+    /// `messages` is removed first, whether it authenticates or not. Only
+    /// for a caller that knows no store held anything here (a vault that
+    /// never had one, or one without identities). Fails with
+    /// [`StorageError::Exists`] if `messages` exists.
+    pub fn recreate(dir: D, key: StoreKey, plaintext: &[u8]) -> Result<Self, StorageError> {
+        if Self::in_place(&dir)? {
+            return Err(StorageError::Exists);
+        }
+        if dir
+            .read(MESSAGES_NEW, MAX_MESSAGE_STORE_FILE_LEN)?
+            .is_some()
+        {
+            dir.remove(MESSAGES_NEW)?;
+            dir.sync()?;
+        }
+        Self::create(dir, key, plaintext)
+    }
+
     /// Opens the store in `dir` and returns it with its padded payload.
     ///
     /// The cases of `docs/STORAGE.md` section 3.5, with the names of the

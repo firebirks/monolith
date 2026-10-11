@@ -26,6 +26,7 @@ use core::pin::pin;
 use core::task::Poll;
 use core::time::Duration;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use monolith_identity::{Fingerprint, IdentityPublicKey};
@@ -140,19 +141,42 @@ struct Inner<B: TorBackend> {
     shutdown: watch::Sender<bool>,
     identities: Mutex<HashMap<IdentityId, Arc<IdentityRuntime>>>,
     tasks: Mutex<JoinSet<()>>,
+    /// Set once a failed store was reported.
+    storage_failed: AtomicBool,
 }
 
 /// The messaging runtime of one installation. See the module
 /// documentation.
 pub struct Runtime<B: TorBackend + 'static> {
     inner: Arc<Inner<B>>,
+    /// Shared by the clones of this handle and by nothing the runtime
+    /// runs: when the last handle goes, the runtime stops.
+    owner: Arc<Owner<B>>,
 }
 
 impl<B: TorBackend + 'static> Clone for Runtime<B> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            owner: self.owner.clone(),
         }
+    }
+}
+
+/// Stops the runtime when the last handle to it is dropped without a
+/// shutdown: its tasks hold the runtime, so without this they would run on
+/// for nobody, with every service published and every key in memory.
+struct Owner<B: TorBackend + 'static> {
+    inner: Arc<Inner<B>>,
+}
+
+impl<B: TorBackend + 'static> Drop for Owner<B> {
+    fn drop(&mut self) {
+        self.inner.shutdown.send_replace(true);
+        for held in lock(&self.inner.identities).values() {
+            held.manager.close_all();
+        }
+        lock(&self.inner.tasks).abort_all();
     }
 }
 
@@ -202,6 +226,33 @@ struct Running {
     probe: Option<([u8; PING_NONCE_LEN], Instant)>,
     /// The last ChatMessage or MessageAck sent or received.
     activity: Instant,
+}
+
+/// The task of one session as the runtime holds it. Its end is handled
+/// when it is dropped, however the task ends: returned, or aborted with
+/// the accept loop of a service that went away. A session never stays
+/// registered once its task is gone.
+struct SessionTask<B: TorBackend + 'static> {
+    inner: Arc<Inner<B>>,
+    runtime: Arc<IdentityRuntime>,
+    running: Running,
+    ended: Ended,
+}
+
+impl<B: TorBackend + 'static> Drop for SessionTask<B> {
+    fn drop(&mut self) {
+        if let Some(contact) = self.running.record {
+            self.inner
+                .session_ended(&self.runtime, contact, self.running.serial, self.ended);
+        }
+    }
+}
+
+/// Runs `work` as a task of its own and waits for it: a command, once
+/// begun, completes and raises its events also if its caller stops
+/// waiting. `None` if the task did not complete.
+async fn detached<T: Send + 'static>(work: impl Future<Output = T> + Send + 'static) -> Option<T> {
+    tokio::spawn(work).await.ok()
 }
 
 fn refused(refusal: Refusal) -> SendError {
@@ -328,6 +379,24 @@ impl<B: TorBackend + 'static> Inner<B> {
 
     fn stopping(&self) -> bool {
         *self.shutdown.borrow()
+    }
+
+    /// Reports a failed store, once.
+    fn storage_failure(&self) {
+        if !self.storage_failed.swap(true, Ordering::SeqCst) {
+            self.emit(Event::StorageFailed);
+        }
+    }
+
+    /// Returns true, and reports it, if the vault or the message store of
+    /// `identity` failed: nothing more is made durable, so no session and
+    /// no attempt goes on.
+    fn halted(&self, identity: &LocalIdentity) -> bool {
+        let halted = identity.messages_failed() || identity.vault_failed();
+        if halted {
+            self.storage_failure();
+        }
+        halted
     }
 
     fn identity(&self, identity: &IdentityId) -> Option<Arc<IdentityRuntime>> {
@@ -486,7 +555,8 @@ impl<B: TorBackend + 'static> Inner<B> {
     }
 
     /// Whether the conversation of `contact` has queued messages, a current
-    /// record and no session to deliver them.
+    /// record and no session to deliver them, in stores that have not
+    /// failed.
     fn needs_scheduler(
         &self,
         runtime: &IdentityRuntime,
@@ -494,7 +564,8 @@ impl<B: TorBackend + 'static> Inner<B> {
         peer: &IdentityPublicKey,
     ) -> bool {
         !self.stopping()
-            && runtime.identity.current_record(contact) == Some(*peer)
+            && !self.halted(&runtime.identity)
+            && runtime.identity.is_current(contact, peer)
             && runtime.identity.next_queued(contact).is_some()
             && !runtime.manager.has_session(contact)
     }
@@ -516,22 +587,23 @@ impl<B: TorBackend + 'static> Inner<B> {
         let mut sessions = runtime.manager.subscribe();
         let mut backoff = Backoff::new();
         let mut delay = first;
+        // A session of the record took over, or the record ended: a delay
+        // or a dial in progress is cut short.
+        let manager = &runtime.manager;
+        let over = || manager.has_session(&contact) || !identity.is_current(&contact, &peer);
         loop {
-            if self.stopping() || identity.is_closed() {
+            if self.stopping() || identity.is_closed() || self.halted(&identity) {
                 return;
             }
             // The record ended (deleted, blocked, made again) or nothing is
             // left to deliver: the scheduler ends.
-            if identity.current_record(&contact) != Some(peer)
-                || identity.next_queued(&contact).is_none()
-            {
+            if !identity.is_current(&contact, &peer) || identity.next_queued(&contact).is_none() {
                 return;
             }
-            if runtime.manager.has_session(&contact) {
+            if manager.has_session(&contact) {
                 // A session delivers. When it ends with messages left, the
                 // next attempt follows a delay.
                 let since = Instant::now();
-                let manager = &runtime.manager;
                 let ended = wait_until(None, &mut shutdown, &mut closing, &mut sessions, || {
                     !manager.has_session(&contact)
                 })
@@ -546,13 +618,12 @@ impl<B: TorBackend + 'static> Inner<B> {
                 continue;
             }
             if !delay.is_zero() {
-                let manager = &runtime.manager;
                 let waited = wait_until(
                     Some(after(Instant::now(), delay)),
                     &mut shutdown,
                     &mut closing,
                     &mut sessions,
-                    || manager.has_session(&contact),
+                    over,
                 )
                 .await;
                 if waited == Waited::Stop {
@@ -576,17 +647,17 @@ impl<B: TorBackend + 'static> Inner<B> {
                 continue;
             };
             let dialed = {
-                let manager = &runtime.manager;
                 let mut dialing = pin!(dial(&self.backend, &self.budgets, &identity, &card));
                 let mut cut = pin!(wait_until(
                     None,
                     &mut shutdown,
                     &mut closing,
                     &mut sessions,
-                    || manager.has_session(&contact),
+                    over,
                 ));
                 // A session of the record that registers meanwhile (an
-                // inbound one) ends the dial: it is dropped.
+                // inbound one), or the end of the record, ends the dial: it
+                // is dropped.
                 poll_fn(|cx| {
                     if let Poll::Ready(waited) = cut.as_mut().poll(cx) {
                         return Poll::Ready(Err(waited));
@@ -599,10 +670,13 @@ impl<B: TorBackend + 'static> Inner<B> {
                 Err(Waited::Stop) => return,
                 Err(Waited::Done) => {}
                 Ok(Ok(established)) => {
-                    // The session runs here; the scheduler waits for it.
+                    // The session runs here; the scheduler waits for it. A
+                    // session that lasted is a reason to start the delays
+                    // again, unless it ended for want of an acknowledgement:
+                    // a peer that never acknowledges is not dialed faster.
                     let started = Instant::now();
                     let ended = self.run_session(runtime, established).await;
-                    if started.elapsed() >= RECONNECT_RESET_AFTER {
+                    if ended == Ended::Other && started.elapsed() >= RECONNECT_RESET_AFTER {
                         backoff.reset();
                     }
                     if identity.next_queued(&contact).is_some()
@@ -652,51 +726,106 @@ impl<B: TorBackend + 'static> Inner<B> {
                 return Ended::Other;
             }
         }
-        let mut running = Running {
-            serial: runtime.manager.next_serial(),
-            control: Arc::new(SessionControl::default()),
-            record: None,
-            in_flight: None,
-            probe: None,
-            activity: Instant::now(),
+        let mut task = SessionTask {
+            inner: self.clone(),
+            runtime: runtime.clone(),
+            running: Running {
+                serial: runtime.manager.next_serial(),
+                control: Arc::new(SessionControl::default()),
+                record: None,
+                in_flight: None,
+                probe: None,
+                activity: Instant::now(),
+            },
+            ended: Ended::Other,
         };
         let mut changes = identity.message_changes();
-        let ended = match self
-            .drive(runtime, &mut link, &mut running, &mut changes)
+        task.ended = match self
+            .drive(runtime, &mut link, &mut task.running, &mut changes)
             .await
         {
             Ok(ended) => ended,
             Err(_) => Ended::Other,
         };
-        if let Some(contact) = running.record {
-            runtime.manager.unregister(&contact, running.serial);
-            if !runtime.manager.has_session(&contact) {
-                self.emit(Event::SessionUnavailable {
-                    identity: identity.id(),
-                    contact,
-                });
-                // Messages left, and no scheduler: one starts, after the
-                // first delay.
-                if let Some(peer) = identity.current_record(&contact) {
-                    if self.needs_scheduler(runtime, &contact, &peer) {
-                        let delay = Backoff::new().delay(jitter());
-                        if !lock(&runtime.schedulers).contains(&contact) {
-                            self.emit(Event::DeliveryDeferred {
-                                identity: identity.id(),
-                                contact,
-                                reason: match ended {
-                                    Ended::AckTimeout => DeferReason::AckTimeout,
-                                    Ended::Other => DeferReason::SessionEnded,
-                                },
-                                retry_in: delay,
-                            });
-                        }
-                        self.ensure_scheduler(runtime, contact, peer, delay);
-                    }
+        // Dropping the task ends its registration.
+        task.ended
+    }
+
+    /// The session `serial` of the record `contact` ended: it leaves the
+    /// manager, and if no session of the record is left and messages are,
+    /// a scheduler starts after the first delay. Runs when the task of the
+    /// session is dropped, also where no tokio runtime runs any more; then
+    /// it starts nothing.
+    fn session_ended(
+        self: &Arc<Self>,
+        runtime: &Arc<IdentityRuntime>,
+        contact: ContactId,
+        serial: u64,
+        ended: Ended,
+    ) {
+        runtime.manager.unregister(&contact, serial);
+        if runtime.manager.has_session(&contact) {
+            return;
+        }
+        let identity = &runtime.identity;
+        self.emit(Event::SessionUnavailable {
+            identity: identity.id(),
+            contact,
+        });
+        let Some(peer) = identity.current_record(&contact) else {
+            return;
+        };
+        if !self.needs_scheduler(runtime, &contact, &peer)
+            || tokio::runtime::Handle::try_current().is_err()
+        {
+            return;
+        }
+        let delay = Backoff::new().delay(jitter());
+        if !lock(&runtime.schedulers).contains(&contact) {
+            self.emit(Event::DeliveryDeferred {
+                identity: identity.id(),
+                contact,
+                reason: match ended {
+                    Ended::AckTimeout => DeferReason::AckTimeout,
+                    Ended::Other => DeferReason::SessionEnded,
+                },
+                retry_in: delay,
+            });
+        }
+        self.ensure_scheduler(runtime, contact, peer, delay);
+    }
+
+    /// Queues a message and raises its event: the work of
+    /// [`Runtime::send_message`] once its text was checked.
+    async fn send(
+        self: &Arc<Self>,
+        held: &Arc<IdentityRuntime>,
+        identity: IdentityId,
+        contact: ContactId,
+        text: ChatText,
+    ) -> Result<MessageRef, SendError> {
+        let queued = held
+            .identity
+            .queue_message(contact, text)
+            .await
+            .map_err(|error| {
+                if matches!(error, MessageError::Storage(_)) {
+                    self.storage_failure();
                 }
+                send_error(error)
+            })?;
+        let reference = MessageRef {
+            identity,
+            contact,
+            sequence: queued.sequence,
+        };
+        self.emit(Event::MessageQueued(reference));
+        if let Some(peer) = held.identity.current_record(&contact) {
+            if !held.manager.has_session(&contact) {
+                self.ensure_scheduler(held, contact, peer, Duration::ZERO);
             }
         }
-        ended
+        Ok(reference)
     }
 
     /// The loop of a session task. Returns when the session is over.
@@ -712,7 +841,13 @@ impl<B: TorBackend + 'static> Inner<B> {
     {
         let identity = runtime.identity.clone();
         loop {
-            if running.control.closing() || self.stopping() || identity.is_closed() {
+            // A message store that failed takes nothing in and records no
+            // delivery: the session has nothing left to do.
+            if running.control.closing()
+                || self.stopping()
+                || identity.is_closed()
+                || self.halted(&identity)
+            {
                 return link_close(link).await.map(|()| Ended::Other);
             }
             // A message the queue no longer holds as its head was
@@ -736,7 +871,12 @@ impl<B: TorBackend + 'static> Inner<B> {
                 if running.in_flight.is_none()
                     && runtime.manager.is_preferred(&contact, running.serial)
                 {
-                    if let Some((_, id, text)) = identity.next_queued(&contact) {
+                    // Only what the message store holds leaves.
+                    let next = identity.next_to_send(&contact).await;
+                    if let Err(MessageError::Storage(_)) = next {
+                        self.storage_failure();
+                    }
+                    if let Some((_, id, text)) = next.ok().flatten() {
                         link.send(&Message::ChatMessage { id, text }).await?;
                         let now = Instant::now();
                         running.in_flight = Some((id, after(now, MESSAGE_ACK_TIMEOUT)));
@@ -918,12 +1058,16 @@ impl<B: TorBackend + 'static> Inner<B> {
             Message::ChatMessage { .. } => self.take_in(runtime, link, running, arrived).await,
             Message::MessageAck(id) => {
                 running.activity = Instant::now();
-                if let Ok(Some((contact, sequence))) = identity.acknowledged(arrived).await {
-                    self.emit(Event::MessageDelivered(MessageRef {
-                        identity: identity.id(),
-                        contact,
-                        sequence,
-                    }));
+                match identity.acknowledged(arrived).await {
+                    Ok(Some((contact, sequence))) => {
+                        self.emit(Event::MessageDelivered(MessageRef {
+                            identity: identity.id(),
+                            contact,
+                            sequence,
+                        }));
+                    }
+                    Err(MessageError::Storage(_)) => self.storage_failure(),
+                    Ok(None) | Err(_) => {}
                 }
                 if running.in_flight.is_some_and(|(sent, _)| sent == *id) {
                     running.in_flight = None;
@@ -1040,7 +1184,7 @@ impl<B: TorBackend + 'static> Inner<B> {
                 Ok(())
             }
             Err(MessageError::Storage(_)) => {
-                self.emit(Event::StorageFailed);
+                self.storage_failure();
                 Ok(())
             }
             Err(_) => Ok(()),
@@ -1104,11 +1248,17 @@ impl<B: TorBackend + 'static> Runtime<B> {
             shutdown: watch::Sender::new(false),
             identities: Mutex::new(HashMap::new()),
             tasks: Mutex::new(JoinSet::new()),
+            storage_failed: AtomicBool::new(false),
         });
         for identity in inner.installation.identities() {
             inner.add_identity(identity, true);
         }
-        Self { inner }
+        Self {
+            owner: Arc::new(Owner {
+                inner: inner.clone(),
+            }),
+            inner,
+        }
     }
 
     /// Follows the events. A receiver that falls more than `MAX_UI_EVENTS`
@@ -1230,7 +1380,9 @@ impl<B: TorBackend + 'static> Runtime<B> {
     /// (`docs/adr/0007-delivery-semantics.md`). The text is checked before
     /// anything is stored. Succeeds once the message is durably queued, with
     /// or without a session, Tor or the contact being reachable; it is
-    /// delivered when the contact is reached.
+    /// delivered when the contact is reached. Like every command that
+    /// changes something, it completes and raises its event also if the
+    /// caller stops waiting for it.
     pub async fn send_message(
         &self,
         identity: &IdentityId,
@@ -1244,24 +1396,11 @@ impl<B: TorBackend + 'static> Runtime<B> {
         let held = self
             .held(identity)
             .map_err(|_| SendError::UnknownIdentity)?;
-        let queued = held
-            .identity
-            .queue_message(*contact, text)
+        let inner = self.inner.clone();
+        let (identity, contact) = (*identity, *contact);
+        detached(async move { inner.send(&held, identity, contact, text).await })
             .await
-            .map_err(send_error)?;
-        let reference = MessageRef {
-            identity: *identity,
-            contact: *contact,
-            sequence: queued.sequence,
-        };
-        self.inner.emit(Event::MessageQueued(reference));
-        if let Some(peer) = held.identity.current_record(contact) {
-            if !held.manager.has_session(contact) {
-                self.inner
-                    .ensure_scheduler(&held, *contact, peer, Duration::ZERO);
-            }
-        }
-        Ok(reference)
+            .unwrap_or(Err(SendError::Storage))
     }
 
     /// Deletes the messages of the conversation of `contact`, queued ones
@@ -1272,10 +1411,21 @@ impl<B: TorBackend + 'static> Runtime<B> {
         contact: &ContactId,
     ) -> Result<bool, CommandError> {
         let held = self.held(identity)?;
-        held.identity
-            .delete_conversation(contact)
-            .await
-            .map_err(|_| CommandError::Storage)
+        let inner = self.inner.clone();
+        let contact = *contact;
+        detached(async move {
+            held.identity
+                .delete_conversation(&contact)
+                .await
+                .map_err(|error| {
+                    if matches!(error, MessageError::Storage(_)) {
+                        inner.storage_failure();
+                    }
+                    CommandError::Storage
+                })
+        })
+        .await
+        .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// The card of `identity` in its text form, without a capability.
@@ -1292,10 +1442,14 @@ impl<B: TorBackend + 'static> Runtime<B> {
     ) -> Result<ContactId, CommandError> {
         let held = self.held(identity)?;
         let card = ContactCard::from_text(card).map_err(|_| CommandError::InvalidCard)?;
-        held.identity.import(&card).await.map_err(store_error)?;
-        held.identity
-            .contact_id(card.identity())
-            .ok_or(CommandError::UnknownContact)
+        detached(async move {
+            held.identity.import(&card).await.map_err(store_error)?;
+            held.identity
+                .contact_id(card.identity())
+                .ok_or(CommandError::UnknownContact)
+        })
+        .await
+        .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     fn peer_of(
@@ -1314,11 +1468,7 @@ impl<B: TorBackend + 'static> Runtime<B> {
         identity: &IdentityId,
         contact: &ContactId,
     ) -> Result<(), CommandError> {
-        let held = self.held(identity)?;
-        let peer = Self::peer_of(&held, contact)?;
-        held.identity.block(&peer).await.map_err(store_error)?;
-        held.manager.close(contact);
-        Ok(())
+        self.end_record(identity, contact, true).await
     }
 
     /// Deletes the contact of the record `contact`: its sessions end, its
@@ -1329,11 +1479,32 @@ impl<B: TorBackend + 'static> Runtime<B> {
         identity: &IdentityId,
         contact: &ContactId,
     ) -> Result<(), CommandError> {
+        self.end_record(identity, contact, false).await
+    }
+
+    /// Blocks or deletes the contact of the record `contact`, and closes
+    /// its sessions, which also ends its scheduler.
+    async fn end_record(
+        &self,
+        identity: &IdentityId,
+        contact: &ContactId,
+        block: bool,
+    ) -> Result<(), CommandError> {
         let held = self.held(identity)?;
         let peer = Self::peer_of(&held, contact)?;
-        held.identity.delete(&peer).await.map_err(store_error)?;
-        held.manager.close(contact);
-        Ok(())
+        let contact = *contact;
+        detached(async move {
+            if block {
+                held.identity.block(&peer).await
+            } else {
+                held.identity.delete(&peer).await
+            }
+            .map_err(store_error)?;
+            held.manager.close(&contact);
+            Ok(())
+        })
+        .await
+        .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// Makes a new local identity: Tor makes the key of its Onion Service,
@@ -1346,45 +1517,57 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .map(DisplayName::new)
             .transpose()
             .map_err(|_| CommandError::InvalidText)?;
-        let mut service = self
-            .inner
-            .backend
-            .publish_onion(KeySource::Generate)
-            .await
-            .map_err(|_| CommandError::Tor)?;
-        let secret = service.take_generated_secret().ok_or(CommandError::Tor)?;
-        let endpoint = *service.service_key();
-        // Published again by the supervisor, from the stored key.
-        let _ = service.close().await;
-        let identity = self
-            .inner
-            .installation
-            .create_identity(endpoint, Some(&secret), label)
-            .await
-            .map_err(installation_error)?;
-        let id = identity.id();
-        self.inner.add_identity(identity, false);
-        Ok(id)
+        let inner = self.inner.clone();
+        detached(async move {
+            let mut service = inner
+                .backend
+                .publish_onion(KeySource::Generate)
+                .await
+                .map_err(|_| CommandError::Tor)?;
+            let secret = service.take_generated_secret().ok_or(CommandError::Tor)?;
+            let endpoint = *service.service_key();
+            // Published again by the supervisor, from the stored key.
+            let _ = service.close().await;
+            let identity = inner
+                .installation
+                .create_identity(endpoint, Some(&secret), label)
+                .await
+                .map_err(installation_error)?;
+            let id = identity.id();
+            inner.add_identity(identity, false);
+            Ok(id)
+        })
+        .await
+        .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// Deletes a local identity: its keys, its contacts, its messages. Its
     /// service is removed and its sessions end.
     pub async fn delete_identity(&self, identity: &IdentityId) -> Result<(), CommandError> {
         let held = self.held(identity)?;
-        held.manager.close_all();
-        self.inner
-            .installation
-            .delete_identity(&held.identity)
-            .await
-            .map_err(installation_error)
+        let inner = self.inner.clone();
+        detached(async move {
+            held.manager.close_all();
+            inner
+                .installation
+                .delete_identity(&held.identity)
+                .await
+                .map_err(installation_error)
+        })
+        .await
+        .unwrap_or(Err(CommandError::ShuttingDown))
     }
 
     /// Asks for a session with the contact of the record `contact` now, an
     /// explicit local operation, whether or not anything is queued. One
-    /// attempt, through the Tor backend.
+    /// attempt, through the Tor backend; none while a session of the record
+    /// exists.
     pub fn connect(&self, identity: &IdentityId, contact: &ContactId) -> Result<(), CommandError> {
         let held = self.held(identity)?;
         let peer = Self::peer_of(&held, contact)?;
+        if held.manager.has_session(contact) {
+            return Ok(());
+        }
         let plan = held
             .identity
             .dial_plan(&peer)
@@ -1422,6 +1605,13 @@ impl<B: TorBackend + 'static> Runtime<B> {
         contact: &ContactId,
     ) -> Result<usize, CommandError> {
         Ok(self.held(identity)?.manager.sessions(contact))
+    }
+
+    /// Returns true if the vault was opened without its message store,
+    /// though it holds identities: the messages from before are not there
+    /// (`Installation::message_store_missing`).
+    pub fn message_store_missing(&self) -> bool {
+        self.inner.installation.message_store_missing()
     }
 
     /// The local identity behind `identity`, for tooling built on the core.

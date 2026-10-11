@@ -169,8 +169,10 @@ impl SessionManager {
     /// Registers the confirmed session `serial` of the contact record
     /// `contact`, whose remote identity is `remote`. `current` tells for a
     /// session whether its transport key is still the active credential
-    /// of the contact; it is asked under no lock of the manager, for the
-    /// session registering and for the one the record has.
+    /// of the contact, for the session registering and for the one the
+    /// record has. It is asked under the lock of the manager: it may take
+    /// the lock of a contact, which never waits for the manager, and must
+    /// not call the manager.
     pub(crate) fn register(
         &self,
         contact: ContactId,
@@ -359,13 +361,16 @@ impl SessionManager {
         })
     }
 
-    /// Asks every session of `contact` to close.
+    /// Asks every session of `contact` to close, and wakes whoever follows
+    /// the sessions: a scheduler of a record that ended looks at it again
+    /// and stops, also in the middle of a delay or a dial.
     pub(crate) fn close(&self, contact: &ContactId) {
         if let Some(contenders) = lock(&self.records).get(contact) {
             for registered in contenders.preferred.iter().chain(contenders.pending.iter()) {
                 registered.control.close();
             }
         }
+        self.changed();
     }
 
     /// Asks every session to close.

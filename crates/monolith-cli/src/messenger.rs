@@ -279,11 +279,15 @@ impl Node {
             ["send", n, peer, _, ..] => {
                 let (_, identity) = self.identity(n)?;
                 let record = self.record(&identity, peer)?;
-                // The text is the rest of the line after the peer.
-                let text = line
-                    .splitn(4, char::is_whitespace)
-                    .nth(3)
-                    .unwrap_or_default();
+                // The text is the rest of the line after the peer, however
+                // the words before it are spaced.
+                let mut rest = line.trim_start();
+                for _ in 0..3 {
+                    rest = rest
+                        .split_once(char::is_whitespace)
+                        .map_or("", |(_, after)| after.trim_start());
+                }
+                let text = rest;
                 self.runtime
                     .send_message(&identity, &record, text)
                     .await
@@ -415,6 +419,9 @@ pub(crate) async fn run(
     } else {
         Installation::open(Box::new(dir), &passphrase).map(|(installation, recovery)| {
             say(&format!("opened {recovery:?}"));
+            if installation.message_store_missing() {
+                say("message-store-missing");
+            }
             installation
         })
     };

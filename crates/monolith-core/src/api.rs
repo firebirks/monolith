@@ -308,8 +308,9 @@ pub enum Event {
         /// Which.
         identity: IdentityId,
     },
-    /// The message store failed: nothing more is stored or acknowledged
-    /// until the process starts again.
+    /// The vault or the message store failed: nothing more is made
+    /// durable, stored or acknowledged, and no session or attempt goes on,
+    /// until the process starts again. Raised once.
     StorageFailed,
 }
 

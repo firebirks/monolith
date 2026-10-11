@@ -428,13 +428,13 @@ impl ContactStore {
     /// its record.
     pub(crate) fn contact_ids(&self) -> Vec<(ContactId, IdentityPublicKey)> {
         let slots = lock(&self.slots);
-        let mut contacts = Vec::new();
+        let mut records = Vec::new();
         for (identity, slot) in slots.iter() {
             if let Record::Contact(contact) = &lock(&slot.0).record {
-                contacts.push((contact.id, *identity));
+                records.push((contact.id, *identity));
             }
         }
-        contacts
+        records
     }
 
     /// Which contact the record of `identity` is now, if it is one.

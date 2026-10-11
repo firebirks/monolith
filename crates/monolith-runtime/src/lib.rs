@@ -169,6 +169,14 @@ impl<B: TorBackend + 'static> Messenger<B> {
         Ok(Self::start(installation, backend))
     }
 
+    /// Returns true if the data directory was opened without its message
+    /// store, though the vault holds identities (a copy of the vault alone,
+    /// or a store that was removed): the messages from before are not
+    /// there. A front end tells the user.
+    pub fn message_store_missing(&self) -> bool {
+        self.runtime.message_store_missing()
+    }
+
     /// Follows the events.
     pub fn events(&self) -> Events {
         Events(self.runtime.subscribe())

@@ -809,6 +809,18 @@ impl LocalIdentity {
             .map(|(_, peer)| peer)
     }
 
+    /// Returns true if `contact` is still the record of `peer`: what
+    /// [`Self::current_record`] tells, read from the slot of `peer` alone.
+    pub fn is_current(&self, contact: &ContactId, peer: &IdentityPublicKey) -> bool {
+        !self.is_closed() && self.contacts.contact_id(peer) == Some(*contact)
+    }
+
+    /// Returns true once a write of the vault failed: nothing more is made
+    /// durable until the process starts again.
+    pub fn vault_failed(&self) -> bool {
+        self.durability.is_failed()
+    }
+
     /// Queues `text` for the contact record `contact`
     /// (`docs/adr/0007-delivery-semantics.md`). The record has to be the
     /// current one of a requested or accepted contact. Durable when this
@@ -825,30 +837,43 @@ impl LocalIdentity {
         let peer = self
             .current_record(&contact)
             .ok_or(MessageError::NotAContact)?;
-        // The record is durable once the vault is durable up to now.
+        // The record is durable once the vault is durable up to now. That is
+        // waited for first: a message enters the state only for a record
+        // the vault holds, and one whose record could not be made durable
+        // never enters it.
         let record = self.durability.applied();
+        self.wait_durable(record)
+            .await
+            .map_err(MessageError::Storage)?;
         let messages = self.messages()?;
         let time = now_seconds();
         let mut attempts = 0_u8;
+        self.hook("queueing");
         let (queued, generation) = loop {
             let id = MessageId::from_bytes(*random::<16>().map_err(|_| MessageError::Randomness)?);
             let (result, generation) = messages
                 .change(|state| {
+                    // Looked at under the lock of the messages: a deletion
+                    // closes the identity before it removes its messages,
+                    // so nothing of a deleted identity is added after that.
+                    if self.is_closed() {
+                        return (None, false);
+                    }
                     let result = state.queue(self.id, contact, peer, id, text.clone(), time);
                     let changed = result.is_ok();
-                    (result, changed)
+                    (Some(result), changed)
                 })
                 .map_err(MessageError::Storage)?;
             match result {
-                Ok(sequence) => break (Queued { id, sequence }, generation),
+                None => return Err(MessageError::Closed),
+                Some(Ok(sequence)) => break (Queued { id, sequence }, generation),
                 // Another identifier: a collision of 128 random bits.
-                Err(Refusal::IdTaken) if attempts < 3 => attempts = attempts.saturating_add(1),
-                Err(refusal) => return Err(MessageError::Refused(refusal)),
+                Some(Err(Refusal::IdTaken)) if attempts < 3 => {
+                    attempts = attempts.saturating_add(1);
+                }
+                Some(Err(refusal)) => return Err(MessageError::Refused(refusal)),
             }
         };
-        self.wait_durable(record)
-            .await
-            .map_err(MessageError::Storage)?;
         messages
             .commit(generation)
             .await
@@ -908,12 +933,18 @@ impl LocalIdentity {
         let time = now_seconds();
         let (receipt, generation) = messages
             .change(|state| {
+                // As for queueing: nothing of a deleted identity is added.
+                if self.is_closed() {
+                    return (None, false);
+                }
                 let receipt = state.receive(self.id, contact, peer, *id, text.clone(), time);
                 let changed = matches!(receipt, Ok(Receipt::Stored(_)));
-                (receipt, changed)
+                (Some(receipt), changed)
             })
             .map_err(MessageError::Storage)?;
-        let receipt = receipt.map_err(MessageError::Refused)?;
+        let receipt = receipt
+            .ok_or(MessageError::Closed)?
+            .map_err(MessageError::Refused)?;
         messages
             .commit(generation)
             .await
@@ -960,11 +991,40 @@ impl LocalIdentity {
         Ok(Some((contact, sequence)))
     }
 
-    /// The oldest queued message of the conversation of `contact`: the one
-    /// to send next.
+    /// The oldest queued message of the conversation of `contact`, as it
+    /// stands in memory: whether there is one, not what to send.
     pub fn next_queued(&self, contact: &ContactId) -> Option<(u64, MessageId, ChatText)> {
         let messages = self.messages().ok()?;
         messages.read(|state| state.head(&self.id, contact))
+    }
+
+    /// The message to send next on a session of `contact`: the oldest
+    /// queued one, once its queueing is durable in the message store. A
+    /// message never leaves before it is stored
+    /// (`docs/adr/0007-delivery-semantics.md`); this waits for the write if
+    /// it has not happened yet.
+    pub async fn next_to_send(
+        &self,
+        contact: &ContactId,
+    ) -> Result<Option<(u64, MessageId, ChatText)>, MessageError> {
+        let messages = self.messages()?;
+        loop {
+            let (head, generation) = messages.read_applied(|state| state.head(&self.id, contact));
+            let Some((sequence, id, text)) = head else {
+                return Ok(None);
+            };
+            messages
+                .commit(generation)
+                .await
+                .map_err(MessageError::Storage)?;
+            // While it waited, the message may have been acknowledged on
+            // another session, or deleted: only what is still the head is
+            // sent.
+            let still = messages.read(|state| state.head(&self.id, contact));
+            if still.is_some_and(|(now, held, _)| now == sequence && held == id) {
+                return Ok(Some((sequence, id, text)));
+            }
+        }
     }
 
     /// The conversations that have queued messages.
@@ -1713,6 +1773,9 @@ pub enum Mode {
 pub struct Installation {
     shared: Arc<Shared>,
     mode: Mode,
+    /// The vault was opened without its message store (a copy of the
+    /// vault alone, or a store removed): an empty one was made.
+    message_store_missing: bool,
 }
 
 impl fmt::Debug for Installation {
@@ -1735,6 +1798,10 @@ pub enum InstallationError {
     Invalid,
     /// `MAX_LOCAL_IDENTITIES` identities exist.
     Full,
+    /// The message store beside a vault of payload version 1 holds
+    /// messages: it belongs to another vault, such as one this vault was
+    /// restored over. Nothing is repaired.
+    MessageStore,
 }
 
 impl fmt::Display for InstallationError {
@@ -1744,6 +1811,7 @@ impl fmt::Display for InstallationError {
             Self::Store(error) => write!(f, "{error}"),
             Self::Invalid => f.write_str("invalid identity in the vault"),
             Self::Full => f.write_str("too many local identities"),
+            Self::MessageStore => f.write_str("the message store is not of this vault"),
         }
     }
 }
@@ -1780,6 +1848,7 @@ impl Installation {
                 changes: AsyncMutex::new(()),
             }),
             mode,
+            message_store_missing: false,
         }
     }
 
@@ -1790,6 +1859,14 @@ impl Installation {
             Messages::new(Store::Ephemeral, MessageState::new()),
             Mode::Ephemeral,
         )
+    }
+
+    /// Returns true if the vault was opened without its message store,
+    /// though it holds identities: a copy of the vault alone, or a store
+    /// that was removed. An empty store was made; the messages, queues and
+    /// identifiers of messages taken in from before are not there.
+    pub const fn message_store_missing(&self) -> bool {
+        self.message_store_missing
     }
 
     /// Creates a new, empty vault in `dir`, and the empty message store
@@ -1817,11 +1894,16 @@ impl Installation {
     /// The message store beside it is opened with it and matched against
     /// it (`docs/adr/0008-message-store.md`): what is left of a deleted
     /// identity is dropped, a conversation of a record of another identity
-    /// is refused. A vault without a message store, one of Phase 4, gets an
-    /// empty one; a vault of payload version 1 is written as version 2,
-    /// with the identifiers its records got, before this returns. A
-    /// message store that does not open fails the installation: nothing is
-    /// repaired by guessing.
+    /// is refused. Where no store is in place, an empty one is made, also
+    /// over what an interrupted creation left: a vault of payload version
+    /// 1, of Phase 4, never had one, and a copy of the vault alone is a
+    /// backup of its identities; when the vault holds identities, that is
+    /// reported ([`Self::message_store_missing`]). A vault of version 1
+    /// beside a store that holds messages is refused
+    /// ([`InstallationError::MessageStore`]). The store is read and checked
+    /// before a vault of version 1 is written as version 2, with the
+    /// identifiers its records got. A store in place that does not open
+    /// fails the installation: nothing is repaired by guessing.
     pub fn open(
         dir: BoxedDir,
         passphrase: &Passphrase,
@@ -1832,6 +1914,40 @@ impl Installation {
         // written: a vault that does not open is left as it was.
         Self::check(Contents::decode(&plaintext)?)?;
         let mut contents = Contents::decode(&plaintext)?;
+        let key = vault.message_store_key()?;
+        let nothing_to_lose =
+            contents.version == PayloadVersion::V1 || contents.identities.is_empty();
+        let (mut file, stored, missing) = if MessageFile::in_place(&dir)? {
+            let (file, plaintext, _) = MessageFile::open(dir.clone(), key)?;
+            (file, MessageContents::decode(&plaintext)?, false)
+        } else {
+            match MessageFile::open(dir.clone(), key) {
+                // A creation that completed but for its name.
+                Ok((file, plaintext, _)) => (file, MessageContents::decode(&plaintext)?, false),
+                // No store, or what an interrupted creation left: an empty
+                // one is made. Where the vault has identities, the messages
+                // from before are not there, and that is reported.
+                Err(
+                    StorageError::NotFound
+                    | StorageError::BadFormat
+                    | StorageError::AuthenticationFailed,
+                ) => {
+                    let empty = MessageState::new().contents();
+                    let file = MessageFile::recreate(
+                        dir.clone(),
+                        vault.message_store_key()?,
+                        &empty.encode()?,
+                    )?;
+                    (file, empty, !nothing_to_lose)
+                }
+                Err(error) => return Err(error.into()),
+            }
+        };
+        // A store with messages beside a vault of version 1 belongs to
+        // another vault, such as one this vault was restored over.
+        if contents.version == PayloadVersion::V1 && !stored.identities.is_empty() {
+            return Err(InstallationError::MessageStore);
+        }
         if contents.version == PayloadVersion::V1 {
             // The records get their identifiers now, and the vault holds
             // them before anything can refer to them.
@@ -1859,31 +1975,16 @@ impl Installation {
                 .collect::<Result<Vec<_>, _>>()?;
             records.insert(id, contacts);
         }
-        let key = vault.message_store_key()?;
-        let (file, state) = match MessageFile::open(dir.clone(), key) {
-            Ok((mut file, plaintext, _)) => {
-                let mut state = MessageState::load(MessageContents::decode(&plaintext)?);
-                if state.reconcile(&records)? {
-                    file.write(&state.contents().encode()?)?;
-                }
-                (file, state)
-            }
-            Err(StorageError::NotFound) => {
-                let state = MessageState::new();
-                let file = MessageFile::create(
-                    dir,
-                    vault.message_store_key()?,
-                    &state.contents().encode()?,
-                )?;
-                (file, state)
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let installation = Self::with_store(
+        let mut state = MessageState::load(stored);
+        if state.reconcile(&records)? {
+            file.write(&state.contents().encode()?)?;
+        }
+        let mut installation = Self::with_store(
             Store::vault(Box::new(vault)),
             Messages::new(Store::vault(Box::new(file)), state),
             Mode::Persistent,
         );
+        installation.message_store_missing = missing;
         {
             let mut identities = lock(&installation.shared.identities);
             for stored in contents.identities {
@@ -2293,6 +2394,38 @@ mod tests {
             display_name: monolith_protocol::text::DisplayName::new("Carol").unwrap(),
             introduction: monolith_protocol::text::IntroductionText::new("hello").unwrap(),
         }
+    }
+
+    #[test]
+    fn a_message_queued_as_its_identity_is_deleted_leaves_nothing_of_it() {
+        // The message is about to enter the state when the deletion of its
+        // identity closes it and removes its messages, on another thread.
+        // Nothing of the deleted identity may be added after that: the
+        // store would keep it until the next opening.
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        let carol = stranger(3);
+        run(identity.import(&carol)).unwrap();
+        let contact = identity.contact_id(carol.identity()).unwrap();
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            let messages = installation.shared.messages.clone();
+            move || {
+                identity.close();
+                messages
+                    .change(|state| ((), state.remove_identity(&identity.id)))
+                    .unwrap();
+            }
+        });
+        lock(&identity.hooks).insert("queueing", step);
+        let queued = run(identity.queue_message(contact, ChatText::new("late").unwrap()));
+        assert_eq!(queued.err(), Some(MessageError::Closed));
+        assert!(
+            installation
+                .shared
+                .messages
+                .read(|state| state.identities().is_empty())
+        );
     }
 
     #[test]

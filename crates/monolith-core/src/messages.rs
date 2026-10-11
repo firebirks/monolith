@@ -35,9 +35,9 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use monolith_identity::IdentityPublicKey;
 use monolith_protocol::body::MessageId;
 use monolith_protocol::limits::{
-    MAX_CONVERSATION_STORE_LEN, MAX_CONVERSATIONS_PER_IDENTITY, MAX_QUEUED_MESSAGE_BYTES,
-    MAX_QUEUED_MESSAGES_PER_CONTACT, MAX_QUEUED_MESSAGES_PER_IDENTITY, MAX_STORED_MESSAGES,
-    MESSAGE_DEDUP_WINDOW, MESSAGE_ID_LEN,
+    MAX_CONVERSATION_STORE_LEN, MAX_CONVERSATIONS_PER_IDENTITY, MAX_LOCAL_IDENTITIES,
+    MAX_QUEUED_MESSAGE_BYTES, MAX_QUEUED_MESSAGES_PER_CONTACT, MAX_QUEUED_MESSAGES_PER_IDENTITY,
+    MAX_STORED_MESSAGES, MESSAGE_DEDUP_WINDOW, MESSAGE_ID_LEN,
 };
 use monolith_protocol::text::ChatText;
 use monolith_storage::StorageError;
@@ -74,8 +74,9 @@ pub enum Refusal {
     ConversationFull,
     /// The identity has `MAX_CONVERSATIONS_PER_IDENTITY` conversations.
     TooManyConversations,
-    /// The store holds `MAX_STORED_MESSAGES` messages, or would not fit in
-    /// the largest message store file.
+    /// The store holds `MAX_STORED_MESSAGES` messages, or the messages of
+    /// `MAX_LOCAL_IDENTITIES` identities, or would not fit in the largest
+    /// message store file.
     StoreFull,
     /// The identifier of an outbound message is taken in its conversation.
     /// The caller draws another one.
@@ -388,10 +389,19 @@ impl MessageState {
         len: usize,
     ) -> Result<Room, Refusal> {
         let held = self.identities.get(identity);
+        // A payload holds the messages of at most `MAX_LOCAL_IDENTITIES`
+        // identities; the state never holds what it could not write.
+        if held.is_none() && self.identities.len() >= MAX_LOCAL_IDENTITIES {
+            return Err(Refusal::StoreFull);
+        }
         let conversation = held.and_then(|held| held.conversations.get(contact));
         if let Some(conversation) = conversation {
             if conversation.peer != *peer {
                 return Err(Refusal::OtherPeer);
+            }
+            // Every sequence was given out: nothing more fits.
+            if conversation.next_sequence == u64::MAX {
+                return Err(Refusal::ConversationFull);
             }
         } else if held
             .is_some_and(|held| held.conversations.len() >= MAX_CONVERSATIONS_PER_IDENTITY)
@@ -828,12 +838,14 @@ impl Messages {
     ) -> Result<(R, u64), CommitError> {
         let generation;
         let result;
+        let changed;
         {
             let mut state = lock(&self.state);
             if self.durability.is_failed() {
                 return Err(CommitError::Failed);
             }
-            let (value, changed) = change(&mut state);
+            let value;
+            (value, changed) = change(&mut state);
             generation = if changed {
                 self.durability.bump()
             } else {
@@ -841,14 +853,26 @@ impl Messages {
             };
             result = value;
         }
-        self.changes
-            .send_modify(|count| *count = count.wrapping_add(1));
+        // Only a change wakes the tasks that follow them: an acknowledgement
+        // or a copy that changes nothing wakes nobody.
+        if changed {
+            self.changes
+                .send_modify(|count| *count = count.wrapping_add(1));
+        }
         Ok((result, generation))
     }
 
     /// Reads the state under its lock.
     pub(crate) fn read<R>(&self, read: impl FnOnce(&MessageState) -> R) -> R {
         read(&lock(&self.state))
+    }
+
+    /// Reads the state under its lock, with the generation of the last
+    /// change it holds: once that generation is durable, so is what was
+    /// read.
+    pub(crate) fn read_applied<R>(&self, read: impl FnOnce(&MessageState) -> R) -> (R, u64) {
+        let state = lock(&self.state);
+        (read(&state), self.durability.applied())
     }
 
     /// Follows the changes.
@@ -1170,5 +1194,75 @@ mod tests {
         let view = state.entries(&identity(1), &contact(2), None, 1);
         let text = format!("{state:?} {view:?}");
         assert!(!text.contains("secret"), "{text}");
+    }
+
+    #[test]
+    fn the_state_holds_the_messages_of_as_many_identities_as_a_payload_can() {
+        // A payload has room for MAX_LOCAL_IDENTITIES sections: the state
+        // never holds one more, which it could not write.
+        let mut state = MessageState::new();
+        for n in 0..MAX_LOCAL_IDENTITIES {
+            let n = u8::try_from(n).unwrap() + 1;
+            state
+                .queue(identity(n), contact(n), peer(n), id(1), text("x"), 0)
+                .unwrap();
+        }
+        let before = state.clone();
+        assert_eq!(
+            state.queue(identity(99), contact(99), peer(99), id(1), text("x"), 0),
+            Err(Refusal::StoreFull)
+        );
+        assert_eq!(
+            state.receive(identity(99), contact(99), peer(99), id(1), text("x"), 0),
+            Err(Refusal::StoreFull)
+        );
+        assert!(state == before);
+        assert!(roundtrip(&state) == state);
+    }
+
+    #[test]
+    fn a_conversation_whose_sequences_ran_out_takes_nothing_more() {
+        let mut state = MessageState::new();
+        state
+            .queue(identity(1), contact(2), peer(3), id(1), text("x"), 0)
+            .unwrap();
+        let mut contents = state.contents();
+        contents.identities[0].conversations[0].next_sequence = u64::MAX;
+        let mut state =
+            MessageState::load(MessageContents::decode(&contents.encode().unwrap()).unwrap());
+        let before = state.clone();
+        assert_eq!(
+            state.queue(identity(1), contact(2), peer(3), id(2), text("x"), 0),
+            Err(Refusal::ConversationFull)
+        );
+        assert_eq!(
+            state.receive(identity(1), contact(2), peer(3), id(3), text("x"), 0),
+            Err(Refusal::ConversationFull)
+        );
+        assert!(state == before);
+        assert!(roundtrip(&state) == state);
+    }
+
+    #[test]
+    fn only_a_change_wakes_the_tasks_that_follow_the_messages() {
+        let messages = Messages::new(crate::persist::Store::Ephemeral, MessageState::new());
+        let changes = messages.subscribe();
+        // An acknowledgement of nothing changes nothing.
+        let (acknowledgement, _) = messages
+            .change(|state| {
+                let acknowledgement = state.acknowledge(&identity(1), &contact(2), &id(1));
+                (acknowledgement, false)
+            })
+            .unwrap();
+        assert_eq!(acknowledgement, Acknowledgement::Unknown);
+        assert!(!changes.has_changed().unwrap());
+        let (queued, _) = messages
+            .change(|state| {
+                let queued = state.queue(identity(1), contact(2), peer(3), id(1), text("x"), 0);
+                (queued, true)
+            })
+            .unwrap();
+        assert_eq!(queued, Ok(1));
+        assert!(changes.has_changed().unwrap());
     }
 }

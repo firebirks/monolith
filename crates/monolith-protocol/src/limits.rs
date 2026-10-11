@@ -373,10 +373,6 @@ pub const MAX_LOCAL_IDENTITIES: usize = 8;
 /// Events queued for the user interface.
 pub const MAX_UI_EVENTS: usize = 256;
 
-/// Commands waiting for the task that runs one session: a probe, a close,
-/// a wakeup.
-pub const SESSION_COMMAND_QUEUE: usize = 8;
-
 /// File offers from one contact waiting for the user.
 pub const MAX_PENDING_FILE_OFFERS_PER_CONTACT: usize = 4;
 

@@ -11,6 +11,13 @@
 //! - S46: no crate holds state in a static item or a thread-local.
 //! - What `LocalIdentity::apply` applies is what a link received, bound
 //!   to the session it arrived on: no caller makes one or changes it.
+//! - S53, S54: a message becomes delivered only in
+//!   `MessageState::acknowledge`, which only `LocalIdentity::acknowledged`
+//!   calls, for a MessageAck a link received; the runtime sends a
+//!   MessageAck only for what `LocalIdentity::take_in` returned once it
+//!   was durable.
+//! - P5-12: `monolith-runtime`, the boundary of a front end, hands out
+//!   plain values and nothing that holds an identity's authority.
 
 // Test code builds its own inputs.
 #![allow(
@@ -241,6 +248,170 @@ fn only_a_sent_announcement_counts() {
             assert_eq!(made, 1);
         } else {
             assert_eq!(made, 0, "{name}");
+        }
+    }
+}
+
+/// The production text of `file`.
+fn source(file: &str) -> String {
+    production_sources()
+        .into_iter()
+        .find(|(name, _)| name == file)
+        .unwrap()
+        .1
+}
+
+/// The text of the function that starts with `start`, up to its end at
+/// the indentation of a method.
+fn function<'a>(text: &'a str, start: &str) -> &'a str {
+    text.split(start)
+        .nth(1)
+        .unwrap()
+        .split("\n    }\n")
+        .next()
+        .unwrap()
+}
+
+#[test]
+fn a_message_is_delivered_only_by_an_acknowledgement_a_link_received() {
+    // The one assignment of the delivered state is in the state machine,
+    // in `acknowledge`.
+    let messages = source("monolith-core/src/messages.rs");
+    assert_eq!(messages.matches("kind = EntryKind::Delivered").count(), 1);
+    assert!(function(&messages, "pub fn acknowledge(").contains("kind = EntryKind::Delivered"));
+    // Its one caller is `LocalIdentity::acknowledged`, which takes what a
+    // link received.
+    let callers: Vec<String> = production_sources()
+        .into_iter()
+        .filter(|(_, text)| text.contains(".acknowledge("))
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(callers, vec!["monolith-core/src/identity.rs"]);
+    let identity = source("monolith-core/src/identity.rs");
+    assert_eq!(identity.matches(".acknowledge(").count(), 1);
+    let acknowledged = function(&identity, "pub async fn acknowledged(");
+    assert!(acknowledged.contains("arrived: &Arrived,"));
+    assert!(acknowledged.contains("state.acknowledge("));
+    assert!(acknowledged.contains(".standing_record(arrived)"));
+}
+
+#[test]
+fn a_message_is_acknowledged_only_once_take_in_returned() {
+    // The runtime sends one MessageAck, with the identifier `take_in`
+    // returned, in the arm of its success; nothing else in production
+    // sends one.
+    let runtime = source("monolith-core/src/runtime.rs");
+    assert_eq!(runtime.matches("&Message::MessageAck(").count(), 1);
+    let taking = function(&runtime, "async fn take_in<S>(");
+    let stored = taking
+        .split("match identity.take_in(arrived).await {")
+        .nth(1)
+        .unwrap();
+    let success = stored.split("Err(").next().unwrap();
+    assert!(success.trim_start().starts_with("Ok(taken) =>"));
+    assert!(success.contains("link.send(&Message::MessageAck(taken.id)).await?;"));
+    for (name, text) in production_sources() {
+        if name != "monolith-core/src/runtime.rs" && !name.starts_with("monolith-protocol/") {
+            assert!(!text.contains("Message::MessageAck(taken"), "{name}");
+            assert!(
+                !text.contains("send(&Message::MessageAck("),
+                "{name} sends a MessageAck"
+            );
+        }
+    }
+    // `take_in` returns only after the message store made the step durable.
+    let identity = source("monolith-core/src/identity.rs");
+    let take_in = function(&identity, "pub async fn take_in(&self, arrived: &Arrived)");
+    let commit = take_in.find(".commit(generation)").unwrap();
+    let returned = take_in.find("Ok(TakenIn {").unwrap();
+    assert!(commit < returned);
+}
+
+#[test]
+fn a_message_leaves_only_once_it_is_durable() {
+    // The runtime sends one ChatMessage, what `next_to_send` returned,
+    // which waits for the message store to hold it.
+    let runtime = source("monolith-core/src/runtime.rs");
+    assert_eq!(runtime.matches("&Message::ChatMessage {").count(), 1);
+    let before = runtime.split("&Message::ChatMessage {").next().unwrap();
+    let sent = before
+        .rfind("if let Some((_, id, text)) = next.ok().flatten() {")
+        .unwrap();
+    assert!(!before[sent..].contains(';'));
+    let offered = "let next = identity.next_to_send(&contact).await;";
+    let at = before.rfind(offered).unwrap();
+    assert!(at < sent);
+    assert!(!before[at + offered.len()..sent].contains("next ="));
+    // And `next_to_send` returns a message only after the wait for the
+    // store, once it found it still the head.
+    let identity = source("monolith-core/src/identity.rs");
+    let next = function(&identity, "pub async fn next_to_send(");
+    let commit = next.find(".commit(generation)").unwrap();
+    let still = next.find("let still = ").unwrap();
+    let returned = next.find("return Ok(Some((sequence, id, text)));").unwrap();
+    assert!(commit < still && still < returned);
+    assert_eq!(next.matches("return Ok(Some(").count(), 1);
+}
+
+#[test]
+fn a_front_end_reaches_no_authority() {
+    // Every public function of the boundary crate takes and returns plain
+    // values: no local identity, installation, runtime, link, session, key,
+    // capability or store.
+    let facade = source("monolith-runtime/src/lib.rs");
+    let forbidden = [
+        "LocalIdentity",
+        "Installation",
+        "Runtime<",
+        "Link",
+        "Arrived",
+        "Session",
+        "Party",
+        "Secret",
+        "Key",
+        "Capability",
+        "Store",
+        "Arc<",
+        "Withdrawal",
+        "local_identity",
+    ];
+    let mut signatures = 0;
+    for part in facade.split("    pub ").skip(1) {
+        if !(part.starts_with("fn ") || part.starts_with("async fn ")) {
+            continue;
+        }
+        signatures += 1;
+        let signature = part.split('{').next().unwrap();
+        for word in forbidden {
+            assert!(!signature.contains(word), "{word} in {signature}");
+        }
+    }
+    assert!(signatures >= 15, "{signatures}");
+    assert!(!facade.contains(".local_identity("));
+    // The values of the interface come from the standard library and the
+    // two identifiers.
+    let api = source("monolith-core/src/api.rs");
+    let imports: Vec<&str> = api
+        .lines()
+        .filter(|line| line.starts_with("use ") || line.starts_with("pub use "))
+        .collect();
+    assert_eq!(
+        imports,
+        vec![
+            "use core::fmt;",
+            "use core::time::Duration;",
+            "pub use monolith_storage::record::{ContactId, IdentityId};",
+        ]
+    );
+}
+
+#[test]
+fn a_store_key_made_for_tests_is_used_by_no_production_code() {
+    for (name, text) in production_sources() {
+        if name == "monolith-storage/src/messages.rs" {
+            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+        } else {
+            assert!(!text.contains("from_bytes_for_testing"), "{name}");
         }
     }
 }

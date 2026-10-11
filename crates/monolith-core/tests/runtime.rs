@@ -22,15 +22,17 @@ mod common;
 use core::time::Duration;
 use std::sync::Arc;
 
-use common::{fixed_endpoint, keys, run, run_paused};
+use common::{Released, fixed_endpoint, keys, run, run_paused};
 use monolith_core::api::{ContactId, DeferReason, Event, IdentityId, MessageStatus, SendError};
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
-use monolith_protocol::limits::{MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT, SESSION_LINGER};
+use monolith_protocol::limits::{
+    HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT, SESSION_LINGER,
+};
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
-use monolith_tor::{MockNetwork, MockTorBackend};
+use monolith_tor::{KeySource, MockNetwork, MockTorBackend, OnionServiceSecret, TorBackend};
 use tokio::sync::broadcast;
 
 fn passphrase() -> Passphrase {
@@ -318,6 +320,63 @@ fn a_lost_acknowledgement_is_followed_by_a_retry_the_receiver_drops() {
 }
 
 #[test]
+fn a_session_that_ends_with_a_message_in_flight_reports_nothing_delivered() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = pair(&network).await;
+        a.start(&network, options()).await;
+        b.start(
+            &network,
+            RuntimeOptions {
+                acknowledgement_delay: Duration::from_secs(3600),
+                ..options()
+            },
+        )
+        .await;
+        let mut at_a_events = a.runtime().subscribe();
+        let mut at_b_events = b.runtime().subscribe();
+        let sent = a
+            .runtime()
+            .send_message(&a.id(), &at_a, "in flight")
+            .await
+            .unwrap();
+        event(&mut at_b_events, |event| {
+            matches!(event, Event::MessageReceived(_))
+        })
+        .await;
+        // B goes away without acknowledging: A's session ends with the
+        // message in flight, and A tries again while B is away. Nothing up
+        // to the end of the session says delivered.
+        b.stop().await;
+        event(&mut at_a_events, |event| {
+            assert!(!matches!(event, Event::MessageDelivered(_)), "{event:?}");
+            matches!(event, Event::SessionUnavailable { .. })
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(600)).await;
+        while let Ok(event) = at_a_events.try_recv() {
+            assert!(!matches!(event, Event::MessageDelivered(_)), "{event:?}");
+        }
+        assert_eq!(a.statuses(&at_a), vec![MessageStatus::Queued]);
+        // Delivered once B is back, and reported once.
+        b.start(&network, options()).await;
+        let delivered = event(&mut at_a_events, |event| {
+            matches!(event, Event::MessageDelivered(_))
+        })
+        .await;
+        assert_eq!(delivered, Event::MessageDelivered(sent));
+        assert_eq!(a.statuses(&at_a), vec![MessageStatus::Delivered]);
+        assert_eq!(b.statuses(&at_b), vec![MessageStatus::Received]);
+        tokio::time::sleep(Duration::from_secs(600)).await;
+        while let Ok(event) = at_a_events.try_recv() {
+            assert!(!matches!(event, Event::MessageDelivered(_)), "{event:?}");
+        }
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
 fn no_acknowledgement_in_time_closes_the_session_and_tries_again_later() {
     run_paused(async {
         let network = MockNetwork::new();
@@ -384,6 +443,47 @@ fn a_blocked_contact_gets_nothing_of_its_queue() {
         a.stop().await;
         b.stop().await;
     });
+}
+
+#[test]
+fn blocking_or_deleting_a_contact_ends_the_attempt_in_progress() {
+    for block in [true, false] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, _b, at_a, _) = pair(&network).await;
+            // B's service takes streams and nothing answers on them: a dial
+            // waits for the handshake until HANDSHAKE_TIMEOUT.
+            let _silent = network
+                .backend()
+                .publish_onion(KeySource::Existing {
+                    secret: OnionServiceSecret::from_bytes(&[2; 64]),
+                    expected: fixed_endpoint(2),
+                })
+                .await
+                .unwrap();
+            a.start(&network, options()).await;
+            let mut events = a.runtime().subscribe();
+            a.runtime().send_message(&a.id(), &at_a, "x").await.unwrap();
+            until(|| network.dials() == 1).await;
+            if block {
+                a.runtime().block_contact(&a.id(), &at_a).await.unwrap();
+            } else {
+                a.runtime().delete_contact(&a.id(), &at_a).await.unwrap();
+            }
+            // The attempt ended with the record: it reports nothing, and
+            // nothing follows it.
+            tokio::time::sleep(HANDSHAKE_TIMEOUT * 100).await;
+            while let Ok(event) = events.try_recv() {
+                assert!(
+                    !matches!(event, Event::DeliveryDeferred { .. }),
+                    "{block} {event:?}"
+                );
+            }
+            assert_eq!(network.dials(), 1);
+            assert_eq!(a.statuses(&at_a), vec![MessageStatus::Queued]);
+            a.stop().await;
+        });
+    }
 }
 
 #[test]
@@ -567,6 +667,248 @@ fn identities_of_one_runtime_keep_their_queues_and_sessions_apart() {
 }
 
 #[test]
+fn a_failed_message_store_ends_every_session_and_attempt() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let mut b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        let at_b = b.add(&a).await;
+        a.start(&network, options()).await;
+        // B acknowledges five seconds after it stored a message.
+        b.start(
+            &network,
+            RuntimeOptions {
+                acknowledgement_delay: Duration::from_secs(5),
+                ..options()
+            },
+        )
+        .await;
+        let mut events = a.runtime().subscribe();
+        // A first delivery: the session is up, and both accepted each
+        // other durably.
+        a.runtime()
+            .send_message(&a.id(), &at_a, "zero")
+            .await
+            .unwrap();
+        until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered]).await;
+        for text in ["one", "two"] {
+            a.runtime()
+                .send_message(&a.id(), &at_a, text)
+                .await
+                .unwrap();
+        }
+        // B stores "one"; A's message store fails before it records the
+        // delivery.
+        until(|| b.statuses(&at_b).len() == 2).await;
+        dir.crash_at(dir.steps() + 1);
+        event(&mut events, |event| matches!(event, Event::StorageFailed)).await;
+        // Nothing more is recorded, so nothing more is sent: the session
+        // ends at once, "two" is not sent again and again, and no attempt
+        // follows.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        assert_eq!(a.runtime().sessions(&a.id(), &at_a).unwrap(), 0);
+        while let Ok(event) = events.try_recv() {
+            assert!(!matches!(event, Event::StorageFailed), "{event:?}");
+        }
+        let dials = network.dials();
+        tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
+        assert_eq!(network.dials(), dials);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_session_that_ends_with_its_service_leaves_no_registration_behind() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = pair(&network).await;
+        a.start(&network, options()).await;
+        b.start(&network, options()).await;
+        a.runtime()
+            .send_message(&a.id(), &at_a, "one")
+            .await
+            .unwrap();
+        until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered]).await;
+        // A dialed: B's session runs under the accept loop of its service.
+        assert_eq!(b.runtime().sessions(&b.id(), &at_b).unwrap(), 1);
+        // The service goes away, as when Tor restarts: the accept loop
+        // ends and its sessions with it.
+        network.lose_service(&fixed_endpoint(2));
+        until(|| b.runtime().sessions(&b.id(), &at_b).unwrap() == 0).await;
+        // B's queue is dialed for and delivered.
+        b.runtime()
+            .send_message(&b.id(), &at_b, "two")
+            .await
+            .unwrap();
+        until(|| b.statuses(&at_b).contains(&MessageStatus::Delivered)).await;
+        assert!(a.statuses(&at_a).contains(&MessageStatus::Received));
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_peer_that_never_acknowledges_is_dialed_with_growing_delays() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = pair(&network).await;
+        a.start(&network, options()).await;
+        b.start(
+            &network,
+            RuntimeOptions {
+                acknowledgement_delay: MESSAGE_ACK_TIMEOUT * 1000,
+                ..options()
+            },
+        )
+        .await;
+        let mut events = a.runtime().subscribe();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "never acknowledged")
+            .await
+            .unwrap();
+        let mut delays = Vec::new();
+        while delays.len() < 4 {
+            if let Event::DeliveryDeferred {
+                reason: DeferReason::AckTimeout,
+                retry_in,
+                ..
+            } = event(&mut events, |event| {
+                matches!(
+                    event,
+                    Event::DeliveryDeferred {
+                        reason: DeferReason::AckTimeout,
+                        ..
+                    }
+                )
+            })
+            .await
+            {
+                delays.push(retry_in);
+            }
+        }
+        // The delays double, with their jitter: the fourth is at least
+        // half of 80 seconds.
+        assert!(delays[3] >= Duration::from_secs(40), "{delays:?}");
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_send_its_caller_stops_waiting_for_completes() {
+    // In real time: paused time does not move while a write is held on a
+    // thread of its own.
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let mut b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        let at_b = b.add(&a).await;
+        a.start(&network, options()).await;
+        b.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        // The write of the message is held, and the caller gives up.
+        dir.hold_writes();
+        let released = Released(&dir);
+        let sending = tokio::time::timeout(
+            Duration::from_millis(200),
+            a.runtime().send_message(&a.id(), &at_a, "half"),
+        )
+        .await;
+        assert!(sending.is_err());
+        drop(released);
+        // The command completed all the same: it was reported, and the
+        // message is delivered.
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            event(&mut events, |event| {
+                matches!(event, Event::MessageQueued(_))
+            }),
+        )
+        .await
+        .expect("the queueing was reported");
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered]),
+        )
+        .await
+        .expect("the message was delivered");
+        assert_eq!(b.statuses(&at_b), vec![MessageStatus::Received]);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_runtime_dropped_without_a_shutdown_stops() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, _) = pair(&network).await;
+        a.start(&network, options()).await;
+        a.runtime().send_message(&a.id(), &at_a, "x").await.unwrap();
+        let runtime = a.runtime.take().unwrap();
+        let copy = runtime.clone();
+        drop(runtime);
+        // A copy keeps it running.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        assert!(network.is_published(&fixed_endpoint(1)));
+        drop(copy);
+        // The last handle is gone: its service goes at once, and it dials
+        // nobody.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(!network.is_published(&fixed_endpoint(1)));
+        let dials = network.dials();
+        tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
+        assert_eq!(network.dials(), dials);
+    });
+}
+
+#[test]
+fn a_failed_vault_ends_every_attempt() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        a.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        // B is away: A dials with the reconnect delays.
+        a.runtime().send_message(&a.id(), &at_a, "x").await.unwrap();
+        event(&mut events, |event| {
+            matches!(event, Event::DeliveryDeferred { .. })
+        })
+        .await;
+        // A change of the vault fails.
+        dir.crash_at(dir.steps() + 1);
+        assert!(
+            a.identity
+                .set_verified(b.identity.identity(), true)
+                .await
+                .is_err()
+        );
+        assert!(a.identity.vault_failed());
+        event(&mut events, |event| matches!(event, Event::StorageFailed)).await;
+        // Nothing is made durable any more: the scheduler stops dialing.
+        tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+        let dials = network.dials();
+        tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
+        assert_eq!(network.dials(), dials);
+        a.stop().await;
+    });
+}
+
+#[test]
 fn a_restarted_sender_delivers_what_it_had_queued() {
     run(async {
         let network = MockNetwork::new();
@@ -600,10 +942,15 @@ fn a_restarted_sender_delivers_what_it_had_queued() {
         a.start(&network, options()).await;
         let mut events = a.runtime().subscribe();
         if a.statuses(&at_a) != vec![MessageStatus::Delivered] {
-            let delivered = event(&mut events, |event| {
-                matches!(event, Event::MessageDelivered(_))
-            })
-            .await;
+            // In real time: bounded, so that a fault fails it at once.
+            let delivered = tokio::time::timeout(
+                Duration::from_secs(60),
+                event(&mut events, |event| {
+                    matches!(event, Event::MessageDelivered(_))
+                }),
+            )
+            .await
+            .expect("the message was delivered");
             assert_eq!(delivered, Event::MessageDelivered(sent));
         }
         assert_eq!(b.statuses(&at_b), vec![MessageStatus::Received]);

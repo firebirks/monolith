@@ -29,7 +29,7 @@ use monolith_protocol::body::{Message, MessageId};
 use monolith_protocol::limits::{MAX_QUEUED_MESSAGES_PER_CONTACT, MAX_VAULT_FILE_LEN};
 use monolith_protocol::text::ChatText;
 use monolith_storage::StorageError;
-use monolith_storage::dir::{CrashOutcome, MESSAGES, MemoryDir, VaultDir};
+use monolith_storage::dir::{CrashOutcome, MESSAGES, MemoryDir, VAULT, VaultDir};
 use monolith_storage::message_records::EntryKind;
 use monolith_storage::record::{
     ContactId, Contents, PayloadVersion, StoredContact, StoredIdentity,
@@ -99,7 +99,9 @@ async fn reopened(network: &MockNetwork, dir: &MemoryDir, seed: u8, outcome: Cra
 async fn send_head(from: &Node, contact: &ContactId, link: &mut Link<DuplexStream>) -> MessageId {
     let (_, id, text) = from
         .identity
-        .next_queued(contact)
+        .next_to_send(contact)
+        .await
+        .unwrap()
         .expect("a queued message");
     link.send(&Message::ChatMessage { id, text }).await.unwrap();
     id
@@ -452,6 +454,41 @@ fn a_queued_message_is_reported_only_once_it_is_durable() {
 }
 
 #[test]
+fn a_queued_message_is_offered_for_sending_only_once_it_is_durable() {
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let a = persistent(&network, &dir, 1).await;
+        let mut b = node(&network, 2).await;
+        befriend(&a, &mut b).await;
+        let at_a = record(&a, &b);
+        dir.hold_writes();
+        let released = Released(&dir);
+        let identity = a.identity.clone();
+        let queueing =
+            tokio::spawn(async move { identity.queue_message(at_a, text("held")).await });
+        held(&dir).await;
+        // In memory, and its write held: there is a message, and none to
+        // send yet.
+        assert!(a.identity.next_queued(&at_a).is_some());
+        let waited = race(
+            tokio::time::sleep(core::time::Duration::from_millis(200)),
+            a.identity.next_to_send(&at_a),
+        )
+        .await;
+        assert!(waited.is_ok(), "offered before its write: {waited:?}");
+        // A crash now loses it, and nothing was offered to send.
+        let after = dir.restart(CrashOutcome::ALL[0]);
+        drop(released);
+        let _ = queueing.await;
+        drop(a);
+        let (installation, _) = Installation::open(Box::new(after), &passphrase()).unwrap();
+        let identity = installation.identities().into_iter().next().unwrap();
+        assert!(identity.conversation(&at_a, None, 10).is_empty());
+    });
+}
+
+#[test]
 fn what_arrived_on_a_link_that_ended_counts_for_nothing() {
     run(async {
         let network = MockNetwork::new();
@@ -753,47 +790,54 @@ fn a_message_store_that_does_not_authenticate_fails_the_installation() {
     });
 }
 
+/// Writes in `dir` a vault of Phase 4, payload version 1, with one
+/// identity of seed 1 that holds `b` as an accepted contact, and no message
+/// store.
+fn phase_4_vault(dir: &MemoryDir, b: &Node) {
+    let stored = StoredIdentity {
+        id: None,
+        identity_seed: Zeroizing::new([1; 32]),
+        transport_secret: Zeroizing::new([1 ^ 0xA5; 32]),
+        onion_secret: Some(Zeroizing::new([1; 64])),
+        epoch: monolith_identity::EndpointEpoch::FIRST,
+        endpoint: fixed_endpoint(1),
+        rotation: None,
+        request_mode: monolith_protocol::contact::RequestMode::Invitation,
+        label: None,
+        invitations: Vec::new(),
+        contacts: vec![StoredContact {
+            id: None,
+            kind: monolith_protocol::contact::RecordKind::Accepted,
+            credentials: monolith_protocol::credential::Credentials::new(b.card()),
+            dial: b.card(),
+            verified: false,
+            alias: None,
+            successor_announced: false,
+            successor_promoted: false,
+        }],
+        blocked: Vec::new(),
+        declined: Vec::new(),
+    };
+    let contents = Contents {
+        version: PayloadVersion::V1,
+        identities: vec![stored],
+    };
+    Vault::create(
+        dir.clone(),
+        &passphrase(),
+        KdfParams::FLOOR,
+        &contents.encode().unwrap(),
+    )
+    .unwrap();
+}
+
 #[test]
 fn a_vault_of_phase_4_is_opened_with_identifiers_and_an_empty_message_store() {
     run(async {
         let network = MockNetwork::new();
         let b = node(&network, 2).await;
         let dir = MemoryDir::new();
-        let stored = StoredIdentity {
-            id: None,
-            identity_seed: Zeroizing::new([1; 32]),
-            transport_secret: Zeroizing::new([1 ^ 0xA5; 32]),
-            onion_secret: Some(Zeroizing::new([1; 64])),
-            epoch: monolith_identity::EndpointEpoch::FIRST,
-            endpoint: fixed_endpoint(1),
-            rotation: None,
-            request_mode: monolith_protocol::contact::RequestMode::Invitation,
-            label: None,
-            invitations: Vec::new(),
-            contacts: vec![StoredContact {
-                id: None,
-                kind: monolith_protocol::contact::RecordKind::Accepted,
-                credentials: monolith_protocol::credential::Credentials::new(b.card()),
-                dial: b.card(),
-                verified: false,
-                alias: None,
-                successor_announced: false,
-                successor_promoted: false,
-            }],
-            blocked: Vec::new(),
-            declined: Vec::new(),
-        };
-        let contents = Contents {
-            version: PayloadVersion::V1,
-            identities: vec![stored],
-        };
-        Vault::create(
-            dir.clone(),
-            &passphrase(),
-            KdfParams::FLOOR,
-            &contents.encode().unwrap(),
-        )
-        .unwrap();
+        phase_4_vault(&dir, &b);
         assert!(dir.read(MESSAGES, MAX_VAULT_FILE_LEN).unwrap().is_none());
         let (installation, _) = Installation::open(Box::new(dir.clone()), &passphrase()).unwrap();
         let identity = installation.identities().into_iter().next().unwrap();
@@ -818,6 +862,147 @@ fn a_vault_of_phase_4_is_opened_with_identifiers_and_an_empty_message_store() {
             Contents::decode(&plaintext).unwrap().version,
             PayloadVersion::V2
         );
+    });
+}
+
+#[test]
+fn a_vault_with_identities_and_no_message_store_opens_and_says_so() {
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let (a, b, _) = queued_pair(&network, &dir).await;
+        let at_a = record(&a, &b);
+        // A store that is in place says nothing.
+        assert!(!a.installation.message_store_missing());
+        drop(a);
+        dir.remove(MESSAGES).unwrap();
+        // The vault alone is a backup of its identities (T-MI-9): it opens,
+        // with an empty store, and says that the messages are not there.
+        let (installation, _) = Installation::open(Box::new(dir.clone()), &passphrase()).unwrap();
+        assert!(installation.message_store_missing());
+        let identity = installation.identities().into_iter().next().unwrap();
+        assert!(identity.conversation(&at_a, None, 10).is_empty());
+        drop((identity, installation));
+        // The store made then is the store from then on.
+        let (installation, _) = Installation::open(Box::new(dir.clone()), &passphrase()).unwrap();
+        assert!(!installation.message_store_missing());
+    });
+}
+
+#[test]
+fn a_vault_of_phase_4_beside_a_store_with_messages_is_refused() {
+    run(async {
+        let network = MockNetwork::new();
+        let b = node(&network, 2).await;
+        let dir = MemoryDir::new();
+        phase_4_vault(&dir, &b);
+        let old = dir.read(VAULT, MAX_VAULT_FILE_LEN).unwrap().unwrap();
+        let (installation, _) = Installation::open(Box::new(dir.clone()), &passphrase()).unwrap();
+        let identity = installation.identities().into_iter().next().unwrap();
+        let at_a = identity.contact_id(b.identity.identity()).unwrap();
+        identity.queue_message(at_a, text("kept")).await.unwrap();
+        drop((identity, installation));
+        // The vault of before the upgrade is put back beside the store.
+        dir.overwrite(VAULT, &old).unwrap();
+        let store = dir.read(MESSAGES, MAX_VAULT_FILE_LEN).unwrap().unwrap();
+        assert_eq!(
+            Installation::open(Box::new(dir.clone()), &passphrase()).err(),
+            Some(InstallationError::MessageStore)
+        );
+        // Neither file was changed.
+        assert_eq!(dir.read(VAULT, MAX_VAULT_FILE_LEN).unwrap().unwrap(), old);
+        assert_eq!(
+            dir.read(MESSAGES, MAX_VAULT_FILE_LEN).unwrap().unwrap(),
+            store
+        );
+    });
+}
+
+#[test]
+fn a_crash_while_the_message_store_is_made_leaves_an_installation_that_opens() {
+    run(async {
+        // A new installation: the vault is made, then the store.
+        let made = MemoryDir::new();
+        Vault::create(
+            made.clone(),
+            &passphrase(),
+            KdfParams::FLOOR,
+            &Contents::default().encode().unwrap(),
+        )
+        .unwrap();
+        let vault_steps = made.steps();
+        let mut step = vault_steps + 1;
+        loop {
+            let dir = MemoryDir::new();
+            dir.crash_at(step);
+            let created =
+                Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR);
+            let crashed = dir.crashed();
+            drop(created);
+            for outcome in CrashOutcome::ALL {
+                let opened = Installation::open(Box::new(dir.restart(outcome)), &passphrase());
+                assert!(opened.is_ok(), "{step} {outcome:?} {:?}", opened.err());
+            }
+            if !crashed {
+                break;
+            }
+            step += 1;
+        }
+        // A vault of Phase 4: the store is made, then the vault written as
+        // version 2.
+        let network = MockNetwork::new();
+        let b = node(&network, 2).await;
+        let mut step = 1;
+        loop {
+            let dir = MemoryDir::new();
+            phase_4_vault(&dir, &b);
+            dir.crash_at(dir.steps() + step);
+            let opened = Installation::open(Box::new(dir.clone()), &passphrase());
+            let crashed = dir.crashed();
+            drop(opened);
+            for outcome in CrashOutcome::ALL {
+                let (installation, _) =
+                    Installation::open(Box::new(dir.restart(outcome)), &passphrase())
+                        .unwrap_or_else(|error| panic!("{step} {outcome:?} {error:?}"));
+                let identity = installation.identities().into_iter().next().unwrap();
+                assert!(identity.contact_id(b.identity.identity()).is_some());
+            }
+            if !crashed {
+                break;
+            }
+            step += 1;
+        }
+    });
+}
+
+#[test]
+fn a_message_deleted_while_it_waits_to_be_sent_is_not_offered() {
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let (a, b, _) = queued_pair(&network, &dir).await;
+        let at_a = record(&a, &b);
+        dir.hold_writes();
+        let released = Released(&dir);
+        // Another change waits for its write, and the head with it.
+        let identity = a.identity.clone();
+        let queueing =
+            tokio::spawn(async move { identity.queue_message(at_a, text("second")).await });
+        held(&dir).await;
+        let identity = a.identity.clone();
+        let offering = tokio::spawn(async move { identity.next_to_send(&at_a).await });
+        tokio::time::sleep(core::time::Duration::from_millis(100)).await;
+        assert!(!offering.is_finished());
+        // The user deletes the conversation meanwhile.
+        let identity = a.identity.clone();
+        let deleting = tokio::spawn(async move { identity.delete_conversation(&at_a).await });
+        while a.identity.next_queued(&at_a).is_some() {
+            tokio::time::sleep(core::time::Duration::from_millis(1)).await;
+        }
+        drop(released);
+        assert!(offering.await.unwrap().unwrap().is_none());
+        let _ = queueing.await.unwrap();
+        assert!(deleting.await.unwrap().unwrap());
     });
 }
 
