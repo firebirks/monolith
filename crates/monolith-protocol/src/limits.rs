@@ -296,6 +296,16 @@ pub const PONG_TIMEOUT: Duration = Duration::from_secs(60);
 /// A session that delivers no complete frame for this long is closed.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(240);
 
+/// Time a sender waits for the MessageAck of the message in flight. Then
+/// delivery is uncertain: the session is closed and the message is sent
+/// again on a later one.
+pub const MESSAGE_ACK_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// A session on which no ChatMessage or MessageAck was sent or received
+/// for this long, with nothing queued or in flight, is closed by the local
+/// side.
+pub const SESSION_LINGER: Duration = Duration::from_secs(120);
+
 /// Time allowed to receive the rest of a frame once its length prefix has
 /// arrived.
 pub const FRAME_READ_TIMEOUT: Duration = Duration::from_secs(60);
@@ -363,6 +373,10 @@ pub const MAX_LOCAL_IDENTITIES: usize = 8;
 /// Events queued for the user interface.
 pub const MAX_UI_EVENTS: usize = 256;
 
+/// Commands waiting for the task that runs one session: a probe, a close,
+/// a wakeup.
+pub const SESSION_COMMAND_QUEUE: usize = 8;
+
 /// File offers from one contact waiting for the user.
 pub const MAX_PENDING_FILE_OFFERS_PER_CONTACT: usize = 4;
 
@@ -387,11 +401,29 @@ pub const FILE_FREE_SPACE_MARGIN: u64 = 64 * 1024 * 1024;
 /// Chat messages queued for one contact.
 pub const MAX_QUEUED_MESSAGES_PER_CONTACT: usize = 256;
 
-/// Bytes of chat text queued for all contacts together.
-pub const MAX_QUEUED_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+/// Chat messages queued for all contacts of one local identity together.
+pub const MAX_QUEUED_MESSAGES_PER_IDENTITY: usize = 1024;
 
-/// Received message identifiers remembered per contact to drop duplicates.
+/// Bytes of chat text queued for all contacts of all local identities
+/// together. Half of the message store, so that a full queue still leaves
+/// room to take messages in.
+pub const MAX_QUEUED_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
+
+/// Identifiers of received messages the user deleted, remembered per
+/// conversation so that a late retry of one is acknowledged and not shown
+/// again.
 pub const MESSAGE_DEDUP_WINDOW: usize = 1024;
+
+/// Conversations one local identity keeps in the message store, those of
+/// contacts that were deleted or blocked included.
+pub const MAX_CONVERSATIONS_PER_IDENTITY: usize = 2048;
+
+/// Bytes the stored messages of one conversation may take, as the message
+/// store encodes them. One contact cannot fill the whole store.
+pub const MAX_CONVERSATION_STORE_LEN: usize = 4 * 1024 * 1024;
+
+/// Messages the message store holds, all conversations together.
+pub const MAX_STORED_MESSAGES: usize = 262_144;
 
 // ---------------------------------------------------------------------------
 // Rates
@@ -524,6 +556,13 @@ pub const ONION_MAX_STREAMS: u16 = 8;
 /// Largest vault file that will be read.
 pub const MAX_VAULT_FILE_LEN: u64 = 16 * 1024 * 1024;
 
+/// Largest message store file that will be read or written
+/// (`docs/adr/0008-message-store.md`).
+pub const MAX_MESSAGE_STORE_FILE_LEN: u64 = 16 * 1024 * 1024;
+
+/// The plaintext of the message store is a multiple of this.
+pub const MESSAGE_STORE_PADDING_BLOCK_LEN: usize = 64 * 1024;
+
 /// Smallest Argon2id memory cost accepted from a vault header, in KiB.
 pub const MIN_KDF_MEMORY_KIB: u32 = 64 * 1024;
 
@@ -637,6 +676,20 @@ const _: () = {
     assert!(SESSION_CLOSE_GRACE.as_secs() < MAX_SESSION_LIFETIME.as_secs());
 
     assert!(MAX_PENDING_REQUESTS_PER_INVITATION <= MAX_PENDING_CONTACT_REQUESTS);
+
+    // The message store: a queue fits in what one identity may queue, a
+    // conversation in the store, the queue in half of it, and a sender
+    // that sends its whole queue before an acknowledgement stays within
+    // the duplicate window of the receiver.
+    assert!(MAX_QUEUED_MESSAGES_PER_CONTACT <= MAX_QUEUED_MESSAGES_PER_IDENTITY);
+    assert!(MAX_QUEUED_MESSAGES_PER_CONTACT <= MESSAGE_DEDUP_WINDOW);
+    assert!(MAX_CHAT_TEXT_LEN < MAX_CONVERSATION_STORE_LEN);
+    assert!(MAX_CONVERSATION_STORE_LEN as u64 <= MAX_MESSAGE_STORE_FILE_LEN);
+    assert!((MAX_QUEUED_MESSAGE_BYTES as u64) * 2 <= MAX_MESSAGE_STORE_FILE_LEN);
+    assert!(MAX_MESSAGE_STORE_FILE_LEN % MESSAGE_STORE_PADDING_BLOCK_LEN as u64 == 0);
+    assert!(MAX_CONTACTS <= MAX_CONVERSATIONS_PER_IDENTITY);
+    assert!(MESSAGE_ACK_TIMEOUT.as_secs() < SESSION_LINGER.as_secs());
+    assert!(SESSION_LINGER.as_secs() < IDLE_TIMEOUT.as_secs());
 
     // A profile is sent once per confirmed session, so a conforming peer
     // sends profiles at most as often as it may open sessions.
