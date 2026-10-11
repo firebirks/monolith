@@ -36,9 +36,9 @@ worker, each with its own target directory, so the working tree is never
 touched and uncommitted changes are not tested. Before anything runs it
 checks that every pattern occurs exactly once in its file, and that the
 unmodified copies pass their tests. Then it checks that each copy builds
-what it holds, on its own target directory: the tests of
-`monolith-protocol` pass, fail with fault X1 applied, and pass again once
-the file is restored, with the crate built again. A fault is applied only
+what it holds, on its own target directory: the unit tests of the
+crates of the unmodified run pass, fail with fault X1 applied, and pass
+again once the file is restored, with `monolith-protocol` built again. A fault is applied only
 if the file then holds it, and every file is restored to its exact bytes
 with a time newer than any build, so that cargo never runs the build of a
 fault after it. A copy that fails one of these checks stops the run: the

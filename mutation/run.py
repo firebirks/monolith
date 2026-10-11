@@ -28,9 +28,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 WORK = os.path.join(HERE, "work")
 TIMEOUT = 1200
-# The fault each copy is checked with before a run: one whose tests are
-# quick and certain to catch it.
+# The fault each copy is checked with before a run, and the unit test
+# that is certain to catch it.
 CANARY = "X1"
+CANARY_TEST = "chat_text_length_bounds"
 
 print_lock = threading.Lock()
 
@@ -181,17 +182,23 @@ def run_one(item, tree):
 
 def check_copy(tree):
     """Checks that a copy builds what it holds, on its own target
-    directory, before any fault runs on it: the tests of one crate pass,
-    fail with the canary fault applied, and pass again once the file is
-    restored, with the crate built again. Returns what went wrong, or
-    None."""
+    directory, before any fault runs on it: the unit tests pass, fail with
+    the canary fault applied, and pass again once the file is restored,
+    with its crate built again. They are built for the crates of the
+    unmodified run, so that the features are those of every other build of
+    the copy, and only the test that catches the canary runs. Returns what
+    went wrong, or None."""
     canary = next(item for item in faults.PHASE1 if item["id"] == CANARY)
     path = os.path.join(tree, canary["path"])
     crate = canary["path"].split("/")[1]
+    command = ["cargo", "test", "--locked"]
+    for name in faults.TESTS["monolith-identity"]:
+        command += ["-p", name]
+    command += ["--lib", CANARY_TEST]
 
     def check():
         result = subprocess.run(
-            ["cargo", "test", "--locked", "-p", crate, "--lib"],
+            command,
             cwd=tree,
             env=dict(os.environ, CARGO_TERM_COLOR="never"),
             capture_output=True,
@@ -202,7 +209,7 @@ def check_copy(tree):
 
     code, _ = check()
     if code != 0:
-        return f"the tests of {crate} fail on the unmodified copy"
+        return "the unit tests fail on the unmodified copy"
     original = mutate(path, canary["pairs"])
     try:
         code, output = check()
