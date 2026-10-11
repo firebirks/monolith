@@ -312,3 +312,27 @@ pub enum Event {
     /// until the process starts again.
     StorageFailed,
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use monolith_storage::record::RECORD_ID_LEN;
+
+    #[test]
+    fn a_message_prints_no_text() {
+        let view = MessageView {
+            reference: MessageRef {
+                identity: IdentityId::from_bytes([1; RECORD_ID_LEN]).unwrap(),
+                contact: ContactId::from_bytes([2; RECORD_ID_LEN]).unwrap(),
+                sequence: 3,
+            },
+            status: MessageStatus::Received,
+            time: 4,
+            text: "very secret words".to_owned(),
+        };
+        let text = format!("{view:?} {view:#?}");
+        assert!(!text.contains("secret"), "{text}");
+    }
+}

@@ -425,6 +425,66 @@ fn a_queue_holds_its_limit_and_refuses_one_more() {
     });
 }
 
+#[test]
+fn a_queued_message_is_reported_only_once_it_is_durable() {
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let a = persistent(&network, &dir, 1).await;
+        let mut b = node(&network, 2).await;
+        befriend(&a, &mut b).await;
+        let at_a = record(&a, &b);
+        dir.hold_writes();
+        let _released = Released(&dir);
+        let crashed = async {
+            held(&dir).await;
+            dir.restart(CrashOutcome::ALL[0])
+        };
+        let after = match race(crashed, a.identity.queue_message(at_a, text("held"))).await {
+            Ok(after) => after,
+            Err(queued) => panic!("reported before its write: {queued:?}"),
+        };
+        drop(a);
+        let (installation, _) = Installation::open(Box::new(after), &passphrase()).unwrap();
+        let identity = installation.identities().into_iter().next().unwrap();
+        assert!(identity.conversation(&at_a, None, 10).is_empty());
+    });
+}
+
+#[test]
+fn what_arrived_on_a_link_that_ended_counts_for_nothing() {
+    run(async {
+        let network = MockNetwork::new();
+        let a = node(&network, 1).await;
+        let mut b = node(&network, 2).await;
+        befriend(&a, &mut b).await;
+        let at_a = record(&a, &b);
+        let queued = a.identity.queue_message(at_a, text("hello")).await.unwrap();
+        let (mut a_link, mut b_link) = confirm_both(&a, &mut b).await;
+        b_link.send(&Message::MessageAck(queued.id)).await.unwrap();
+        b_link
+            .send(&Message::ChatMessage {
+                id: MessageId::from_bytes([7; 16]),
+                text: text("late"),
+            })
+            .await
+            .unwrap();
+        let acknowledgement = a_link.receive().await.unwrap();
+        let message = a_link.receive().await.unwrap();
+        // The link ends before what it brought is applied.
+        drop(a_link);
+        assert_eq!(
+            a.identity.acknowledged(&acknowledgement).await.err(),
+            Some(MessageError::NotStanding)
+        );
+        assert_eq!(
+            a.identity.take_in(&message).await.err(),
+            Some(MessageError::NotStanding)
+        );
+        assert_eq!(kinds(&a.identity, &at_a), vec![EntryKind::Queued]);
+    });
+}
+
 // --- Crash boundaries ---------------------------------------------------------
 
 /// A persistent A and an ephemeral B, contacts of each other, and a message

@@ -387,6 +387,54 @@ fn a_blocked_contact_gets_nothing_of_its_queue() {
 }
 
 #[test]
+fn a_contact_made_again_is_not_dialed_for_the_queue_of_its_old_record() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, old, _) = pair(&network).await;
+        a.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        a.runtime()
+            .send_message(&a.id(), &old, "old")
+            .await
+            .unwrap();
+        event(&mut events, |event| {
+            matches!(event, Event::DeliveryDeferred { .. })
+        })
+        .await;
+        a.runtime().delete_contact(&a.id(), &old).await.unwrap();
+        let new = a.add(&b).await;
+        assert_ne!(new, old);
+        // Nothing is queued for the new record: nothing is dialed for it,
+        // and the old record's queue stays where it is.
+        let dials = network.dials();
+        tokio::time::sleep(Duration::from_secs(24 * 60 * 60)).await;
+        assert_eq!(network.dials(), dials);
+        assert_eq!(a.statuses(&old), vec![MessageStatus::Queued]);
+        assert!(a.statuses(&new).is_empty());
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_failed_attempt_is_not_repeated_at_once() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, _) = pair(&network).await;
+        a.start(&network, options()).await;
+        // B is not online: every attempt fails at once, after Tor counted
+        // it.
+        a.runtime().send_message(&a.id(), &at_a, "x").await.unwrap();
+        // Time stands still while this task yields: a scheduler that waits
+        // between attempts makes one; one that does not, many.
+        for _ in 0..10_000 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(network.dials(), 1);
+        a.stop().await;
+    });
+}
+
+#[test]
 fn a_deleted_identity_stops_dialing_and_takes_no_command() {
     run_paused(async {
         let network = MockNetwork::new();
