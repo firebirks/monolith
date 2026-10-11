@@ -1,9 +1,11 @@
 # Final verification of 970316f
 
-This branch holds the outputs of the final verification (STATUS.md
-section 5.2) of the frozen candidate `970316f` on `phase-4-contact-store`,
-and the script that ran mutation phases 3 and 4. It is a work
-branch: it is not merged and the candidate is not changed.
+This directory holds the outputs of the final verification (section 5.2
+of the Phase 4 status file) of the frozen candidate `970316f` on
+`phase-4-contact-store`, and the script that ran mutation phases 3 and 4.
+They were kept on the work branch `verification-970316f`, which changed
+nothing outside this directory, and merged into `main` after Phase 4 was
+closed.
 
 Local paths in the logs are written as `<repo>`, `<home>` and `<out>`.
 
@@ -96,5 +98,6 @@ phase, so copy the phase file aside first.
 items of the brief), complete now that every stage of the final
 verification has run. The owner decided its four open points on
 2026-10-11; they are recorded in it. The owner accepted it the same day
-and declared Phase 4 complete on `970316f`; it is section 5.3 of
-`STATUS.md` on `phase-4-contact-store` from `d2089b5`.
+and declared Phase 4 complete on `970316f`. The accepted text is section
+5.3 of the Phase 4 status file, `STATUS.md` at `d2089b5`; that file was
+removed when Phase 4 was merged.

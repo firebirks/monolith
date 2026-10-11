@@ -1,9 +1,10 @@
 # Phase 4 final report
 
-Status of this document: complete, for the owner's review. Every stage
-of the final verification has completed. It becomes
-`STATUS.md` section 5.3 when the owner accepts it; until then Phase 4 is
-not declared complete.
+Status of this document: accepted by the owner on 2026-10-11, who
+declared Phase 4 complete on `970316f`. The accepted text is section 5.3
+of the Phase 4 status file, `STATUS.md` at `d2089b5`. Item 4 describes
+the repository before the commits, the push, the merges and the tag that
+followed.
 
 The owner decided the four open points of this report on 2026-10-11;
 each decision is recorded where its point arises (sections 16, 18 and

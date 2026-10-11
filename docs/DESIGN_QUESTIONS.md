@@ -1731,9 +1731,10 @@ in the three stages of section 5.2 of the status file of Phase 4
 (`STATUS.md`, removed when Phase 4 was merged), with no file of that
 commit changed while it ran: stages 1 and 2 and mutation lists 1 and 2
 from 2026-10-08, lists 3 and 4 on 2026-10-11 on a second machine (a Linux
-VM with 8 CPUs, 8 GB and two workers). The outputs are on the branch
-`verification-970316f` (`verification/970316f/`). The final report is
-section 5.3 of that file, kept in the history at `d2089b5`. Results:
+VM with 8 CPUs, 8 GB and two workers). The outputs are in
+`verification/970316f/`, merged from the branch `verification-970316f`.
+The final report is section 5.3 of the status file, kept in the history
+at `d2089b5`. Results:
 
 | Check | Result |
 | --- | --- |
