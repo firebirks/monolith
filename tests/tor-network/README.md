@@ -1,7 +1,7 @@
 # Private Tor network test
 
-`two-node.sh` is the end-to-end test of Phases 3 and 4 on a private Tor
-network built with Chutney, the Tor Project's tool for local test
+`two-node.sh` is the end-to-end test of Phases 3, 4 and 5 on a private
+Tor network built with Chutney, the Tor Project's tool for local test
 networks:
 
     Monolith A -- Tor A -- private Tor network -- Tor B -- Monolith B
@@ -55,6 +55,36 @@ its standard input:
     contacted.
 11. Every node run is checked: loopback and Unix sockets only, no DNS.
 
+Phase 5, with `dev-runtime`, a node on the messaging runtime over a
+persistent vault and its message store, driven through its standard input
+(steps 13 to 20; each prints how long its deliveries took):
+
+13. Two runtime nodes each make an identity and import the other's card.
+    Nothing is queued, so no session is made. B goes away.
+14. A queues "first" while B is away: it is reported queued, and the
+    attempt to reach B is deferred. B comes back; B stores "first" once,
+    A records it delivered once B's acknowledgement came, and both list it.
+15. B, started with `--ack-delay 3600`, stores "second" and is killed with
+    SIGKILL before it acknowledges it. A sends it again to the restarted B,
+    which acknowledges it without storing it again: B holds "first" and
+    "second", once each.
+16. A queues "third" while B is away and is killed with SIGKILL. The
+    restarted A delivers it once B is back; "first" and "second" are still
+    delivered.
+17. Tor A is stopped: A reports its service unavailable, queues "fourth",
+    and its attempts are deferred for Tor. Tor A is started again: A
+    publishes its service again and delivers "fourth" through Tor.
+18. A queues "fifth" while B is away and blocks B. With B back for two
+    minutes, A makes no session, no attempt and no delivery for the
+    blocked record; "fifth" stays queued in an ended conversation.
+19. A makes a second identity, a contact of B. A message of the second
+    identity is delivered over its own session, while the first identity
+    has no session with B and its queue stays as it was; B holds the two
+    conversations apart. Once that session lingered and ended, both sides
+    send at once: each message arrives once, and one session stays.
+20. Every runtime node run is checked: loopback and Unix sockets only, no
+    DNS, no UDP.
+
 And again Phase 3, as the last step because it ends Tor B (it was step 3
 of Phase 3, hence the gap in the numbers):
 
@@ -101,10 +131,11 @@ never does. Tor 0.4.9.13 with `Sandbox 1`, which Chutney sets, can run
 with signals blocked in its main thread, SIGTERM among them, depending on
 the run; the script kills a Tor that has not ended 10 seconds after
 SIGTERM. The test is not part of CI, because it needs Tor and takes about
-twenty minutes.
+twenty minutes, and some more with the steps of Phase 5.
 
-Status: passed in the final verification of Phase 4, on `970316f`, with
-Tor 0.4.9.13 and Chutney at commit `ae3a33c` in the container and 15
-restart cycles (`docs/DESIGN_QUESTIONS.md` 11.6). The Dockerfile does not
+Status: steps 1 to 12 passed in the final verification of Phase 4, on
+`970316f`, with Tor 0.4.9.13 and Chutney at commit `ae3a33c` in the
+container and 15 restart cycles (`docs/DESIGN_QUESTIONS.md` 11.6). Steps
+13 to 20 are new in Phase 5 and are run in its final verification. The Dockerfile does not
 pin the version of Tor. The result that counts for a phase is the run on
 the commit of its final verification, recorded in the final report.

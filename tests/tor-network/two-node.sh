@@ -23,6 +23,15 @@
 # the same name and a new Noise XK exchange; without SOCKS, or without
 # Tor at all while direct Internet access exists, nothing is contacted.
 #
+# Phase 5, with `dev-runtime`, a node on the messaging runtime (steps 13
+# to 20, run before step 12, which ends Tor B): a message queued while the
+# peer is away is delivered once, stored and acknowledged; a crash of the
+# receiver between storing and acknowledging, a crash of the sender with a
+# queued message and a restart of the sender's Tor are followed by
+# delivery, without a second copy; a block stops a queue; two identities of
+# one node keep their queues and sessions apart; both sides sending at once
+# end with one session.
+#
 # Every Monolith process runs under strace, and every connect it makes
 # must go to a loopback address or a Unix socket, with no UDP socket and
 # nothing on port 53: no direct connection and no DNS. No public relay,
@@ -258,7 +267,7 @@ expect() {
     echo "FAIL $name: fewer than $n lines matching '$pattern' after ${timeout}s"
     # What every node process was doing: state, CPU time and wait channel
     # of each thread, twice, two seconds apart.
-    for p in $(pgrep -f " dev-node " || true); do
+    for p in $(pgrep -f " dev-(node|runtime) " || true); do
         for round in 1 2; do
             for t in /proc/"$p"/task/*; do
                 echo "     pid $p thread ${t##*/}: $(cut -d' ' -f3,14,15 "$t/stat") $(cat "$t/wchan")"
@@ -595,6 +604,246 @@ echo "ok   both dials failed at once; the traces show only loopback and Unix soc
 echo "11. Every node run contacted only loopback and Unix sockets, no DNS."
 stop_node b
 echo "ok   $traces node runs checked"
+
+# --- Phase 5: nodes on the messaging runtime --------------------------------
+
+# Starts runtime node `name` on the vault in `data`, acknowledging after
+# `delay` seconds, with the Tor options given, under strace, reading
+# commands from a FIFO that stays open. Returns once the node is ready.
+start_runtime() {
+    local name=$1 data=$2 delay=$3 fd ready
+    shift 3
+    rm -f "$work/$name.in"
+    mkfifo "$work/$name.in"
+    touch "$work/$name.out"
+    ready=$(count "$name" '^ready$')
+    traces=$((traces + 1))
+    strace -f -qq -e trace=socket,connect,sendto,sendmsg \
+        -o "$work/trace-$name-$traces.log" \
+        "$monolith" "$@" dev-runtime "$data" "$work/pass" --kdf-floor --ack-delay "$delay" \
+        <"$work/$name.in" >>"$work/$name.out" 2>&1 &
+    pids[$name]=$!
+    exec {fd}>"$work/$name.in"
+    fds[$name]=$fd
+    expect "$name" '^ready$' $((ready + 1)) 60
+}
+
+# Ends node `name` with SIGKILL, as a crash would. Its traces are checked
+# when it is stopped for the last time.
+crash_node() {
+    local name=$1 child
+    child=$(pgrep -P "${pids[$name]}" | head -1)
+    kill -KILL "$child"
+    wait "${pids[$name]}" || true
+    exec {fds[$name]}>&-
+}
+
+# The seconds since `$1`.
+since() {
+    echo $(($(date +%s) - $1))
+}
+
+# Asks node `name` for the sessions of identity `n` with `peer` and prints
+# their number.
+sessions_of() {
+    local name=$1 n=$2 peer=$3 before
+    before=$(count "$name" "^sessions $n $peer ")
+    tell "$name" sessions "$n" "$peer"
+    expect "$name" "^sessions $n $peer " $((before + 1)) 10
+    last "$name" "^sessions $n $peer " | cut -d' ' -f4
+}
+
+data_ra="$work/runtime-a"
+data_rb="$work/runtime-b"
+
+echo "13. Two runtime nodes: an identity each, contacts of each other; then B goes away."
+start_runtime ra "$data_ra" 0 "${tor_a[@]}"
+start_runtime rb "$data_rb" 0 "${tor_b[@]}"
+expect ra '^created$' 1 10
+expect rb '^created$' 1 10
+tell ra new-identity
+tell rb new-identity
+expect ra '^published 0$' 1 120
+expect rb '^published 0$' 1 120
+ra0=$(last ra '^identity 0 ' | cut -d' ' -f3)
+rb0=$(last rb '^identity 0 ' | cut -d' ' -f3)
+tell ra card 0
+tell rb card 0
+expect ra '^card 0 ' 1 10
+expect rb '^card 0 ' 1 10
+card_ra0=$(last ra '^card 0 ' | cut -d' ' -f3)
+card_rb0=$(last rb '^card 0 ' | cut -d' ' -f3)
+tell ra add 0 "$card_rb0"
+tell rb add 0 "$card_ra0"
+expect ra "^added 0 $rb0$" 1 10
+expect rb "^added 0 $ra0$" 1 10
+stop_node rb
+# No session was needed for any of this: nothing was queued.
+test "$(count ra "^session 0 $rb0$")" = 0
+echo "ok   contacts of each other, no session yet"
+
+echo "14. A queues while B is away; B comes back: delivered once, stored, acknowledged."
+started=$(date +%s)
+tell ra send 0 "$rb0" first
+expect ra "^queued 0 $rb0 1$" 1 10
+expect ra "^deferred 0 $rb0 " 1 300
+echo "     deferred while B is away: $(last ra "^deferred 0 $rb0 ")"
+start_runtime rb "$data_rb" 0 "${tor_b[@]}"
+expect rb '^opened Clean$' 1 10
+expect rb '^published 0$' 2 120
+expect rb "^received 0 $ra0 1 \"first\"$" 1 900
+expect ra "^delivered 0 $rb0 1$" 1 120
+echo "     queued to delivered: $(since "$started")s, $(count ra "^deferred 0 $rb0 ") attempt(s) deferred"
+tell rb messages 0 "$ra0"
+expect rb "^messages 0 $ra0 1$" 1 10
+expect rb "^message 0 $ra0 1 Received \"first\"$" 1 10
+tell ra messages 0 "$rb0"
+expect ra "^message 0 $rb0 1 Delivered \"first\"$" 1 10
+echo "ok   B stored \"first\" once and acknowledged it; A holds it delivered"
+
+echo "15. B crashes after storing a message and before acknowledging it: the retry is not stored again."
+stop_node rb
+start_runtime rb "$data_rb" 3600 "${tor_b[@]}"
+expect rb '^published 0$' 3 120
+started=$(date +%s)
+tell ra send 0 "$rb0" second
+expect ra "^queued 0 $rb0 2$" 1 10
+expect rb "^received 0 $ra0 2 \"second\"$" 1 900
+crash_node rb
+test "$(count ra "^delivered 0 $rb0 2$")" = 0
+start_runtime rb "$data_rb" 0 "${tor_b[@]}"
+expect rb '^published 0$' 4 120
+expect ra "^delivered 0 $rb0 2$" 1 900
+echo "     queued to delivered, across the crash: $(since "$started")s"
+test "$(count rb "^received 0 $ra0 2 ")" = 1
+tell rb messages 0 "$ra0"
+expect rb "^messages 0 $ra0 2$" 1 10
+expect rb "^message 0 $ra0 1 Received \"first\"$" 2 10
+expect rb "^message 0 $ra0 2 Received \"second\"$" 1 10
+echo "ok   the retry after B's crash was acknowledged and not stored again"
+
+echo "16. A crashes with a message queued: once it is back, delivery resumes."
+stop_node rb
+deferred=$(count ra "^deferred 0 $rb0 ")
+tell ra send 0 "$rb0" third
+expect ra "^queued 0 $rb0 3$" 1 10
+expect ra "^deferred 0 $rb0 " $((deferred + 1)) 300
+crash_node ra
+published=$(count ra '^published 0$')
+started=$(date +%s)
+start_runtime ra "$data_ra" 0 "${tor_a[@]}"
+expect ra "^identity 0 $ra0$" 2 10
+start_runtime rb "$data_rb" 0 "${tor_b[@]}"
+expect ra '^published 0$' $((published + 1)) 120
+expect ra "^delivered 0 $rb0 3$" 1 900
+echo "     restart to delivered: $(since "$started")s"
+tell ra messages 0 "$rb0"
+expect ra "^messages 0 $rb0 3$" 1 10
+expect ra "^message 0 $rb0 1 Delivered \"first\"$" 2 10
+expect ra "^message 0 $rb0 2 Delivered \"second\"$" 1 10
+expect ra "^message 0 $rb0 3 Delivered \"third\"$" 1 10
+test "$(count rb "^received 0 $ra0 3 ")" = 1
+echo "ok   the queue survived A's crash and was delivered; earlier deliveries stayed delivered"
+
+echo "17. Tor A restarts while a message is queued: delivery resumes through Tor."
+unavailable=$(count ra '^unavailable 0$')
+published=$(count ra '^published 0$')
+deferred=$(count ra "^deferred 0 $rb0 Tor ")
+stop_tor "$a"
+expect ra '^unavailable 0$' $((unavailable + 1)) 60
+started=$(date +%s)
+tell ra send 0 "$rb0" fourth
+expect ra "^queued 0 $rb0 4$" 1 10
+expect ra "^deferred 0 $rb0 Tor " $((deferred + 1)) 300
+tor -f "$a/torrc" >>"$work/tor-a-restarted.log" 2>&1 &
+# Test tooling restarted it; Chutney stops it by its pid file.
+echo "$!" >"$a/pid"
+expect ra '^published 0$' $((published + 1)) 300
+expect ra "^delivered 0 $rb0 4$" 1 900
+echo "     queued to delivered, across the restart of Tor A: $(since "$started")s," \
+    "$(($(count ra "^deferred 0 $rb0 Tor ") - deferred)) attempt(s) deferred for Tor"
+test "$(count rb "^received 0 $ra0 4 \"fourth\"$")" = 1
+echo "ok   A published its service again and delivered the queue through Tor"
+
+echo "18. A blocks B with a message queued: nothing is delivered."
+stop_node rb
+deferred=$(count ra "^deferred 0 $rb0 ")
+tell ra send 0 "$rb0" fifth
+expect ra "^queued 0 $rb0 5$" 1 10
+expect ra "^deferred 0 $rb0 " $((deferred + 1)) 300
+tell ra block 0 "$rb0"
+expect ra "^blocked 0 $rb0$" 1 10
+# What A reported before the block is printed by now.
+sleep 5
+lines=$(wc -l <"$work/ra.out")
+published=$(count rb '^published 0$')
+start_runtime rb "$data_rb" 0 "${tor_b[@]}"
+expect rb '^published 0$' $((published + 1)) 120
+# Two minutes with B reachable: A dials nobody for the blocked record.
+sleep 120
+if tail -n +$((lines + 1)) "$work/ra.out" | grep -E "^(session|deferred|delivered) 0 $rb0"; then
+    echo "FAIL A worked on the queue of a blocked contact"
+    exit 1
+fi
+test "$(count rb "^received 0 $ra0 ")" = 4
+tell ra conversations 0
+expect ra "^conversation 0 $rb0 active=false messages=5 queued=1$" 1 10
+echo "ok   the queued message stayed queued and was never sent"
+
+echo "19. A second identity of A: its own queue and sessions; both sides send at once."
+tell ra new-identity
+expect ra '^identity 1 ' 1 120
+expect ra '^published 1$' 1 120
+ra1=$(last ra '^identity 1 ' | cut -d' ' -f3)
+tell ra card 1
+expect ra '^card 1 ' 1 10
+tell rb add 0 "$(last ra '^card 1 ' | cut -d' ' -f3)"
+expect rb "^added 0 $ra1$" 1 10
+tell ra add 1 "$card_rb0"
+expect ra "^added 1 $rb0$" 1 10
+started=$(date +%s)
+tell ra send 1 "$rb0" sixth
+expect ra "^delivered 1 $rb0 1$" 1 900
+expect rb "^received 0 $ra1 1 \"sixth\"$" 1 60
+echo "     queued to delivered: $(since "$started")s"
+# The session of A1 with B carries nothing of A0: A0 has none, and its
+# queue is where it was.
+test "$(sessions_of ra 1 "$rb0")" = 1
+test "$(sessions_of ra 0 "$rb0")" = 0
+tell ra conversations 0
+expect ra "^conversation 0 $rb0 active=false messages=5 queued=1$" 2 10
+tell rb messages 0 "$ra0"
+expect rb "^messages 0 $ra0 4$" 1 10
+tell rb messages 0 "$ra1"
+expect rb "^messages 0 $ra1 1$" 1 10
+# Both sides dial at once, once the session has lingered and ended.
+expect ra "^no-session 1 $rb0$" 1 300
+expect rb "^no-session 0 $ra1$" 1 300
+started=$(date +%s)
+tell ra send 1 "$rb0" from a at once
+tell rb send 0 "$ra1" from b at once
+expect rb "^received 0 $ra1 [0-9]+ \"from a at once\"$" 1 900
+expect ra "^received 1 $rb0 [0-9]+ \"from b at once\"$" 1 900
+expect ra "^delivered 1 $rb0 " 2 900
+expect rb "^delivered 0 $ra1 " 1 900
+echo "     both sending at once, to both delivered: $(since "$started")s"
+test "$(count rb "\"from a at once\"$")" = 1
+test "$(count ra "\"from b at once\"$")" = 1
+for _ in $(seq 60); do
+    if [ "$(sessions_of ra 1 "$rb0")" -le 1 ] && [ "$(sessions_of rb 0 "$ra1")" -le 1 ]; then
+        break
+    fi
+    sleep 1
+done
+test "$(sessions_of ra 1 "$rb0")" -le 1
+test "$(sessions_of rb 0 "$ra1")" -le 1
+echo "ok   identities kept their queues and sessions apart; one session when both dialed"
+
+echo "20. Every runtime node run contacted only loopback and Unix sockets, no DNS."
+stop_node ra
+stop_node rb
+echo "ok   $traces node runs checked"
+
 
 echo "12. Tor B goes away while B waits: the control connection is reported lost."
 status=0
