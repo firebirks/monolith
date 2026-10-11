@@ -18,6 +18,7 @@ tokio = { workspace = true, features = ["io-util", "rt", "sync", "time"] }
 zeroize = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
+proptest.workspace = true
 tokio = { workspace = true, features = ["io-util", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
 zeroize.workspace = true
 

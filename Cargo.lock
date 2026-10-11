@@ -326,6 +326,7 @@ dependencies = [
  "monolith-session",
  "monolith-storage",
  "monolith-tor",
+ "proptest",
  "tokio",
  "zeroize",
 ]
