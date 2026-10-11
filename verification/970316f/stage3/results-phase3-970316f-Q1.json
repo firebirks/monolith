@@ -1,0 +1,19 @@
+{
+ "commit": "970316fc76d0ea19c1c65239b16556253a2894c8",
+ "results": [
+  {
+   "id": "Q1",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "the stream to the SOCKS endpoint is used without SOCKS",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)",
+    "without_a_socks_endpoint_there_is_no_connection_at_all"
+   ],
+   "seconds": 1200
+  }
+ ]
+}

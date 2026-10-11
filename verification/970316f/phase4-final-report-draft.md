@@ -1,11 +1,12 @@
-# Phase 4 final report (DRAFT)
+# Phase 4 final report
 
-Status of this document: DRAFT. Not committed. It becomes `STATUS.md`
-section 5.3 only after every stage of the final verification has
-completed. Phase 4 is OPEN / NOT COMPLETE until then.
+Status of this document: complete, for the owner's review. Every stage
+of the final verification has completed. It becomes
+`STATUS.md` section 5.3 when the owner accepts it; until then Phase 4 is
+not declared complete.
 
-Placeholders for results that are not known yet are written as
-`[PENDING: ...]`. Nothing in them is inferred.
+Points for the owner are written as `[OWNER DECISION: ...]`. No result
+in this report is inferred.
 
 Sources: the repository at `970316f`; the outputs of the final
 verification kept on the branch `verification-970316f`
@@ -46,7 +47,7 @@ verification kept on the branch `verification-970316f`
 
 ## 4. Repository state
 
-At the time of writing (2026-10-09):
+At the time of writing (2026-10-09, brought up to date on 2026-10-11):
 
 - Working tree of `phase-4-contact-store`: clean.
 - `phase-4-contact-store` is level with `origin/phase-4-contact-store`
@@ -55,12 +56,13 @@ At the time of writing (2026-10-09):
   - `phase-4-contact-store`, on the owner's request, last on 2026-10-07
     (`970316f`).
   - `verification-970316f`, on 2026-10-08, on the owner's request, to
-    continue the mutation run on another machine. It holds one commit
-    (`d8f549d`) on top of `970316f` that adds only
-    `verification/970316f/` (the logs and results of the final
-    verification and the script that runs the remaining mutation
-    phases). It is a work branch, not a candidate, and is not to be
-    merged.
+    continue the mutation run on another machine, and again at
+    `6791d8c` with the draft of this report. Its commits on top of
+    `970316f` add only `verification/970316f/` (the logs and results of
+    the final verification, the script that ran mutation phases 3 and 4,
+    and this report). The commit that records phases 3 and 4 is local
+    and not pushed. It is a work branch, not a candidate, and is not to
+    be merged.
 - Merges: none. `main` is at `6eed860`, unchanged; it holds four
   document commits after `2f27dcb` (`86adac1` to `6eed860`) that are not
   on this branch.
@@ -740,22 +742,36 @@ phase 2: 99, phase 3: 71, phase 4: 123 (`CS1` to `CS123`); expected
 0 invalid. Phase 4 expects zero survivors: no Phase 4 entry is
 expected to survive.
 
-How it ran: `python3 mutation/run.py <phase> 4`, one phase at a time,
-alone, timeout 1200 s per fault. Phases 1 and 2 ran on 2026-10-08 on
-the development machine (12 threads, the runs kept on 11 of them).
-Phases 3 and 4 run [PENDING: date, machine, worker count] with
+How it ran: `python3 mutation/run.py <phase> <workers>`, one phase at a
+time, timeout 1200 s per fault. Phases 1 and 2 ran on 2026-10-08 on
+the development machine (12 threads, the runs kept on 11 of them), with
+4 workers. Phases 3 and 4 ran on 2026-10-11, from 00:03 to 10:21, on a
+second machine (AMD Ryzen 9 6900HX, 16 threads, Windows 11) in a WSL2
+Debian 13.4 VM limited to 8 CPUs and 8 GB, with 2 workers and
+`CARGO_BUILD_JOBS=4`, Rust 1.95.0 and Python 3.13.5, with
 `verification/970316f/run-phases.sh` in a detached worktree of
-`970316f`. STATUS.md 5.2 names one `all` run; the run was split by
-phase so that each phase's results are written when it ends; the faults
-and the copies are the same.
+`970316f`: phase 3 took 220 minutes, phase 4 397. The mutation run was
+the only work in the VM; the Windows host ran other work at the same
+time, and from 01:06 on the VM's page cache was dropped every 30 to 60
+seconds so that the host kept its memory. Each worker had more CPUs
+than in phases 1 and 2 (4 against about 3); apart from the two faults
+below, the slowest fault took 628 s in phase 3 and 695 s in phase 4.
+STATUS.md 5.2 names one `all` run; the run was split by phase so that
+each phase's results are written when it ends; the faults and the
+copies are the same.
 
 | Phase | Faults | Caught | Survived | Invalid | Unexpected | Runner exit |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 45 | 43 | B3, B4 | 0 | 0 | 0 |
 | 2 | 99 | 95 | CAP2, CAP3, S15, S24 | 0 | 0 | 0 |
-| 3 | 71 | [PENDING] | [PENDING] (expected Q14, Q18, Q29) | [PENDING] | [PENDING] | [PENDING] |
-| 4 | 123 | [PENDING] | [PENDING] (expected none) | [PENDING] | [PENDING] | [PENDING] |
-| Total | 338 | [PENDING] | [PENDING] | [PENDING] | [PENDING] | |
+| 3 | 71 | 68 | Q14, Q18, Q29 | 0 | 0 | 0 |
+| 4 | 123 | 123 | none | 0 | 0 | 0 |
+| Total | 338 | 329 | B3, B4, CAP2, CAP3, S15, S24, Q14, Q18, Q29 | 0 | 0 | |
+
+Every survivor is one the manifest lists with its reason (in phase 3,
+Q14 and Q18 equivalent, Q29 unreachable). In the four phases no fault
+was caught by the seed tests alone, and every caught fault names a
+failing test except K4 (below).
 
 - Faults caught only by the runner's timeout: phase 1 none. Phase 2:
   T6 (the Montgomery comparison inverted) reached the 1200 s timeout
@@ -763,24 +779,40 @@ and the copies are the same.
   was caught in 791 s by failing tests (dozens: card decoding, dial,
   admission), not by the timeout
   (`verification/970316f/stage3/results-phase2-970316f-T6.json`).
-  Phases 3 and 4: [PENDING: list every result whose `failed` holds
-  `(timeout)`, and the outcome of running each alone]. CS30 is expected
-  to be caught by the timeout with two failing supervisor tests
-  (`a_lost_service_is_published_again_under_the_same_name`,
-  `the_supervisors_of_two_identities_do_not_touch_each_other`): with no
-  backoff delay the supervisor loops and the run does not end.
+  Phases 3 and 4: two results hold `(timeout)`.
+  - Q1 (the stream to the SOCKS endpoint is used without SOCKS) reached
+    the timeout with `without_a_socks_endpoint_there_is_no_connection_at_all`
+    failing. Run alone on the same commit with one worker it gave the
+    same result: timeout at 1200 s and the same failing test
+    (`verification/970316f/stage3/results-phase3-970316f-Q1.json`), so
+    the timeout does not come from load. Applied by hand to a copy, Q1
+    leaves `an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes`
+    waiting for good: the client skips the SOCKS greeting that the test's
+    SOCKS server waits for, and the test has no deadline of its own. The
+    catch does not depend on the timeout, since a test fails by itself.
+  - CS30 was caught by the timeout as expected, with exactly the two
+    expected supervisor tests failing
+    (`a_lost_service_is_published_again_under_the_same_name`,
+    `the_supervisors_of_two_identities_do_not_touch_each_other`): with
+    no backoff delay the supervisor loops and the run does not end.
 - Concurrency faults CS28, CS51, CS52 are deterministic: each test puts
   a `#[cfg(test)]` hook at the point of the race (CS28: a stranger
   evicted between taking its first message and delivering it; CS51: a
   check at every slot read of a snapshot that the map lock is held,
   whatever the order of the map; CS52: a snapshot attempted between the
   two slots of a decline). The hook tests passed 20 times out of 20
-  under load before the freeze.
+  under load before the freeze. In this run each was caught by its hook
+  test (CS28 by
+  `a_stranger_evicted_as_its_first_message_is_taken_gets_nothing_delivered`,
+  CS51 by `no_operation_runs_between_the_reads_of_a_snapshot`, CS52 by
+  `no_snapshot_runs_between_the_two_slots_of_a_decline`, the last two
+  with `a_snapshot_is_one_cut_through_the_store`).
 - Kill mechanisms that deserve a note: CS17 is caught at once by
   `a_dial_without_a_contact_slot_writes_no_message_3` and
   `what_a_dial_without_a_slot_recorded_survives_a_restart` since
-  `c413a9f` (no longer by the timeout); K4 is caught by a doctest, so no
-  test name is recorded; T6 as above.
+  `c413a9f` (no longer by the timeout; in this run in 404 s, by those
+  two tests); K4 is caught by a doctest, so no test name is recorded;
+  T6 and Q1 as above.
 - The runner counts a fault as caught when the tests fail or time out,
   survived when they pass, invalid when the tree does not compile; it
   exits 0 only if every outcome matches its expectation and nothing is
@@ -862,15 +894,23 @@ and the copies are the same.
 
 ## 26. Final Phase 4 verdict
 
-[PENDING: phases 3 and 4 of the mutation run on `970316f`.]
+Every stage of the final verification ran on `970316f` and matched its
+expectations:
 
-Stages 1 and 2 passed on `970316f`; mutation phases 1 and 2 passed with
-the expected survivors only. Until phases 3 and 4 have run and match
-their expectations:
+- stage 1: fmt, clippy, deny, audit, the duplicate check, the fuzz
+  build, T-NET-1 and the identity check passed; 682 tests passed on
+  1.95.0, 1.85.1 and stable each;
+- stage 2: the fuzz smoke run of the 16 targets and the eight runs of
+  10 minutes ended without a crash; the private Tor network test passed
+  all 12 steps and 15 of 15 restart cycles;
+- stage 3: 338 faults, 329 caught, the 9 survivors the manifest lists
+  (B3, B4, CAP2, CAP3, S15, S24, Q14, Q18, Q29), 0 invalid, 0
+  unexpected, runner exit 0 in all four phases; each fault that reached
+  the timeout (T6, Q1, CS30) also makes named tests fail, so none is a
+  survivor hidden by the timeout (section 24).
 
-    PHASE 4 NOT COMPLETE
-
-If every stage on `970316f` succeeds, this section will read:
+Verdict for the owner's decision (`STATUS.md` 5.2: the owner decides
+whether Phase 4 is complete):
 
     PHASE 4 COMPLETE
 

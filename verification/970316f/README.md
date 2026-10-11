@@ -2,7 +2,7 @@
 
 This branch holds the outputs of the final verification (STATUS.md
 section 5.2) of the frozen candidate `970316f` on `phase-4-contact-store`,
-and the script that runs the mutation phases still to run. It is a work
+and the script that ran mutation phases 3 and 4. It is a work
 branch: it is not merged and the candidate is not changed.
 
 Local paths in the logs are written as `<repo>`, `<home>` and `<out>`.
@@ -42,16 +42,28 @@ See `stage3/summary.txt`, the logs and the results files.
 |-------|--------|--------|----------|-------------|
 | 1 | 45 | 43 | B3, B4 | 0 |
 | 2 | 99 | 95 | CAP2, CAP3, S15, S24 | 0 |
-| 3 | 71 | to run | expected Q14, Q18, Q29 | |
-| 4 | 123 | to run | expected none | |
+| 3 | 71 | 68 | Q14, Q18, Q29 | 0 |
+| 4 | 123 | 123 | none | 0 |
 
-Every survivor so far is one the manifest lists with its reason. No
-fault was invalid.
+Every survivor is one the manifest lists with its reason. No fault was
+invalid.
 
 In phase 2, T6 was caught at the 1200 s timeout while four workers shared
 the CPUs. Run alone it was caught in 791 s by failing tests
 (`stage3/results-phase2-970316f-T6.json`), so the catch does not depend
 on the timeout.
+
+Phases 3 and 4 ran on 2026-10-11 on a second machine, in a WSL2 Debian
+13.4 VM with 8 CPUs and 8 GB, with 2 workers: phase 3 in 220 minutes,
+phase 4 in 397. Two results hold `(timeout)`:
+
+- Q1, with `without_a_socks_endpoint_there_is_no_connection_at_all`
+  failing. Run alone with one worker it gave the same result
+  (`stage3/results-phase3-970316f-Q1.json`): the fault leaves
+  `an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes`
+  waiting for a SOCKS greeting that never comes. The catch does not
+  depend on the timeout.
+- CS30, as the manifest expects, with its two supervisor tests failing.
 
 ## Running phases 3 and 4
 
@@ -77,10 +89,10 @@ rerun such a fault alone, for example:
 A run with fault ids writes the same results file name as the whole
 phase, so copy the phase file aside first.
 
-## Draft of the final report
+## The final report
 
-`phase4-final-report-draft.md` is a draft of the Phase 4 final report
-(the 26 items of the brief). Results not known yet are marked
-`[PENDING: ...]` and points for the owner `[OWNER DECISION: ...]`. It
-becomes `STATUS.md` section 5.3 only after every stage of the final
-verification has completed; until then Phase 4 is not complete.
+`phase4-final-report-draft.md` is the Phase 4 final report (the 26
+items of the brief), complete now that every stage of the final
+verification has run. Points for the owner are marked
+`[OWNER DECISION: ...]`. It becomes `STATUS.md` section 5.3 when the
+owner accepts it; until then Phase 4 is not declared complete.
