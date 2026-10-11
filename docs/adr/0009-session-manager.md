@@ -1,0 +1,136 @@
+# ADR 0009: Session manager, duplicate sessions and reconnecting
+
+Status: decided for Phase 5.
+Date: 2026-10-11.
+
+## Context
+
+Until Phase 4 whoever held a link decided what to do with it: the
+development node kept every session open and sent on the newest. Phase 5
+needs one owner for the sessions of each local identity: one that knows
+which session carries the queue of a contact, keeps one when both sides
+dialed at once, dials when there is something to deliver and only then,
+and stops at once when the contact or the identity is gone.
+
+`PROTOCOL.md` section 14 already defines the duplicate rule, and
+`monolith-protocol` implements it (`duplicate::resolve`). Section 15
+leaves the reconnect timing to local policy; `RESOURCE_LIMITS.md` section
+7 gives its delays.
+
+## Decision
+
+### One session manager per local identity instance
+
+The runtime holds, for each open `LocalIdentity`, one session manager.
+Its key is the contact record a session stands for, by its `ContactId`
+(ADR 0008), not the remote identity: two records of the same remote
+identity, one after the other, never share a session or a queue.
+
+- Every link, dialed or answered, runs in one task that owns it. Only
+  that task sends and receives on it.
+- A session is registered when it reaches `AuthenticatedContact` and the
+  contact store says, under the lock of the contact, that it stands for
+  the record of that `ContactId` (S50). Before that, and for any other
+  standing, it delivers nothing of the queue.
+- The manager chooses the preferred session of each contact record. Only
+  the preferred session sends queued messages. Any registered session of
+  the record takes in messages and acknowledgements.
+- A session leaves the manager when its link ends: a Close, a failure, a
+  withdrawal by the contact store (block, deletion, a retired key), a
+  deadline, or the identity closing.
+
+### Duplicate sessions
+
+When a second session of the same record registers, the manager applies
+`PROTOCOL.md` section 14 through `duplicate::resolve`, with the identity
+keys of both sides, who initiated each session and whether its transport
+key is still the active credential:
+
+- same initiator: the newer stays, the older is closed with Close;
+- different initiators: the session initiated by the side with the
+  smaller identity key is preferred. If it is the newer, the older is
+  closed. If it is the older, it is probed with a Ping with a fresh random
+  nonce; a Pong with that nonce within `DUPLICATE_PROBE_TIMEOUT` keeps it
+  and the newer is closed, otherwise the older is closed;
+- a session whose key is no longer the active one loses; if neither is,
+  both are closed.
+
+When both sessions are alive, both sides keep the same one, because the
+choice depends only on the two identity keys and on who initiated each
+session. While a probe runs, the older session keeps the queue. A message
+that was in flight on a closed session stays queued and is sent again on
+the one that stays; the receiver drops it by identifier.
+
+This is not the budget for strangers: only sessions that stand for a
+contact record take part, and a stranger never reaches the manager.
+
+### Keepalive
+
+Monolith sends no Ping to keep a session alive. A Ping is sent only as
+the probe of a duplicate session. A Ping from the peer is answered with a
+Pong carrying its nonce. A Pong that answers no outstanding Ping is a
+violation and ends the session without a Close.
+
+A session is kept while it has a reason: a message queued or in flight
+for its contact, in either direction. When neither side sent or received
+a ChatMessage or a MessageAck on it for `SESSION_LINGER`, the local side
+closes it with Close. `IDLE_TIMEOUT` stays the bound of the session
+layer.
+
+### Reconnecting
+
+One scheduler per conversation, while all of these hold: the conversation
+has queued messages, its `ContactId` is the current record of the remote
+identity and that record is a requested or accepted contact with a card
+confirmed for dialing, the identity is open, and no session of the record
+is registered.
+
+- The first attempt follows the command that queued the first message at
+  once; at startup, attempts are spread at random over
+  `STARTUP_DIAL_SPREAD`. After a failed attempt, or a session that ended
+  with messages still queued, the next follows after the delays of
+  `RESOURCE_LIMITS.md` section 7: 10 seconds doubling up to 30 minutes,
+  each times a random factor between 0.5 and 1.5. The delay starts over
+  once a session of the record stayed registered for
+  `RECONNECT_RESET_AFTER`.
+- A dial is `link::dial` through the Tor backend, within
+  `MAX_CONCURRENT_DIALS`. A failure of Tor, SOCKS or the handshake
+  changes nothing in the queue; it is reported as deferred and tried
+  again later. There is no other path: no direct connection, no name
+  resolution.
+- The scheduler checks before every attempt that its `ContactId` is still
+  the current record and that the identity is open, and ends otherwise.
+  A dial in progress is dropped when a session of the record registers
+  (an inbound one), when the identity closes, or at shutdown.
+- An attempt that comes back with a session of another record of the same
+  remote identity (the contact was deleted and added again during the
+  dial) gives that session to the manager under the record it stands
+  for; it carries that record's queue, never this one's.
+- Nothing is dialed for a contact without queued messages: no presence
+  probing, no periodic connection.
+
+### Lifecycle
+
+Blocking or deleting a contact withdraws its sessions (Phase 4); the
+manager drops them, the scheduler of the record ends, and its queue stays
+stored, ended. An identity that closes ends its supervisor, its sessions
+and its schedulers; commands for it fail. Old tasks find their record or
+identity gone and change nothing.
+
+## Consequences
+
+- Sessions exist only while there is something to deliver, so an idle
+  pair of contacts has no traffic beyond Tor's own.
+- A contact that comes online is reached when either side has something
+  queued; the side without anything queued waits to be dialed.
+- A probe costs one Ping and up to `DUPLICATE_PROBE_TIMEOUT` before the
+  newer of two live sessions is closed.
+
+## Alternatives considered
+
+- Keep sessions open with periodic Pings: presence information on the
+  wire and traffic without a reason.
+- Choose a duplicate by a random token exchanged on the session: needs a
+  wire change, and the existing rule converges already.
+- A scheduler per remote identity: would let a queue pass to a contact
+  made again for the same identity.
