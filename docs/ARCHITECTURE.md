@@ -4,9 +4,9 @@ Status: Phase 4 complete (tag `phase-4-complete`); Phase 5 not started.
 The protocol core, the session layer, the integration with a Tor the
 system runs, the contact store, the vault and the publication supervisor
 are implemented and verified; the session manager, the message queue
-and store, and the interface are still design. `STATUS.md` records what
-is implemented and verified. This document describes the structure the
-phases build.
+and store, and the interface are still design. `DESIGN_QUESTIONS.md`
+section 11.6 records the final verification of Phase 4. This document
+describes the structure the phases build.
 
 ## 1. Shape
 

@@ -40,8 +40,7 @@ now: T-SOCKS, T-CTRL, T-NET-1, and the private network test, which
 passed in the final verification of Phase 3.
 
 What Phase 4 added, which passed its final verification on `970316f`:
-in
-`monolith-protocol`, the exhaustive table of the credential decision
+in `monolith-protocol`, the exhaustive table of the credential decision
 against a model written from PROTOCOL.md section 11.4
 (`credential::tests::table`) and the decision about a card for every kind
 of record and every context (`contact::tests`); in `monolith-storage`,

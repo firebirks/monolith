@@ -1558,13 +1558,13 @@ P4-15 Testing aids. `dev-node`, a node over a persistent vault driven by
 
 The brief of Phase 4 is the contact store, persistence, lifecycle and
 credential convergence. The rest of the "contacts and queue" line of
-`ARCHITECTURE.md` section 12 is not in it and is listed as work before
-Phase 5 in `STATUS.md`: the session manager that runs the duplicate rule
-and the per-contact rates, the reconnect scheduler, the outbound queue
-and the message store (ST1), and the command and event interface of
-section 4 for a front end. The review of `MaxStreams` (C1, T3-6) and the
-KDF benchmark on the four targets of `STORAGE.md` section 3.3 are also
-still open.
+`ARCHITECTURE.md` section 12 is not in it and was listed as work before
+Phase 5 in the status file of Phase 4: the session manager that runs the
+duplicate rule and the per-contact rates, the reconnect scheduler, the
+outbound queue and the message store (ST1), and the command and event
+interface of section 4 for a front end. The review of `MaxStreams` (C1,
+T3-6) and the KDF benchmark on the four targets of `STORAGE.md` section
+3.3 are also still open.
 
 ### 11.4 The review of the Phase 4 code
 
@@ -1727,12 +1727,13 @@ its own.
 ### 11.6 Final verification and completion
 
 The final verification ran on `970316fc76d0ea19c1c65239b16556253a2894c8`
-in the three stages of `STATUS.md` section 5.2, with no file of that
+in the three stages of section 5.2 of the status file of Phase 4
+(`STATUS.md`, removed when Phase 4 was merged), with no file of that
 commit changed while it ran: stages 1 and 2 and mutation lists 1 and 2
 from 2026-10-08, lists 3 and 4 on 2026-10-11 on a second machine (a Linux
 VM with 8 CPUs, 8 GB and two workers). The outputs are on the branch
 `verification-970316f` (`verification/970316f/`). The final report is
-section 5.3 of `STATUS.md`, kept in the history at `d2089b5`. Results:
+section 5.3 of that file, kept in the history at `d2089b5`. Results:
 
 | Check | Result |
 | --- | --- |

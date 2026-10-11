@@ -18,9 +18,9 @@ identity, the encrypted vault that keeps it, invitations, several local
 identities, the publication supervisor and the rotation of a transport
 key, with a development node in the command-line binary. The session
 manager, the message queue, the user interface and the Tails and Whonix
-integration are designs and are not implemented. `STATUS.md` records
-what is implemented and what has been verified. Nothing here has been
-audited. Do not rely on it for anything.
+integration are designs and are not implemented. `docs/DESIGN_QUESTIONS.md`
+sections 10.4 and 11.6 record the final verifications of Phases 3 and 4.
+Nothing here has been audited. Do not rely on it for anything.
 
 ## What it is
 
