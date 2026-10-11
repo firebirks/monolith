@@ -28,6 +28,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 WORK = os.path.join(HERE, "work")
 TIMEOUT = 1200
+# The fault each copy is checked with before a run: one whose tests are
+# quick and certain to catch it.
+CANARY = "X1"
 
 print_lock = threading.Lock()
 
@@ -122,20 +125,41 @@ def classify(code, output, timed_out):
     return "caught", ["(non-zero exit, no failing test named)"]
 
 
-def run_one(item, tree):
-    path = os.path.join(tree, item["path"])
+def mutate(path, pairs):
+    """Applies a fault to the file at `path` and returns what it held."""
     original = open(path).read()
     mutated = original
-    for old, new in item["pairs"]:
+    for old, new in pairs:
         mutated = mutated.replace(old, new, 1)
+    with open(path, "w") as handle:
+        handle.write(mutated)
+    if mutated == original or open(path).read() != mutated:
+        log(f"{path} does not hold the fault")
+        sys.exit(3)
+    return original
+
+
+def restore(path, original):
+    """Puts back what the file at `path` held, with a time newer than any
+    build of the fault, so that cargo builds it again, and checks that it
+    holds exactly that. A copy that would keep running the build of a
+    fault falsifies every result after it."""
+    with open(path, "w") as handle:
+        handle.write(original)
+    os.utime(path, None)
+    if open(path).read() != original:
+        log(f"{path} was not restored")
+        sys.exit(3)
+
+
+def run_one(item, tree):
+    path = os.path.join(tree, item["path"])
     started = time.time()
+    original = mutate(path, item["pairs"])
     try:
-        with open(path, "w") as handle:
-            handle.write(mutated)
         code, output, timed_out = cargo_test(tree, item["crates"])
     finally:
-        with open(path, "w") as handle:
-            handle.write(original)
+        restore(path, original)
     verdict, details = classify(code, output, timed_out)
     seeds_only = (
         verdict == "caught"
@@ -153,6 +177,45 @@ def run_one(item, tree):
         "failed": details,
         "seconds": round(time.time() - started),
     }
+
+
+def check_copy(tree):
+    """Checks that a copy builds what it holds, on its own target
+    directory, before any fault runs on it: the tests of one crate pass,
+    fail with the canary fault applied, and pass again once the file is
+    restored, with the crate built again. Returns what went wrong, or
+    None."""
+    canary = next(item for item in faults.PHASE1 if item["id"] == CANARY)
+    path = os.path.join(tree, canary["path"])
+    crate = canary["path"].split("/")[1]
+
+    def check():
+        result = subprocess.run(
+            ["cargo", "test", "--locked", "-p", crate, "--lib"],
+            cwd=tree,
+            env=dict(os.environ, CARGO_TERM_COLOR="never"),
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    code, _ = check()
+    if code != 0:
+        return f"the tests of {crate} fail on the unmodified copy"
+    original = mutate(path, canary["pairs"])
+    try:
+        code, output = check()
+    finally:
+        restore(path, original)
+    if code == 0 or not re.search(r"^test \S+ \.\.\. FAILED", output, re.M):
+        return f"{CANARY} applied was not caught: the copy may not build what it holds"
+    code, output = check()
+    if code != 0:
+        return f"the copy fails once {CANARY} is restored: the build kept the fault"
+    if f"Compiling {crate}" not in output:
+        return f"{crate} was not built again once {CANARY} was restored"
+    return None
 
 
 def lock_work():
@@ -232,6 +295,10 @@ def run_main():
         if code != 0:
             log(output[-3000:])
             log("the unmodified tree does not pass its tests")
+            sys.exit(3)
+        problem = check_copy(tree)
+        if problem:
+            log(problem)
             sys.exit(3)
     log(f"commit {commit}, {len(selected)} faults, {workers} workers")
 
