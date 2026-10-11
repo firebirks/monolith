@@ -1,0 +1,101 @@
+commit 970316fc76d0ea19c1c65239b16556253a2894c8, 99 faults, 4 workers
+T1    caught    400s  the field prime itself counts as canonical
+T2    caught    404s  points of small order accepted
+T3    caught    415s  non-canonical encodings accepted
+T4    caught    416s  canonical check compares from the least significant byte
+K1    caught    265s  32 zero bytes accepted as a transport secret key
+T5    caught    414s  p - 1 missing from the small-order list
+K2    caught    138s  local card signed by another identity than the local one
+T7    caught    417s  Montgomery form never detected
+K3    caught    229s  local card states a transport key the party does not hold
+K4    caught    278s  a card from outside can be adopted as the local card
+C1    caught    448s  transport key may be the identity key in Montgomery form
+C2    caught    477s  transport key may be an endpoint key in Montgomery form
+C3    caught    476s  decoder skips the transport key separation check
+T6    caught   1200s  Montgomery form comparison inverted
+C4    caught    426s  signer skips the transport key separation check
+C5    caught    345s  decoder accepts an endpoint that is the identity key
+C6    caught    340s  evaluate_card ignores the identity
+C7    caught    448s  a lower epoch counts as newer
+C8    caught    349s  same epoch with another transport key is unchanged
+C9    caught    360s  same epoch with another endpoint set is unchanged
+C10   caught    375s  a stale card is unchanged
+C12   caught    341s  signature does not cover the transport key
+C11   caught    361s  a conflicting card is unchanged
+CAP1  caught    376s  zeroize leaves the capability bytes
+CAP2  survived  363s  a dropped capability is not erased
+CAP3  survived  339s  capabilities compared with an early exit
+P1    caught    339s  a conflicting card keeps the recorded standing
+P2    caught    382s  a stale card keeps the recorded standing
+P3    caught    353s  a record of another identity is accepted
+P4    caught    350s  the local identity is accepted as the peer
+P5    caught    349s  an outbound session accepts an identity that was not dialed
+P6    caught    362s  an inbound handshake card may carry an invitation
+P7    caught    352s  cards inside messages are not checked against the peer
+P8    caught    351s  a card of another identity passes inside a message
+P9    caught    356s  an inbound request may carry another card of the peer
+P10   caught    378s  an outbound request may state another transport key
+P11   caught    368s  a second request on a session is taken
+P12   caught    391s  a contact with a stale card takes the contact path
+P13   caught    383s  requests from known non-contacts are considered
+P14   caught    376s  ContactAccept may be sent to a non-contact
+P15   caught    378s  ContactRequest may be sent to a non-contact
+R1    caught    268s  DH skips the public key validity check
+P16   caught    364s  ContactRequest may be sent on a confirmed session
+R2    caught    266s  DH hands out an all-zero result
+R3    caught    264s  resolver serves any DH
+R4    caught    259s  resolver serves any hash
+R5    caught    285s  resolver serves any cipher
+R8    caught    301s  a message that fails authentication is opened
+R7    caught    303s  nonce counter at the front
+R6    caught    308s  nonce counter in big-endian order
+R9    caught    309s  a rejected message is left in the output
+R11   caught    177s  DH takes the key from the end of the buffer
+R10   caught    239s  a failed encryption leaves the plaintext
+R12   caught    239s  a private key of the wrong length keeps the old key
+R13   caught    263s  a failed generation keeps the old key
+R14   caught    254s  the operating system source is replaced by fixed bytes
+H2    caught    194s  initiator binds its own identity in the prologue
+H1    caught    236s  prologue without the responder identity
+H4    caught    185s  initiator expects its own transport key
+H3    caught    248s  a card of the local identity may be dialed
+H5    caught    255s  a second message that fails is ignored
+H6    caught    238s  a first message that fails is ignored
+H7    caught    257s  the card need not state the authenticated transport key
+H8    caught    259s  an initiator may present the responder's own card
+H9    caught    275s  a third message that fails is ignored
+H10   caught    264s  no handshake timeout
+H11   caught    264s  the timeout fires at exactly the limit
+H12   caught    266s  the third message is not checked against the deadline
+H13   caught    272s  outbound request carries no invitation
+H14   caught    263s  inbound request carries no invitation
+S1    caught    268s  no grace after the age limit on receive
+H17   caught    270s  MessageBuffer takes more than its size
+H16   caught    361s  outbound admission uses what was held when the dial began
+H15   caught    389s  OutboundPeer::admit ignores its record
+S2    caught    293s  a frame at exactly the end of the grace is taken
+S4    caught    286s  no frame limit on receive
+S3    caught    295s  no age limit on receive
+S5    caught    282s  no byte limit on receive
+S6    caught    288s  a frame that fails authentication is decoded
+S7    caught    288s  a transfer extends an expired session
+S8    caught    286s  the transfer lifetime never applies
+S9    caught    283s  send ignores the age limit
+S12   caught    295s  the frame limit is off by one
+S10   caught    299s  send ignores the frame and byte limits
+S11   caught    300s  no room kept for a Close
+S13   caught    300s  application messages before the local ContactAccept
+S15   survived  295s  may_send ignores a failed or closed session
+S14   caught    299s  more than one ContactRequest on a session
+S16   caught    295s  a request may carry another invitation
+S17   caught    295s  a request may carry another card
+S18   caught    289s  an EndpointUpdate may carry another identity's card
+S19   caught    289s  send skips the local-side check
+S20   caught    289s  keys kept after a violation
+S21   caught    288s  keys kept after the peer's Close
+S24   survived  246s  keys kept after an internal failure of seal
+S22   caught    248s  keys kept after the local Close
+S23   caught    247s  keys kept after the stream closed
+S25   caught    394s  end() keeps the keys
+S26   caught    169s  a failed session keeps receiving
+done: {'caught': 95, 'survived': 4}; written to <repo>/mutation/results-phase2-970316f.json

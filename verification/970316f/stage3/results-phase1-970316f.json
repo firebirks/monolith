@@ -1,0 +1,735 @@
+{
+ "commit": "970316fc76d0ea19c1c65239b16556253a2894c8",
+ "results": [
+  {
+   "id": "F1",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "an outer length below one padding block passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::outer_encoder_refuses_illegal_payload_lengths",
+    "frame::tests::outer_length_rules"
+   ],
+   "seconds": 438
+  },
+  {
+   "id": "F2",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "an outer length that is not whole blocks passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::outer_encoder_refuses_illegal_payload_lengths",
+    "frame::tests::outer_length_rules",
+    "tests::frames::a_modified_length_prefix_ends_the_session"
+   ],
+   "seconds": 437
+  },
+  {
+   "id": "F3",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "the outer length is not bounded by the state",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::decoder_applies_the_limit_of_the_state",
+    "frame::tests::outer_length_rules",
+    "tests::frames::a_frame_of_more_than_one_block_is_refused_before_confirmation",
+    "the_frame_decoder_never_holds_more_than_one_frame"
+   ],
+   "seconds": 439
+  },
+  {
+   "id": "F4",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "an unconfirmed session takes full-size frames",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::decoder_applies_the_limit_of_the_state",
+    "frame::tests::other_parameters_follow_the_same_rules",
+    "frame::tests::outer_length_rules",
+    "frame::tests::parameters_are_validated",
+    "frame::tests::plaintext_length_must_be_legal",
+    "frame::tests::provisional_parameters_give_the_documented_sizes",
+    "tests::frames::a_frame_of_more_than_one_block_is_refused_before_confirmation"
+   ],
+   "seconds": 440
+  },
+  {
+   "id": "F5",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "padding may be longer than necessary",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plaintext_of_the_wrong_length_is_rejected",
+    "beginning_a_rotation_is_atomic",
+    "creating_a_contact_is_atomic",
+    "deleting_is_atomic",
+    "frame::tests::padding_must_be_minimal",
+    "promoting_a_successor_is_atomic",
+    "tests::frames::a_frame_that_authenticates_and_is_malformed_inside_ends_the_session"
+   ],
+   "seconds": 468
+  },
+  {
+   "id": "F6",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "padding need not be zero",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "any_nonzero_padding_byte_is_rejected",
+    "beginning_a_rotation_is_atomic",
+    "damaged_plaintexts_are_rejected_or_canonical",
+    "frame::tests::padding_must_be_zero",
+    "frame::tests::the_largest_body_is_the_boundary_of_the_decoder",
+    "tests::frames::a_frame_that_authenticates_and_is_malformed_inside_ends_the_session"
+   ],
+   "seconds": 468
+  },
+  {
+   "id": "F7",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "the message type is not checked against the state",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "deleting_is_atomic",
+    "frame::tests::the_state_gate_runs_before_the_body_is_returned",
+    "frames_are_gated_by_the_session_state"
+   ],
+   "seconds": 460
+  },
+  {
+   "id": "F8",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "the decoder checks every length against the confirmed limit",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::decoder_applies_the_limit_of_the_state",
+    "tests::frames::a_frame_of_more_than_one_block_is_refused_before_confirmation",
+    "the_frame_decoder_never_holds_more_than_one_frame"
+   ],
+   "seconds": 467
+  },
+  {
+   "id": "F9",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "a failed decoder takes more input",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::decoder_applies_the_limit_of_the_state"
+   ],
+   "seconds": 431
+  },
+  {
+   "id": "F10",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "decode_plaintext skips its length check",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plaintext_of_the_wrong_length_is_rejected",
+    "frame::tests::plaintext_length_must_be_legal",
+    "frame::tests::the_state_gate_runs_before_the_body_is_returned"
+   ],
+   "seconds": 438
+  },
+  {
+   "id": "M1",
+   "path": "crates/monolith-protocol/src/message.rs",
+   "what": "chat messages may arrive before confirmation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "body::tests::oracle_3_no_message_states_a_reason",
+    "committed_seeds_are_current",
+    "frame::tests::the_state_gate_runs_before_the_body_is_returned",
+    "message::tests::unknown_peers_cannot_send_application_data",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason",
+    "tests::frames::application_messages_are_refused_before_the_session_is_confirmed"
+   ],
+   "seconds": 431
+  },
+  {
+   "id": "D1",
+   "path": "crates/monolith-protocol/src/codec.rs",
+   "what": "a field one byte over its maximum is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "body::tests::chat_text_field_limits",
+    "codec::tests::variable_field_enforces_the_maximum_before_reading"
+   ],
+   "seconds": 433
+  },
+  {
+   "id": "D2",
+   "path": "crates/monolith-protocol/src/codec.rs",
+   "what": "any non-zero presence byte means present",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "body::tests::presence_byte_must_be_zero_or_one",
+    "codec::tests::presence_byte_accepts_only_zero_and_one"
+   ],
+   "seconds": 443
+  },
+  {
+   "id": "X1",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "text one byte over the maximum passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "text::tests::chat_text_length_bounds",
+    "text::tests::display_name_length_is_bounded_in_bytes_and_in_scalars",
+    "text::tests::filename_length_bounds",
+    "text::tests::introduction_and_profile_may_be_empty_and_are_bounded"
+   ],
+   "seconds": 437
+  },
+  {
+   "id": "X2",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "text below the minimum passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "free_text_keeps_format_characters_and_rejects_controls",
+    "text::tests::chat_text_length_bounds",
+    "text::tests::filename_length_bounds"
+   ],
+   "seconds": 440
+  },
+  {
+   "id": "X3",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "carriage return allowed in free text",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "free_text_keeps_format_characters_and_rejects_controls",
+    "text::tests::carriage_return_is_rejected_in_free_text"
+   ],
+   "seconds": 435
+  },
+  {
+   "id": "X4",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "name-only forbidden characters allowed in names",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "display_names_are_accepted_exactly_when_the_rules_say_so",
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "t_inj_text_the_vault_stores_comes_back_byte_for_byte",
+    "text::tests::display_name_allows_only_the_ordinary_space_as_whitespace",
+    "text::tests::display_name_rejects_bidirectional_controls",
+    "text::tests::display_name_rejects_invisible_characters",
+    "text::tests::display_name_rejects_line_breaks_and_tabs",
+    "text::tests::filename_rejects_the_right_to_left_override_trick",
+    "text::tests::names_reject_characters_that_draw_as_nothing"
+   ],
+   "seconds": 409
+  },
+  {
+   "id": "X5",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "names may start or end with a space",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "display_names_are_accepted_exactly_when_the_rules_say_so",
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "text::tests::display_name_rejects_leading_and_trailing_spaces"
+   ],
+   "seconds": 414
+  },
+  {
+   "id": "X6",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "noncharacters allowed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "display_names_are_accepted_exactly_when_the_rules_say_so",
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "free_text_keeps_format_characters_and_rejects_controls",
+    "text::tests::control_characters_are_rejected_everywhere"
+   ],
+   "seconds": 452
+  },
+  {
+   "id": "X7",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "bidirectional overrides allowed in names",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "display_names_are_accepted_exactly_when_the_rules_say_so",
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "text::tests::display_name_rejects_bidirectional_controls",
+    "text::tests::filename_rejects_the_right_to_left_override_trick"
+   ],
+   "seconds": 451
+  },
+  {
+   "id": "X8",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "backslash allowed in file names",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "text::tests::filename_rejects_separators_and_traversal"
+   ],
+   "seconds": 402
+  },
+  {
+   "id": "X9",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "'..' allowed as a file name",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "text::tests::filename_rejects_separators_and_traversal"
+   ],
+   "seconds": 399
+  },
+  {
+   "id": "X10",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "display names may exceed the scalar limit",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "display_names_are_accepted_exactly_when_the_rules_say_so",
+    "text::tests::display_name_length_is_bounded_in_bytes_and_in_scalars"
+   ],
+   "seconds": 432
+  },
+  {
+   "id": "X11",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "reserved device names are saved as they are",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "save_names_of_device_names_are_safe",
+    "text::tests::save_name_defuses_reserved_device_names",
+    "text::tests::save_name_is_never_longer_than_a_filename"
+   ],
+   "seconds": 430
+  },
+  {
+   "id": "CP1",
+   "path": "crates/monolith-protocol/src/card.rs",
+   "what": "card signature not verified",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_text_with_one_changed_symbol_is_rejected",
+    "a_card_with_a_forged_field_is_rejected",
+    "a_damaged_card_is_rejected",
+    "a_well_formed_card_with_another_signature_is_rejected",
+    "card::tests::a_card_signed_by_another_identity_is_rejected",
+    "card::tests::every_single_bit_flip_is_rejected",
+    "tests::handshake::the_card_in_the_third_message_must_belong_to_the_key_holder"
+   ],
+   "seconds": 405
+  },
+  {
+   "id": "CP2",
+   "path": "crates/monolith-protocol/src/card.rs",
+   "what": "reserved flag bits accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_text_with_one_changed_symbol_is_rejected",
+    "a_damaged_card_is_rejected",
+    "card::tests::every_single_bit_flip_is_rejected",
+    "card::tests::reserved_flag_bits_are_rejected"
+   ],
+   "seconds": 389
+  },
+  {
+   "id": "CP3",
+   "path": "crates/monolith-protocol/src/card.rs",
+   "what": "more than one endpoint accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "card::tests::endpoint_count_must_be_exactly_one_in_version_1"
+   ],
+   "seconds": 412
+  },
+  {
+   "id": "CP4",
+   "path": "crates/monolith-protocol/src/card.rs",
+   "what": "trailing bytes after a card accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "card::tests::length_must_match_the_invitation_flag",
+    "card::tests::wrong_lengths_are_rejected"
+   ],
+   "seconds": 413
+  },
+  {
+   "id": "CP5",
+   "path": "crates/monolith-protocol/src/card.rs",
+   "what": "card version not checked",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_text_with_one_changed_symbol_is_rejected",
+    "card::tests::every_single_bit_flip_is_rejected",
+    "card::tests::wrong_version_is_rejected",
+    "tests::handshake::the_card_in_the_third_message_must_belong_to_the_key_holder"
+   ],
+   "seconds": 364
+  },
+  {
+   "id": "CP6",
+   "path": "crates/monolith-protocol/src/card.rs",
+   "what": "text form prefix not checked",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "card::tests::text_form_rejects_bad_input"
+   ],
+   "seconds": 387
+  },
+  {
+   "id": "B1",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "trailing bytes after a body accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_body_decodes_only_as_its_own_type_or_canonically",
+    "a_body_of_the_wrong_length_is_rejected",
+    "arbitrary_bodies_do_not_panic_the_decoder",
+    "body::tests::empty_messages_reject_any_body",
+    "body::tests::oracle_3_no_message_states_a_reason",
+    "body::tests::trailing_bytes_are_rejected"
+   ],
+   "seconds": 391
+  },
+  {
+   "id": "B2",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "file offer size not bounded on receive",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "body::tests::file_offer_size_is_bounded",
+    "damaged_messages_are_rejected_or_canonical",
+    "losing_the_control_connection_unpublishes_the_service"
+   ],
+   "seconds": 393
+  },
+  {
+   "id": "B3",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "a card with an invitation accepted inside a message",
+   "group": "",
+   "expect": "survives: equivalent. The card is taken with the length of a card without capability, 171 bytes; one whose flag announces a capability needs 187 and fails to decode before this check is reached",
+   "verdict": "survived",
+   "seeds_only": false,
+   "failed": [],
+   "seconds": 413
+  },
+  {
+   "id": "B4",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "the endpoint count of an embedded card not checked first",
+   "group": "",
+   "expect": "survives: equivalent. Without it the same input is still refused, by take() or by ContactCard::decode; take() returns a slice and allocates nothing. Only the local error category can differ",
+   "verdict": "survived",
+   "seeds_only": false,
+   "failed": [],
+   "seconds": 396
+  },
+  {
+   "id": "B5",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "an empty file chunk accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "body::tests::file_chunk_limits"
+   ],
+   "seconds": 397
+  },
+  {
+   "id": "I1",
+   "path": "crates/monolith-identity/src/key.rs",
+   "what": "keys with a torsion component accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "card::tests::a_signed_card_with_an_invalid_endpoint_is_rejected",
+    "endpoint::tests::rejects_a_key_with_a_torsion_component",
+    "key::tests::key_validity_point_with_a_torsion_component",
+    "key_validity_follows_the_definition"
+   ],
+   "seconds": 216
+  },
+  {
+   "id": "I2",
+   "path": "crates/monolith-identity/src/key.rs",
+   "what": "the identity element accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "card::tests::a_signed_card_with_an_invalid_endpoint_is_rejected",
+    "card::tests::invalid_identity_key_is_rejected",
+    "card::tests::key_separation_is_checked_before_the_endpoints_are_validated",
+    "endpoint::tests::rejects_the_neutral_element",
+    "key::tests::key_validity_identity_point",
+    "key::tests::key_validity_small_order_point",
+    "onion::tests::an_address_of_an_invalid_key_is_refused"
+   ],
+   "seconds": 375
+  },
+  {
+   "id": "I3",
+   "path": "crates/monolith-identity/src/key.rs",
+   "what": "lenient signature verification",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "key::tests::verification_is_strict"
+   ],
+   "seconds": 395
+  },
+  {
+   "id": "E1",
+   "path": "crates/monolith-identity/src/endpoint.rs",
+   "what": "an equal epoch supersedes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3",
+    "a_card_the_dial_plan_does_not_name_is_not_dialed",
+    "card::tests::card_change_outcomes",
+    "card::tests::cards_that_differ_only_in_their_capability_do_not_conflict",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_newer_active_card_drops_successors_it_supersedes",
+    "credential::tests::a_newer_key_without_continuity_is_only_pending",
+    "credential::tests::a_successor_announced_through_the_active_key_is_authorized",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::importing_for_an_accepted_contact_never_replaces_the_key",
+    "credential::tests::simultaneous_rotation_on_both_sides_completes",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::table::restore_accepts_exactly_the_states_of_the_invariants",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "credential::tests::the_active_key_is_admitted_and_older_cards_of_other_keys_are_not",
+    "endpoint::tests::only_a_strictly_greater_epoch_supersedes",
+    "record::tests::duplicates_and_inconsistent_records_are_refused",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "t_inv_10_another_capability_for_the_same_statement",
+    "tests::contacts::a_card_that_contradicts_the_pinned_one_does_not_open_a_contact_session",
+    "tests::contacts::a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session",
+    "tests::contacts::a_new_key_shown_without_continuity_does_not_lock_out_the_active_one",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::contacts::accepted_contacts_confirm_each_other",
+    "tests::credentials::crossing_dials_of_two_rotations_complete",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "the_standing_of_an_inbound_peer_follows_the_table"
+   ],
+   "seconds": 385
+  },
+  {
+   "id": "E2",
+   "path": "crates/monolith-identity/src/endpoint.rs",
+   "what": "epoch zero accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "card::tests::epoch_zero_is_rejected",
+    "endpoint::tests::zero_is_not_an_epoch"
+   ],
+   "seconds": 381
+  },
+  {
+   "id": "U1",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "the duplicate rule prefers the other side",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "both_ends_keep_the_same_duplicate",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::a_session_of_a_retired_key_never_wins",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "duplicate::tests::cross_direction_prefers_the_session_of_the_smaller_key"
+   ],
+   "seconds": 398
+  },
+  {
+   "id": "U2",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "the preferred side is the larger key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "both_ends_keep_the_same_duplicate",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::a_session_of_a_retired_key_never_wins",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "duplicate::tests::cross_direction_prefers_the_session_of_the_smaller_key",
+    "duplicate::tests::the_smaller_key_is_preferred"
+   ],
+   "seconds": 406
+  },
+  {
+   "id": "U3",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "an unanswered probe keeps the older session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "both_ends_keep_the_same_duplicate",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order"
+   ],
+   "seconds": 403
+  },
+  {
+   "id": "L1",
+   "path": "crates/monolith-protocol/src/session.rs",
+   "what": "a message not permitted in the state is processed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "session::tests::nothing_is_accepted_before_authentication",
+    "session::tests::oracle_4_violations_emit_nothing",
+    "session_invariants_hold_for_any_sequence_of_events"
+   ],
+   "seconds": 365
+  },
+  {
+   "id": "L2",
+   "path": "crates/monolith-protocol/src/session.rs",
+   "what": "a declined identity is treated as requested",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identities_that_are_not_contacts_see_the_same_thing",
+    "request_modes_decide_what_a_stranger_can_ask",
+    "session::tests::a_requester_cannot_tell_why_it_was_turned_away",
+    "session::tests::every_pair_of_standings_ends_consistently",
+    "session::tests::oracle_1_non_contacts_are_indistinguishable",
+    "session::tests::requests_from_other_non_contacts_are_not_considered",
+    "session_invariants_hold_for_any_sequence_of_events",
+    "t_confirm_1_every_fate_of_a_request_looks_the_same",
+    "t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike",
+    "tests::contacts::a_request_is_answered_with_close_before_it_is_considered",
+    "tests::contacts::every_pair_of_records_ends_consistently",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason"
+   ],
+   "seconds": 277
+  }
+ ]
+}

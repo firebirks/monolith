@@ -1,0 +1,3 @@
+    Checking monolith-core v0.0.0 (<repo>/crates/monolith-core)
+    Checking monolith-fuzz v0.0.0 (<repo>/fuzz)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.25s

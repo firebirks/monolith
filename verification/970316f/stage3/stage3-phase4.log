@@ -1,0 +1,125 @@
+commit 970316fc76d0ea19c1c65239b16556253a2894c8, 123 faults, 2 workers
+CS1   caught    645s  an older card of the active key rolls the contact back
+CS2   caught    648s  a stale card is promoted
+CS3   caught    601s  a conflicting card is silently taken
+CS4   caught    603s  the retired key is accepted again
+CS5   caught    553s  an import judges a card older than the successor apart from an admission
+CS6   caught    695s  a newer key without an authorized successor is stale
+CS7   caught    599s  an import of a blocked identity makes a contact
+CS8   caught    484s  a block leaves the contact's sessions standing
+CS9   caught    404s  a deletion leaves the contact's sessions standing
+CS10  caught    526s  a session that no longer stands is forgotten but not withdrawn
+CS12  caught    255s  a confirmation needs no contact
+CS11  caught    485s  an operation works on a copy of the record outside its lock
+CS13  caught    283s  an import is not stamped with a generation
+CS14  caught    324s  an import returns before it is durable
+CS15  caught    319s  message 3 is written before the admission is durable
+CS16  caught    333s  message 3 is written without looking at the withdrawal
+CS17  caught    404s  a contact session takes no slot of the contact budget
+CS44  caught    404s  message 3 is written before a contact slot is taken
+CS18  caught    340s  the active set takes one capability more than its bound
+CS19  caught    304s  a request with a capability outside the active set is queued
+CS20  caught    274s  the quota per capability is one larger
+CS21  caught    287s  revoking and discarding removes every pending request
+CS22  caught    296s  an isolation group is shared between contacts
+CS23  caught    285s  two local identities may share a key
+CS24  caught    283s  the newest silent stranger is evicted instead of the oldest
+CS25  caught    286s  a stranger that has spoken is evicted
+CS26  caught    263s  evicted links that have not ended are not bounded
+CS27  caught    333s  the stranger budget holds one more
+CS28  caught    277s  an evicted stranger's first message is still delivered
+CS29  caught    298s  the service is published again under a new key
+CS31  caught    314s  the switch to the new key is due at once
+CS32  caught    271s  the old key is dropped at once
+CS33  caught    378s  the pending successor is dialed first
+CS30  caught   1200s  attempts follow each other without a delay
+CS34  caught    305s  the confirmed card is dialed whatever key it states
+CS35  caught    329s  a write replaces the vault in place
+CS36  caught    298s  a write does not flush the directory
+CS37  caught    293s  the header is not authenticated with the payload
+CS38  caught    309s  KDF parameters outside the bounds are accepted
+CS39  caught    329s  the passphrase is not normalized
+CS40  caught    322s  a directory others can reach is accepted
+CS41  caught    339s  the single-instance lock is not taken
+CS42  caught    344s  padding that is not zero is accepted
+CS43  caught    375s  a contact stored twice is accepted
+CS46  caught    309s  a deleted identity is not closed
+CS45  caught    481s  a write does not put the vault back, whatever its waiter does
+CS47  caught    356s  a change of a deleted identity is made in memory first
+CS48  caught    354s  a deleted identity hands out its Onion Service secret
+CS49  caught    356s  a successor is announced before it is durable
+CS50  caught    370s  the new key is used before the switch is durable
+CS51  caught    345s  a snapshot reads the slots without the lock of the map
+CS52  caught    404s  declining lets go of the map between its two slots
+CS53  caught    378s  an admission whose wait is cancelled is never forgotten
+CS54  caught    344s  a rotation ends before its switch is durable
+CS55  caught    412s  a failed write withdraws nothing when no waiter is left
+CS56  caught    387s  a stored rotation prints its secret key
+CS57  caught    345s  a seed the vault refuses is issued
+CS58  caught    334s  an Onion Service secret the vault refuses is restored
+CS59  caught    316s  a rotation to the same public key is read from the vault
+CS60  caught    349s  a deleted identity signs cards for its capabilities
+CS61  caught    404s  a deleted identity hands out a party to dial and answer with
+CS62  caught    349s  a deleted identity keeps the bytes of its secrets
+CS63  caught    361s  a session of one identity is applied at another
+CS64  caught    342s  an invitation is listed before it is durable
+CS66  caught    339s  a request is considered against a record read before the queue is locked
+CS65  caught    343s  an invitation admits requests before it is durable
+CS67  caught    335s  a request is taken out before its answer is recorded
+CS68  caught    337s  what a refused dial recorded is not made durable
+CS70  caught    362s  changes after a snapshot wait for the next waiter
+CS69  caught    369s  what an answer without a contact slot recorded is not made durable
+CS72  caught    348s  what an answer without a slot for strangers recorded is not made durable
+CS71  caught    350s  what a dial without a contact slot recorded is not made durable
+CS73  caught    346s  a write looks at the withdrawal once per wake-up, not before every write
+CS74  caught    346s  a link whose write was dropped part way goes on
+CS75  caught    341s  a deletion does not end a publication under way
+CS76  caught    340s  a service published for a deleted identity is reported available
+CS78  caught    365s  a snapshot stores the progress of another rotation
+CS77  caught    373s  a late announcement counts for the rotation in progress
+CS79  caught    398s  a switch counts contacts marked for any rotation
+CS80  caught    399s  a session of the old key confirms the new one
+CS81  caught    363s  a session that outlives its identity applies what it brings
+CS82  caught    354s  a dial that waited while its identity was deleted opens a stream
+CS91  caught    357s  a message kept by a dropped receive comes back before the link ends
+CS83  caught    358s  a message taken by a dropped receive is lost
+CS84  caught    375s  an invitation card is signed before the capability is durable
+CS85  caught    374s  the successor card is handed out before it is durable
+CS87  caught    362s  every instance of an identity is numbered alike
+CS86  caught    368s  a new identity is listed before it is durable
+CS88  caught    340s  a job stops at its bound with nobody waiting for the rest
+CS89  caught    335s  a failed write hides what an earlier write made durable
+CS92  caught    347s  changes a job left for its waiter wait for another change
+CS90  caught    351s  a request is queued for an identity deleted as it is considered
+CS94  caught    365s  a wait starts a write after a write failed
+CS93  caught    369s  waiters learn of a failure before the sessions are withdrawn
+CS96  caught    318s  an invitation handle names no instance
+CS95  caught    366s  the identities of a closed installation keep their authority
+CS97  caught    311s  a late announcement is not checked against the session it went out on
+CS98  caught    328s  a late announcement marks whatever contact holds the identity now
+CS99  caught    332s  every request of an identity has the same handle
+CS100 caught    327s  a deletion takes whatever identity has the keys it names
+CS101 caught    361s  a switch decided for one rotation switches another
+CS102 caught    343s  an end decided for one rotation ends another
+CS103 caught    339s  a block takes out a request queued after it
+CS104 caught    326s  an import takes out a request queued after it
+CS105 caught    339s  a card is made for a capability revoked as it is created
+CS106 caught    334s  a closed identity shows a card it no longer answered with
+CS107 caught    404s  the party that answers leaves the core
+CS108 caught    551s  a card of someone who is no contact is dialed
+CS109 caught    453s  a session reports no capability for its contact request
+CS110 caught    398s  a confirmation counts for whatever contact holds the identity
+CS111 caught    376s  a card the dial plan does not name is dialed
+CS112 caught    373s  any card of the contact counts as one the plan names
+CS113 caught    354s  a caller can make what a link received, or change it
+CS116 caught    334s  an acceptance that arrived on a session counts for a contact made again
+CS117 caught    321s  a new card that arrived on a session counts for a contact made again
+CS118 caught    305s  what arrived on a session counts again each time it is applied
+CS119 caught    296s  an announcement is sent on a session it was not made for
+CS120 caught    319s  an announcement counts without being sent
+CS121 caught    327s  a snapshot lets go of the keys between its reads
+CS114 caught    312s  a wait reads what is durable before the failure
+CS115 caught    314s  a wait whose write cannot start fails without looking again
+CS122 caught    304s  what arrived on a link that ended counts until the record forgets the link
+CS123 caught    267s  a wait starts a write when the job before it is about to publish what is left
+done: {'caught': 123}; written to <repo>/mutation/results-phase4-970316f.json

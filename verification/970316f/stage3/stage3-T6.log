@@ -1,0 +1,3 @@
+commit 970316fc76d0ea19c1c65239b16556253a2894c8, 1 faults, 1 workers
+T6    caught    791s  Montgomery form comparison inverted
+done: {'caught': 1}; written to <repo>/mutation/results-phase2-970316f.json

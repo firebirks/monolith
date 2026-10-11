@@ -1,0 +1,15 @@
+HEAD 970316fc76d0ea19c1c65239b16556253a2894c8
+01-fmt exit=0 1s
+02-clippy exit=0 0s
+03-test exit=0 220s
+04-check-1.85.1 exit=0 2s
+05-test-1.85.1 exit=0 237s
+06-test-stable exit=0 219s
+07-deny exit=0 1s
+08-audit exit=0 2s
+09-tree-d exit=0 0s
+10-fuzz-check exit=0 2s
+11-fail-closed exit=0 0s
+12-identity exit=0 0s
+HEAD 970316fc76d0ea19c1c65239b16556253a2894c8 status 0
+done

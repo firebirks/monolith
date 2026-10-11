@@ -1,0 +1,25 @@
+1. SOCKS available: the onion name goes to the proxy, nothing else is contacted.
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.01s
+
+ok   socks-available
+2. SOCKS unavailable, direct Internet available: the dial fails, nothing else is tried.
+
+running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.02s
+
+ok   socks-unavailable
+3. The CLI with Tor absent reports offline and contacts only its endpoints.
+ok   cli-tor-absent
+ok   cli reports offline, exit 1
+4. A network namespace with loopback only: no DNS exists, onion connections still work.
+
+running 2 tests
+..
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.02s
+
+ok   netns-loopback-only
+T-NET-1 passed.

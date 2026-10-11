@@ -1,0 +1,1934 @@
+{
+ "commit": "970316fc76d0ea19c1c65239b16556253a2894c8",
+ "results": [
+  {
+   "id": "CS1",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "an older card of the active key rolls the contact back",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_older_card_of_the_active_key_still_receives_message_3",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_newer_card_with_the_active_key_advances_it",
+    "credential::tests::an_older_card_with_the_active_key_is_the_contact",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::importing_for_an_accepted_contact_never_replaces_the_key",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "credential::tests::the_active_key_is_admitted_and_older_cards_of_other_keys_are_not",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "tests::contacts::a_card_older_than_the_active_one_opens_a_contact_session_only_with_the_active_key",
+    "the_standing_of_an_inbound_peer_follows_the_table"
+   ],
+   "seconds": 645
+  },
+  {
+   "id": "CS2",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a stale card is promoted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_is_admitted_against_the_contact_state_after_the_handshake",
+    "a_key_older_than_the_announced_successor_gets_nothing",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_proven_key_older_than_the_announced_successor_is_stale",
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::a_successor_announced_through_the_active_key_is_authorized",
+    "credential::tests::a_successor_card_older_than_the_announced_one_is_stale",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::an_older_card_with_the_active_key_is_the_contact",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::table::the_same_card_has_the_same_relation_whatever_its_source",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "credential::tests::the_active_key_is_admitted_and_older_cards_of_other_keys_are_not",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike",
+    "tests::contacts::a_card_older_than_the_active_one_opens_a_contact_session_only_with_the_active_key",
+    "tests::contacts::a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session",
+    "tests::contacts::a_new_key_shown_without_continuity_does_not_lock_out_the_active_one",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason",
+    "tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "the_standing_of_an_inbound_peer_follows_the_table"
+   ],
+   "seconds": 648
+  },
+  {
+   "id": "CS3",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a conflicting card is silently taken",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_card_at_the_epoch_of_the_successor_that_says_otherwise_is_a_conflict",
+    "credential::tests::a_successor_announced_through_the_active_key_is_authorized",
+    "credential::tests::a_successor_card_older_than_the_announced_one_is_stale",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "credential::tests::the_active_key_is_admitted_and_older_cards_of_other_keys_are_not",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "tests::contacts::a_card_that_contradicts_the_pinned_one_does_not_open_a_contact_session",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "the_standing_of_an_inbound_peer_follows_the_table"
+   ],
+   "seconds": 601
+  },
+  {
+   "id": "CS4",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "the retired key is accepted again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one"
+   ],
+   "seconds": 603
+  },
+  {
+   "id": "CS5",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "an import judges a card older than the successor apart from an admission",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contact::tests::every_kind_of_record_in_every_context",
+    "contact::tests::import_and_admission_agree_on_every_card",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::table::the_same_card_has_the_same_relation_whatever_its_source",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user"
+   ],
+   "seconds": 553
+  },
+  {
+   "id": "CS6",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a newer key without an authorized successor is stale",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_is_admitted_against_the_contact_state_after_the_handshake",
+    "a_key_older_than_the_announced_successor_gets_nothing",
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed",
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_pending_key_does_not_receive_message_3",
+    "a_promotion_stands_when_message_3_cannot_be_written",
+    "a_restart_reproduces_the_durable_state_exactly",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "an_announced_successor_is_atomic",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "committed_seeds_are_current",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "credential::tests::a_card_at_the_epoch_of_the_successor_that_says_otherwise_is_a_conflict",
+    "credential::tests::a_newer_key_without_continuity_is_only_pending",
+    "credential::tests::a_pending_card_of_a_peer_does_not_keep_out_the_users_own",
+    "credential::tests::a_pending_successor_takes_over_only_when_confirmed",
+    "credential::tests::a_presented_card_does_not_displace_the_users_pending_card",
+    "credential::tests::a_proven_key_older_than_the_announced_successor_is_stale",
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::a_successor_announced_through_the_active_key_is_authorized",
+    "credential::tests::a_successor_card_older_than_the_announced_one_is_stale",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::importing_for_an_accepted_contact_never_replaces_the_key",
+    "credential::tests::rotation_without_the_old_keys_fails_safely",
+    "credential::tests::simultaneous_rotation_on_both_sides_completes",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "deleting_is_atomic",
+    "dialplan::tests::a_pending_successor_is_never_dialed",
+    "dialplan::tests::after_a_promotion_the_retired_key_is_never_dialed",
+    "dialplan::tests::an_announced_successor_is_dialed_first",
+    "promoting_a_successor_is_atomic",
+    "record::tests::stored_credentials_keep_their_invariants",
+    "session::tests::importing_a_card_depends_on_the_relationship",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "tests::contacts::a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session",
+    "tests::contacts::a_new_key_shown_without_continuity_does_not_lock_out_the_active_one",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason",
+    "tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions",
+    "tests::credentials::an_announcement_on_a_session_of_a_retired_key_proves_nothing",
+    "tests::credentials::crossing_dials_of_two_rotations_complete",
+    "tests::credentials::simultaneous_rotation_completes_while_the_old_keys_answer",
+    "tests::credentials::simultaneous_rotation_without_the_old_keys_fails_safely",
+    "tests::credentials::the_duplicate_rule_never_keeps_a_session_of_a_retired_key",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "the_standing_of_an_inbound_peer_follows_the_table",
+    "updating_a_card_is_atomic",
+    "what_a_refused_dial_recorded_survives_a_restart",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart"
+   ],
+   "seconds": 695
+  },
+  {
+   "id": "CS7",
+   "path": "crates/monolith-protocol/src/contact.rs",
+   "what": "an import of a blocked identity makes a contact",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contact::tests::every_kind_of_record_in_every_context"
+   ],
+   "seconds": 599
+  },
+  {
+   "id": "CS8",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a block leaves the contact's sessions standing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "a_withdrawn_link_fails_at_once_every_time",
+    "blocking_or_deleting_a_contact_withdraws_its_open_links",
+    "t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger"
+   ],
+   "seconds": 484
+  },
+  {
+   "id": "CS9",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a deletion leaves the contact's sessions standing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_withdrawal_first_seen_by_send_writes_the_close",
+    "blocking_or_deleting_a_contact_withdraws_its_open_links",
+    "identity::tests::a_confirmation_counts_for_no_contact_made_again_meanwhile",
+    "t_contact_3_a_request_after_a_deletion_is_from_an_unknown_identity",
+    "t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger"
+   ],
+   "seconds": 404
+  },
+  {
+   "id": "CS10",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a session that no longer stands is forgotten but not withdrawn",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed",
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "a_withdrawal_first_seen_by_send_writes_the_close",
+    "a_withdrawn_link_fails_at_once_every_time",
+    "blocking_or_deleting_a_contact_withdraws_its_open_links",
+    "t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger"
+   ],
+   "seconds": 526
+  },
+  {
+   "id": "CS11",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "an operation works on a copy of the record outside its lock",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_the_dial_plan_does_not_name_is_not_dialed",
+    "a_contact_is_never_evicted_for_a_stranger",
+    "a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session",
+    "a_key_older_than_the_announced_successor_gets_nothing",
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed",
+    "a_late_announcement_counts_only_for_the_contact_it_was_made_to",
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_promotion_stands_when_message_3_cannot_be_written",
+    "a_restart_reproduces_the_durable_state_exactly",
+    "a_rotation_switches_and_finishes_only_when_due",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "a_tor_stream_carries_an_authenticated_exchange_both_ways",
+    "a_withdrawal_first_seen_by_send_writes_the_close",
+    "a_withdrawn_link_fails_at_once_every_time",
+    "an_announced_successor_is_atomic",
+    "an_announcement_is_sent_only_on_its_own_session",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "blocking_or_deleting_a_contact_withdraws_its_open_links",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "promoting_a_successor_is_atomic",
+    "t_contact_3_a_request_after_a_deletion_is_from_an_unknown_identity",
+    "t_inv_10_another_capability_for_the_same_statement",
+    "t_mi_2_and_3_contact_state_belongs_to_one_identity",
+    "t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger",
+    "the_new_key_reaches_no_peer_before_it_is_durable",
+    "the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further",
+    "the_progress_of_one_rotation_never_counts_for_the_next",
+    "the_rotation_of_one_identity_counts_for_no_other",
+    "the_store_forgets_the_links_that_are_gone",
+    "updating_a_card_is_atomic"
+   ],
+   "seconds": 485
+  },
+  {
+   "id": "CS12",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a confirmation needs no contact",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_confirmation_is_for_a_contact_only"
+   ],
+   "seconds": 255
+  },
+  {
+   "id": "CS13",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "an import is not stamped with a generation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_installation_admits_nobody",
+    "creating_a_contact_is_atomic",
+    "updating_a_card_is_atomic"
+   ],
+   "seconds": 283
+  },
+  {
+   "id": "CS14",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an import returns before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_installation_admits_nobody",
+    "creating_a_contact_is_atomic",
+    "updating_a_card_is_atomic"
+   ],
+   "seconds": 324
+  },
+  {
+   "id": "CS15",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "message 3 is written before the admission is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session",
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3"
+   ],
+   "seconds": 319
+  },
+  {
+   "id": "CS16",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "message 3 is written without looking at the withdrawal",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3"
+   ],
+   "seconds": 333
+  },
+  {
+   "id": "CS17",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a contact session takes no slot of the contact budget",
+   "group": "dial",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_without_a_contact_slot_writes_no_message_3",
+    "what_a_dial_without_a_slot_recorded_survives_a_restart"
+   ],
+   "seconds": 404
+  },
+  {
+   "id": "CS44",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "message 3 is written before a contact slot is taken",
+   "group": "dial",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_without_a_contact_slot_writes_no_message_3"
+   ],
+   "seconds": 404
+  },
+  {
+   "id": "CS18",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "the active set takes one capability more than its bound",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "t_inv_8_a_full_active_set_refuses_and_revokes_nothing"
+   ],
+   "seconds": 340
+  },
+  {
+   "id": "CS19",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "a request with a capability outside the active set is queued",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "t_confirm_1_every_fate_of_a_request_looks_the_same",
+    "t_inv_1_to_4_cards_with_capabilities_admit_requests_until_revoked",
+    "t_inv_5_and_6_every_dropped_request_looks_like_a_queued_one",
+    "t_mi_4_a_capability_of_one_identity_admits_nothing_at_another"
+   ],
+   "seconds": 304
+  },
+  {
+   "id": "CS20",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "the quota per capability is one larger",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "t_confirm_1_every_fate_of_a_request_looks_the_same",
+    "t_inv_1_to_4_cards_with_capabilities_admit_requests_until_revoked"
+   ],
+   "seconds": 274
+  },
+  {
+   "id": "CS21",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "revoking and discarding removes every pending request",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "t_inv_11_revoking_keeps_pending_requests_unless_asked_to_discard_them"
+   ],
+   "seconds": 287
+  },
+  {
+   "id": "CS22",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an isolation group is shared between contacts",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "local_identities_are_reached_through_their_own_services"
+   ],
+   "seconds": 296
+  },
+  {
+   "id": "CS23",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "two local identities may share a key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identities_restored_or_created_never_share_a_key",
+    "t_mi_1_no_two_local_identities_share_a_key"
+   ],
+   "seconds": 285
+  },
+  {
+   "id": "CS24",
+   "path": "crates/monolith-core/src/strangers.rs",
+   "what": "the newest silent stranger is evicted instead of the oldest",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_full_stranger_budget_evicts_the_oldest_silent_stranger",
+    "a_stranger_finds_no_slot_while_evicted_strangers_drain",
+    "strangers::tests::the_oldest_silent_stranger_makes_room",
+    "t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike"
+   ],
+   "seconds": 283
+  },
+  {
+   "id": "CS25",
+   "path": "crates/monolith-core/src/strangers.rs",
+   "what": "a stranger that has spoken is evicted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "strangers::tests::nobody_is_evicted_when_every_stranger_has_spoken",
+    "strangers::tests::the_first_message_and_the_eviction_race_on_one_state",
+    "strangers::tests::the_oldest_silent_stranger_makes_room"
+   ],
+   "seconds": 286
+  },
+  {
+   "id": "CS26",
+   "path": "crates/monolith-core/src/strangers.rs",
+   "what": "evicted links that have not ended are not bounded",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_is_never_evicted_for_a_stranger",
+    "a_stranger_finds_no_slot_while_evicted_strangers_drain",
+    "strangers::tests::evicted_links_are_bounded_too",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart"
+   ],
+   "seconds": 263
+  },
+  {
+   "id": "CS27",
+   "path": "crates/monolith-core/src/strangers.rs",
+   "what": "the stranger budget holds one more",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_is_never_evicted_for_a_stranger",
+    "a_full_stranger_budget_evicts_the_oldest_silent_stranger",
+    "a_stranger_finds_no_slot_while_evicted_strangers_drain",
+    "link::tests::a_stranger_evicted_as_its_first_message_is_taken_gets_nothing_delivered",
+    "strangers::tests::evicted_links_are_bounded_too",
+    "strangers::tests::nobody_is_evicted_when_every_stranger_has_spoken",
+    "strangers::tests::the_first_message_and_the_eviction_race_on_one_state",
+    "strangers::tests::the_oldest_silent_stranger_makes_room",
+    "t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart"
+   ],
+   "seconds": 333
+  },
+  {
+   "id": "CS28",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "an evicted stranger's first message is still delivered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_stranger_evicted_as_its_first_message_is_taken_gets_nothing_delivered"
+   ],
+   "seconds": 277
+  },
+  {
+   "id": "CS29",
+   "path": "crates/monolith-core/src/supervisor.rs",
+   "what": "the service is published again under a new key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_is_taken_down_and_not_published_again",
+    "a_lost_service_is_published_again_under_the_same_name",
+    "closing_the_installation_takes_its_services_down",
+    "the_supervisors_of_two_identities_do_not_touch_each_other"
+   ],
+   "seconds": 298
+  },
+  {
+   "id": "CS30",
+   "path": "crates/monolith-core/src/supervisor.rs",
+   "what": "attempts follow each other without a delay",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)",
+    "a_lost_service_is_published_again_under_the_same_name",
+    "the_supervisors_of_two_identities_do_not_touch_each_other"
+   ],
+   "seconds": 1200
+  },
+  {
+   "id": "CS31",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "the switch to the new key is due at once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_late_announcement_counts_only_for_the_contact_it_was_made_to",
+    "a_rotation_switches_and_finishes_only_when_due",
+    "the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further",
+    "the_progress_of_one_rotation_never_counts_for_the_next",
+    "the_rotation_of_one_identity_counts_for_no_other"
+   ],
+   "seconds": 314
+  },
+  {
+   "id": "CS32",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "the old key is dropped at once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_rotation_switches_and_finishes_only_when_due",
+    "the_progress_of_one_rotation_never_counts_for_the_next"
+   ],
+   "seconds": 271
+  },
+  {
+   "id": "CS33",
+   "path": "crates/monolith-core/src/dialplan.rs",
+   "what": "the pending successor is dialed first",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_key_older_than_the_announced_successor_gets_nothing",
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "a_promotion_stands_when_message_3_cannot_be_written",
+    "dialplan::tests::a_pending_successor_is_never_dialed",
+    "dialplan::tests::an_announced_successor_is_dialed_first",
+    "dialplan::tests::every_planned_card_states_the_active_key_or_its_successor"
+   ],
+   "seconds": 378
+  },
+  {
+   "id": "CS34",
+   "path": "crates/monolith-core/src/dialplan.rs",
+   "what": "the confirmed card is dialed whatever key it states",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "dialplan::tests::after_a_promotion_the_retired_key_is_never_dialed",
+    "dialplan::tests::every_planned_card_states_the_active_key_or_its_successor"
+   ],
+   "seconds": 305
+  },
+  {
+   "id": "CS35",
+   "path": "crates/monolith-storage/src/vault.rs",
+   "what": "a write replaces the vault in place",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_announced_successor_is_atomic",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_an_identity_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "promoting_a_successor_is_atomic",
+    "updating_a_card_is_atomic",
+    "vault::tests::a_write_stopped_at_any_step_leaves_the_old_or_the_new_vault"
+   ],
+   "seconds": 329
+  },
+  {
+   "id": "CS36",
+   "path": "crates/monolith-storage/src/vault.rs",
+   "what": "a write does not flush the directory",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_admits_nobody_and_changes_nothing",
+    "a_write_under_way_when_the_installation_closes_still_ends",
+    "an_announced_successor_is_atomic",
+    "an_identity_is_restored_only_if_the_vault_can_hold_it",
+    "an_invitation_is_handed_out_only_once_it_is_durable",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_an_identity_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "promoting_a_successor_is_atomic",
+    "t_mi_9_deleting_one_identity_leaves_the_other_as_it_was",
+    "the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further",
+    "updating_a_card_is_atomic",
+    "vault::tests::a_write_stopped_at_any_step_leaves_the_old_or_the_new_vault",
+    "what_a_dial_without_a_slot_recorded_survives_a_restart",
+    "what_a_refused_dial_recorded_survives_a_restart",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart",
+    "what_an_answer_without_a_slot_recorded_survives_a_restart"
+   ],
+   "seconds": 298
+  },
+  {
+   "id": "CS37",
+   "path": "crates/monolith-storage/src/vault.rs",
+   "what": "the header is not authenticated with the payload",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_built_by_the_specification_opens_with_the_vault",
+    "vault::tests::every_byte_of_a_vault_is_authenticated",
+    "what_the_vault_writes_opens_by_the_specification"
+   ],
+   "seconds": 293
+  },
+  {
+   "id": "CS38",
+   "path": "crates/monolith-storage/src/vault.rs",
+   "what": "KDF parameters outside the bounds are accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "vault::tests::every_byte_of_a_vault_is_authenticated",
+    "vault::tests::kdf_parameters_outside_the_bounds_are_refused"
+   ],
+   "seconds": 309
+  },
+  {
+   "id": "CS39",
+   "path": "crates/monolith-storage/src/vault.rs",
+   "what": "the passphrase is not normalized",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "vault::tests::a_passphrase_is_normalized_and_bounded",
+    "what_the_vault_writes_opens_by_the_specification"
+   ],
+   "seconds": 329
+  },
+  {
+   "id": "CS40",
+   "path": "crates/monolith-storage/src/dir.rs",
+   "what": "a directory others can reach is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "dir::tests::a_directory_others_can_reach_or_a_link_is_refused"
+   ],
+   "seconds": 322
+  },
+  {
+   "id": "CS41",
+   "path": "crates/monolith-storage/src/dir.rs",
+   "what": "the single-instance lock is not taken",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_restart_on_disk_reproduces_the_durable_state",
+    "dir::tests::a_directory_is_created_private_and_locked_once"
+   ],
+   "seconds": 339
+  },
+  {
+   "id": "CS42",
+   "path": "crates/monolith-storage/src/record.rs",
+   "what": "padding that is not zero is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "record::tests::anything_unknown_or_left_over_is_refused"
+   ],
+   "seconds": 344
+  },
+  {
+   "id": "CS43",
+   "path": "crates/monolith-storage/src/record.rs",
+   "what": "a contact stored twice is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "record::tests::duplicates_and_inconsistent_records_are_refused"
+   ],
+   "seconds": 375
+  },
+  {
+   "id": "CS45",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a write does not put the vault back, whatever its waiter does",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_admits_nobody_and_changes_nothing",
+    "a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session",
+    "a_failed_write_withdraws_every_session_even_when_nobody_waits",
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "a_restart_on_disk_reproduces_the_durable_state",
+    "a_restart_reproduces_the_durable_state_exactly",
+    "a_rotation_ends_only_after_a_durable_switch",
+    "a_write_under_way_when_the_installation_closes_still_ends",
+    "an_announced_successor_is_atomic",
+    "an_identity_is_restored_only_if_the_vault_can_hold_it",
+    "an_invitation_card_states_the_key_that_answers_when_it_is_returned",
+    "an_invitation_is_handed_out_only_once_it_is_durable",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "persist::tests::a_cancelled_wait_loses_neither_the_vault_nor_the_outcome",
+    "persist::tests::a_change_is_written_though_its_waiter_was_cancelled_during_a_write",
+    "persist::tests::a_failed_write_keeps_the_vault_and_fails_every_wait",
+    "persist::tests::a_wait_finds_the_vault_back_once_its_outcome_is_out",
+    "persist::tests::changes_left_when_a_job_stops_for_its_waiter_are_written_next",
+    "persist::tests::changes_that_keep_coming_with_nobody_waiting_are_all_written",
+    "persist::tests::many_waiters_on_many_threads_all_finish",
+    "promoting_a_successor_is_atomic",
+    "t_contact_1_a_flood_of_requests_leaves_the_vault_as_it_was",
+    "t_inj_text_the_vault_stores_comes_back_byte_for_byte",
+    "t_mi_9_deleting_one_identity_leaves_the_other_as_it_was",
+    "the_new_key_reaches_no_peer_before_it_is_durable",
+    "the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further",
+    "updating_a_card_is_atomic",
+    "what_a_dial_without_a_slot_recorded_survives_a_restart",
+    "what_a_refused_dial_recorded_survives_a_restart",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart",
+    "what_an_answer_without_a_slot_recorded_survives_a_restart"
+   ],
+   "seconds": 481
+  },
+  {
+   "id": "CS46",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a deleted identity is not closed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_closed_identity_shows_the_card_it_answered_with",
+    "a_deleted_identity_admits_nobody_and_changes_nothing",
+    "a_deleted_identity_hands_out_no_secret",
+    "a_deleted_identity_is_taken_down_and_not_published_again",
+    "a_dial_that_waited_for_its_slot_while_the_identity_was_deleted_opens_no_stream",
+    "a_publication_under_way_ends_when_the_identity_is_deleted",
+    "a_service_published_for_a_deleted_identity_is_never_reported_available",
+    "a_session_that_outlives_its_deleted_identity_changes_nothing",
+    "identity::tests::a_deleted_identity_keeps_no_copy_of_its_secrets",
+    "identity::tests::a_request_considered_as_the_identity_is_deleted_is_not_queued",
+    "t_mi_9_deleting_one_identity_leaves_the_other_as_it_was"
+   ],
+   "seconds": 309
+  },
+  {
+   "id": "CS47",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a change of a deleted identity is made in memory first",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_admits_nobody_and_changes_nothing",
+    "closing_the_installation_ends_the_authority_of_what_it_handed_out"
+   ],
+   "seconds": 356
+  },
+  {
+   "id": "CS48",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a deleted identity hands out its Onion Service secret",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_admits_nobody_and_changes_nothing",
+    "a_deleted_identity_hands_out_no_secret",
+    "a_deleted_identity_is_taken_down_and_not_published_again",
+    "closing_the_installation_ends_the_authority_of_what_it_handed_out",
+    "identity::tests::a_deleted_identity_keeps_no_copy_of_its_secrets"
+   ],
+   "seconds": 354
+  },
+  {
+   "id": "CS49",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a successor is announced before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_new_key_reaches_no_peer_before_it_is_durable"
+   ],
+   "seconds": 356
+  },
+  {
+   "id": "CS50",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "the new key is used before the switch is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_rotation_ends_only_after_a_durable_switch",
+    "the_new_key_reaches_no_peer_before_it_is_durable"
+   ],
+   "seconds": 370
+  },
+  {
+   "id": "CS51",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a snapshot reads the slots without the lock of the map",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contacts::tests::a_snapshot_is_one_cut_through_the_store",
+    "contacts::tests::no_operation_runs_between_the_reads_of_a_snapshot"
+   ],
+   "seconds": 345
+  },
+  {
+   "id": "CS52",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "declining lets go of the map between its two slots",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contacts::tests::a_snapshot_is_one_cut_through_the_store",
+    "contacts::tests::no_snapshot_runs_between_the_two_slots_of_a_decline"
+   ],
+   "seconds": 404
+  },
+  {
+   "id": "CS53",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "an admission whose wait is cancelled is never forgotten",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session"
+   ],
+   "seconds": 378
+  },
+  {
+   "id": "CS54",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a rotation ends before its switch is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_rotation_ends_only_after_a_durable_switch"
+   ],
+   "seconds": 344
+  },
+  {
+   "id": "CS55",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a failed write withdraws nothing when no waiter is left",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_write_withdraws_every_session_even_when_nobody_waits",
+    "persist::tests::nothing_is_written_once_a_write_failed_and_sessions_go_first"
+   ],
+   "seconds": 412
+  },
+  {
+   "id": "CS56",
+   "path": "crates/monolith-storage/src/record.rs",
+   "what": "a stored rotation prints its secret key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "record::tests::debug_output_shows_no_secret"
+   ],
+   "seconds": 387
+  },
+  {
+   "id": "CS57",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a seed the vault refuses is issued",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_identity_is_restored_only_if_the_vault_can_hold_it"
+   ],
+   "seconds": 345
+  },
+  {
+   "id": "CS58",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an Onion Service secret the vault refuses is restored",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_identity_is_restored_only_if_the_vault_can_hold_it"
+   ],
+   "seconds": 334
+  },
+  {
+   "id": "CS59",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a rotation to the same public key is read from the vault",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_rotation_to_the_same_public_key_is_refused_when_the_vault_is_opened"
+   ],
+   "seconds": 316
+  },
+  {
+   "id": "CS60",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a deleted identity signs cards for its capabilities",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_hands_out_no_secret",
+    "closing_the_installation_ends_the_authority_of_what_it_handed_out"
+   ],
+   "seconds": 349
+  },
+  {
+   "id": "CS61",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a deleted identity hands out a party to dial and answer with",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_hands_out_no_secret",
+    "a_write_under_way_when_the_installation_closes_still_ends",
+    "closing_the_installation_ends_the_authority_of_what_it_handed_out"
+   ],
+   "seconds": 404
+  },
+  {
+   "id": "CS62",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a deleted identity keeps the bytes of its secrets",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_deleted_identity_keeps_no_copy_of_its_secrets"
+   ],
+   "seconds": 349
+  },
+  {
+   "id": "CS63",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a session of one identity is applied at another",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "t_mi_10_a_session_of_one_identity_changes_nothing_at_another"
+   ],
+   "seconds": 361
+  },
+  {
+   "id": "CS64",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "an invitation is listed before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_invitation_is_handed_out_only_once_it_is_durable",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "requests::tests::a_capability_is_handed_out_and_admits_only_once_durable"
+   ],
+   "seconds": 342
+  },
+  {
+   "id": "CS65",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "an invitation admits requests before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "requests::tests::a_capability_is_handed_out_and_admits_only_once_durable"
+   ],
+   "seconds": 343
+  },
+  {
+   "id": "CS66",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a request is considered against a record read before the queue is locked",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_request_and_a_block_of_its_sender_run_in_one_order"
+   ],
+   "seconds": 339
+  },
+  {
+   "id": "CS67",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a request is taken out before its answer is recorded",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_request_stays_pending_when_answering_it_fails"
+   ],
+   "seconds": 335
+  },
+  {
+   "id": "CS68",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "what a refused dial recorded is not made durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "what_a_refused_dial_recorded_survives_a_restart"
+   ],
+   "seconds": 337
+  },
+  {
+   "id": "CS69",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "what an answer without a contact slot recorded is not made durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "what_an_answer_without_a_slot_recorded_survives_a_restart"
+   ],
+   "seconds": 369
+  },
+  {
+   "id": "CS70",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "changes after a snapshot wait for the next waiter",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_invitation_card_states_the_key_that_answers_when_it_is_returned",
+    "persist::tests::a_change_is_written_though_its_waiter_was_cancelled_during_a_write",
+    "persist::tests::changes_left_when_a_job_stops_for_its_waiter_are_written_next",
+    "persist::tests::changes_that_keep_coming_with_nobody_waiting_are_all_written",
+    "persist::tests::nothing_is_written_once_a_write_failed_and_sessions_go_first"
+   ],
+   "seconds": 362
+  },
+  {
+   "id": "CS71",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "what a dial without a contact slot recorded is not made durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "what_a_dial_without_a_slot_recorded_survives_a_restart"
+   ],
+   "seconds": 350
+  },
+  {
+   "id": "CS72",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "what an answer without a slot for strangers recorded is not made durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart"
+   ],
+   "seconds": 348
+  },
+  {
+   "id": "CS73",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a write looks at the withdrawal once per wake-up, not before every write",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::nothing_is_written_after_a_withdrawal_that_comes_between_two_writes"
+   ],
+   "seconds": 346
+  },
+  {
+   "id": "CS74",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a link whose write was dropped part way goes on",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_send_dropped_while_it_writes_leaves_the_link_terminal"
+   ],
+   "seconds": 346
+  },
+  {
+   "id": "CS75",
+   "path": "crates/monolith-core/src/supervisor.rs",
+   "what": "a deletion does not end a publication under way",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_publication_under_way_ends_when_the_identity_is_deleted"
+   ],
+   "seconds": 341
+  },
+  {
+   "id": "CS76",
+   "path": "crates/monolith-core/src/supervisor.rs",
+   "what": "a service published for a deleted identity is reported available",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_service_published_for_a_deleted_identity_is_never_reported_available"
+   ],
+   "seconds": 340
+  },
+  {
+   "id": "CS77",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a late announcement counts for the rotation in progress",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_progress_of_one_rotation_never_counts_for_the_next"
+   ],
+   "seconds": 373
+  },
+  {
+   "id": "CS78",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a snapshot stores the progress of another rotation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contacts::tests::the_progress_of_a_rotation_counts_only_for_that_rotation",
+    "identity::tests::a_snapshot_never_joins_the_progress_of_one_rotation_to_another",
+    "identity::tests::rotations_marks_and_snapshots_on_many_threads_stay_one_cut",
+    "the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further"
+   ],
+   "seconds": 365
+  },
+  {
+   "id": "CS79",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a switch counts contacts marked for any rotation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_announced_successor_is_atomic",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "contacts::tests::the_progress_of_a_rotation_counts_only_for_that_rotation",
+    "creating_a_contact_is_atomic"
+   ],
+   "seconds": 398
+  },
+  {
+   "id": "CS80",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a session of the old key confirms the new one",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_rotation_switches_and_finishes_only_when_due",
+    "an_announced_successor_is_atomic",
+    "beginning_a_rotation_is_atomic",
+    "the_progress_of_one_rotation_never_counts_for_the_next"
+   ],
+   "seconds": 399
+  },
+  {
+   "id": "CS81",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a session that outlives its identity applies what it brings",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_that_outlives_its_deleted_identity_changes_nothing",
+    "identity::tests::a_request_considered_as_the_identity_is_deleted_is_not_queued"
+   ],
+   "seconds": 363
+  },
+  {
+   "id": "CS82",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a dial that waited while its identity was deleted opens a stream",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_that_waited_for_its_slot_while_the_identity_was_deleted_opens_no_stream"
+   ],
+   "seconds": 354
+  },
+  {
+   "id": "CS83",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a message taken by a dropped receive is lost",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_message_taken_before_a_receive_was_dropped_is_still_delivered"
+   ],
+   "seconds": 358
+  },
+  {
+   "id": "CS91",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a message kept by a dropped receive comes back before the link ends",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_message_taken_before_a_receive_was_dropped_is_still_delivered"
+   ],
+   "seconds": 357
+  },
+  {
+   "id": "CS84",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an invitation card is signed before the capability is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_invitation_card_states_the_key_that_answers_when_it_is_returned",
+    "identity::tests::an_invitation_revoked_as_it_is_created_hands_out_no_card"
+   ],
+   "seconds": 375
+  },
+  {
+   "id": "CS85",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "the successor card is handed out before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_new_key_reaches_no_peer_before_it_is_durable"
+   ],
+   "seconds": 374
+  },
+  {
+   "id": "CS86",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a new identity is listed before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_new_identity_is_listed_only_once_it_is_durable"
+   ],
+   "seconds": 368
+  },
+  {
+   "id": "CS87",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "every instance of an identity is numbered alike",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "t_mi_11_an_invitation_handle_of_one_identity_is_refused_by_another",
+    "the_rotation_of_one_identity_counts_for_no_other"
+   ],
+   "seconds": 362
+  },
+  {
+   "id": "CS88",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a job stops at its bound with nobody waiting for the rest",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::changes_that_keep_coming_with_nobody_waiting_are_all_written"
+   ],
+   "seconds": 340
+  },
+  {
+   "id": "CS89",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a failed write hides what an earlier write made durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::a_write_that_failed_after_one_that_succeeded_keeps_its_success",
+    "persist::tests::nothing_is_written_once_a_write_failed_and_sessions_go_first"
+   ],
+   "seconds": 335
+  },
+  {
+   "id": "CS90",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a request is queued for an identity deleted as it is considered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_request_considered_as_the_identity_is_deleted_is_not_queued"
+   ],
+   "seconds": 351
+  },
+  {
+   "id": "CS92",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "changes a job left for its waiter wait for another change",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::changes_left_when_a_job_stops_for_its_waiter_are_written_next"
+   ],
+   "seconds": 347
+  },
+  {
+   "id": "CS93",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "waiters learn of a failure before the sessions are withdrawn",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::nothing_is_written_once_a_write_failed_and_sessions_go_first"
+   ],
+   "seconds": 369
+  },
+  {
+   "id": "CS94",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a wait starts a write after a write failed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::a_wait_sees_what_a_failing_job_made_durable",
+    "persist::tests::nothing_is_written_once_a_write_failed_and_sessions_go_first"
+   ],
+   "seconds": 365
+  },
+  {
+   "id": "CS95",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "the identities of a closed installation keep their authority",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_write_under_way_when_the_installation_closes_still_ends",
+    "closing_the_installation_ends_the_authority_of_what_it_handed_out",
+    "closing_the_installation_takes_its_services_down"
+   ],
+   "seconds": 366
+  },
+  {
+   "id": "CS96",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "an invitation handle names no instance",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "t_mi_11_an_invitation_handle_of_one_identity_is_refused_by_another"
+   ],
+   "seconds": 318
+  },
+  {
+   "id": "CS97",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a late announcement is not checked against the session it went out on",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed",
+    "identity::tests::a_confirmation_counts_for_no_contact_made_again_meanwhile"
+   ],
+   "seconds": 311
+  },
+  {
+   "id": "CS98",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a late announcement marks whatever contact holds the identity now",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed",
+    "a_late_announcement_counts_only_for_the_contact_it_was_made_to",
+    "identity::tests::a_confirmation_counts_for_no_contact_made_again_meanwhile"
+   ],
+   "seconds": 328
+  },
+  {
+   "id": "CS99",
+   "path": "crates/monolith-core/src/requests.rs",
+   "what": "every request of an identity has the same handle",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_answer_is_for_the_request_it_was_given_for",
+    "request_modes_decide_what_a_stranger_can_ask",
+    "t_confirm_1_every_fate_of_a_request_looks_the_same",
+    "t_contact_3_a_request_after_a_deletion_is_from_an_unknown_identity"
+   ],
+   "seconds": 332
+  },
+  {
+   "id": "CS100",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a deletion takes whatever identity has the keys it names",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deletion_names_the_instance_it_deletes"
+   ],
+   "seconds": 327
+  },
+  {
+   "id": "CS101",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a switch decided for one rotation switches another",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_decision_for_one_rotation_changes_nothing_in_the_next"
+   ],
+   "seconds": 361
+  },
+  {
+   "id": "CS102",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an end decided for one rotation ends another",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_decision_for_one_rotation_changes_nothing_in_the_next"
+   ],
+   "seconds": 343
+  },
+  {
+   "id": "CS103",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a block takes out a request queued after it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_block_or_an_import_takes_out_no_request_queued_after_it"
+   ],
+   "seconds": 339
+  },
+  {
+   "id": "CS104",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an import takes out a request queued after it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_block_or_an_import_takes_out_no_request_queued_after_it"
+   ],
+   "seconds": 326
+  },
+  {
+   "id": "CS105",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a card is made for a capability revoked as it is created",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::an_invitation_revoked_as_it_is_created_hands_out_no_card"
+   ],
+   "seconds": 339
+  },
+  {
+   "id": "CS106",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a closed identity shows a card it no longer answered with",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_closed_identity_shows_the_card_it_answered_with"
+   ],
+   "seconds": 334
+  },
+  {
+   "id": "CS107",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "the party that answers leaves the core",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "no_party_of_a_local_identity_leaves_the_core"
+   ],
+   "seconds": 404
+  },
+  {
+   "id": "CS108",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a card of someone who is no contact is dialed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_of_someone_who_is_no_contact_is_not_dialed",
+    "a_dial_to_an_identity_without_a_record_sends_nothing_of_the_local_identity",
+    "t_mi_8_every_dial_names_its_identity"
+   ],
+   "seconds": 551
+  },
+  {
+   "id": "CS109",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "a session reports no capability for its contact request",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_answer_is_for_the_request_it_was_given_for",
+    "request_modes_decide_what_a_stranger_can_ask",
+    "t_confirm_1_every_fate_of_a_request_looks_the_same",
+    "t_contact_1_a_flood_of_requests_leaves_the_vault_as_it_was",
+    "t_inv_10_another_capability_for_the_same_statement",
+    "t_inv_11_revoking_keeps_pending_requests_unless_asked_to_discard_them",
+    "t_inv_1_to_4_cards_with_capabilities_admit_requests_until_revoked",
+    "t_inv_5_and_6_every_dropped_request_looks_like_a_queued_one",
+    "t_inv_7_a_contact_accepted_from_a_revoked_capability_stays_accepted",
+    "t_mi_4_a_capability_of_one_identity_admits_nothing_at_another"
+   ],
+   "seconds": 453
+  },
+  {
+   "id": "CS110",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a confirmation counts for whatever contact holds the identity",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_confirmation_counts_for_no_contact_made_again_meanwhile"
+   ],
+   "seconds": 398
+  },
+  {
+   "id": "CS111",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a card the dial plan does not name is dialed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_the_dial_plan_does_not_name_is_not_dialed"
+   ],
+   "seconds": 376
+  },
+  {
+   "id": "CS112",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "any card of the contact counts as one the plan names",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_the_dial_plan_does_not_name_is_not_dialed"
+   ],
+   "seconds": 373
+  },
+  {
+   "id": "CS113",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a caller can make what a link received, or change it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "only_what_a_link_received_is_applied"
+   ],
+   "seconds": 354
+  },
+  {
+   "id": "CS116",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "an acceptance that arrived on a session counts for a contact made again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_message_of_an_ended_link_changes_no_contact_made_again"
+   ],
+   "seconds": 334
+  },
+  {
+   "id": "CS117",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "a new card that arrived on a session counts for a contact made again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_message_of_an_ended_link_changes_no_contact_made_again"
+   ],
+   "seconds": 321
+  },
+  {
+   "id": "CS118",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "what arrived on a session counts again each time it is applied",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "what_arrived_counts_once"
+   ],
+   "seconds": 305
+  },
+  {
+   "id": "CS119",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "an announcement is sent on a session it was not made for",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_announcement_is_sent_only_on_its_own_session"
+   ],
+   "seconds": 296
+  },
+  {
+   "id": "CS120",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an announcement counts without being sent",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "only_a_sent_announcement_counts"
+   ],
+   "seconds": 319
+  },
+  {
+   "id": "CS121",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a snapshot lets go of the keys between its reads",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_snapshot_is_one_cut_while_a_rotation_changes",
+    "identity::tests::rotations_marks_and_snapshots_on_many_threads_stay_one_cut"
+   ],
+   "seconds": 327
+  },
+  {
+   "id": "CS114",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a wait reads what is durable before the failure",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::a_wait_sees_what_a_failing_job_made_durable"
+   ],
+   "seconds": 312
+  },
+  {
+   "id": "CS115",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a wait whose write cannot start fails without looking again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::a_wait_sees_what_a_failing_job_made_durable"
+   ],
+   "seconds": 314
+  },
+  {
+   "id": "CS122",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "what arrived on a link that ended counts until the record forgets the link",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_message_of_an_ended_link_changes_no_contact_made_again"
+   ],
+   "seconds": 304
+  },
+  {
+   "id": "CS123",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a wait starts a write when the job before it is about to publish what is left",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::a_wait_finds_the_vault_back_once_its_outcome_is_out"
+   ],
+   "seconds": 267
+  }
+ ]
+}
