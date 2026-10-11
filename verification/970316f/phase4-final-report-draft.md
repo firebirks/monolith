@@ -5,8 +5,9 @@ of the final verification has completed. It becomes
 `STATUS.md` section 5.3 when the owner accepts it; until then Phase 4 is
 not declared complete.
 
-Points for the owner are written as `[OWNER DECISION: ...]`. No result
-in this report is inferred.
+The owner decided the four open points of this report on 2026-10-11;
+each decision is recorded where its point arises (sections 16, 18 and
+19) and listed in section 25. No result in this report is inferred.
 
 Sources: the repository at `970316f`; the outputs of the final
 verification kept on the branch `verification-970316f`
@@ -50,8 +51,12 @@ verification kept on the branch `verification-970316f`
 At the time of writing (2026-10-09, brought up to date on 2026-10-11):
 
 - Working tree of `phase-4-contact-store`: clean.
-- `phase-4-contact-store` is level with `origin/phase-4-contact-store`
-  (0 ahead, 0 behind), both at `970316f`.
+- `phase-4-contact-store` holds two document commits after `970316f`,
+  made on 2026-10-11 on the owner's decisions of sections 16 and 18,
+  local and not pushed: `8e7b5aa` (`docs/RESOURCE_LIMITS.md`) and
+  `f549842` (`docs/SECURITY_INVARIANTS.md`). They change no code, test,
+  fault or script, and no test reads either file.
+  `origin/phase-4-contact-store` is at `970316f`.
 - Pushed:
   - `phase-4-contact-store`, on the owner's request, last on 2026-10-07
     (`970316f`).
@@ -60,9 +65,9 @@ At the time of writing (2026-10-09, brought up to date on 2026-10-11):
     `6791d8c` with the draft of this report. Its commits on top of
     `970316f` add only `verification/970316f/` (the logs and results of
     the final verification, the script that ran mutation phases 3 and 4,
-    and this report). The commit that records phases 3 and 4 is local
-    and not pushed. It is a work branch, not a candidate, and is not to
-    be merged.
+    and this report). The commits that record phases 3 and 4 and the
+    owner's decisions are local and not pushed. It is a work branch,
+    not a candidate, and is not to be merged.
 - Merges: none. `main` is at `6eed860`, unchanged; it holds four
   document commits after `2f27dcb` (`86adac1` to `6eed860`) that are not
   on this branch.
@@ -499,14 +504,28 @@ handle (S40).
   `a_stranger_finds_no_slot_while_evicted_strangers_drain`,
   `a_stranger_evicted_as_its_first_message_is_taken_gets_nothing_delivered`,
   T-MI-7.
-- Finding, not Phase 4 code: `docs/RESOURCE_LIMITS.md` (paragraph "When
-  the handshake budget is full") says the oldest unauthenticated stream
-  is closed to make room for a new one; the code
-  (`crates/monolith-core/src/budget.rs`, accept loop) drops the new
-  stream and pauses for `ACCEPT_BACKOFF`, and its module doc says so.
-  The text dates from `d507ad4` and the behavior from `4a4e4b5`, both
-  before `2f27dcb`. [OWNER DECISION: correct the document, or change the
-  behavior; recorded as an open point, not fixed during the freeze.]
+- Mutation: CS24 to CS28 (newest evicted instead of oldest, a stranger
+  that has spoken evicted, draining links unbounded, one slot too many,
+  an evicted stranger's message delivered) are all caught (section 24).
+- Owner decision of 2026-10-11 (point 1): for the stranger budget that
+  Phase 4 defines, evict the oldest eligible silent unknown session, not
+  reject the newcomer. That is what `970316f` does, as above: a newcomer
+  is closed only when no held stranger is silent or the evicted ones
+  still draining fill their bound.
+- The finding raised here concerned a different budget. The handshake
+  budget (`MAX_INBOUND_HANDSHAKES`) counts streams that have not
+  authenticated, whose peer is not known yet; it dates from Phase 3 and
+  Phase 4 did not change it. `docs/RESOURCE_LIMITS.md` section 5 said
+  that the oldest unauthenticated stream is closed for a new one (text
+  from `d507ad4`), while the accept loop
+  (`crates/monolith-core/src/budget.rs`, behavior from `4a4e4b5`, both
+  before `2f27dcb`) closes the new stream and pauses for
+  `ACCEPT_BACKOFF`, as its module doc, section 12 of the same document
+  and `docs/THREAT_MODEL.md` (adversary C) already said. Since the two
+  budgets differ, the owner's decision keeps `970316f` valid and asks
+  for the documents to be clarified: `8e7b5aa` corrects the paragraph
+  and says that the two budgets are separate (section 4). Closing the
+  oldest handshake for a new one stays outside Phase 4 (section 25).
 
 ## 17. Tor supervisor and publication lifecycle
 
@@ -541,7 +560,8 @@ handle (S40).
 ## 18. Fail-closed networking
 
 - `tests/network/fail-closed.sh` (T-NET-1), run in stage 1 on
-  `970316f`: passed. Every step runs under `strace` and fails on any
+  `970316f`: passed. Its evidence is syscall observation via strace, not
+  a packet capture: every step runs under `strace` and fails on any
   datagram socket of AF_INET, AF_INET6, AF_PACKET or AF_NETLINK, on any
   port 53, and on any `connect` that is not to a Unix socket or
   loopback. Steps:
@@ -566,11 +586,18 @@ handle (S40).
   listener). Only `monolith-tor` enables tokio `net`. Clippy runs with
   `-D warnings` (stage 1, passed).
 - Also in the private Tor network test: steps 10 and 11 (section 19).
-- Gaps, not Phase 4 work: S32 cites T-NET-1 for "an idle run produces no
-  traffic besides Tor's own", but `fail-closed.sh` has no idle step;
-  the script uses strace rather than the packet capture that
-  `docs/TEST_PLAN.md` T-NET describes. [OWNER DECISION: record or
-  close.]
+- Owner decision of 2026-10-11 (point 2), S32 idle traffic: not a
+  blocker. `docs/SECURITY_INVARIANTS.md` cited T-NET-1 for "an idle run
+  produces no traffic besides Tor's own" (text from `d507ad4`, before
+  `2f27dcb`), but `fail-closed.sh` has no idle step, so T-NET-1 did not
+  verify it. The idle run of `docs/TEST_PLAN.md` section 11 is a
+  pre-existing plan item with no test, and it was not run in the final
+  verification. `f549842` removes the claim from S32 (section 4).
+- Owner decision of 2026-10-11 (point 3): T-NET-1 uses syscall
+  observation via strace where `docs/TEST_PLAN.md` section 11 describes
+  a packet capture. Accepted: it is valid evidence that the process
+  fails closed, different from what the test plan describes, and it is
+  not a packet capture.
 
 ## 19. Private Tor E2E
 
@@ -578,7 +605,10 @@ handle (S40).
   authorities (also relays), 5 relays (HSDirs), 2 clients; no public
   relay, no Internet. Debian 12 image (`tests/tor-network/Dockerfile`).
   Tor 0.4.9.13 (from the run's log; the Dockerfile installs `tor` from
-  deb.torproject.org without pinning a version).
+  deb.torproject.org without pinning a version or an image digest).
+- Owner decision of 2026-10-11 (point 4): accepted. The test ran with
+  Tor 0.4.9.13; pinning the version or the digest is infrastructure
+  hardening, not a condition of closing Phase 4.
 - Run on `970316f`, 2026-10-08, with `RESTART_CYCLES=15` and the default
   `RECOVERY_WINDOW` of 240 s: all steps passed, "Private Tor network
   test passed", exit 0 (`verification/970316f/stage2/tor.log`).
@@ -878,11 +908,21 @@ failing test except K4 (below).
   - an admission that fails after changing a record: no path reaches
     it.
 - Open points found while drafting this report (pre-existing, not
-  Phase 4 changes): the handshake budget text of
-  `docs/RESOURCE_LIMITS.md` (section 16); the idle-traffic claim of S32
-  and the strace-versus-capture difference of T-NET-1 (section 18);
-  the Tor version not pinned in the Dockerfile (section 19).
-  [OWNER DECISION on each.]
+  Phase 4 changes), decided by the owner on 2026-10-11:
+  1. The handshake budget text of `docs/RESOURCE_LIMITS.md`: a budget
+     other than the stranger budget of Phase 4, which evicts the oldest
+     silent stranger as chosen; text corrected (`8e7b5aa`), code
+     unchanged (section 16).
+  2. The idle-traffic claim of S32: not a blocker; no longer credited to
+     T-NET-1 (`f549842`); no test, not run in the final verification
+     (section 18).
+  3. T-NET-1 by syscall observation via strace instead of a packet
+     capture: accepted (section 18).
+  4. Tor not pinned in the Dockerfile: accepted; the test ran with Tor
+     0.4.9.13 (section 19).
+- Left outside Phase 4 by those decisions: closing the oldest handshake
+  for a new one, a test of the idle run, and pinning the Tor version or
+  image digest of `tests/tor-network/Dockerfile`.
 - Deferred, outside Phase 4 (`STATUS.md` 5.5): the session manager with
   the duplicate rule and per-contact rates, the reconnect scheduler,
   the outbound queue and the message store (ST1), the command and event
@@ -898,8 +938,8 @@ Every stage of the final verification ran on `970316f` and matched its
 expectations:
 
 - stage 1: fmt, clippy, deny, audit, the duplicate check, the fuzz
-  build, T-NET-1 and the identity check passed; 682 tests passed on
-  1.95.0, 1.85.1 and stable each;
+  build, T-NET-1 (syscall observation via strace) and the identity
+  check passed; 682 tests passed on 1.95.0, 1.85.1 and stable each;
 - stage 2: the fuzz smoke run of the 16 targets and the eight runs of
   10 minutes ended without a crash; the private Tor network test passed
   all 12 steps and 15 of 15 restart cycles;
@@ -908,6 +948,14 @@ expectations:
   unexpected, runner exit 0 in all four phases; each fault that reached
   the timeout (T6, Q1, CS30) also makes named tests fail, so none is a
   survivor hidden by the timeout (section 24).
+
+The owner decided the four open points on 2026-10-11 (section 25). The
+one that could have blocked the verdict, the eviction policy, concerns
+the handshake budget, not the stranger budget of Phase 4, which evicts
+the oldest silent stranger as the owner chose (section 16); its
+resolution is a correction of a document. The two document commits after
+`970316f` (`8e7b5aa`, `f549842`) change no code, test, fault or script,
+so the results above hold for them.
 
 Verdict for the owner's decision (`STATUS.md` 5.2: the owner decides
 whether Phase 4 is complete):

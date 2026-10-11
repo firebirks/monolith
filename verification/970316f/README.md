@@ -18,7 +18,8 @@ All passed; see `stage1/summary.txt` and the logs beside it.
 - cargo audit: 82 dependencies, no vulnerabilities.
 - `cargo tree -d`: only `rand_core` 0.9.5 (proptest, dev) and 0.10.1
   (x25519-dalek), as recorded in deny.toml.
-- Fuzz targets build; T-NET-1 (fail-closed network) passed.
+- Fuzz targets build; T-NET-1 (fail-closed network, by syscall
+  observation via strace) passed.
 - 171 commits since `2f27dcb`, all with firebirks as author and committer.
 
 ## Stage 2: fuzzing and the private Tor network
@@ -93,6 +94,6 @@ phase, so copy the phase file aside first.
 
 `phase4-final-report-draft.md` is the Phase 4 final report (the 26
 items of the brief), complete now that every stage of the final
-verification has run. Points for the owner are marked
-`[OWNER DECISION: ...]`. It becomes `STATUS.md` section 5.3 when the
-owner accepts it; until then Phase 4 is not declared complete.
+verification has run. The owner decided its four open points on
+2026-10-11; they are recorded in it. It becomes `STATUS.md` section 5.3
+when the owner accepts it; until then Phase 4 is not declared complete.
