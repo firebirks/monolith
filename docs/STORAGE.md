@@ -1,9 +1,10 @@
 # Storage
 
-Status: provisional design. No storage code exists, and none is written in
-Phase 1. The vault structure (section 3) is proposed for Phase 4; its KDF
-defaults wait for measurements (section 3.3). The message store (section 5)
-is an open decision.
+Status: the vault (section 3) is implemented in Phase 4, in
+`monolith-storage`, with the record layout of section 3.4 and the crash
+tests of section 8. Its KDF defaults are provisional until the benchmark of
+section 3.3 has been run on every target. The message store (section 5) is
+an open decision.
 
 ## 1. What is stored, and where
 
@@ -78,9 +79,10 @@ section 1.1). Every stored record belongs to one of them:
   held by another local identity is refused at creation, import or
   restore (S39).
 
-Whether ephemeral and persistent identities can be mixed in one process,
-and so whether `StateMode` is per identity or per installation, is open
-item ST7.
+Ephemeral and persistent identities are not mixed in one process in
+version 1: `StateMode` belongs to the installation (ST7, decided in Phase
+4). A persistent installation keeps every identity it holds in its vault;
+an ephemeral one writes nothing.
 
 ## 2. Threat addressed
 
@@ -188,9 +190,14 @@ What is fixed regardless of the final numbers:
   so a vault stays decryptable when the default changes later.
 - Defaults only move up. A vault created with weaker parameters keeps
   working and is re-wrapped with the current default the next time its
-  passphrase is changed.
+  passphrase is changed. (Phase 4: `Vault::change_passphrase` takes the
+  parameters to wrap with; the installation offers no passphrase change
+  yet, so the upgrade comes with the interface.)
 - Monolith runs one key derivation at a time. A second unlock attempt waits
   for the first, so concurrent attempts cannot multiply the memory use.
+  (Phase 4: the lock of the vault directory refuses a second open of the
+  same vault while one holds it, in this process or another; the
+  derivations of different vaults in one process are not serialized yet.)
 
 #### Benchmark required before the default is frozen
 
@@ -217,8 +224,28 @@ is not traded away for convenience: the answer to a slow unlock on a small
 machine is a documented choice for that machine, not a lower default for
 everyone.
 
-Results: not measured yet. The final default is recorded here together
-with the measurements that justify it.
+Results so far, with the implementation of Phase 4
+(`crates/monolith-storage/tests/kdf_benchmark.rs`, built with
+optimization, ten unlocks per setting), 2026-10-05:
+
+| Machine | Setting | Median | Worst | Peak resident |
+| --- | --- | --- | --- | --- |
+| Desktop, Intel Core i5-11400, 12 threads, 32 GB, Debian 12 | 64 MiB, 3, 4 (floor) | 118 ms | 159 ms | 65 MiB |
+| same | 256 MiB, 3, 4 (proposed default) | 464 ms | 522 ms | 257 MiB |
+| same | 256 MiB, 3, 2 | 390 ms | 456 ms | 257 MiB |
+| same, in a container limited to 2 CPUs and 2 GB | 64 MiB, 3, 4 | 92 ms | 95 ms | 65 MiB |
+| same | 256 MiB, 3, 4 | 391 ms | 444 ms | 257 MiB |
+| same, limited to 1 CPU and 1 GB | 64 MiB, 3, 4 | 97 ms | 112 ms | 65 MiB |
+| same | 256 MiB, 3, 4 | 382 ms | 410 ms | 257 MiB |
+
+The `argon2` crate is used without its `parallel` feature, so the lanes
+are computed one after another on one thread: the number of lanes changes
+little, and a limit on processors does not slow an unlock down. A
+container limit does not model a slower processor or the memory pressure
+of a small virtual machine; the four targets above remain to be measured,
+and the default stays provisional until they are (ST6). On the desktop
+the proposed default costs half a second and 257 MiB once per start, and
+no run came near the memory limit of the container.
 
 Accepted when reading a header (`limits.rs`): memory from 64 MiB to 1 GiB,
 iterations from 3 to 16, parallelism from 1 to 8. Values outside are
@@ -235,10 +262,35 @@ will never be the only one.
 ### 3.4 Payload
 
 A versioned sequence of typed records in the same fixed-layout style as the
-wire protocol: identity, endpoint, invitations, contacts, block list,
-declined list, settings, each set of them belonging to one local identity
-(section 1.1). The exact record layout is written down with the
-Phase 4 implementation and becomes part of this document.
+wire protocol, each set of them belonging to one local identity (section
+1.1). Version 1 (`monolith-storage`, `record.rs`): big-endian integers,
+a presence byte (0 or 1) before every optional field, and a 16-bit length
+before every field of variable size.
+
+    payload     u16 version (1), u32 records length, records, zero padding
+    records     u16 identity count, identity*
+    identity    u8 tag (1), identity seed [32], transport secret [32],
+                presence + Onion Service secret [64], card epoch u64,
+                endpoint [32], presence + rotation, request mode u8,
+                presence + local label, u8 invitation count, invitation*,
+                u16 contact count, contact*, u16 blocked count, key [32]*,
+                u16 declined count, key [32]* (oldest first)
+    rotation    new transport secret [32], successor epoch u64, switched u8
+    invitation  capability [16], presence + local label
+    contact     kind u8 (1 requested, 2 accepted), active card,
+                presence + authorized successor card, presence + pending
+                card, pending was imported u8, presence + retired key [32],
+                presence + capability [16], card confirmed for dialing,
+                verified u8, presence + alias, successor announced u8,
+                successor promoted u8
+    card        u16 length, the card as on the wire (section 11.1 of
+                PROTOCOL.md)
+    label       u16 length, display-name text (section 9 of PROTOCOL.md)
+
+Secrets are the bytes the keys were made from; the key types themselves
+cannot be exported. The local card is not stored: it is signed again
+from the seed, the transport key, the epoch and the endpoint when the
+vault is opened.
 
 Rules that are fixed now:
 
@@ -249,7 +301,21 @@ Rules that are fixed now:
 - A reader that meets a record type or payload version it does not know
   refuses to open the vault. It does not skip and continue.
 - The payload is bounded: the file is at most `MAX_VAULT_FILE_LEN`, and
-  every count in it is checked against the limits in `limits.rs`.
+  every count in it is checked against the limits in `limits.rs` before
+  anything is allocated for it.
+- Everything read is validated again: cards are decoded and their
+  signatures verified, credentials are rebuilt with `Credentials::restore`,
+  which refuses any state no transition could have produced, labels pass
+  the display-name rules, no remote identity has two records, secrets of
+  zero bytes are refused, and a rotation must move the epoch forward with
+  another key: another public key, since X25519 clamps the scalar and two
+  secrets can be one key. Opening also refuses two identities that share a
+  key (S39). Padding after the records must be zero, so a payload has one
+  valid encoding.
+- What is written is what can be read back: creating, restoring and
+  rotating an identity apply the same rules to the secrets before they are
+  accepted (`record::is_usable_secret`), so no accepted identity makes the
+  vault fail to open.
 
 ### 3.5 Writing
 
@@ -341,9 +407,11 @@ targets, opened with
     store_key = HKDF-SHA256(vault_key, info = "MONOLITH-MESSAGE-STORE-V1")
 
 passed as a raw key so that SQLCipher's own passphrase KDF is not used. All
-statements are parameterized. The decision is not final; it is revisited at
-the start of Phase 4 with the dependency review in ADR 0005. Because history
-is off by default, the choice does not block earlier phases.
+statements are parameterized. The decision is not final; it is taken with
+the outbound queue and the message store, which follow Phase 4 (ST1,
+`DESIGN_QUESTIONS.md` section 11.3), with the dependency review in ADR
+0005. Because history is off by default, the choice does not block earlier
+phases.
 
 ## 6. Deleting
 
@@ -394,33 +462,58 @@ must find:
 | Queue update | no message lost that was acknowledged to the user as queued, when the store is enabled |
 | File completion | final file complete, or absent |
 
-Each has a test that kills the write at every step (T-CRASH).
+Each has a test that kills the write at every step (T-CRASH): the vault's
+own tests stop a write and a creation at each step of `MemoryDir`
+(creating the file, writing each half, flushing it, renaming or linking,
+flushing the directory), under four outcomes of a crash (names that were
+not flushed kept or lost, contents that were not flushed lost or torn), and
+`tests/store.rs` in the core does the same for contact creation, card
+update, announced successor, promotion, block, deletion, invitation
+creation and revocation, the start of a rotation and identity creation. A
+new process finds the state before or the state after, never a lower
+epoch and never a retired key active again. Queue update and file
+completion come with the message store and file transfer.
+
+What is written is used only once it is durable (`DESIGN_QUESTIONS.md`
+P4-4). The write is a job of its own on the blocking pool, which ends the
+same way whatever becomes of the task that started it: a cancelled wait
+loses neither the vault nor the lock of its directory. It writes one cut
+through every identity, its keys, its rotation and the progress contacts
+made in that rotation, its settings, its active set and its contact
+store, so a vault never holds an operation half done, more entries than
+a bound, or the progress of one rotation stored with another. A step of a rotation reaches peers only
+once it is in the vault, so a crash never leaves a contact with a key the
+vault does not hold. A new data directory is flushed into its parent
+before the vault in it is reported created.
 
 ## 9. Open items
 
 ST1. Message store choice (section 5).
 
-ST2. Locking mechanism. `std::fs::File::try_lock` needs Rust 1.89, above the
-     current minimum of 1.85. Either raise the minimum or use a small
-     dependency.
+ST2. Locking mechanism. Decided in Phase 4: an exclusive, non-blocking
+     `flock` on the `lock` file through `rustix`, which the operating
+     system releases when the process ends.
 
 ST3. Whether to keep one previous vault generation for recovery from
      logical corruption. It would keep deleted data around and enable
      rollback by accident. Currently not kept.
 
 ST4. Whether the ownership and permission checks in 3.7 can be done without
-     `unsafe` or a new dependency.
+     `unsafe` or a new dependency. Decided in Phase 4: with `rustix`
+     (`fstat`, `getuid`), without `unsafe` in Monolith; every file is
+     opened relative to the directory's descriptor with `O_NOFOLLOW`.
 
 ST5. Passphrase strength policy. Currently a non-empty passphrase and a
      warning for short ones.
 
 ST6. Default Argon2id parameters. Provisional until the benchmark of
-     section 3.3 has been run.
+     section 3.3 has been run on the four targets; Phase 4 measured the
+     development machine only.
 
 ST7. With several local identities (section 1.1): whether `StateMode` and
      `HistoryPolicy` are chosen per identity or for the installation, and
      the record layout that scopes every record to its identity. Decided
-     with the vault in Phase 4.
+     in Phase 4: per installation; the layout is section 3.4.
 
 ## 10. Sources
 

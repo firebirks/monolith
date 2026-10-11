@@ -31,7 +31,9 @@ pub const fn encoded_len(len: usize) -> Option<usize> {
 
 /// Encodes bytes as upper-case base32 without padding.
 pub fn encode(input: &[u8]) -> String {
-    let mut out = String::new();
+    // The whole length at once: a string that grew would leave copies of
+    // what it held (a card with a capability) in the buffers it freed.
+    let mut out = String::with_capacity(encoded_len(input.len()).unwrap_or(0));
     for chunk in input.chunks(GROUP_BYTES) {
         let mut b = [0_u8; GROUP_BYTES];
         for (dst, src) in b.iter_mut().zip(chunk) {

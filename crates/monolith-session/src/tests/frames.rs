@@ -11,8 +11,8 @@ use monolith_protocol::{MessageType, ProtocolError, SessionState};
 
 use crate::session::SessionLimits;
 use crate::testing::{
-    ALICE, BOB, MALLORY, Pair, admit_outbound, after, card, card_of, chat, confirmed, connect,
-    deliver, handshake, party, request_with, sample, start,
+    ALICE, BOB, MALLORY, Pair, after, card, card_of, chat, confirmed, connect, deliver, handshake,
+    party, request_with, sample, start,
 };
 use crate::{AuthenticatedSession, SessionError};
 
@@ -24,8 +24,8 @@ fn failed(error: ProtocolError) -> SessionError {
 pub(super) fn confirmed_with(limits: SessionLimits) -> Pair {
     let alice = party(ALICE).with_limits(limits);
     let bob = party(BOB).with_limits(limits);
-    let (outbound, inbound, _) = handshake(&alice, &bob);
-    let (mut initiator, initiator_first) = admit_outbound(outbound, Standing::Accepted);
+    let (mut initiator, initiator_first, inbound, _) =
+        handshake(&alice, &bob).admit_as(Standing::Accepted);
     let (mut responder, _, responder_first) = inbound
         .admit(PeerRecord::Accepted(&mut Credentials::new(card(ALICE))))
         .unwrap();
@@ -293,9 +293,20 @@ fn a_frame_of_another_session_or_direction_is_rejected() {
             crate::HandshakeInitiator::start(&party(ALICE), &card(BOB), start()).unwrap();
         let waiting = crate::HandshakeResponder::new(&party(BOB), start()).unwrap();
         let (waiting, message_2) = waiting.read_message_1(&message_1, start()).unwrap();
-        let (outbound, message_3) = first.read_message_2(&message_2, start()).unwrap();
-        waiting.read_message_3(&message_3, start()).unwrap();
-        let (mut old, _) = admit_outbound(outbound, Standing::Accepted);
+        let outbound = first.read_message_2(&message_2, start()).unwrap();
+        let crate::OutboundAdmission::Granted {
+            session: mut old,
+            message_3,
+            ..
+        } = outbound
+            .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+            .unwrap()
+        else {
+            panic!("refused");
+        };
+        waiting
+            .read_message_3(message_3.as_bytes(), start())
+            .unwrap();
         old.send(&Message::ContactAccept, start()).unwrap()
     };
     let alice_card = card(ALICE);
@@ -877,7 +888,6 @@ fn the_protocol_limits_are_the_default() {
     // A party keeps the limits it was given.
     let reduced = limits(60, 120, 10, 1 << 20);
     let local = party(ALICE).with_limits(reduced);
-    let (outbound, _, _) = handshake(&local, &party(BOB));
-    let (session, _) = admit_outbound(outbound, Standing::Accepted);
+    let (session, _, _, _) = handshake(&local, &party(BOB)).admit_as(Standing::Accepted);
     assert_eq!(session.expires_at(), Some(after(Duration::from_secs(60))));
 }

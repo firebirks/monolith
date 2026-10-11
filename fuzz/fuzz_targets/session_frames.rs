@@ -49,7 +49,7 @@ use monolith_protocol::session::{Action, PeerRecord, Standing};
 use monolith_protocol::text::ChatText;
 use monolith_protocol::{ProtocolError, SessionState};
 use monolith_session::{AuthenticatedSession, Expiry, SessionError};
-use session_fixtures::{ALICE, BOB, card, handshake, start};
+use session_fixtures::{ALICE, card, handshake, start};
 
 /// The age at which a session sends nothing but Close
 /// (`docs/PROTOCOL.md` section 7.1).
@@ -123,10 +123,7 @@ fn rank(state: SessionState) -> u8 {
 
 impl World {
     fn new(piece: usize) -> Self {
-        let (outbound, inbound, _) = handshake();
-        let (mut alice, _, _) = outbound
-            .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
-            .unwrap();
+        let (mut alice, inbound, _) = handshake();
         let (mut bob, _, _) = inbound
             .admit(PeerRecord::Accepted(&mut Credentials::new(card(ALICE))))
             .unwrap();

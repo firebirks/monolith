@@ -225,19 +225,19 @@ Nothing below is settled. Each is described in the document named.
 | P5 | Keep profile text in version 1 | PROTOCOL.md 17 |
 | P6 | Message ordering across reconnects | PROTOCOL.md 17 |
 | P8 | A responder that answers two transport keys at once during a rotation (the bounded overlap itself is decided) | PROTOCOL.md 17 |
-| CR-1 | Timing of a rotation: when the identity switches to the new key, and how long the old one is kept | DESIGN_QUESTIONS.md 8.2 |
 | CR-2 | A recipient-bound card format for per-contact endpoints | DESIGN_QUESTIONS.md 8.2 |
 | CR-3 | A bound on how far an epoch may jump in one card | DESIGN_QUESTIONS.md 8.2 |
 | P9 | Whether the card in a ContactRequest is still needed | PROTOCOL.md 17 |
-| - | The value of `MAX_ACTIVE_INVITATIONS` | RESOURCE_LIMITS.md 5 |
-| - | One evaluation of a card for the import by the user and the admission of a peer, in the contact store of Phase 4 | ARCHITECTURE.md 1.2 |
-| MI-1 to MI-4 | Several local identities: a target port per identity on Tails and Whonix, budget values and the number of identities, mixed storage modes, the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
+| MI-1, MI-4 | Several local identities: a target port per identity on Tails and Whonix, and the phase that offers several in the interface | DESIGN_QUESTIONS.md 7 |
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
 | T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
 | W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
-| ST1 to ST7 | Message store, locking, previous generation, permission checks, passphrase policy, Argon2id defaults (benchmark pending), storage mode per identity | STORAGE.md 9 |
+| ST1, ST3, ST5, ST6 | Message store, previous generation, passphrase policy, Argon2id defaults (measured on the development machine only; the four targets of STORAGE.md 3.3 remain) | STORAGE.md 9 |
+| - | Closing the oldest unauthenticated stream for a new one when the handshake budget is full | RESOURCE_LIMITS.md 5, 12 |
+| - | A test of the idle run of S32: no traffic besides Tor's own | TEST_PLAN.md 11 |
+| - | Pinning the Tor version or the image digest of the private network test | tests/tor-network/README.md |
 | A3, A4 | Configuration format, CLI parser | ARCHITECTURE.md 13 |
 | - | GUI toolkit | ADR 0006 |
 | - | Security contact address and key | SECURITY.md |
@@ -619,10 +619,12 @@ MI-1. The Tails and Whonix profiles fix the target port at 29170, so all
       at a time receives streams on those platforms. Phases 6 and 7.
 
 MI-2. The values of the per-identity and process-wide budgets, and the
-      number of local identities one process may hold. Phase 4.
+      number of local identities one process may hold. Decided in Phase
+      4: section 11, P4-7.
 
 MI-3. Whether ephemeral and persistent identities can be mixed in one
-      process (`STORAGE.md` ST7). Phase 4.
+      process (`STORAGE.md` ST7). Decided in Phase 4: section 11, P4-6;
+      not in version 1.
 
 MI-4. Which phase offers several identities in the interface. Not
       decided; Phase 4 builds identity-scoped storage either way.
@@ -782,7 +784,8 @@ C-E (rotation). The identity keeps the old key while it rotates: it
     time. Simultaneous rotation completes as long as both old keys answer
     until the successors were exchanged; if both disappear first, nothing
     is taken over and the recovery is an out-of-band card the user
-    confirms. When to switch (CR-1) is set with the contact store.
+    confirms. When to switch (CR-1) is set with the contact store:
+    section 11, P4-10.
 
 C-F (per-contact endpoints). Withdrawn from `PROTOCOL.md` 11.4 and ADR
     0001. Version 1 cards are bearer statements under one epoch per
@@ -1337,3 +1340,441 @@ Notes kept for the record:
   the session stream closed; intermediate base64 copies of a key erased;
   the trust placed in the control endpoint documented (`THREAT_MODEL.md`
   adversary O).
+
+## 11. Phase 4: the contact store
+
+Phase 4 began on 2026-10-05 from `2f27dcb`, the commit of the final
+verification of Phase 3, on the branch `phase-4-contact-store`. Its brief:
+one durable, transactional and authoritative contact subsystem, one
+answer to what a card means whatever path it took, per-contact
+serialization, retirement of live sessions, message 3 behind the
+authoritative admission, invitations and several identities through the
+store, the budget for strangers, the publication supervisor, and the
+rotation and dialing policy. No change of Noise XK or of the wire format.
+
+### 11.1 What Phase 3 left, and what became of it
+
+- Import and admission judged a card of another key that is newer than
+  the active card and older than the announced successor differently:
+  pending when imported, stale when proven. Resolved by 11.2, P4-1.
+- `HandshakeInitiator::read_message_2` returned message 3 before any
+  admission; only `link::dial` enforced the gate. Resolved by P4-2.
+- A withdrawal that coincides with a write timeout may be reported as
+  `TimedOut`. Kept, and tested in the store era: whichever is reported,
+  the link is over and every later call fails at once
+  (`link::tests`).
+- What `ARCHITECTURE.md` section 1.2 said the store had to add:
+
+  | Item | Where |
+  | --- | --- |
+  | one lock, or one transaction, per contact around lookup, admission and keeping the withdrawal | P4-3 |
+  | withdrawal of the sessions of a retired key in the step of the promotion, and of an identity whose record is deleted or blocked | P4-5 |
+  | the confirmation and import actions on top of `Credentials` | P4-1, P4-3 |
+  | persisting the credentials atomically, before the result is used | P4-4, P4-6 |
+  | forgetting the withdrawals of links that ended, also those `answer` refused after the admission | P4-5 |
+  | the timing of a rotation and of the switch to the new key | P4-10 |
+  | the dial card the user confirmed, apart from the credentials | P4-11 |
+  | one evaluation of a card for the import and the admission | P4-1 |
+
+### 11.2 Decisions
+
+P4-1 One evaluation of a card. `Credentials::relation` classifies a card
+    against the credentials the same way whatever its source: the same
+    statement, an older card of the active key, a newer card of the
+    active key, the authorized successor's key, a new key, a conflict,
+    stale. `Credentials::evaluate` applies one table from relation and
+    source to an outcome and the credentials after it; `apply` makes the
+    change. `contact::decide` adds the kind of record and the standing of
+    a session, and is the only interpreter of a card of a known identity:
+    `PeerRecord::admit` and `import`, and every operation of the contact
+    store, call it. The old entry points (`admit`, `announce`, `confirm`,
+    `import`, `replace`) delegate to the table. Where Phase 3 judged one
+    card two ways, the conservative reading was taken: a card of another
+    key that is not newer than the authorized successor is stale from
+    every source, so an import no longer holds it as pending; a pending
+    card that a later announcement through the active key supersedes is
+    dropped; an older card of the active key is `Superseded` from every
+    source and changes nothing. A key the identity superseded through
+    its active key cannot be confirmed into place. Tests: the exhaustive
+    table of `credential::tests::table` against a model written from
+    `PROTOCOL.md` section 11.4, every record kind in every context
+    (`contact::tests`), fuzz target `credential_sequence`.
+
+P4-2 Message 3 in the admission. `read_message_2` returns the
+    authenticated responder and keeps the handshake state;
+    `OutboundPeer::admit` makes message 3 only for a standing that may
+    learn the local identity and returns it with the session, and for any
+    other returns the admission alone, so no message 3 exists for a peer
+    that may not have it. `link::dial` takes the local identity, not an
+    admission function: the store admits under the lock of the contact,
+    the dial waits until the state the admission depended on is durable,
+    and writes message 3 unless the session was withdrawn meanwhile. The
+    wire bytes and the known-answer vectors are unchanged. A source scan
+    (`tests/structure.rs` in the core) checks that only the store admits
+    an outbound peer and that `link::dial` writes the message 3 of a
+    granted admission once.
+
+P4-3 The contact store. One store per local identity; one slot per
+    remote identity, with its own lock, holding its record (declined,
+    blocked, requested or accepted), for a contact the credentials, the
+    card confirmed for dialing, the verification mark, the alias and the
+    rotation marks, and the sessions admitted as the contact's. Every
+    operation on one identity takes its lock, works on memory and lets
+    go: they happen in the order they took it. The map lock is taken
+    before a slot's and never while one is held; an identity without a
+    slot is decided on under the map lock. No lock is held across an
+    `await`. Operations on different contacts do not wait for each other.
+    Tests: concurrent operations give the results and the state of one
+    of their serial orders (`tests/store.rs`), different contacts lose
+    nothing, a block that races an admission leaves no contact session
+    standing.
+
+P4-4 Commit before use. A change is applied in memory under its lock and
+    stamped with the next generation of the installation. Revocations
+    act at once. Anything that grants (message 3, a returned link, the
+    success of a user command) waits until its generation is durable;
+    with a vault a waiter that finds no write under way starts a job on
+    the blocking pool, which writes the whole installation, puts the vault
+    back and publishes the outcome, however the waiter ends, and later
+    waiters find their generation covered. The snapshot it writes is one
+    cut through every store. A crash between a change and its write
+    loses the change and everything that depended on it, none of which
+    was used. A failed write marks the installation failed: every session
+    is withdrawn and every later change and admission refused, until the
+    process starts again.
+
+P4-5 One rule for live sessions. After every change of a slot, each
+    session admitted as the contact's whose card no longer stands for a
+    requested or accepted contact is withdrawn in the same step, and the
+    links that ended are forgotten. That covers a promotion that retires
+    a key, a block, a deletion, a confirmation of a pending key, and any
+    later transition. Sessions admitted with another standing stay on the
+    path of a stranger. Sessions do not survive a restart, so a restart
+    cannot bring back a privilege the store revoked.
+
+P4-6 The vault. Implemented as `STORAGE.md` section 3 specifies, with the
+    payload layout of section 3.4 now written down. Decided with it: the
+    lock of ST2 is an exclusive `flock` through `rustix`, which also
+    gives the owner and permission checks of ST4 without `unsafe`; ST7
+    and MI-3, `StateMode` is per installation in version 1: one vault
+    holds every identity of a persistent installation, and an ephemeral
+    installation holds only ephemeral ones. `MemoryDir` models what a
+    crash leaves after each step of a write. New dependencies: `argon2`
+    0.6.0, `hkdf` 0.13.0, `rustix` 1.1.5, `unicode-normalization`
+    0.1.25 (`DEPENDENCIES.md`).
+
+P4-7 Budgets of several identities (MI-2). Per identity: 16 inbound
+    handshakes, 4 strangers, 256 contact sessions. Per process: 32
+    inbound handshakes, 512 contact sessions, 4 dials, 8 local
+    identities. Provisional, like the other values of
+    `RESOURCE_LIMITS.md` section 5.
+
+P4-8 Strangers. When the budget for strangers of an identity is full, the
+    oldest silent stranger is evicted with a Close and the newcomer takes
+    its slot; a stranger that has spoken is never evicted; evicted links
+    that have not ended are bounded by the same number, so at most twice
+    the budget exist at any moment. A contact is never in this budget.
+    Definitions in `crate::strangers`.
+
+P4-9 The supervisor. One per identity: publishes the service from the key
+    the identity holds, runs its accept loop, reports it unavailable when
+    Tor loses it, and publishes it again under the same name, after the
+    reconnect delays of `RESOURCE_LIMITS.md` section 7. An identity
+    without a stored key is not published again (`Publication::NoKey`).
+    Shutdown ends it at once.
+
+P4-10 Rotation (CR-1). One rotation at a time. Beginning one makes the
+    new key and the successor card at the next epoch and stores both
+    before anything is announced; the identity goes on answering with the
+    old key. The successor is announced in an EndpointUpdate on every
+    confirmed session made with the old key with an accepted contact that
+    was not sent it yet. The switch, from which the identity answers with
+    the new key and dials with it every contact that was sent the
+    successor, is due once every accepted contact was sent it, or when
+    the user says so. The rotation ends, and the old key is dropped, once
+    every accepted contact confirmed a session made with the new key, or
+    when the user says so. Until then contacts that were not sent the
+    successor are dialed with the old key, which announces it to them.
+    Each step reaches peers only once it is durable: the successor is
+    announced, shown as the successor card, and the new key answers,
+    dials and is handed out, from the generation that wrote the step
+    (section 11.4). Each rotation has a
+    number of its own, and what a contact did (it was sent the successor,
+    it confirmed the new key) is recorded for that number: an
+    announcement is completed with what it was made for, its rotation,
+    its contact (that very record, not another one made later for the
+    same identity) and its session, and a completion that comes after
+    any of them changed counts for nothing. A confirmation counts for
+    the contact its session was admitted for, read and marked in one
+    step, and not for a record made again for the identity meanwhile.
+    The switch and the end read their condition with the keys held,
+    against the rotation they change, and a snapshot stores the rotation
+    with the progress made for it and nothing else.
+
+P4-11 Dialing. The cards dialed for a contact are its authorized
+    successor, if it states the endpoints the user confirmed, and then
+    the active key at those endpoints: the active card if it states them,
+    the confirmed card if it states the active key. A pending successor
+    and the retired key are never dialed, and a promotion that changed
+    the endpoints leaves the contact undialed until the user confirms the
+    new card. Importing a card that changes the active card, and
+    confirming a pending card, confirm it for dialing. `link::dial`
+    dials only a card the plan names when the dial starts, before a
+    stream is opened: a card of an identity that is not a contact is
+    refused (`LinkError::Refused`), and any other card the plan does not
+    name fails with `LinkError::NoEndpoint`. A card that differs from a
+    planned one only in its invitation capability states the same and
+    is dialed. The plan a caller gets holds the local card, not the
+    party.
+
+P4-12 Invitations. `MAX_ACTIVE_INVITATIONS` stays 16. A capability is
+    durable before the card that carries it is returned; revocation is
+    durable; revoking and discarding removes exactly the pending requests
+    that capability admitted. Version 1 has no expiry and no use counter
+    (`PROTOCOL.md` section 12.2), so redemption is a request that enters
+    the queue, which lives in memory, and acceptance is the durable
+    creation of a contact.
+
+P4-13 Records. An import of a blocked identity is refused until the user
+    unblocks it; an import of a declined identity makes it a requested
+    contact and removes it from the declined list. A confirmation is for
+    a contact only.
+
+P4-14 Several identities. `Installation::restore_identity` brings in an
+    identity from its key material with the checks of S39, which also run
+    when a vault is opened. The installation owns its identities: an
+    identity whose installation is gone refuses every change and admits
+    nobody. Deleting an identity closes it before it leaves the
+    installation: it refuses every change and admission, holds no Onion
+    Service key, and its accept loop and supervisor end and remove its
+    service (section 11.4).
+
+P4-15 Testing aids. `dev-node`, a node over a persistent vault driven by
+    commands on standard input, is what the private network test drives;
+    it is not the product's interface. `Budgets::with_limits` lowers the
+    process budgets.
+
+### 11.3 Not part of Phase 4
+
+The brief of Phase 4 is the contact store, persistence, lifecycle and
+credential convergence. The rest of the "contacts and queue" line of
+`ARCHITECTURE.md` section 12 is not in it and is listed as work before
+Phase 5 in `STATUS.md`: the session manager that runs the duplicate rule
+and the per-contact rates, the reconnect scheduler, the outbound queue
+and the message store (ST1), and the command and event interface of
+section 4 for a front end. The review of `MaxStreams` (C1, T3-6) and the
+KDF benchmark on the four targets of `STORAGE.md` section 3.3 are also
+still open.
+
+### 11.4 The review of the Phase 4 code
+
+An independent review of the Phase 4 code, before its final
+verification, found no path that gives a contact session or message 3 to
+a key or a record that does not stand. It found the following, each
+verified and fixed with a test and a mutation fault:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| A waiter for durability that was cancelled (a deadline, an aborted accept loop) dropped the vault and the lock of its directory, and the installation was not marked failed; later waits failed while changes were still made in memory. | A job on the blocking pool takes the vault, writes, puts it back and publishes the outcome itself, however the waiter ends. | `d5f7721` | `persist::tests`, CS45 |
+| A waiter could miss an outcome and sleep until an unrelated write. | The same job; a wait looks at the outcome before the state, and the vault is back before the outcome is published. | `d5f7721` | `persist::tests::many_waiters_on_many_threads_all_finish` |
+| A deleted identity went on admitting peers, writing message 3 and answering at its service, and its commits succeeded though no write held it. | Deletion closes the identity before it leaves the installation: no operation, no admission, no wait for durability, no Onion Service key; its accept loop and supervisor end and remove the service. Identity-level changes are refused before they are made. | `091c922`, `192b9f6` | `tests/identities.rs`, `tests/supervisor.rs`, CS46 to CS48 |
+| The successor of a rotation could be announced, and after the switch the new key used, before the step was durable; a crash then left a contact with a key the vault did not hold, and the next rotation became a conflict at that contact. | Each step carries the generation that makes it durable and reaches peers only from then on (P4-10). | `192b9f6` | `tests/credentials.rs`, CS49, CS50 |
+| A snapshot of the store read the slots one at a time and could see more declined identities or contacts than their bounds; the write then failed the installation. | The snapshot holds the lock of the map while it reads every slot; declining holds it across its two slots. | `5d13a57` | `contacts::tests`, CS51 |
+| A dial or an answer cancelled while its admission was made durable left the session tracked by the store. | The withdrawal ends if that wait is cancelled. | `0088cf4` | `tests/credentials.rs`, CS53 |
+| The parent of a newly created vault directory was not flushed. | It is, on every open that may create the directory, so a retry after a failed flush flushes it too. | `42de59e`, `2fa98e5` | none: a power loss is not modelled |
+| The encoder left copies of what it encoded, keys of a vault record among them, in buffers it freed when it grew. | Growth moves the bytes and erases the old buffer; a writer erases what it holds when dropped. Best effort, as `CRYPTOGRAPHY.md` section 8 says. | `8875647` | `codec::tests`; not observable without `unsafe` |
+
+A second review, of these fixes, found two paths they had left open and
+two faults that did not work, all fixed:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| Ending a rotation made the new key the only one at once, also while the write of the beginning or of the switch was pending, so a card the vault could lose was handed out. | The end is due only after a switch that is durable, even when forced; a beginning stamps only the rotation it made. | `e430064` | `tests/credentials.rs`, CS54 |
+| The withdrawal that makes a failed installation fail closed ran only in a task waiting for the failed write; when every such task was cancelled, sessions went on. | The write job runs the withdrawal itself when it fails. | `6d26193` | `tests/credentials.rs`, CS55 |
+| CS49 and CS50 did not compile. | Rewritten. | `c42c698` | |
+| CS52, a decline that lets go of the map between its two slots, was caught only some of the time. | Dropped: the window is a few instructions, and a fault caught at random gates nothing. The snapshot side of the same cut is CS51. | `c42c698` | |
+
+The cancellation test of `0088cf4` now cancels the dial only once the
+admission waits for the write (`20d3f35`).
+
+The baseline of the mutation runner then found one more, under the load
+of a whole test binary: the write job held the vault's slot, and since
+`6d26193` the installation, until it ended, a moment after it had woken
+the waiter, so an installation closed and opened again at once could
+find the lock of its directory held. The job now holds both weakly and
+lets go of everything before it publishes a durable outcome (`9c5ce64`).
+That holds by construction; `tests/store.rs`
+(`closing_an_installation_lets_go_of_its_directory_at_once`) exercises
+it, and showed the old code failing in one run of five of the store
+tests and the new one in none.
+
+### 11.5 The closure of the review of the Phase 4 code
+
+A further review of the Phase 4 code, at `e29d7f2`, reported thirteen
+findings. Each was reproduced with a test that failed on the code it was
+reported against, fixed, and given a mutation fault where a fault can
+show it; all thirteen were real:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| The marks of a rotation's progress were booleans read apart from the keys: a snapshot taken while one rotation ended and the next began stored the new rotation with the progress of the old one. | Each rotation has a number; progress is recorded for a number, checked against the rotation in progress with the keys held, and the snapshot of an identity is one cut under the keys lock. | `abafe7e` | `identity::tests` (a hook between the reads), `contacts::tests`, `tests/credentials.rs`, CS77 to CS80 |
+| `mark_announced` did not say which rotation it completed: an announcement made in one rotation and recorded after it ended counted for the next. | The completion carries the rotation; a stale one records nothing and returns false. | `abafe7e` | `tests/credentials.rs` (`the_progress_of_one_rotation_never_counts_for_the_next`), CS77 |
+| Message 3 and frames were written by an aggregate write that the withdrawal was looked at around, not inside: a withdrawal between two writes let the rest of the bytes go out. | The link writes in its own loop and looks at the withdrawal before every write call. | `fdd6378` | `link::tests` (a stream that withdraws between two bytes), CS73 |
+| A send dropped after it sealed its frame left a link that could be used again, with a frame cut short or a counter that had moved on. | A flag marks a write under way; the next call ends the link without a Close. A receive dropped as it ended the link keeps its message for the next receive, which ends the link first. | `7025aa1`, `cf5feba`, `890b93c`, `7480cb5` | `link::tests`, CS74, CS83, CS91 |
+| What an admission recorded when no session followed (a refused dial, a dial or an answer without a slot) was not made durable and was lost by a restart. | It is made durable before the refusal is returned; a write that finds changes after its snapshot writes again before its outcome is out. | `6431341`, `fc239e2`, `3649b11`, `a849abc` | `tests/credentials.rs` (four restart tests), `persist::tests`, CS68 to CS72, CS88, CS89 |
+| A deleted identity still signed cards, listed capabilities, and handed out a party to dial or answer with. | Every getter of a secret, a party or a signed card fails after the deletion; the identity's copies of its secret bytes are erased. | `d7c8f95` | `tests/identities.rs`, `identity::tests`, CS60 to CS62 |
+| A publication under way was not ended by the deletion of its identity, and its service was reported available. | The wait for Tor ends on deletion and drops the publication; a service returned for a deleted identity is removed and not reported. | `493dcb7` | `tests/supervisor.rs`, CS75, CS76 |
+| An invitation was listed and its card could be had before the capability was durable. | A capability is listed, carried and admits requests only once durable. | `2230ad9` | `tests/invitations.rs`, `requests::tests`, CS64, CS65 |
+| Answering a request took it from the queue before the record changed: a refused answer (a full list) lost it, and a block could slip between the reading of a record and the queuing of a request. | The queue is locked while the record is read or changed. | `2bf7cad` | `tests/invitations.rs`, `identity::tests` (a hook), CS66, CS67 |
+| `restore_identity` accepted secrets the vault refuses (all zero), which made the vault fail to open; a stored rotation to a clamping-equivalent key was accepted. | One rule for the secrets; the new key must be another public key. | `646cd05` | `tests/identities.rs`, CS57 to CS59 |
+| The stored identity and rotation printed their secrets in `Debug`. | `Debug` written out, with the secrets redacted. | `854fcf7` | `record::tests`, CS56 |
+| `apply` took a session of any identity. | The store that admits a session binds it; another identity refuses it. | `8e76687` | T-MI-10, CS63 |
+| Buffers that held a capability or message content were not erased. | The signed bytes of a card, the copies of a card in a record and in its text form, the plaintext of every frame, the CLI passphrase and the passphrase normalization. Not observable without `unsafe`; `CRYPTOGRAPHY.md` section 8 lists what remains. | `f4d1a19` | none |
+
+A second review of the whole Phase 4 code, and two reviews of its own
+fixes, found more, all fixed:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| A dial waiting for its slot when its identity was deleted opened a stream; a session that outlived its identity, or a request considered as the identity was deleted, queued a request. | The deletion is looked at after the wait and with the queue locked. | `4c4f53d`, `90b9cbe` | `tests/identities.rs`, `identity::tests`, CS81, CS82, CS90 |
+| A write job started a second job after its outcome was out, so an installation closed at once could find its directory locked, and on a runtime shutting down the installation was marked failed. Its first replacement capped the writes of a job, left changes unwritten past the cap, hid an earlier success behind a later failure, woke waiters before the sessions were withdrawn, and let a wait start a write after a failure. | The job writes again before its outcome: on while nobody waits, and a bounded number of times while a waiter is left, which then starts the next write itself; a later failure keeps what an earlier write made durable; a failure is recorded before the vault is back, and the sessions are withdrawn before any waiter wakes; the job holds the installation weakly. | `3649b11`, `a849abc`, `732f936` | `persist::tests`, CS70, CS88, CS89, CS92 to CS94 |
+| An invitation card could state a key the identity no longer answered with. | Signed once the capability is durable. | `3d4aa84` | `tests/invitations.rs`, CS84 |
+| The successor card and a new identity were shown before they were durable. | Shown only once durable. | `fedbf5a`, `1e343a6` | `tests/credentials.rs`, `tests/identities.rs`, CS85, CS86 |
+| The rotation numbers of two identities were the same. | Each identity starts at random. | `ea8ed63` | `tests/identities.rs`, CS87 |
+| An admission that failed after it changed a record would not stamp the change. No path reaches it. | It is stamped and the sessions are reconciled. | `3289cdc` | none |
+
+The mutation suite: CS28, until then expected to survive, is caught by a
+hook between taking a stranger's first message and delivering it; CS52
+is back, caught by a hook between the two slots of a decline, and CS51
+by a hook that checks, after every slot a snapshot reads, that it still
+holds the lock of the map: deterministic in any order of the slots. Faults that the fixes had
+moved were retargeted (`b06758c` and with their fixes). The structure
+test read each source only up to its first `#[cfg(test)]`, indented
+ones too, and so skipped most of `session.rs`; it reads up to the first
+top-level test item now (`2da1a2c`).
+
+A review of `642a5ed` from outside the project reported three findings
+and two weaknesses of the mutation suite. Behind the findings is one
+pattern: a logical name taken for an object instance (the same local
+identity in another lifecycle, the same remote identity in another
+record, the same counter in another identity, the same rotation context
+in another rotation). Each was reproduced with a test that failed on the
+code before it, and fixed; the search for the same pattern found more:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| Handles kept after the last `Installation` handle was dropped still had authority: party, Onion Service secret, invitation cards, dial plans, changes in memory; kept links still sent. | Dropping the installation closes its identities as a deletion does; a write under way ends on its own. | `cc8650f` | `tests/identities.rs`, `tests/supervisor.rs`, CS95 |
+| `InvitationId` was a bare counter: an id of one identity worked at another. | Ids carry the instance number of the identity, drawn at random when the instance is made; so do rotation ids. | `b3a7cb5` | T-MI-11, CS96, CS87 |
+| A late announcement marked a contact made again for the same identity. | `mark_announced` takes the `Announcement`, bound to its rotation, its contact record and its session. | `8c0aff1` | `tests/credentials.rs`, CS97, CS98, CS77 |
+| The test of CS51 missed the fault in some orders of the map. | It checks at every read that the snapshot holds the lock of the map. | `f39f906` | `contacts::tests`, CS51 |
+| CS47 and CS48 survived the whole core suite: other guards held. | Retargeted at the state they name. | `e6b8e18` | `tests/identities.rs`, CS47, CS48 |
+| A request was answered by its sender: an answer for one request accepted a later one. | Requests have handles (`RequestId`). | `1314b9d` | `tests/invitations.rs`, CS99, CS67 |
+| `delete_identity` deleted whatever identity held the keys it named. | It takes the instance. | `fc07b65` | `tests/identities.rs`, CS100 |
+| A forced switch or end decided for one rotation hit the next. | Both take the `RotationId`. | `c73482e` | `tests/credentials.rs`, CS101, CS102 |
+| `import` and `block` took out a request queued after them. | The queue is locked across the change. | `91a3415`, `780c3dc` | `identity::tests`, CS103, CS104 |
+| A card was returned for a capability revoked as it was created. | The card is made from the active set after the commit. | `3a6a823` | `identity::tests`, CS105 |
+| A `DialPlan` or the answering party handed out a party with its key. | Parties stay in the core; `DialPlan::local_card` instead. | `4c8e14b` | `tests/structure.rs`, CS107 |
+| A closed identity showed the card of a key it no longer answered with. | It keeps the party it answered with. | `85d6a33` | `tests/identities.rs`, CS106 |
+| A card of someone no longer a contact was dialed, up to message 2. | `dial` refuses before a stream. | `9f91b1f` | `tests/credentials.rs`, CS108 |
+| A contact request was made with the card of the moment, refused while switched. | It is made with the card and capability of its session. | `069ad2c`, `ffb81cd` | `tests/credentials.rs`, CS109 |
+| The dev node answered a request by sender, took ambiguous prefixes, and kept sessions of strangers as a peer's. | Fixed in the dev node. | `c8322e9` | the private Tor network test |
+
+Two reviews of these fixes, one for the pattern, lock order and the
+store, one for the dev node, the durability and the tests, found:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| A confirmation of the new key was checked against its session and marked in two steps; a contact deleted and made again in between got the mark. | One step, as for an announcement. | `b3767ba` | `identity::tests` (a hook between the steps), CS110, CS97, CS98 |
+| `dial` dialed any card it was given: a pending successor, a retired key, endpoints the user did not confirm. | Only a card the dial plan names; the admission tests change the record while the dial waits for message 2. | `9d368dc` | `tests/credentials.rs`, CS111, CS112 |
+| `apply` took the actions of a message from its caller, and a session apart from the message. | `Link::receive` returns an `Arrived`, made only there and bound to its session; `apply` takes that alone. | `2b22dd1` | `tests/structure.rs`, CS113 |
+| A wait read what was durable before the failure, so it could report a failure for a generation its failing job had written. | It reads the failure first, and looks again when its write cannot start. | `fda2a25` | `persist::tests` (two hooks), CS114, CS115 |
+| The module documentation of `persist` promised that every change is written, also after the installation closed. | Corrected: what was applied after the last snapshot is lost as in a crash, and nothing used it. | `69a11b2` | none |
+| The dev node kept the entries of inbound sessions that `serve` aborted, dropped unsent texts silently, and printed the peer's acceptance as the user's. | A guard takes the entry out; unsent texts are reported; `peer-accepted`. | `8ea3ca9`, `1646bb0` | the private Tor network test |
+| Two tests hung since `9f91b1f`, which refuses a dial before a stream: they waited for a stream on the other side. A failing test could hang elsewhere too. | The tests expect no stream; the dial helper ends when no stream comes; the tests run under deadlines. | `5d8caf2`, `d17ac9d`, `97eb6f0`, `eadc925`, `64e8354` | the suite itself |
+
+A third pair of reviews, of everything above, found:
+
+| Finding | Fix | Commit | Test, fault |
+| --- | --- | --- | --- |
+| An acceptance or a new card was checked against the withdrawal and the card of its session, not against the record that tracks it: a message kept from a link that had ended changed a contact deleted and made again since. | Every path asks the record whether it tracks the session. | `049de25` | `identity::tests`, CS116, CS117, CS97, CS110 |
+| An `Arrived` could be applied again: a request applied after its answer and the deletion of its sender was queued again. | The first application marks it; a second fails (`StoreError::AlreadyApplied`). | `b4ab8b4` | `tests/invitations.rs`, CS118 |
+| `mark_announced` took the caller's word that the successor was sent. | `Link::announce` writes it on the session it was made for and returns the `Sent` that `mark_announced` takes. | `bbda16f` | `tests/credentials.rs`, `tests/structure.rs`, CS119, CS120 |
+| A `DialPlan` kept by a caller held the party, with the transport key, past the closing. | It holds the local card; `link::dial` takes the party from the identity. | `eb6cbf4` | `tests/structure.rs`, CS107, CS108 |
+| `onion_secret` read the closing before taking the keys. | It reads it with the keys held. | `c9b31ff` | CS48 |
+| The dev node printed an invitation handle in a form with spaces, which the network test read as several words. | One word, the same when shown and when named. | `8b7d4b0` | the private Tor network test |
+| The snapshot test ran its step before the snapshot read anything; tests of persistence could hang on a failed assertion while a write waited at a gate. | A hook between the reads of a snapshot; the gate opens on unwinding. | `ae46ffd`, `4577d19`, `d24ab14` | `identity::tests`, `persist::tests`, CS121 |
+| A message or an announcement used after its link was dropped counted until the record forgot the link. | Refused once the link ended. A cancelled `apply` counts as done. | `d490292` | `identity::tests`, CS122 |
+| Found by a test that failed under load: a job put the vault back before it published its outcome, and a wait that looked in between started a write that held the vault after its own wait had returned. | The slot records what the job wrote as it puts the vault back; a start finds nothing to write. | `6225b3d` | `persist::tests` (a hook between the two), CS123 |
+
+Looked at and left as they are: `LocalIdentity::wait_durable` fails
+for a change made durable while its identity was being deleted; a
+deleted identity reports nothing as done. `dial_plan` reads the mark
+that a contact was sent the successor before that mark is durable; the
+mark records what the peer already has, and a crash loses only the
+record, which a later session announces again. `link::answer` takes the
+identity and the stream it is given: `serve` gives each stream of a
+service to the identity of that service with a handshake permit (S43),
+and a caller that bypasses `serve` is not prevented; binding a stream
+to its service in its type would change the Tor adapter. A link
+of a stranger is not withdrawn when its identity closes; before
+confirmation it may send nothing but a Close, the identity applies
+nothing from it, and it ends at its first message or at
+`UNKNOWN_SESSION_TIMEOUT`. CS81 now removes both checks of the closing
+on the path of a late session (`73b4273`); with one left, the other
+held, so the check in `apply` is a second line that no fault shows on
+its own.
+
+### 11.6 Final verification and completion
+
+The final verification ran on `970316fc76d0ea19c1c65239b16556253a2894c8`
+in the three stages of `STATUS.md` section 5.2, with no file of that
+commit changed while it ran: stages 1 and 2 and mutation lists 1 and 2
+from 2026-10-08, lists 3 and 4 on 2026-10-11 on a second machine (a Linux
+VM with 8 CPUs, 8 GB and two workers). The outputs are on the branch
+`verification-970316f` (`verification/970316f/`). The final report is
+section 5.3 of `STATUS.md`, kept in the history at `d2089b5`. Results:
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo test --workspace --locked`, Rust 1.95.0, 1.85.1 and stable (1.95.0 that day), Linux | 33 test binaries, 682 passed, 0 failed, 2 ignored (the KDF measurement, and the test that the private network test runs), on each |
+| Rust 1.85.1: `check --all-targets` | clean |
+| `cargo deny check` | advisories, bans, licenses and sources ok |
+| `cargo audit` | no advisory for the 82 crates |
+| `cargo tree -d` | one pair: `rand_core` 0.9.5 (tests only, through proptest) and 0.10.1 |
+| Known-answer vectors of `PROTOCOL.md` 16.1 | unchanged, pass |
+| Fuzz, 16 targets, 25 seconds each | no failure |
+| Fuzz, 600 seconds each: `credential_sequence`, `contact_store`, `vault_payload`, `session_frames`, `handshake_initiator`, `handshake_responder`, `tor_control_reply`, `socks_reply` | no failure |
+| Mutation suite, 338 faults | 329 caught, the nine expected survivors (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29), none unexpected, none invalid; exit code 0 for each list; the 123 faults of Phase 4, CS1 to CS123, all caught |
+| `tests/network/fail-closed.sh` (T-NET-1), syscall observation via strace | pass, all four steps |
+| `tests/tor-network/two-node.sh`, Tor 0.4.9.13, Chutney `ae3a33c`, `RESTART_CYCLES=15` | pass, all 12 steps; 15 of 15 restarts of Tor B recovered within the window, in 1 to 20 seconds |
+| Identities of `2f27dcb..970316f` | 171 commits, all with `firebirks <336470935+firebirks@users.noreply.github.com>` as author and committer, no trailers |
+
+The owner decided the four open points of the report on 2026-10-11. The
+finding about eviction concerned the handshake budget, not the budget
+for strangers, which evicts the oldest silent stranger as P4-8 says; so
+`RESOURCE_LIMITS.md` was corrected (`8e7b5aa`) and the code was not. S32
+no longer credits T-NET-1 with the idle run, which has no test
+(`f549842`); not a blocker. T-NET-1 observes system calls through strace
+where `TEST_PLAN.md` section 11 describes a packet capture: accepted.
+The Dockerfile of the network test does not pin Tor: accepted; the run
+used Tor 0.4.9.13, and pinning is hardening of the test infrastructure.
+
+The owner then declared Phase 4 complete on `970316f` on 2026-10-11. The
+commits after it, up to the tag `phase-4-complete`, change documents
+only. From then on the mutation faults CS1 to CS123 and the regression
+tests of Phase 4 are a baseline to preserve. T3-7 is settled for Phase 4
+by the private network test. Phase 5 has not started.
+
+Notes kept for the record:
+
+- Three faults reached the runner's timeout of 20 minutes: T6 (Phase 2,
+  under the load of four workers; alone it was caught in 791 seconds by
+  failing tests), Q1 (also alone: without the SOCKS negotiation the test
+  `an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes`
+  waits for a greeting that never comes) and CS30 (as `mutation/README.md`
+  expects). Each also makes named tests fail, so none is a survivor
+  hidden by the timeout.
+- Left outside Phase 4, besides section 11.3: closing the oldest
+  unauthenticated stream for a new one, a test of the idle run, and
+  pinning Tor in the network test (section 3).

@@ -15,6 +15,8 @@
 
 use core::fmt;
 
+use zeroize::Zeroize;
+
 use crate::ProtocolError;
 
 /// Reads fields from a byte slice, front to back.
@@ -112,9 +114,22 @@ impl<'a> Reader<'a> {
 }
 
 /// Appends fields to a byte vector.
+///
+/// What is written may be secret: a key in a vault record, the text of a
+/// message. When the buffer has to grow, the bytes move to a new buffer
+/// and the old one is erased before it is freed, and a writer that is
+/// dropped without [`Self::into_bytes`] erases what it holds, so that no
+/// copy stays behind in freed memory from here. Copies the compiler makes
+/// are not reached (`docs/CRYPTOGRAPHY.md` section 8).
 #[derive(Default)]
 pub struct Writer {
     out: Vec<u8>,
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        self.out.as_mut_slice().zeroize();
+    }
 }
 
 impl fmt::Debug for Writer {
@@ -148,13 +163,29 @@ impl Writer {
         self.out.is_empty()
     }
 
+    /// Makes room for `additional` more bytes, in a new buffer if needed;
+    /// the old one is erased.
+    fn reserve(&mut self, additional: usize) {
+        let needed = self.out.len().saturating_add(additional);
+        if needed <= self.out.capacity() {
+            return;
+        }
+        let capacity = needed.max(self.out.capacity().saturating_mul(2)).max(64);
+        let mut grown = Vec::with_capacity(capacity);
+        grown.extend_from_slice(&self.out);
+        let mut old = core::mem::replace(&mut self.out, grown);
+        old.as_mut_slice().zeroize();
+    }
+
     /// Writes raw bytes, with no length prefix.
     pub fn raw(&mut self, bytes: &[u8]) {
+        self.reserve(bytes.len());
         self.out.extend_from_slice(bytes);
     }
 
     /// Writes one byte.
     pub fn u8(&mut self, value: u8) {
+        self.reserve(1);
         self.out.push(value);
     }
 
@@ -188,8 +219,8 @@ impl Writer {
     }
 
     /// Returns the bytes written.
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.out
+    pub fn into_bytes(mut self) -> Vec<u8> {
+        core::mem::take(&mut self.out)
     }
 }
 
@@ -230,6 +261,25 @@ mod tests {
         let mut writer = Writer::new();
         writer.raw(&[0xAB, 0xCD]);
         assert_eq!(format!("{writer:?}"), "Writer { len: 2 }");
+    }
+
+    #[test]
+    fn a_growing_writer_keeps_every_byte_in_order() {
+        // Growth moves the bytes to a new buffer, more than once.
+        let mut writer = Writer::new();
+        let mut expected = Vec::new();
+        for byte in 0..=u8::MAX {
+            writer.u8(byte);
+            writer.raw(&[byte; 7]);
+            expected.push(byte);
+            expected.extend_from_slice(&[byte; 7]);
+        }
+        assert_eq!(writer.len(), expected.len());
+        assert_eq!(writer.into_bytes(), expected);
+        let mut writer = Writer::with_capacity(2);
+        writer.u16(0x0102);
+        writer.u64(3);
+        assert_eq!(writer.into_bytes(), [1, 2, 0, 0, 0, 0, 0, 0, 0, 3]);
     }
 
     #[test]

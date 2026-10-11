@@ -17,8 +17,10 @@ use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
 use sha2::{Digest, Sha256};
 
-use crate::testing::{EPHEMERAL_I, EPHEMERAL_R, admit_outbound, deliver, hex, start, unhex};
-use crate::{HandshakeInitiator, HandshakeResponder, LocalParty, TransportSecretKey};
+use crate::testing::{EPHEMERAL_I, EPHEMERAL_R, deliver, hex, start, unhex};
+use crate::{
+    HandshakeInitiator, HandshakeResponder, LocalParty, OutboundAdmission, TransportSecretKey,
+};
 
 const R_IDENTITY_SEED: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 const R_IDENTITY: &str = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
@@ -133,16 +135,33 @@ fn the_handshake_reproduces_the_published_vectors() {
     let (waiting, message_2) = waiting.read_message_1(&message_1, start()).unwrap();
     assert_eq!(hex(&message_2), MESSAGE_2);
 
-    let (outbound, message_3) = first.read_message_2(&message_2, start()).unwrap();
-    assert_eq!(hex(&message_3), MESSAGE_3);
-
-    let inbound = waiting.read_message_3(&message_3, start()).unwrap();
-    assert_eq!(inbound.card(), initiator.card());
+    let outbound = first.read_message_2(&message_2, start()).unwrap();
     assert_eq!(outbound.card(), responder.card());
+    // Both sides hold each other as accepted contacts. The initiator makes
+    // message 3 when its admission of the responder allows it; the bytes
+    // are those of the specification.
+    let OutboundAdmission::Granted {
+        session: mut at_i,
+        admission,
+        first: first_i,
+        message_3,
+    } = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(
+            responder.card().clone(),
+        )))
+        .unwrap()
+    else {
+        panic!("refused");
+    };
+    assert_eq!(admission.standing, Standing::Accepted);
+    assert_eq!(hex(message_3.as_bytes()), MESSAGE_3);
 
-    // Both sides hold each other as accepted contacts, so the first frame
-    // each sends is a ContactAccept.
-    let (mut at_i, first_i) = admit_outbound(outbound, Standing::Accepted);
+    let inbound = waiting
+        .read_message_3(message_3.as_bytes(), start())
+        .unwrap();
+    assert_eq!(inbound.card(), initiator.card());
+
+    // The first frame each sends is a ContactAccept.
     let (mut at_r, admission, first_r) = inbound
         .admit(PeerRecord::Accepted(&mut Credentials::new(
             initiator.card().clone(),

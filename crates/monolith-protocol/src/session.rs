@@ -43,6 +43,7 @@ use monolith_identity::IdentityPublicKey;
 
 use crate::body::Message;
 use crate::card::{ContactCard, InvitationCapability};
+use crate::contact::{self, Context, Decision, RecordKind};
 use crate::credential::{CredentialChange, Credentials};
 use crate::duplicate::Initiator;
 use crate::{MessageType, ProtocolError, SessionState};
@@ -144,8 +145,8 @@ impl PeerRecord<'_> {
     /// peer: the card it presented in the handshake of an inbound session,
     /// or the card that an outbound session dialed. The handshake proved
     /// that the peer holds its transport key. This is the table of
-    /// `docs/PROTOCOL.md` section 6.2; [`Credentials::admit`] does the
-    /// comparison.
+    /// `docs/PROTOCOL.md` section 6.2; [`contact::decide`] decides it, as
+    /// it decides every other path of a card.
     ///
     /// The active key, with the active card or a newer one, and a proven
     /// authorized successor give the standing of the record. A newer key
@@ -156,29 +157,46 @@ impl PeerRecord<'_> {
     /// Fails with [`ProtocolError::IdentityMismatch`] if the record belongs
     /// to another identity than the card.
     pub fn admit(&mut self, card: &ContactCard) -> Result<Admission, ProtocolError> {
-        let (credentials, as_recorded) = match self {
-            Self::None => return Ok(Admission::without_record(Standing::None)),
-            Self::Declined => return Ok(Admission::without_record(Standing::Declined)),
-            Self::Blocked => return Ok(Admission::without_record(Standing::Blocked)),
-            Self::Requested(credentials) => (&mut **credentials, Standing::Requested),
-            Self::Accepted(credentials) => (&mut **credentials, Standing::Accepted),
-        };
-        let change = credentials.admit(card)?;
-        let standing = match change {
-            CredentialChange::Unchanged
-            | CredentialChange::Superseded
-            | CredentialChange::Advanced
-            | CredentialChange::Promoted => as_recorded,
-            CredentialChange::Pending => Standing::PendingSuccessor,
-            CredentialChange::Conflict
-            | CredentialChange::Stale
-            | CredentialChange::Authorized
-            | CredentialChange::NoContinuity => Standing::StaleCard,
-        };
+        let decision = self.decide(card, Context::Inbound)?;
+        if let Some(next) = decision.next_credentials() {
+            self.store(next.clone());
+        }
         Ok(Admission {
-            standing,
-            change: Some(change),
+            standing: decision.standing.unwrap_or(Standing::None),
+            change: decision.change(),
         })
+    }
+
+    /// The kind of this record and its credentials.
+    fn parts(&self) -> (RecordKind, Option<&Credentials>) {
+        match self {
+            Self::None => (RecordKind::None, None),
+            Self::Declined => (RecordKind::Declined, None),
+            Self::Blocked => (RecordKind::Blocked, None),
+            Self::Requested(credentials) => (RecordKind::Requested, Some(&**credentials)),
+            Self::Accepted(credentials) => (RecordKind::Accepted, Some(&**credentials)),
+        }
+    }
+
+    /// [`contact::decide`] for this record. An import that would make a
+    /// new record, or is refused, fails with
+    /// [`ProtocolError::InvalidValue`]: making a record is the contact
+    /// store's.
+    fn decide(&self, card: &ContactCard, context: Context<'_>) -> Result<Decision, ProtocolError> {
+        let (kind, credentials) = self.parts();
+        let decision = contact::decide(kind, credentials, card, context)?
+            .map_err(|_| ProtocolError::InvalidValue)?;
+        if decision.before != decision.after {
+            return Err(ProtocolError::InvalidValue);
+        }
+        Ok(decision)
+    }
+
+    /// Records credentials that a decision made for this record.
+    fn store(&mut self, next: Credentials) {
+        if let Self::Requested(credentials) | Self::Accepted(credentials) = self {
+            **credentials = next;
+        }
     }
 
     /// Returns the capability a contact request to this identity carries,
@@ -200,11 +218,11 @@ impl PeerRecord<'_> {
     /// is the caller's. Fails with [`ProtocolError::IdentityMismatch`] for
     /// a card of another identity.
     pub fn import(&mut self, card: ContactCard) -> Result<CredentialChange, ProtocolError> {
-        match self {
-            Self::Requested(credentials) => credentials.replace(card),
-            Self::Accepted(credentials) => credentials.import(card),
-            Self::None | Self::Declined | Self::Blocked => Err(ProtocolError::InvalidValue),
+        let decision = self.decide(&card, Context::Import)?;
+        if let Some(next) = decision.next_credentials() {
+            self.store(next.clone());
         }
+        decision.change().ok_or(ProtocolError::InvalidValue)
     }
 }
 
@@ -223,13 +241,6 @@ impl Admission {
     /// card, only when this is true (`docs/PROTOCOL.md` section 4.4).
     pub const fn may_learn_local_identity(&self) -> bool {
         self.standing.may_learn_local_identity()
-    }
-
-    const fn without_record(standing: Standing) -> Self {
-        Self {
-            standing,
-            change: None,
-        }
     }
 }
 

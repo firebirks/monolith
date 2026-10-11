@@ -131,15 +131,20 @@ Residual: everything a conversation partner can do by nature.
 ### C. Many Tor connections to the Onion Service
 
 - Unauthenticated streams are limited in number and in time; the oldest is
-  evicted for a new one. All handshake messages are fixed-size: 48, 48 and
-  235 bytes.
+  to be evicted for a new one (today a stream beyond the budget is closed
+  at accept). All handshake messages are fixed-size: 48, 48 and 235
+  bytes.
+- Authenticated peers that are not contacts have a small budget of their
+  own; when it is full, the oldest one that has not sent its message is
+  closed for a newcomer (Phase 4). Contacts are never in it.
 - What one stream can cost before it is authenticated is bounded: one
   X25519 operation for a first message that fails; two more operations,
   one key generation and one pending handshake for one that verifies,
   which needs the contact card; one signature verification after a valid
   third message. A pending handshake ends at `HANDSHAKE_TIMEOUT`.
-- The inbound rate is capped globally. Beyond the cap, streams are closed
-  at accept.
+- The inbound rate is to be capped globally, with streams beyond the cap
+  closed at accept; the rate buckets are not implemented yet
+  (`RESOURCE_LIMITS.md` section 12).
 - Tor's proof-of-work defense and a per-circuit stream cap are requested
   where available.
 
@@ -262,14 +267,25 @@ to open.
 ### J. Attacker with the storage medium but not the passphrase
 
 - The vault is encrypted and authenticated; the key is derived with
-  Argon2id.
+  Argon2id, never below RFC 9106's second setting (64 MiB, 3 passes, 4
+  lanes); the parameters are bounded when read, so a changed header can
+  neither weaken a vault nor make an unlock allocate without bound. Every
+  header byte is authenticated with the payload, which is padded to
+  steps of 64 KiB (`STORAGE.md` section 3, implemented in Phase 4).
+- The vault directory must belong to the user and be closed to others,
+  and one process holds it at a time.
 - Ephemeral mode leaves nothing.
 - History is off unless enabled.
 
 Residual: offline guessing, as slow as the KDF makes it, so a weak
-passphrase is a weak vault. File sizes and modification times are visible.
-Saved files are plaintext. Rollback to an older copy is undetectable. No
-secure deletion.
+passphrase is a weak vault; the default cost is provisional until it is
+measured on the target platforms. File sizes and modification times are
+visible. Saved files are plaintext. Rollback to an older copy is
+undetectable. A changed passphrase keeps the vault key, so an old copy
+of the vault with the passphrase it had opens the key of later ones; the
+rekey operation that would end that is not implemented. No secure
+deletion: a replaced vault file can remain on the medium until it is
+overwritten.
 
 ### K. Compromised Tor relay
 
@@ -424,7 +440,10 @@ What can still link them:
 - Timing and traffic analysis by an observer of the network, as for any
   Tor user (L).
 - The local system: a compromised operating system, or forensic access to
-  the device, sees every identity (section 2, J, P).
+  the device, sees every identity (section 2, J, P). One vault holds every
+  identity of an installation, so whoever opens it with its passphrase
+  sees them all; separate data directories keep identities apart on
+  disk.
 - The user: the same display name, profile text, writing style or
   contacts, or cards published side by side.
 

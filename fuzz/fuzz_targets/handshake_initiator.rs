@@ -27,6 +27,7 @@ use libfuzzer_sys::fuzz_target;
 use monolith_protocol::SessionState;
 use monolith_protocol::credential::Credentials;
 use monolith_protocol::session::{Action, PeerRecord, Standing};
+use monolith_session::OutboundAdmission;
 use session_fixtures::{BOB, Pieces, TRANSCRIPT, alice_dialing, card, start};
 
 fuzz_target!(|data: &[u8]| {
@@ -65,7 +66,7 @@ fuzz_target!(|data: &[u8]| {
     };
 
     let genuine = message_2 == TRANSCRIPT.message_2;
-    let Ok((outbound, message_3)) = alice.read_message_2(&message_2, start()) else {
+    let Ok(outbound) = alice.read_message_2(&message_2, start()) else {
         // Nothing of Alice was sent: the third message was never made. The
         // genuine second message is never refused.
         assert!(!genuine);
@@ -77,14 +78,22 @@ fuzz_target!(|data: &[u8]| {
     // Whoever answered holds the key of the card that was dialed: the
     // session can only be one with Bob.
     assert_eq!(outbound.card(), &card(BOB));
+    // Message 3 exists only after the admission let Bob learn Alice.
+    let OutboundAdmission::Granted {
+        mut session,
+        admission,
+        first: first_actions,
+        message_3,
+    } = outbound
+        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
+        .unwrap()
+    else {
+        panic!("an accepted contact was refused");
+    };
     if genuine {
         // With both ephemeral keys fixed, the known answer.
-        assert_eq!(message_3, TRANSCRIPT.message_3);
+        assert_eq!(message_3.as_bytes(), &TRANSCRIPT.message_3);
     }
-
-    let (mut session, admission, first_actions) = outbound
-        .admit(PeerRecord::Accepted(&mut Credentials::new(card(BOB))))
-        .unwrap();
     assert_eq!(admission.standing, Standing::Accepted);
     assert_eq!(first_actions, [Action::SendContactAccept]);
     assert_eq!(session.peer(), card(BOB).identity());

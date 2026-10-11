@@ -19,7 +19,10 @@ since Phase 3: S1 to S3 and S5, the command set of S6, the connection
 budgets of S12, the withdrawal of S49 and the admission of S50 up to the
 contact store, the message 3 gate of S51, the deadlines and single end of
 S52, and the parts of S42, S43, S45 and S46 named in their entries.
-Everything that involves storage or a user interface is still a planned
+Since Phase 4, the contact store and the vault: S7, S28 and S31 for the
+vault, S36 and S48 to S51 through the store, S38 and S39 to S46, and S17
+for the new users of the random source. Everything that involves a user
+interface, the message store or file transfer is still a planned
 mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
@@ -132,14 +135,23 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S7. Unknown peers never modify the permanent contact database
 
-- Mechanism: the only write path that creates a contact is the `AcceptRequest`
-  and `AddContactCard` commands, both issued by the local user. A session
-  with an identity the user has not added has write access to one thing: a
-  bounded in-memory pending-request queue. For an identity the user did
-  add, the peer's ContactAccept or ContactRequest can complete the
-  acceptance the user started; it cannot create a record.
-- Tests: T-CONTACT-1 (request flood leaves the contact store byte-identical),
-  T-PROTO-STATE.
+- Mechanism: the contact store of each local identity creates a record
+  in two operations, both the local user's: importing a card
+  (`LocalIdentity::import`) and accepting a pending request
+  (`accept_request`). The user answers a request by its handle
+  (`RequestId`, bound to the identity instance), so an answer is to the
+  request the user was shown and to no later request of the same sender.
+  A session with an identity the user has not added
+  has write access to one thing: the bounded in-memory queue of pending
+  requests (`Requests`), which is never written to the vault. For an
+  identity the user did add, the peer's ContactAccept or ContactRequest
+  can complete the acceptance the user started (`MarkAccepted`, applied
+  by `LocalIdentity::apply` under the lock of the contact and only while
+  the session stands); it cannot create a record.
+- Tests: T-CONTACT-1 (request flood leaves the contact store
+  byte-identical), T-PROTO-STATE, `tests/credentials.rs` in the core
+  (`a_stranger_request_reaches_the_queue_and_nothing_durable`: the vault
+  is unchanged), `tests/invitations.rs`.
 
 ### S9. Identity changes for an existing contact are never accepted silently
 
@@ -179,31 +191,36 @@ Test area names refer to `docs/TEST_PLAN.md`.
 
 ### S36. A card of another key that is older than the active credential, a card that contradicts it, and the retired key never open a contact session
 
-- Mechanism: the stale-card rule, half of rule F4. The standing of a peer
-  comes from one function, `PeerRecord::admit`, which borrows the
-  credentials of the contact and takes the card that stands for the peer
-  on the session: the one presented in the handshake, or the one that was
-  dialed. `Credentials::admit` compares it: a card of another key older
-  than the active card or than the authorized successor, a card with the
-  epoch of the active card or of the authorized successor that states
-  something else, a card of the authorized key older than the announced
-  one, or the retired key gives `StaleCard`, which the session logic
-  treats on the same code path as an identity that is not a contact.
-  Only the key retired last is remembered; a key retired earlier is
-  refused in its old cards by their epochs, and a newer card stating it
-  is a new key without continuity (S48). Neither `InboundPeer` nor
-  `OutboundPeer` can be turned into a session without that function. An
-  EndpointUpdate goes through `Credentials::announce`, which applies the
-  same comparison.
+- Mechanism: the stale-card rule, half of rule F4. Every card of a known
+  identity is judged by one function, `contact::decide`, from the kind of
+  record, the credentials and the reason the card is looked at: the card
+  presented in a handshake or the one that was dialed, an EndpointUpdate,
+  an import, a confirmation. `Credentials::relation` classifies the card
+  the same way whatever its source: a card of another key older than the
+  active card or than the authorized successor, a card with the epoch of
+  the active card or of the authorized successor that states something
+  else, a card of the authorized key older than the announced one, or the
+  retired key is stale or a conflict, and gives `StaleCard`, which the
+  session logic treats on the same code path as an identity that is not a
+  contact. Only the key retired last is remembered; a key retired earlier
+  is refused in its old cards by their epochs, and a newer card stating
+  it is a new key without continuity (S48). The contact store holds the
+  credentials and calls `decide` under the lock of the contact
+  (`PeerRecord::admit` and `import` call it too), and neither
+  `InboundPeer` nor `OutboundPeer` can be turned into a session without
+  it. The credentials are stored in the vault and restored as they were,
+  the retired key included, so a restart does not forget it.
 - Residual: a party with no record of the identity, or one that never
-  promoted the successor, has nothing newer to compare with. Keeping the
-  credentials and handing them to `admit` is the job of the contact store
-  of Phase 4.
+  promoted the successor, has nothing newer to compare with.
 - Tests: T-STALE (`session::tests`, `credential::tests`,
   `tests::contacts`: a retired transport key, also with a higher epoch,
   against a contact that promoted the new one; a dialed card whose key
   was retired meanwhile; the property tests of the standing table and of
-  the credential transitions).
+  the credential transitions), `credential::tests::table` (every relation
+  from every source against a model written from `PROTOCOL.md` section
+  11.4), `contact::tests`, `tests/store.rs` in the core (the retired key
+  after a restart), fuzz targets `credential_sequence` and
+  `contact_store`, mutation faults CS1 to CS6.
 
 ### S47. A local party belongs to one local identity
 
@@ -235,14 +252,29 @@ Test area names refer to `docs/TEST_PLAN.md`.
   pending slot by a presented one. An import for an accepted contact
   (`Credentials::import`) never replaces the key. Every transition that replaces the key retires
   the previous one. A copied identity key alone therefore cannot take a
-  contact over or lock the holder of the active key out.
+  contact over or lock the holder of the active key out. Since Phase 4
+  every entry point applies one table (`Credentials::evaluate`), so an
+  import and an admission cannot judge one card two ways, and the store
+  applies the change under the lock of the contact and makes it durable
+  before anything that depends on it is used. On the side that rotates,
+  the successor is announced, and the new key answers, dials and is
+  handed out, only once that step is in the vault, so a crash never
+  leaves a contact with a key the identity no longer holds. An
+  announcement counts for the switch only once its link wrote it on the
+  session it was made for (`Link::announce` returns the `Sent` that
+  `mark_announced` takes), and a confirmation of the new key only for
+  the record its session was admitted for.
 - Residual: a holder of the identity key and the active transport key can
   produce continuity and is indistinguishable from the identity
   (`THREAT_MODEL.md` adversary Q).
 - Tests: `credential::tests` (the transitions of the review, simultaneous
   rotation, the property test that the key changes only through
-  continuity or the user), `tests::contacts`, `tests::credentials`,
-  mutation faults CR1 to CR9.
+  continuity or the user, the exhaustive table), `tests::contacts`,
+  `tests::credentials`, `tests/store.rs` in the core
+  (`promoting_a_successor_is_atomic`, `an_announced_successor_is_atomic`),
+  `tests/credentials.rs` (`the_new_key_reaches_no_peer_before_it_is_durable`,
+  `a_rotation_ends_only_after_a_durable_switch`), mutation faults CR1 to
+  CR9, CS1 to CS6, CS49, CS50 and CS54.
 
 ### S49. A session of a retired transport key delivers nothing after the retirement
 
@@ -259,41 +291,51 @@ Test area names refer to `docs/TEST_PLAN.md`.
   without a Close, and makes every later call on the link fail at once.
   Deleting or blocking the record of an identity withdraws its sessions
   the same way. `Withdrawal::is_ended` tells the store which links are
-  gone, including those whose admission function failed. Sessions admitted with another standing are left
+  gone, including those whose admission failed. Sessions admitted with another standing are left
   on the path of a stranger, so that their end does not show the peer
   that it is held as a contact. The duplicate rule takes for each session
   whether its key is current (`duplicate::Contender`), and a session that
-  is not loses before the preference is looked at.
-- Residual: keeping the withdrawals with the credentials and calling them
-  on retirement is the contact store's, in Phase 4; Phase 3 provides the
-  pieces and tests them with a minimal store. A message the link returned
-  before the withdrawal is the caller's to judge: what it would change in
-  the contact state is applied under the store's lock only while the
-  session still stands (`ARCHITECTURE.md` section 1.2).
+  is not loses before the preference is looked at. The contact store
+  keeps the withdrawal of every session admitted as a contact's in the
+  slot of that contact, and after every change of the slot withdraws
+  each one that no longer stands, in the same step: a promotion, a
+  block, a deletion, a confirmation, any later transition. A failed
+  write of the vault withdraws every session of the installation. A
+  dial or an answer that is cancelled while its admission is made
+  durable ends its withdrawal, so the store does not keep the session.
+- Residual: a message the link returned before the withdrawal is the
+  caller's to judge: what it would change in the contact state is
+  applied by `LocalIdentity::apply` under the lock of the contact and only
+  while the session still stands (`ARCHITECTURE.md` section 1.2).
 - Tests: `session::tests` (a withdrawn session delivers nothing),
   `duplicate::tests`, `tests::credentials` (the session of the old key
   after a promotion; the duplicate rule), `tests/credentials.rs` in the
   core (a link with a buffered and an unread message, a waiting link, a
   link withdrawn before it was polled, a withdrawal seen first by a send;
-  a stale session is not withdrawn; ended links; a failed admission), the
-  unit tests of `link` (a withdrawal during a pending send), mutation
-  faults CR10 to CR17, CR34 and CR38.
+  a stale session is not withdrawn; ended links; a failed admission;
+  `blocking_or_deleting_a_contact_withdraws_its_open_links`,
+  `a_failed_installation_admits_nobody`), `tests/store.rs`
+  (`a_block_that_races_an_admission_leaves_no_contact_session_standing`),
+  the unit tests of `link` (a withdrawal during a pending send), the
+  private network test (steps 6 to 8), `tests/credentials.rs`
+  (`a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session`),
+  mutation faults CR10 to CR17, CR34, CS8 to CS10 and CS53.
 
 ### S50. A session is admitted against the contact state of that moment
 
 - Mechanism: `link::dial` and `link::answer` hold no contact state. They
-  take an admission function and call it once, when the peer is
-  authenticated: the dial budget, the Tor stream and the handshake
-  messages that authenticate the peer are behind it. The function
-  receives the authenticated peer, which exists only after the
-  handshake, and admits it with a record borrowed mutably from the
-  contact state, so the standing and the change of the credentials are
-  one call. A contact store holds its lock from the lookup through the
-  admission to keeping the `Withdrawal`; a retirement after that point
-  withdraws the session (S49).
+  take the local identity and admit the peer through its contact store
+  once, when the peer is authenticated: the dial budget, the Tor stream
+  and the handshake messages that authenticate the peer are behind it.
+  The store takes the lock of the contact, looks the record up as it is
+  then, decides, applies the change of the credentials and keeps the
+  `Withdrawal` of the link in that one step, and nothing in the step
+  waits. A retirement after that point withdraws the session (S49).
 - Tests: `tests/credentials.rs` in the core (a key retired while a dial
-  is in progress gives no contact session), `tests::contacts`, mutation
-  fault H16.
+  is in progress gives no contact session; a key retired while the
+  admission is made durable), `tests/store.rs` (concurrent operations on
+  one contact are one of their serial orders), `tests::contacts`,
+  mutation faults H16, CS11.
 
 ### S51. The local identity goes in message 3 only to a key that may learn it
 
@@ -311,15 +353,22 @@ Test area names refer to `docs/TEST_PLAN.md`.
   dial and the session. A refused dial returns `LinkError::Refused` with
   the admission, so a conflict stays visible to the local side; the peer
   sees the stream close, as for a failed handshake.
+  What is dialed at all is a card the dial plan of the contact names when
+  the dial starts (PROTOCOL.md section 11.4): a contact's, of the active
+  key or its announced successor, at the endpoints the user confirmed.
+  Any other card, and any card of an identity that is not a contact,
+  fails before a stream is opened. A refusal after message 2 therefore
+  comes from a record that changed while the dial was in progress.
+  Since Phase 4 message 3 does not exist before that decision:
+  `HandshakeInitiator::read_message_2` returns the authenticated
+  responder (`OutboundPeer`), and `OutboundPeer::admit` makes message 3
+  only for a standing that may learn the local identity. The contact
+  store is the only production caller of `admit`, and before `link::dial`
+  writes message 3 the state the admission depended on is durable.
 - Residual: bytes the stream accepted before a withdrawal cannot be
   called back. The first 48 bytes of message 3 carry the local transport
   key, which identifies the local side to a responder that knows its
   card. A local stream takes the 235 bytes in one write in practice.
-  Only `link::dial` enforces this: `HandshakeInitiator::read_message_2`
-  prepares message 3 before any admission, and a caller of the session
-  crate that wrote it unchecked would bypass the gate. `link::dial` is
-  the one production path that writes it, and the documentation of the
-  session crate says so.
 - Consequence: an outbound session is always a contact's, and none takes
   a slot of `MAX_UNKNOWN_SESSIONS`.
 - Tests: `tests/credentials.rs` in the core (withdrawal right after the
@@ -327,9 +376,17 @@ Test area names refer to `docs/TEST_PLAN.md`.
   record deleted, declined or blocked during the dial, a full budget for
   strangers, a promotion whose message 3 cannot be written, a pending key,
   a key older than the announced successor, an admission returned that
-  contradicts the session, the conflict reported locally), the unit tests
-  of `link` (a withdrawal before and during a stalled write of message
-  3), mutation faults CR18, CR22 to CR24, CR35 to CR37 and CR40.
+  contradicts the session, the conflict reported locally, a key retired
+  while the admission is made durable), the unit tests of `link` (a
+  withdrawal before and during a stalled write of message 3), the tests
+  of `handshake` in the session crate (no message 3 for a standing that
+  may not learn the local identity), `tests/structure.rs` in the core
+  (only the store admits an outbound peer; `link::dial` writes the
+  message 3 of a granted admission once), `tests/credentials.rs`
+  (`a_card_the_dial_plan_does_not_name_is_not_dialed`; the refusals above
+  are reached by changing the record while the dial waits for message
+  2), mutation faults CR18, CR22 to CR24, CR35, CR40, CS15, CS16, CS108,
+  CS111 and CS112.
 
 ### S52. Every session ends at its deadlines and on every failure
 
@@ -358,7 +415,7 @@ Test area names refer to `docs/TEST_PLAN.md`.
   `tests/link.rs` in the core (the slot of a stranger whatever the
   admission says), fuzz target `session_frames` (partial frames, expiry
   at the deadline it works out itself), mutation faults CR16, CR25 to
-  CR33, CR37 and CR39.
+  CR33 and CR39.
 
 ### S38. An invitation capability admits a request and does nothing else
 
@@ -373,32 +430,42 @@ Test area names refer to `docs/TEST_PLAN.md`.
   one statement to `evaluate_card`. A session sends only the capability
   of the card it holds of the peer. Revoking a capability removes it from
   the active set and touches nothing else: no contact record, session,
-  key or history refers to the capability a contact once used. Planned
-  for Phase 4, in the contact store: the active set and its bound, the
-  comparison with every member, and revocation.
+  key or history refers to the capability a contact once used. The
+  contact store of each identity holds its active set, at most
+  `MAX_ACTIVE_INVITATIONS`, compares a capability with every member in
+  constant time, and stores the set in the vault; a capability is durable
+  before the card that carries it is returned, and a revocation is
+  durable before it is reported.
 - Tests: `card::tests` (cards that differ only in their capability are
   each valid and do not conflict; a capability is not part of what is
   pinned), `tests::contacts` (a capability changes nothing a requester can
   see; a request carries the capability of the card held of the peer and
-  no other), T-ORACLE-1, T-INV-1 to T-INV-11 (Phase 4).
+  no other), T-ORACLE-1, T-INV-1 to T-INV-11 (`tests/invitations.rs` in
+  the core), `tests/store.rs`
+  (`creating_and_revoking_an_invitation_are_atomic`), the private
+  network test (step 8), mutation faults CS18 to CS21.
 
 ## Local identities
 
 An installation may hold several local identities (`ARCHITECTURE.md`
-section 1.1). Most of the mechanisms below belong to the contact store and
-the vault of Phase 4; what Phase 3 already holds is named in each entry.
+section 1.1). The mechanisms below are held by the contact store, the
+installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
 
 ### S39. Each local identity has its own identity, transport and Onion Service keys
 
 - Mechanism: every key of an identity is generated from the CSPRNG for
   that identity alone and held only in its context; S33 separates the
-  three keys within one identity. Planned for Phase 4: the vault refuses
-  to create, import or restore an identity whose identity key, transport
-  key or Onion Service key equals one held by another local identity, so
-  one identity key is never held by two contexts (that would be a form of
-  multi-device, which version 1 does not have). Tor refuses to publish a
-  key it already holds, and so does the mock backend.
-- Tests: T-MI-1, T-MI-9.
+  three keys within one identity. The installation refuses to create or
+  restore an identity whose identity key, transport key, transport key in
+  rotation or Onion Service key equals one held by another local
+  identity, and a vault that holds two such identities is refused when it
+  is opened, so one identity key is never held by two contexts (that
+  would be a form of multi-device, which version 1 does not have). Tor
+  refuses to publish a key it already holds, and so does the mock
+  backend.
+- Tests: T-MI-1 and T-MI-9 (`tests/identities.rs` in the core),
+  `tests/store.rs` (`identities_restored_or_created_never_share_a_key`),
+  mutation fault CS23.
 
 ### S40. Contact state belongs to one local identity
 
@@ -408,37 +475,85 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
   function takes a remote identity alone. Accepting, blocking or deleting
   a peer for one identity changes nothing for another. A block list for
   all identities, if one is ever offered, is a separate record and an
-  explicit choice. In Phase 3, `link::answer` and `link::dial` take an
-  admission function from the caller and hold no contact state. The store
-  is Phase 4.
-- Tests: T-MI-2, T-MI-3.
+  explicit choice. Each `LocalIdentity` has its own contact store, and
+  every operation is a method of one identity; `link::answer` and
+  `link::dial` take the identity a link is for. The store that admits a
+  session binds the session's withdrawal to itself in the admission step,
+  and an identity applies what arrived on a session only if its own store
+  admitted it, and only what a link received (`link::Arrived`, which only
+  `Link::receive` makes and which carries its session, so a caller can
+  neither make the actions of a message nor apply the message of one
+  session as another's), only for the very record that admitted the
+  session (a record deleted and made again does not track it), and
+  once (`StoreError::AlreadyApplied` after that): a session of A handed
+  to B, or to an identity made again from A's keys, is refused
+  (`StoreError::OtherIdentity`).
+  The vault holds the records of each identity apart. A deletion names
+  the instance it deletes (`Installation::delete_identity` takes the
+  `LocalIdentity`, matched as that object, not by its keys), so a handle
+  kept of an earlier instance deletes nothing of a later one. Deleting
+  an identity closes it before it leaves the installation: it refuses
+  every change and admission, its waits for durability fail, it holds no
+  Onion Service key, and its accept loop and supervisor end and remove
+  its service; nothing it held is written again. It hands out nothing
+  that holds or uses a secret: no party to dial or answer with
+  (`answering_party` fails, `dial_plan` is `None`, so `dial` and `answer`
+  fail before a stream or a handshake), no card signed for a capability,
+  no capability, no Onion Service secret.
+  The copies of its secret bytes are erased and its capabilities and
+  pending requests dropped when it is closed. A party handed out before,
+  to a handshake in progress, keeps its transport key until it is
+  dropped, and so does the party the identity object itself holds, until
+  the last reference to that object is gone; no getter hands it out after
+  the deletion (best effort, `CRYPTOGRAPHY.md` section 8). A dial that
+  was waiting for its slot when the identity was deleted opens no stream,
+  and a session that outlives its identity applies nothing to it.
+  Closing an installation, by dropping its last handle, closes every
+  identity in it the same way, at once: a handle of an identity, a link,
+  a supervisor or a task that outlives the installation holds no
+  authority. Its state stays in the vault; a write already under way
+  ends on its own, holding the vault and nothing of the installation.
+- Tests: T-MI-2 and T-MI-3 (`tests/identities.rs`), the private network
+  test (step 8: two identities of one node hold one peer differently),
+  `tests/identities.rs` and `tests/supervisor.rs` (a deleted identity
+  admits nobody, changes nothing, hands out no secret, and is taken
+  down), T-MI-10, `identity::tests` (among them
+  `a_message_of_an_ended_link_changes_no_contact_made_again`),
+  `tests/structure.rs` (no party leaves the core; only what a link
+  received is applied), `tests/invitations.rs`
+  (`what_arrived_counts_once`), mutation faults CS46 to CS48, CS60 to
+  CS63, CS95, CS100, CS106, CS107, CS113 and CS116 to CS118.
 
 ### S41. An invitation capability admits requests only to the identity that issued it
 
 - Mechanism: each local identity has its own active set (PROTOCOL.md
   section 12.3). A request is compared only with the set of the identity
   whose service it reached, and revoking changes only that set. There is
-  no lookup across the sets of all identities. Phase 4.
-- Tests: T-MI-4.
+  no lookup across the sets of all identities. The handle of a member
+  (`InvitationId`) names the instance of the identity that holds it, a
+  number drawn at random when the instance is made: another identity, or
+  another instance of the same keys, finds nothing for it, so it neither
+  exports nor revokes a member of its own through a handle of another.
+- Tests: T-MI-4 and T-MI-11 (`tests/identities.rs`), mutation fault CS96.
 
 ### S42. Stream isolation is per local identity and contact
 
 - Mechanism: the backend makes an `IsolationGroup` from 16 CSPRNG bytes
-  and keeps none; `link::dial` takes the group from its caller. The core
-  of Phase 4 keeps one group per pair of local identity and remote
-  identity, in memory only, so two local identities never share a group,
-  also for the same contact. A group is never derived from a key, an
-  address, a name or a label (`TOR_INTEGRATION.md` section 3.2).
+  and keeps none. Each `LocalIdentity` keeps one group per remote
+  identity (`LocalIdentity::isolation`), in memory only, and `link::dial`
+  takes it from the identity, so two local identities never share a
+  group, also for the same contact. A group is never derived from a key,
+  an address, a name or a label (`TOR_INTEGRATION.md` section 3.2).
 - Tests: `secret::tests` (groups are random and distinct),
   `tests/link.rs` (two local identities dial the same contact, each with
-  its own group); T-MI-5 (the core keeps the groups per pair).
+  its own group; T-MI-5), mutation fault CS22.
 
 ### S43. An inbound stream belongs to the identity whose service it reached
 
 - Mechanism: each publication has its own control connection, listener
   and handle, and `serve` runs the accept loop of one service. The core
-  runs that loop with the `LocalParty` and the admission function of the
-  identity that owns the service. No code looks up "the" local identity
+  runs that loop, under the supervisor of one identity, with that
+  identity. No code looks up "the" local identity
   for a stream, and a stream is never tried against several identities.
   An Onion Service key belongs to one identity. Where a platform profile
   fixes the target port, this holds only while one identity receives
@@ -446,7 +561,8 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
 - Tests: `tests/system.rs` (two publications coexist, and a stream reaches
   only the service it was sent to), `tests/link.rs` (each local identity
   answers at its own service, and a card of one identity that names the
-  service of another gets no session); T-MI-6.
+  service of another gets no session; T-MI-6), `tests/supervisor.rs`
+  (the supervisors of two identities do not touch each other).
 
 ### S44. A peer of one local identity learns nothing about the others
 
@@ -457,15 +573,17 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
   identities, their labels or their state. What one identity sends does
   not depend on another's records; shared resources are the residual of
   `THREAT_MODEL.md` adversary S.
-- Tests: T-MI-7.
+- Tests: T-MI-7 (`tests/identities.rs`: strangers at one identity change
+  nothing at another).
 
 ### S45. Every outbound connection names the local identity it is made for
 
-- Mechanism: `link::dial` takes the local party, the admission function
-  and the isolation group as arguments. There is no default identity and
-  no global place one could come from. The dial scheduler of Phase 4
-  queues each dial with its local identity.
-- Tests: review of the signature of `link::dial`; T-MI-8.
+- Mechanism: `link::dial` takes the local identity the dial is for, and
+  from it the party, the admission and the isolation group. There is no
+  default identity and no global place one could come from. The dial
+  scheduler, when it comes, queues each dial with its local identity.
+- Tests: review of the signature of `link::dial`; T-MI-8
+  (`tests/identities.rs`).
 
 ### S46. No local identity is process-wide state
 
@@ -474,9 +592,10 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
   every function that needs one takes it as an argument or from the
   context of one identity. Process-wide are only the Tor backend and its
   status, the runtime, the configuration and the process-wide budget
-  ceilings. `dev-chat` makes one identity per run as a test aid.
-- Tests: review; on every change, the crates are searched for static
-  state outside test fixtures (Phase 3: none).
+  ceilings. An `Installation` is a value that holds its identities;
+  `dev-chat` makes one identity per run as a test aid.
+- Tests: `tests/structure.rs` in the core (no static item and no
+  thread-local in the production code of any crate); review.
 
 ## Protocol and parsing
 
@@ -560,9 +679,14 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
   `clippy.toml` bans `tokio::sync::mpsc::unbounded_channel`. The network
   layer of Phase 3 holds no queue of its own: a link reads into one fixed
   buffer and reads again only when the session has taken it, and the
-  accept loop's tasks are bounded by the handshake budget.
+  accept loop's tasks are bounded by the handshake budget. The queue of
+  pending contact requests of an identity is bounded in total and per
+  capability (`MAX_PENDING_CONTACT_REQUESTS`,
+  `MAX_PENDING_REQUESTS_PER_INVITATION`), and evicted strangers whose
+  links have not ended are bounded by the budget for strangers.
 - Tests: lint in CI, T-RES-3, the core tests of the accept loop (a flood
-  beyond `MAX_INBOUND_HANDSHAKES` is closed, not queued).
+  beyond `MAX_INBOUND_HANDSHAKES` is closed, not queued), T-INV-5 and
+  T-INV-6, `strangers::tests`, mutation faults CS20, CS26 and CS27.
 
 ### S13. File transfer is always offered and explicitly accepted
 
@@ -607,7 +731,11 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
 
 - Mechanism: storage accepts typed records only. Every record type that can
   hold peer-supplied text is built by a validating constructor. There is no
-  text configuration file whose lines are assembled from field values.
+  text configuration file whose lines are assembled from field values. The
+  vault payload (`STORAGE.md` section 3.4) is binary, each value of it is
+  decoded through the constructor of its type, and a payload that does
+  not decode in full is refused as a whole; pending requests, the only
+  peer-supplied text a stranger can send, are never stored.
 - Tests: T-INJ-* (newline, delimiter, SQL, path and escape-sequence
   injection through every text field).
 
@@ -620,10 +748,17 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
   and by the random source that the resolver hands to the Noise library
   for the ephemeral keys of a handshake; in `monolith-tor` for the
   isolation tokens and the SAFECOOKIE client nonce (and, in the mock
-  backend for tests, for mock keys); in `monolith-cli` for the identity
-  seeds of the `dev-chat` test command. No other generator crate is a
-  dependency of a product build. Non-cryptographic generator crates are banned by `deny.toml`. A
-  failure of the source fails the operation; there is no fallback. A
+  backend for tests, for mock keys); in `monolith-core` for the identity
+  seeds and transport keys of new identities and of a rotation, for
+  invitation capabilities, for the instance number of each identity
+  object (`new_instance`, which the handles of that instance carry), and
+  for the jitter of the publication supervisor, which is not secret; in
+  `monolith-storage` for the KDF salt, the vault key and the nonces of
+  the vault; in `monolith-cli` for the message identifiers of the
+  development commands. No other generator crate is a dependency of a
+  product build. Non-cryptographic generator crates are banned by
+  `deny.toml`. A failure of the source fails the operation; there is no
+  fallback. A
   handshake with fixed ephemeral keys can be built only in the tests of
   that crate and in a build made with `--cfg fuzzing`; no cargo feature
   enables it, so it cannot be switched on through a dependency. The
@@ -644,7 +779,10 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
   do not derive `Debug` and do not implement `Display`. Their hand-written
   `Debug` prints `[redacted]`, or sizes and a type name where that is all
   there is to say. A type that is made only of such types may derive
-  `Debug`, because the fields print themselves. Error types carry no peer
+  `Debug`, because the fields print themselves. A buffer of secret bytes
+  (`Zeroizing<[u8; N]>`) is not such a type: it prints its bytes, so a
+  type that holds one implements `Debug` by hand (the stored identity and
+  rotation of `monolith_storage::record`). Error types carry no peer
   data. See `monolith_identity::redact`. The handshake and session types
   print `[redacted]`; a session prints its state, its frame and byte
   counters and whether it failed.
@@ -714,13 +852,75 @@ the vault of Phase 4; what Phase 3 already holds is named in each entry.
 ### S31. Critical state changes are atomic
 
 - Mechanism: the vault is replaced by write-to-temporary, fsync, rename,
-  fsync-directory. The identity key is never modified in place; every write
-  produces a complete new file that carries it.
-- Tests: T-CRASH-* (kill at every write step).
+  fsync-directory, and created under another name and linked into place.
+  The identity key is never modified in place; every write produces a
+  complete new file that carries it, with the whole installation in it.
+  The contact store applies a change in memory under the lock of the
+  contact and stamps it with a generation; whatever grants on the basis of
+  the change (message 3, a returned link, the success of a user command)
+  waits until that generation is in the vault, and a failed write fails
+  the installation closed. A new invitation capability is listed, put
+  into a card and admits requests only once its generation is durable,
+  also when its creation was cancelled; so is a new local identity
+  listed, and the successor card of a rotation shown. A crash loses only
+  changes nothing has used.
+  The write is a job on the blocking pool that puts the vault back and
+  publishes its outcome however the waiting task ends, so a cancelled
+  wait loses neither the vault nor the lock of its directory, and the
+  snapshot it writes is one cut through each identity (keys, rotation
+  and the progress made for it, settings, active set, contact store),
+  never an operation half done, and never the progress of one rotation
+  with another. When the write fails, the job itself withdraws
+  every session, whether or not a waiter is left; when changes came after
+  its snapshot, it writes again before it publishes its outcome (up to
+  four writes while a waiter is left, which then starts the next write
+  itself if changes are left; on until nothing is left when nobody waits),
+  so a change is written also when its waiter was cancelled or nothing
+  waits for it while the installation is open, and the job holds
+  nothing once its outcome is out (a wait that looks as it ends starts
+  no write for what it wrote). A
+  waiter cancelled in the instant the job decides leaves its change to the
+  next write. A later write that fails does not take back what an earlier
+  one made durable, and a wait reads the failure before what is durable,
+  so it reports a generation the failing job wrote as durable; a failure
+  is recorded before the vault is back, so no write follows it, and
+  every session is withdrawn before any waiter learns the outcome. An installation closed while changes are still
+  being written keeps the lock of its directory until that write ends.
+  What an admission records without a session following (a refused dial,
+  an answer or a dial without a slot) is made durable before the refusal
+  is returned.
+- Tests: T-CRASH (`vault::tests`: a write or a creation stopped at every
+  step leaves the old or the new vault, with every combination of what a
+  crash keeps; `tests/store.rs`: every critical change stopped at every
+  step of its write), `tests/store.rs`
+  (`a_restart_reproduces_the_durable_state_exactly`), `persist::tests`
+  (a cancelled wait, a failed write, many waiters on many threads),
+  `contacts::tests` (snapshots taken while operations run at the bounds),
+  `tests/credentials.rs`
+  (`a_failed_write_withdraws_every_session_even_when_nobody_waits`),
+  `tests/invitations.rs`
+  (`an_invitation_is_handed_out_only_once_it_is_durable`),
+  `requests::tests`, `tests/credentials.rs` (`what_a_refused_dial_...`
+  and the three tests after it: what a refusal recorded survives a
+  restart), `persist::tests`
+  (`a_change_is_written_though_its_waiter_was_cancelled_during_a_write`),
+  `identity::tests` (a snapshot taken while one rotation ends and the
+  next begins, at a hook between its reads; rotations, marks and
+  snapshots on several threads), `contacts::tests`
+  (`the_progress_of_a_rotation_counts_only_for_that_rotation`),
+  `tests/credentials.rs` (`the_progress_of_one_rotation_...`,
+  `the_progress_of_a_rotation_survives_...`), `persist::tests`
+  (`a_wait_sees_what_a_failing_job_made_durable`,
+  `a_wait_finds_the_vault_back_once_its_outcome_is_out`), mutation faults
+  CS13 to CS15, CS35, CS36, CS45, CS51, CS55, CS64, CS65, CS68 to CS72,
+  CS77 to CS80, CS114, CS115 and CS123.
 
 ### S32. No hidden network traffic
 
 - Mechanism: Monolith has no update check, telemetry, crash reporting or
   time synchronization. The only traffic it causes is peer sessions and the
   Tor control and SOCKS exchanges needed for them.
-- Tests: T-NET-1 (idle run produces no traffic besides Tor's own).
+- Tests: ban list in `deny.toml`; T-NET-1 for a dial and for the CLI
+  without Tor. T-NET-1 has no idle step: the idle run of
+  `docs/TEST_PLAN.md` section 11 (no traffic besides Tor's own) has no
+  test yet.

@@ -3,8 +3,8 @@
 Status: the session layer is decided and implemented. It is Noise XK with
 a transport key that the identity certifies in the contact card (ADR
 0002). Sections 4 to 8 describe it, and the crate `monolith-session`
-implements it. The storage design (section 9) is specified separately and
-belongs to a later phase.
+implements it. The vault of section 9 is specified in `STORAGE.md` and
+implemented in `monolith-storage` in Phase 4.
 
 Monolith defines no primitive, no key exchange and no key schedule of its
 own. It uses the Noise Protocol Framework and Ed25519 as specified, and
@@ -30,10 +30,10 @@ Tor's own onion service encryption and does not replace any of it.
 | Session cipher | ChaCha20-Poly1305, RFC 8439 | `chacha20poly1305` |
 | Session hash and key derivation | SHA-256, HMAC-SHA256 in the Noise HKDF | `sha2`; HMAC and HKDF as `snow` builds them from it |
 | Fingerprint, file digest | SHA-256 | `sha2` |
-| Onion address checksum | SHA3-256 | `sha3` (not in use yet) |
-| Vault key derivation | Argon2id, RFC 9106 | `argon2` (not in use yet) |
-| Vault encryption | XChaCha20-Poly1305 | `chacha20poly1305` (not in use yet) |
-| Subkeys from the vault key | HKDF-SHA256, RFC 5869 | `hkdf` (not in use yet) |
+| Onion address checksum | SHA3-256 | `sha3` |
+| Vault key derivation | Argon2id, RFC 9106 | `argon2` |
+| Vault encryption | XChaCha20-Poly1305 | `chacha20poly1305` |
+| Subkeys from the vault key | HKDF-SHA256, RFC 5869 | `hkdf` |
 | Randomness | operating system CSPRNG | `getrandom` |
 | Secret comparison | constant time, best effort | `subtle` |
 | Secret erasure | best effort | `zeroize` |
@@ -63,11 +63,21 @@ the operation fails; there is no fallback generator. Non-cryptographic
 generators are banned by `deny.toml`, and will be banned by lint once code
 exists that could call one (S17).
 
-The source is read through `getrandom`, in the session crate and nowhere
-else. The ephemeral keys of a handshake are generated there: the Noise
-library asks the resolver for random bytes, and the resolver reads the
-operating system source. In production there is no way to supply them
-from outside.
+The source is read through `getrandom` and nothing else, where a value is
+made:
+
+- the session crate: the ephemeral keys of a handshake (the Noise library
+  asks the resolver for random bytes, and the resolver reads the
+  operating system source) and a transport key it generates;
+- the core: identity seeds, transport keys of new identities and of a
+  rotation, and invitation capabilities; and the jitter of the delays
+  between attempts to publish a service, which is not secret;
+- the storage crate: the salt, the vault key and the nonces of the vault;
+- the Tor crate: SOCKS isolation tokens and the client nonce of
+  SAFECOOKIE;
+- the development commands of the CLI: message identifiers.
+
+In production there is no way to supply any of them from outside.
 
 Tests that need a reproducible handshake fix the ephemeral keys. The means
 to do that is a second random source in the resolver that returns fixed
@@ -269,6 +279,14 @@ F4. Credential epochs prevent rollback, and a newer credential takes over
     presented in message 3, an initiator to the card it dialed, both
     against the credentials as they are when the handshake is complete.
 
+    The rule is applied in one place, whatever path the card took: an
+    inbound or outbound handshake, an EndpointUpdate, an import by the
+    user or a confirmation (`contact::decide` in `monolith-protocol`,
+    PROTOCOL.md section 11.4). The contact store calls it under the lock
+    of the contact, so a card cannot be judged twice in two ways or
+    against credentials that changed meanwhile, and a promotion withdraws
+    the sessions of the retired key in the same step.
+
 F5. A transport key or ephemeral key that is not canonically encoded or is
     of small order is invalid, and an X25519 result of all zeros ends the
     handshake. The Noise specification leaves this to the application.
@@ -288,7 +306,12 @@ Order. The responder is authenticated in message 2. The initiator reveals
 its transport key and its identity in message 3, after that, with forward
 secrecy. An initiator dials only identities it holds as contacts or has
 asked to become contacts, and both receive its card in any case, so the
-last row discloses nothing new.
+last row discloses nothing new. Message 3 exists only after the
+initiator's contact store admitted the authenticated responder as such a
+contact: the session crate makes it in that admission and nowhere else
+(`OutboundPeer::admit`), and the initiator writes it only once the state
+the admission depended on is durable and while the session has not been
+withdrawn.
 
 A responder's handshake does not depend on what it holds about the
 initiator. Its messages, its timing up to message 3 and its failures are
@@ -460,7 +483,9 @@ reduced values exists only in test builds of the session crate.
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
 
 Session keys and ephemeral keys are never written to storage. Types that
-hold a secret do not derive `Debug`.
+hold a secret do not derive `Debug`; that includes the records of the
+vault that hold the stored secrets, whose `Debug` is written out and
+prints none of them.
 
 An invitation capability leaves the device inside every card that carries
 it, and the user decides where that card goes: to one person, or published
@@ -485,7 +510,20 @@ does not reveal past sessions: after message 3 the keys depend on an
 exchange between two ephemeral keys.
 
 Erasure: Monolith's own types for private keys and for invitation
-capabilities zeroize on drop. So do the objects
+capabilities zeroize on drop. The encoder of messages and vault records
+erases a buffer it outgrows and what it holds when it is dropped, and
+the plaintext of a vault is held in buffers that clear themselves. The
+other buffers that hold a capability or message content are erased when
+dropped too: the bytes a card signature covers, made to sign a card and
+to verify one; the encoded card a vault record copies, which may carry
+the capability of a contact; the copies `ContactCard::to_text` and
+`ContactCard::from_text` make on the way; and the plaintext of every
+frame a session seals or opens, with the body it is made from. The base32
+encoder and the normalization of a passphrase reserve their whole length
+at once, so they leave no copies in buffers they outgrew. The CLI holds
+the passphrase it reads from its file in a buffer that is erased. A local
+identity that is deleted erases its copies of its secret bytes at once
+(`SECURITY_INVARIANTS.md` S40). So do the objects
 of the resolver that hold a key for `snow`: the copy of the transport
 private key, the ephemeral private key and the cipher keys are held in
 types that clear their memory when they are dropped (ADR 0002, F-R1). The
@@ -504,8 +542,14 @@ that session there. The transport private key is not among these values:
 `snow` passes it to the resolver by reference and keeps no copy.
 
 In no case does erasure reach copies the compiler made, freed memory that
-was reused, pages that were swapped out, or crash dumps. This is listed as
-a limit, not hidden.
+was reused, pages that were swapped out, or crash dumps. Nor does it reach
+what Monolith hands to its caller or the user: a received message, with
+its text and names, belongs to the caller once it is returned; the text
+form of a card is the user's to hand out; and a party given to a
+handshake keeps its transport key until the handshake drops it. Small
+values on the stack (the groups of the base32 codec, a byte read while
+decoding) are not erased, and the standard library may copy a file it
+reads into a buffer it grows. This is listed as a limit, not hidden.
 
 Secrets are not locked into RAM. Doing so needs `mlock`, which needs
 `unsafe` or a dependency that wraps it. On a system with swap, secrets can
@@ -515,11 +559,15 @@ swap state; the command is not implemented yet.
 
 ## 9. Storage encryption
 
-Specified in `STORAGE.md`. In short: Argon2id derives a key from the
-passphrase, that key unwraps a random vault key, and the vault is encrypted
-with XChaCha20-Poly1305 with the header as associated data. The vault
-holds the identity private key, the transport private key and, where
-Monolith manages them, the Onion Service private keys.
+Specified in `STORAGE.md` and implemented in `monolith-storage`. In
+short: Argon2id derives a key from the passphrase, that key unwraps a
+random vault key, and the payload is encrypted with XChaCha20-Poly1305
+under a key that HKDF-SHA256 derives from the vault key, with the whole
+header as associated data. The vault holds, per local identity, the
+identity seed, the transport private key, a transport key in rotation and
+the Onion Service private key, with the contacts and invitation
+capabilities. The default Argon2id setting is provisional until the
+measurement of `STORAGE.md` section 3.3 is made on the four targets.
 
 ## 10. Implementation rules
 

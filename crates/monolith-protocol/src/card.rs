@@ -22,7 +22,7 @@ use monolith_identity::{
     TransportPublicKey, base32,
 };
 use subtle::ConstantTimeEq;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::ProtocolError;
 use crate::codec::{Reader, Writer};
@@ -310,8 +310,9 @@ impl ContactCard {
     }
 
     /// Returns the bytes the signature covers. See `docs/PROTOCOL.md`
-    /// section 11.1.1.
-    pub fn signed_bytes(&self) -> Vec<u8> {
+    /// section 11.1.1. They hold the invitation capability, if the card
+    /// carries one, and are erased when dropped.
+    pub fn signed_bytes(&self) -> Zeroizing<Vec<u8>> {
         signed_bytes(
             &self.identity,
             &self.transport,
@@ -411,8 +412,11 @@ impl ContactCard {
     /// Returns the text form: `MONOLITH1:` followed by unpadded upper-case
     /// base32 of the binary form.
     pub fn to_text(&self) -> String {
-        let mut text = String::from(TEXT_PREFIX);
-        text.push_str(&base32::encode(&self.encode()));
+        let binary = Zeroizing::new(self.encode());
+        let encoded = Zeroizing::new(base32::encode(&binary));
+        let mut text = String::with_capacity(TEXT_PREFIX.len().saturating_add(encoded.len()));
+        text.push_str(TEXT_PREFIX);
+        text.push_str(&encoded);
         text
     }
 
@@ -427,7 +431,9 @@ impl ContactCard {
         if input.len() > MAX_CONTACT_CARD_TEXT_LEN {
             return Err(ProtocolError::FieldTooLong);
         }
-        let mut compact = String::with_capacity(input.len());
+        // The text may carry a capability: the copies made of it here are
+        // erased when dropped, and never grow.
+        let mut compact = Zeroizing::new(String::with_capacity(input.len()));
         for character in input.chars() {
             match character {
                 ' ' | '\t' | '\r' | '\n' => {}
@@ -441,7 +447,7 @@ impl ContactCard {
         if !prefix.eq_ignore_ascii_case(TEXT_PREFIX) {
             return Err(ProtocolError::InvalidEncoding);
         }
-        let bytes = base32::decode(encoded, MAX_CONTACT_CARD_LEN)?;
+        let bytes = Zeroizing::new(base32::decode(encoded, MAX_CONTACT_CARD_LEN)?);
         Self::decode(&bytes)
     }
 }
@@ -493,7 +499,7 @@ fn signed_bytes(
     epoch: EndpointEpoch,
     endpoints: &EndpointSet,
     invitation: Option<&InvitationCapability>,
-) -> Vec<u8> {
+) -> Zeroizing<Vec<u8>> {
     let mut writer =
         Writer::with_capacity(SIGNING_PREFIX.len().saturating_add(MAX_CONTACT_CARD_LEN));
     writer.raw(SIGNING_PREFIX);
@@ -513,7 +519,7 @@ fn signed_bytes(
     if let Some(capability) = invitation {
         writer.raw(capability.expose());
     }
-    writer.into_bytes()
+    Zeroizing::new(writer.into_bytes())
 }
 
 /// How a card of an identity compares with a card held of it: its
@@ -926,7 +932,7 @@ mod tests {
             let unsigned = &encoded[..encoded.len() - 64];
             let mut expected = b"MONOLITH-CONTACT-CARD-V1".to_vec();
             expected.extend_from_slice(unsigned);
-            assert_eq!(original.signed_bytes(), expected);
+            assert_eq!(*original.signed_bytes(), expected);
         }
     }
 

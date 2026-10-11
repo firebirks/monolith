@@ -16,14 +16,14 @@ use proptest::prelude::*;
 
 use super::frames::{confirmed_with, limits};
 use crate::testing::{
-    ALICE, BOB, EPHEMERAL_I, EPHEMERAL_R, Transcript, card, chat, confirmed, connect, handshake,
-    party, start,
+    ALICE, BOB, EPHEMERAL_I, EPHEMERAL_R, Transcript, card, chat, confirmed, connect, party, start,
+    transcript,
 };
 use crate::{AuthenticatedSession, HandshakeInitiator, HandshakeResponder, SessionError};
 
 /// The messages of the handshake between Alice and Bob with the fixed
 /// ephemeral keys.
-static TRANSCRIPT: LazyLock<Transcript> = LazyLock::new(|| handshake(&party(ALICE), &party(BOB)).2);
+static TRANSCRIPT: LazyLock<Transcript> = LazyLock::new(|| transcript(&party(ALICE), &party(BOB)));
 
 fn alice_dialing_bob() -> HandshakeInitiator {
     HandshakeInitiator::start_with_ephemeral(&party(ALICE), &card(BOB), start(), EPHEMERAL_I)

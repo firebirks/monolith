@@ -12,13 +12,15 @@ key kept.
 
 ## Files
 
-- `faults.py`: the lists `PHASE1`, `PHASE2` and `PHASE3`. An entry names the
+- `faults.py`: the lists `PHASE1`, `PHASE2`, `PHASE3` and `PHASE4`. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
 
 ## Running
 
+    python3 mutation/run.py all 3
+    python3 mutation/run.py phase4 3
     python3 mutation/run.py phase3 3
     python3 mutation/run.py phase2 3
     python3 mutation/run.py phase1 3
@@ -44,9 +46,8 @@ Outcomes:
 
 The results go to `mutation/results-<list>-<commit>.json`. The exit code
 is 0 if every fault had the outcome its entry expects, and 1 otherwise. A
-full run of all lists took about four hours with two workers in a Linux
-container in the final verification of Phase 3; three workers are faster
-where memory allows.
+full run of all four lists takes several hours with three workers; a
+fault caught only by the timeout takes the whole of it (20 minutes).
 
 When code moves, a pattern may no longer match. The runner then stops
 before testing and names the entry; update the pattern so that the fault
@@ -54,15 +55,122 @@ stays the same fault.
 
 ## Expected results
 
-With the credential binding review, the integration hardening and the
-final hardening of Phase 3; the final verification on `2f27dcb` gave
-exactly this, with exit code 0:
+With Phase 4; the final verification on `970316f` gave exactly this,
+with exit code 0 for each list:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
 | Phase 1 | 45 | 43 | B3, B4 |
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
-| Phase 3 | 74 | 71 | Q14, Q18, Q29 |
+| Phase 3 | 71 | 68 | Q14, Q18, Q29 |
+| Phase 4 | 123 | 123 | none |
+
+338 faults, 329 to be caught, 9 expected to survive.
+
+Phase 4 was closed on 2026-10-11. From then on the faults CS1 to CS123
+and the regression tests of Phase 4 are a baseline to preserve.
+
+The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
+
+- one decision about a card and no rollback: an older card of the active
+  key that rolls the contact back, a stale card promoted, a conflicting
+  card taken, the retired key accepted again, an import that judges a
+  card apart from an admission, a newer key without a successor called
+  stale, an import that makes a blocked identity a contact (CS1 to CS7);
+- the store: a block or a deletion that leaves sessions standing, a
+  session that no longer stands forgotten without being withdrawn, an
+  operation on a copy of the record outside its lock, a confirmation
+  without a contact, an import without a generation or returned before it
+  is durable (CS8 to CS14);
+- message 3: written before the admission is durable, without looking at
+  the withdrawal, or before a contact slot is taken, and a contact
+  session without a slot (CS15 to CS17, CS44);
+- invitations and requests: the bound of the active set, a capability
+  outside it, the quota per capability, revoking and discarding (CS18 to
+  CS21);
+- several identities: an isolation group shared between contacts, two
+  identities with one key (CS22, CS23);
+- strangers: the newest evicted instead of the oldest, a stranger that
+  has spoken evicted, draining links without a bound, one slot more, an
+  evicted stranger's message delivered (CS24 to CS28);
+- the supervisor and rotation: a new key on publishing again, attempts
+  without a delay, a switch or an end of rotation that is due at once,
+  the pending successor dialed, a confirmed card dialed whatever key it
+  states (CS29 to CS34);
+- the vault: a write in place, a directory not flushed, a header not
+  authenticated, KDF parameters outside the bounds, a passphrase not
+  normalized, a directory others can reach, no single-instance lock,
+  padding that is not zero, a contact stored twice (CS35 to CS43);
+- the fixes of the review of the Phase 4 code (`docs/DESIGN_QUESTIONS.md`
+  section 11.4): a write whose waiter is cancelled loses the vault
+  (CS45), a deleted identity that is not closed, changes it in memory, or
+  is published again (CS46 to CS48), a successor announced or a new key
+  used before the step is durable (CS49, CS50), a snapshot without the
+  lock of the map (CS51), an admission whose cancelled wait is never
+  forgotten (CS53), a rotation ended before its switch is durable (CS54),
+  and a failed write that withdraws nothing when no waiter is left
+  (CS55). CS52, a decline that lets go of the map between its two slots,
+  is caught by a test that takes a snapshot at a hook between the two
+  slots; CS51 by one that looks, at a hook after every slot a snapshot
+  reads, whether the snapshot still holds the lock of the map, whatever
+  the order in which the map yields the slots;
+- the closure of the review of the Phase 4 code
+  (`docs/DESIGN_QUESTIONS.md` section 11.5): stored secrets in `Debug`
+  output (CS56), keys the vault would refuse or a rotation to the same
+  public key (CS57 to CS59), a deleted identity that signs, hands out a
+  party, keeps its secret bytes, or takes what a late session or a
+  waiting dial brings (CS60 to CS62, CS81, CS82, CS90), a session of one
+  identity applied at another (CS63), what is shown or admits before it
+  is durable: an invitation, its card, the successor card, a new identity
+  (CS64, CS65, CS84 to CS86), the order of a request and the record of
+  its sender (CS66, CS67), what a refused or slot-less admission recorded
+  and the writes of a job (CS68 to CS72, CS88, CS89, CS92 to CS94), the
+  withdrawal looked at before every write, a link whose write or receive
+  was dropped (CS73, CS74, CS83, CS91), a publication when its identity
+  is deleted (CS75, CS76), and the progress of one rotation counted for
+  another (CS77 to CS80, CS87);
+- a logical name taken for an object instance, and what the reviews of
+  those fixes found (`docs/DESIGN_QUESTIONS.md` section 11.5, the last
+  two tables): the identities of a closed installation that keep their
+  authority (CS95), a handle of an invitation or a request that names no
+  instance or no request (CS96, CS99), an announcement or a confirmation
+  counted for a contact made again or on a session that no longer
+  stands (CS97, CS98, CS110), a deletion that takes the identity of the
+  same keys (CS100), a switch or an end decided for one rotation that
+  changes another (CS101, CS102), an import or a block that takes out a
+  request queued after it (CS103, CS104), a card for a capability
+  revoked as it is made (CS105), a closed identity that shows a card it
+  no longer answered with (CS106), the answering party outside the core
+  (CS107), a card dialed of someone who is not a contact or that the
+  dial plan does not name (CS108, CS111, CS112), a session that reports
+  no capability for its request (CS109), what a link received made or
+  changed by a caller (CS113), a wait that reports a failure for a
+  generation that is durable (CS114, CS115), an acceptance or a new card
+  that counts for a contact made again (CS116, CS117), what arrived
+  applied twice (CS118), an announcement sent on another session or
+  counted without being sent (CS119, CS120), a snapshot that lets go
+  of the keys between its reads (CS121), what arrived on a link that
+  ended counted until its record forgets the link (CS122), and a write
+  started for what the job before has written and is about to publish
+  (CS123). CS81 removes both checks of the
+  closing on the path of a late session; the one in `apply` is a second
+  line behind the one in `consider` (CS90) and is not shown on its
+  own.
+
+CS28 is caught by a test that evicts the stranger at a hook between
+taking its first message and delivering it. CS30 is caught by the
+timeout of the runner, with two tests of the supervisor that fail: with
+no delay between attempts its loop does not end. CS17 lets a dial go on
+without a contact slot, and the tests that expect `LinkError::Budget`
+fail at once.
+
+Phase 4 moved P1 to P3, H15, H16, Q25, Q26, Q30, CR1, CR2, CR9, CR18,
+CR19, CR24 and CR35 to the code they test now, and removed CR36, CR37 and
+CR38 from the Phase 3 list, which would be equivalent now: the admission
+a link returns and the session it admits come from one decision of the
+store, so reading one or the other is the same (CR36, CR37), and the
+store keeps the withdrawal of a link only once the admission succeeded,
+so ending it after a failed admission is a second line (CR38).
 
 The Phase 3 list covers the no-clearnet and Tor boundaries (onion address
 checks, SOCKS only, the onion name only, loopback endpoints and listener,
@@ -130,7 +238,7 @@ and `request_sent` in `may_send` (S13, S14), the invitation comparison
 that drops the keys (S20 to S25), the all-zero secret key (K1) and
 `OutboundPeer::admit` with its record (H15, H16).
 
-Why the six survive:
+Why these survive:
 
 - B3, equivalent. The card inside a ContactRequest or EndpointUpdate is
   taken with the length of a card without capability, 171 bytes. A card
@@ -160,12 +268,20 @@ Why the six survive:
 - Q29, unreachable. `Endpoint` is opaque and only its validating
   constructors make one; the second check in the connection code cannot be
   reached from a test.
-
 A survivor that is not in this list is a gap in the tests, or a check that
 does nothing. Either is fixed before a phase is called done; F9 was such a
 gap at the end of Phase 2, and in Phase 3 a handle that ignored control
 loss before `accept`, a handshake without its deadline, and the dial and
-listener-error paths of the core were; all have tests since.
+listener-error paths of the core were; all have tests since. In Phase 4
+the targeted run found three: a confirmation for an identity that is not
+a contact (CS12), a dial without a contact slot (CS17), and a stranger
+answered without a slot while evicted ones drain (Q30); all have tests
+since. Some fixes of the reviews have no fault: the flush of the parent
+of a new directory, which only a power loss would show; the erasure of
+an outgrown encoder buffer and of the card, frame and passphrase buffers
+of the review closure, which no test can read without `unsafe`; and the
+handling of an admission that fails after it changed a record, which no
+path reaches today.
 
 ## Adding a fault
 

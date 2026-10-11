@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the mutation suite. See README.md in this directory.
 
-Usage: python3 mutation/run.py <phase1|phase2|phase3|all> <workers> [fault id ...]
+Usage: python3 mutation/run.py <phase1|phase2|phase3|phase4|all> <workers> [fault id ...]
 
 Each fault of faults.py is applied to a copy of the committed HEAD, one at
 a time; the tests of the affected crates run; the file is restored. The
@@ -137,8 +137,10 @@ def run_one(item, tree):
         with open(path, "w") as handle:
             handle.write(original)
     verdict, details = classify(code, output, timed_out)
-    seeds_only = verdict == "caught" and details and all(
-        "seeds" in name or name.startswith("(") for name in details
+    seeds_only = (
+        verdict == "caught"
+        and any("seeds" in name for name in details)
+        and all("seeds" in name or name.startswith("(") for name in details)
     )
     return {
         "id": item["id"],
@@ -203,7 +205,8 @@ def run_main():
         "phase1": faults.PHASE1,
         "phase2": faults.PHASE2,
         "phase3": faults.PHASE3,
-    }.get(phase, faults.PHASE1 + faults.PHASE2 + faults.PHASE3)
+        "phase4": faults.PHASE4,
+    }.get(phase, faults.PHASE1 + faults.PHASE2 + faults.PHASE3 + faults.PHASE4)
     if only:
         selected = [item for item in selected if item["id"] in only]
     commit = subprocess.run(
