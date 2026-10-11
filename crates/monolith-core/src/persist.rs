@@ -622,6 +622,41 @@ mod tests {
     }
 
     #[test]
+    fn an_outcome_published_between_the_check_and_the_sleep_ends_the_wait() {
+        // The wait found its generation not durable. Right then, at each
+        // point between that check and its sleep, a job publishes the
+        // generation. The outcome is not lost: the wait ends in the poll
+        // it is in, without sleeping and without a write of its own.
+        for point in ["read", "start"] {
+            let durability = Durability::new();
+            let writes = Arc::new(AtomicUsize::new(0));
+            let store = Store::vault(Box::new(TestWriter {
+                writes: writes.clone(),
+                gate: gate(true),
+                fail: false,
+            }));
+            let generation = durability.bump();
+            let publishing = durability.clone();
+            let step: Box<dyn FnOnce() + Send> =
+                Box::new(move || publishing.mark_durable(generation));
+            lock(&durability.hooks).insert(point, step);
+            let runtime = runtime();
+            let _entered = runtime.enter();
+            let mut wait =
+                core::pin::pin!(store.wait(&durability, generation, snapshot(&durability)));
+            let mut context = core::task::Context::from_waker(core::task::Waker::noop());
+            assert!(
+                matches!(
+                    wait.as_mut().poll(&mut context),
+                    core::task::Poll::Ready(Ok(()))
+                ),
+                "{point}"
+            );
+            assert_eq!(writes.load(Ordering::SeqCst), 0, "{point}");
+        }
+    }
+
+    #[test]
     fn a_cancelled_wait_loses_neither_the_vault_nor_the_outcome() {
         let durability = Durability::new();
         let writes = Arc::new(AtomicUsize::new(0));

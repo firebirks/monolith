@@ -1299,4 +1299,9 @@ PHASE5 = [
     fault("MR49", CORE + "runtime.rs", "a send its caller stops waiting for is left half done",
           ("        detached(async move { inner.send(&held, identity, contact, text).await })\n            .await\n            .unwrap_or(Err(SendError::Storage))",
            "        inner.send(&held, identity, contact, text).await")),
+    fault("MR50", CORE + "persist.rs", "a wait marks the outcome seen after it looked at the state and sleeps through it",
+          ("            durable.borrow_and_update();\n            // The failure is read before",
+           "            // The failure is read before"),
+          ("            if durable.changed().await.is_err() {\n                return Err(CommitError::Failed);",
+           "            durable.borrow_and_update();\n            if durable.changed().await.is_err() {\n                return Err(CommitError::Failed);")),
 ]

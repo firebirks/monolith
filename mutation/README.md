@@ -71,10 +71,10 @@ with exit code 0 for each list:
 Phase 4 was closed on 2026-10-11. From then on the faults CS1 to CS123
 and the regression tests of Phase 4 are a baseline to preserve.
 
-Phase 5 adds the list MR1 to MR49, all expected to be caught; the table
+Phase 5 adds the list MR1 to MR50, all expected to be caught; the table
 gets its row from the run of the final verification of Phase 5.
 
-The Phase 5 list, MR1 to MR49, covers the messaging runtime
+The Phase 5 list, MR1 to MR50, covers the messaging runtime
 (`docs/adr/0007-delivery-semantics.md` to `0009-session-manager.md`):
 
 - acknowledgements: a message acknowledged before it is durable (MR1),
@@ -116,8 +116,11 @@ The Phase 5 list, MR1 to MR49, covers the messaging runtime
   made (MR42), a runtime dropped without a shutdown that runs on (MR43),
   more identities or sequences than a payload holds (MR45, MR46), a change
   of nothing that wakes every session (MR47), a message of an identity
-  being deleted added after its messages were removed (MR48), and a send
-  left half done when its caller stops waiting (MR49).
+  being deleted added after its messages were removed (MR48), a send
+  left half done when its caller stops waiting (MR49), and a wait for
+  durability that marks the outcome seen only after it looked at the
+  state, and sleeps through an outcome published in between (MR50, in the
+  shared `persist.rs` of Phase 4).
 
 A retry that goes around Tor has no fault: no crate outside `monolith-tor`
 opens a socket (`docs/SECURITY_INVARIANTS.md` S1), and every attempt of
