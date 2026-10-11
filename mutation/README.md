@@ -35,7 +35,14 @@ It works on copies of the committed `HEAD` under `mutation/work/`, one per
 worker, each with its own target directory, so the working tree is never
 touched and uncommitted changes are not tested. Before anything runs it
 checks that every pattern occurs exactly once in its file, and that the
-unmodified copies pass their tests. For each fault it runs the tests of
+unmodified copies pass their tests. Then it checks that each copy builds
+what it holds, on its own target directory: the tests of
+`monolith-protocol` pass, fail with fault X1 applied, and pass again once
+the file is restored, with the crate built again. A fault is applied only
+if the file then holds it, and every file is restored to its exact bytes
+with a time newer than any build, so that cargo never runs the build of a
+fault after it. A copy that fails one of these checks stops the run: the
+build system, not the code, would decide the results after it. For each fault it runs the tests of
 the crate that holds the fault and of every crate that depends on it,
 with `--no-fail-fast`, so the result names every test that noticed.
 
@@ -71,10 +78,10 @@ with exit code 0 for each list:
 Phase 4 was closed on 2026-10-11. From then on the faults CS1 to CS123
 and the regression tests of Phase 4 are a baseline to preserve.
 
-Phase 5 adds the list MR1 to MR50, all expected to be caught; the table
+Phase 5 adds the list MR1 to MR57, all expected to be caught; the table
 gets its row from the run of the final verification of Phase 5.
 
-The Phase 5 list, MR1 to MR50, covers the messaging runtime
+The Phase 5 list, MR1 to MR57, covers the messaging runtime
 (`docs/adr/0007-delivery-semantics.md` to `0009-session-manager.md`):
 
 - acknowledgements: a message acknowledged before it is durable (MR1),
@@ -120,7 +127,14 @@ The Phase 5 list, MR1 to MR50, covers the messaging runtime
   left half done when its caller stops waiting (MR49), and a wait for
   durability that marks the outcome seen only after it looked at the
   state, and sleeps through an outcome published in between (MR50, in the
-  shared `persist.rs` of Phase 4).
+  shared `persist.rs` of Phase 4);
+- the fixes of the review of those fixes (`docs/DESIGN_QUESTIONS.md`
+  section 12.6): a failed vault refused as a closed identity, a deletion
+  reported as a failed store, a failure reported only by what runs into it
+  (MR51 to MR53), delays started again after an inbound session that timed
+  out (MR54), a command a shutdown does not wait for (MR55), availability
+  reported again without a change (MR56), and the end of an unregistered
+  session that wakes every scheduler (MR57).
 
 A retry that goes around Tor has no fault: no crate outside `monolith-tor`
 opens a socket (`docs/SECURITY_INVARIANTS.md` S1), and every attempt of

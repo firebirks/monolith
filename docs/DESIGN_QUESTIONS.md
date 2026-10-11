@@ -1982,7 +1982,7 @@ has a mutation fault.
 | R5-17 | Sections of identities that had to go could exceed what a payload holds (8) and fail the store (B); a conversation whose sequences ran out overwrote an entry (B) | The state refuses a ninth identity section and a full sequence | unit tests in `messages.rs`; MR45, MR46 |
 | R5-18 | A change that changed nothing woke every session task (B); a scheduler looked up its record in O(contacts) on every wake (A) | Only a change wakes them; `LocalIdentity::is_current` reads one slot | unit test in `messages.rs`; MR47 |
 | R5-19 | `Runtime::connect` dialed with a session in place (B); `dev-runtime send` took the text from the wrong place with repeated spaces (A, B) | Fixed | - |
-| R5-20 | The test of a send its caller stops waiting for failed every time in one build and passed with traces, the profile of a lost wakeup; the owner made it a blocker of the freeze. Reproduced step by step: the tooling that mirrors the tree for the Linux build gave a file restored after a fault trial its older time back, so cargo ran the binary built with fault MR49, whose behaviour that was. Not a defect of the code. The wait for durability of Phase 4 (`persist::Store::wait`), which the messages share, marks the outcome seen before it looks at the state, so an outcome published in between ends the wait | The mirroring tool keeps the newer time of a file with the same bytes. The wait is covered by a deterministic test that publishes the outcome at each point between its check and its sleep, and must end in one poll | `persist::tests`; MR50 |
+| R5-20 | The test of a send its caller stops waiting for failed every time in one build and passed with traces, the profile of a lost wakeup; the owner made it a blocker of the freeze. Reproduced step by step: the tooling that mirrors the tree for the Linux build gave a file restored after a fault trial its older time back, so cargo ran the binary built with fault MR49, whose behaviour that was. Not a defect of the code. The wait for durability of Phase 4 (`persist::Store::wait`), which the messages share, marks the outcome seen before it looks at the state, so an outcome published in between ends the wait | The mirroring tool keeps the newer time of a file with the same bytes. The wait is covered by a deterministic test that publishes the outcome at each point between its check and its sleep, and must end in one poll. The same cause then showed once more: a test of a crash while the store is made failed with the store library still built with fault MR42; the mirror's builds were thrown away and everything built again. The mutation runner was not affected (its copies come from `git archive`, and it restores a file with a newer time), and now checks it on each copy before a run: a known fault is caught, and once it is restored the crate is built again and passes | `persist::tests`; MR50; the check of `mutation/run.py` |
 
 Not changed, with the reason:
 
@@ -1999,3 +1999,27 @@ Not changed, with the reason:
 - Two sessions of the same initiator registered in different orders at
   the two sides can close each other; only an explicit `connect` makes a
   second one, and the scheduler dials again (B).
+
+### 12.6 A review of the fixes
+
+A third review, of the fixes of sections 12.4 and 12.5 alone (commit
+`35428bf`), found nothing critical or high. What it found, checked
+against the code:
+
+| Id | Finding | Fix | Regression |
+| --- | --- | --- | --- |
+| R5-21 | A send to an installation whose vault failed was refused as an identity that is gone, and a vault that failed with nothing running was never reported, or only once a scheduler woke | A failed vault is a failed store for a send; a task of the runtime follows the failures of the vault and of the message store and reports one at once | `tests/runtime.rs` (a failed vault is reported at once and refuses a send); MR51, MR53 |
+| R5-22 | An identity deleted while a send waited for the vault made the send report a failed store, and raised `StorageFailed`, once for the process, though nothing failed | A wait that ended because the identity closed is a closed identity | `tests/runtime.rs` (an identity deleted while a send waits for the vault fails nothing); MR52 |
+| R5-23 | An inbound session that ended for want of an acknowledgement still started the delays of the scheduler again | The end of each session is kept per record; only one that did not time out starts them again | `tests/runtime.rs` (a peer that dials in and never acknowledges does not reset the delays); MR54 |
+| R5-24 | Commands ran outside the tasks of the runtime: a shutdown neither waited for them nor ended them | They are tasks of the runtime: a shutdown waits for them within its deadline, then ends them; a write of the vault under way ends on its own (Phase 4) | `tests/runtime.rs` (a shutdown waits for a command under way); MR55 |
+| R5-25 | `SessionAvailable` and `SessionUnavailable` did not alternate: a session closed by the duplicate rule could report a record unavailable twice | They are raised only when whether a record has a session changes, decided under one lock | `tests/runtime.rs` (both sides at once: the events alternate); MR56 |
+| R5-26 | The end of a session that was never registered woke every scheduler of the identity, and the list of conversations looked up every contact for each | Only a change wakes them; the list uses `is_current` | unit test in `sessions.rs`; MR57 |
+| R5-27 | A vault of Phase 4 refused beside a store with messages gave the front end only "does not validate" | `OpenError::MessageStore` | - |
+
+Not changed, with the reason: a session that waits for the message store
+to write the head of its queue before it sends it reads nothing in the
+meantime, also not a close or a Ping (R5-28). The wait is one write of the
+store, a small file on local disk; a withdrawal still stops the send,
+since the link refuses to write once withdrawn, and at-least-once makes a
+message sent once more harmless. Waiting for the write inside the select
+of the session would add a state for little.

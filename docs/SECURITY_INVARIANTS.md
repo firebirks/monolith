@@ -618,8 +618,9 @@ The messaging runtime of Phase 5 (`adr/0007-delivery-semantics.md`,
   is durable acknowledges nothing; one that crashes after takes the retry
   in as a duplicate), `tests/runtime.rs` (a lost acknowledgement; a failed
   message store ends every session and attempt; a failed vault ends every
-  attempt), `tests/structure.rs`, mutation faults MR1, MR33, MR34 and
-  MR44.
+  attempt; a failed vault is reported at once and refuses a send; an
+  identity deleted while a send waits fails nothing), `tests/structure.rs`,
+  mutation faults MR1, MR33, MR34, MR44 and MR51 to MR53.
 
 ### S54. Delivery is recorded only by the acknowledgement of the contact record the message was queued for
 
@@ -703,7 +704,7 @@ The messaging runtime of Phase 5 (`adr/0007-delivery-semantics.md`,
   while the store is made), `tests/structure.rs`, `tests/runtime.rs` (a
   send its caller stops waiting for completes; growing delays), mutation
   faults MR6, MR9, MR15, MR16, MR18, MR26, MR31, MR32, MR39 to MR42, MR45,
-  MR46 and MR49.
+  MR46, MR49, MR54 and MR55.
 
 ## Protocol and parsing
 
