@@ -919,4 +919,7 @@ installation and the vault of Phase 4, and by the Tor adapter of Phase 3.
 - Mechanism: Monolith has no update check, telemetry, crash reporting or
   time synchronization. The only traffic it causes is peer sessions and the
   Tor control and SOCKS exchanges needed for them.
-- Tests: T-NET-1 (idle run produces no traffic besides Tor's own).
+- Tests: ban list in `deny.toml`; T-NET-1 for a dial and for the CLI
+  without Tor. T-NET-1 has no idle step: the idle run of
+  `docs/TEST_PLAN.md` section 11 (no traffic besides Tor's own) has no
+  test yet.
