@@ -52,24 +52,43 @@ open points; the ADRs are `docs/adr/0007-delivery-semantics.md`,
 | `0e67b47` | `dev-runtime`, a development node on the runtime |
 | `b20368f` | fuzz targets `message_store` and `message_sequence`, with seeds |
 | `7aebaf4` | mutation faults MR1 to MR28 and the tests they need |
-
-After them: the documents of the phase; the property tests
-`tests/message_model.rs` and `tests/runtime_model.rs`; the structure tests
-of Phase 5; steps 13 to 20 of the private Tor network test; and the
-closure of the internal review and of the two independent reviews
-(`docs/DESIGN_QUESTIONS.md` sections 12.4 and 12.5, findings R5-1 to
-R5-19), each finding with a regression test and a mutation fault (MR29
-to MR49).
+| `35428bf` | the fixes of the internal review and of the two independent reviews (R5-1 to R5-19), with their tests and faults MR29 to MR49 |
+| `b1c66cc` | the property tests `tests/message_model.rs` and `tests/runtime_model.rs` |
+| `2c00010` | steps 13 to 20 of the private Tor network test |
+| `01b1be1` | the documents of the phase |
+| `f0f738e` | a deterministic test of the durability wait of Phase 4 and fault MR50 (R5-20) |
+| `a6fa560` | the fixes of the review of the fixes (R5-21 to R5-27), faults MR51 to MR57 |
+| `705009e`, `638573a` | the mutation runner checks each copy before a run: a known fault is caught, and restored it is built again and passes |
+| `9d8f1bd` | the documents of the review of the fixes and of the check of the runner |
+| `63d91f6` | the mutation runner measures its timeout from the unmodified run (R5-29) |
 
 ## 4. What was verified
 
 During development, in the WSL clone of this machine (Debian, Rust
-1.95.0): the workspace tests, clippy with warnings denied and `cargo fmt`;
-the property test of the state machine at 512 cases; every fault of
-MR29 to MR49 tried against the tests of its crate and caught by the test
-written for it. A run of the Phase 5 list on `7aebaf4` caught MR1 to MR12
-before it was stopped: the code it tested had changed. The final
-verification has not run.
+1.95.0), on a build made from scratch: the workspace tests (39 binaries,
+775 passed, 2 ignored, on `f0f738e`), clippy with warnings denied and
+`cargo fmt`; the property test of the state machine at 512 cases; every
+fault of MR1 to MR57 that was added or moved after `7aebaf4` tried
+against the tests of its crate and caught by the test written for it. A
+dry run of the private Tor network test in a container on `01b1be1`
+passed every step, 1 to 20. Twice a test failed because the tool that
+mirrors the tree for the Linux build ran a binary still built with a
+fault (`docs/DESIGN_QUESTIONS.md` R5-20); the tool was fixed, the builds
+were thrown away, and the mutation runner now checks its copies itself.
+
+Before the freeze, on the official runner: on `638573a` the faults of
+Phase 4 in `persist.rs` (CS45, CS55, CS70, CS88, CS89, CS92, CS93, CS94,
+CS114, CS115, CS123) were all caught, each by tests that failed; then the
+unmodified run of a copy did not end within the fixed bound of 20
+minutes, and the runner stopped (R5-29). It takes 972 s on this machine
+with nothing else running. On `63d91f6`, with the bound measured, a copy
+built from scratch passed its check, its unmodified run took 923 s, and
+MR50 was caught by the deterministic test of the wait and two other
+tests of `persist.rs`. The dry run of the private Tor network test,
+repeated on `63d91f6` after the fixes of the review of the fixes, passed
+every step in 861 s.
+
+The final verification has not run.
 
 ## 5. What is left, in order
 
