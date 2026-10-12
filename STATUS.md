@@ -61,6 +61,7 @@ open points; the ADRs are `docs/adr/0007-delivery-semantics.md`,
 | `705009e`, `638573a` | the mutation runner checks each copy before a run: a known fault is caught, and restored it is built again and passes |
 | `9d8f1bd` | the documents of the review of the fixes and of the check of the runner |
 | `63d91f6` | the mutation runner measures its timeout from the unmodified run (R5-29) |
+| `07d6335` | a test of a message in flight sent once and waited for from then, for MR28, which survived the final verification of `75ccf7c` (R5-30) |
 
 ## 4. What was verified
 
@@ -88,13 +89,29 @@ tests of `persist.rs`. The dry run of the private Tor network test,
 repeated on `63d91f6` after the fixes of the review of the fixes, passed
 every step in 861 s.
 
-The final verification has not run.
+The final verification of `75ccf7c`, from 2026-10-12 08:52, did not close
+the phase. Everything passed up to the mutation lists: `cargo fmt`,
+clippy with warnings denied; the tests on Rust 1.95.0, 1.85.1 and 1.99.0
+(39 binaries, 781 passed, 2 ignored, on each); `cargo tree -d` with only
+the known pair of `rand_core`; the fail-closed test; the private Tor
+network test with 15 restarts of Tor B (2048 s); `cargo deny`; `cargo
+audit` (83 crates, no advisory); the 19 commits after `phase-4-complete`
+all by `firebirks`; the 18 fuzz targets for 25 s each and
+`message_store`, `message_sequence`, `vault_payload` and `contact_store`
+for 600 s each, with no crash. The Phase 5 list then caught 56 of its 57
+faults and MR28 survived (`docs/DESIGN_QUESTIONS.md` section 12.7,
+R5-30); the lists of Phases 4 to 1 were not run on that commit. On
+`07d6335` the official runner caught MR28 with the test written for it,
+after an unmodified run of 604 s. No production code, network test,
+dependency or fuzz target changed after `63d91f6`, so its dry run of the
+private Tor network test stands.
 
 ## 5. What is left, in order
 
-1. The final verification on one frozen commit: format, clippy, the tests
-   on Rust 1.85.1, 1.95.0 and the current stable, `cargo deny`, `cargo
-   audit`, the duplicate dependencies, every fuzz target briefly and the
-   affected ones long, the mutation lists of Phases 1 to 5, the fail-closed
-   test and the private Tor network test with steps 13 to 20.
+1. The final verification on the next frozen commit, in full: format,
+   clippy, the tests on Rust 1.85.1, 1.95.0 and the current stable, `cargo
+   deny`, `cargo audit`, the duplicate dependencies, every fuzz target
+   briefly and the affected ones long, the mutation lists of Phases 1 to
+   5, the fail-closed test and the private Tor network test with steps 13
+   to 20.
 2. The final report, here.
