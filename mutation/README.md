@@ -52,10 +52,19 @@ Outcomes:
 - survived: every test passed;
 - invalid: the fault does not compile, which is a mistake in the list.
 
+The timeout is measured, not fixed: it is the slowest unmodified run of
+a copy, twice over for each worker, and never less than 20 minutes. The
+unmodified run itself has two hours. With Phase 5 the unmodified run
+takes about 16 minutes on four cores, so a fixed bound of 20 minutes no
+longer told a fault that hangs from tests that are slow because other
+copies run beside them: a fault that survived could have been counted
+caught. The log gives the unmodified run and the timeout, and marks
+each fault that reached it.
+
 The results go to `mutation/results-<list>-<commit>.json`. The exit code
 is 0 if every fault had the outcome its entry expects, and 1 otherwise. A
-full run of all five lists takes several hours with three workers; a
-fault caught only by the timeout takes the whole of it (20 minutes).
+full run of all five lists takes more than a day with two workers on
+four cores; a fault caught only by the timeout takes the whole of it.
 
 When code moves, a pattern may no longer match. The runner then stops
 before testing and names the entry; update the pattern so that the fault

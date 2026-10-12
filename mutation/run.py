@@ -27,7 +27,14 @@ import faults
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 WORK = os.path.join(HERE, "work")
+# The bound of the unmodified run of a copy. The bound of the run of a
+# fault is the slowest unmodified run, SLOWER times for each worker, and
+# never less than TIMEOUT: a fault is counted caught by the timeout only
+# when its run takes far longer than the tests take with nothing applied
+# on this machine, however long that is.
+UNMODIFIED_TIMEOUT = 7200
 TIMEOUT = 1200
+SLOWER = 2
 # The fault each copy is checked with before a run, and the unit test
 # that is certain to catch it.
 CANARY = "X1"
@@ -76,7 +83,7 @@ def precheck(selected, tree):
     return problems
 
 
-def cargo_test(tree, crates):
+def cargo_test(tree, crates, limit):
     command = ["cargo", "test", "--locked", "--no-fail-fast"]
     for crate in crates:
         command += ["-p", crate]
@@ -93,7 +100,7 @@ def cargo_test(tree, crates):
     with running_lock:
         running.add(process)
     try:
-        out, err = process.communicate(timeout=TIMEOUT)
+        out, err = process.communicate(timeout=limit)
         return process.returncode, out + err, False
     except subprocess.TimeoutExpired:
         # Killing cargo alone would leave the test binary it started
@@ -153,12 +160,12 @@ def restore(path, original):
         sys.exit(3)
 
 
-def run_one(item, tree):
+def run_one(item, tree, limit):
     path = os.path.join(tree, item["path"])
     started = time.time()
     original = mutate(path, item["pairs"])
     try:
-        code, output, timed_out = cargo_test(tree, item["crates"])
+        code, output, timed_out = cargo_test(tree, item["crates"], limit)
     finally:
         restore(path, original)
     verdict, details = classify(code, output, timed_out)
@@ -295,19 +302,31 @@ def run_main():
         sys.exit(2)
 
     # Build each copy once, so that the first fault of a worker is not
-    # charged with the whole build, and check that the unmodified tree
-    # passes.
+    # charged with the whole build, check that the unmodified tree passes,
+    # and measure how long its tests take.
+    slowest = 0
     for tree in trees:
-        code, output, _ = cargo_test(tree, faults.TESTS["monolith-identity"])
+        started = time.time()
+        code, output, timed_out = cargo_test(
+            tree, faults.TESTS["monolith-identity"], UNMODIFIED_TIMEOUT
+        )
         if code != 0:
             log(output[-3000:])
-            log("the unmodified tree does not pass its tests")
+            if timed_out:
+                log(f"the unmodified tree does not end its tests in {UNMODIFIED_TIMEOUT}s")
+            else:
+                log("the unmodified tree does not pass its tests")
             sys.exit(3)
+        slowest = max(slowest, round(time.time() - started))
         problem = check_copy(tree)
         if problem:
             log(problem)
             sys.exit(3)
-    log(f"commit {commit}, {len(selected)} faults, {workers} workers")
+    limit = max(TIMEOUT, SLOWER * workers * slowest)
+    log(
+        f"commit {commit}, {len(selected)} faults, {workers} workers, "
+        f"unmodified run {slowest}s, timeout {limit}s"
+    )
 
     free = list(trees)
     free_lock = threading.Lock()
@@ -316,11 +335,13 @@ def run_main():
         with free_lock:
             tree = free.pop()
         try:
-            result = run_one(item, tree)
+            result = run_one(item, tree, limit)
         finally:
             with free_lock:
                 free.append(tree)
         note = " (seed tests only)" if result["seeds_only"] else ""
+        if "(timeout)" in result["failed"]:
+            note += " (timeout)"
         log(f"{result['id']:5} {result['verdict']:8} {result['seconds']:4}s  {result['what']}{note}")
         return result
 
@@ -329,7 +350,16 @@ def run_main():
 
     out = os.path.join(HERE, f"results-{phase}-{commit[:7]}.json")
     with open(out, "w") as handle:
-        json.dump({"commit": commit, "results": results}, handle, indent=1)
+        json.dump(
+            {
+                "commit": commit,
+                "unmodified_seconds": slowest,
+                "timeout": limit,
+                "results": results,
+            },
+            handle,
+            indent=1,
+        )
     counts = {}
     for result in results:
         counts[result["verdict"]] = counts.get(result["verdict"], 0) + 1

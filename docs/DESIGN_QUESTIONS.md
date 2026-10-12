@@ -2023,3 +2023,11 @@ store, a small file on local disk; a withdrawal still stops the send,
 since the link refuses to write once withdrawn, and at-least-once makes a
 message sent once more harmless. Waiting for the write inside the select
 of the session would add a state for little.
+
+Before the freeze the official runner caught the eleven faults of Phase 4
+in `persist.rs`, then stopped before MR50: the unmodified run of its copy
+did not end within the fixed bound of 20 minutes (R5-29). With Phase 5
+that run takes about 16 minutes on this machine, and faults run beside
+each other took up to 20. A run that only reached the bound was counted
+caught, so a fault that survived could have been counted caught. The
+bound is now measured from the unmodified run (`mutation/README.md`).
