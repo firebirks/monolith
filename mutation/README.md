@@ -113,8 +113,8 @@ The Phase 5 list, MR1 to MR57, covers the messaging runtime
 - sessions: the duplicate rule of `PROTOCOL.md` section 14 broken three
   ways (MR10, MR11, MR27), an idle session that never ends (MR25), a
   message whose acknowledgement does not come that keeps its session
-  waiting (MR26), and a second message sent before the first is
-  acknowledged (MR28);
+  waiting (MR26), and a message in flight sent again on the same session,
+  its acknowledgement then awaited from the last send (MR28);
 - reconnecting and limits: attempts without a delay (MR9), a conversation,
   the queue of a contact or of an identity one past its bound (MR12 to
   MR14);
@@ -144,6 +144,15 @@ The Phase 5 list, MR1 to MR57, covers the messaging runtime
   out (MR54), a command a shutdown does not wait for (MR55), availability
   reported again without a change (MR56), and the end of an unregistered
   session that wakes every scheduler (MR57).
+
+MR25 and MR26 are caught by the timeout of the runner alone, MR9 by the
+timeout and a test that fails: each turns a loop of the runtime into one
+that never waits, so with time paused the tests that wait for a session
+to end wait for ever, as with CS30. MR28 survived the final verification
+of `75ccf7c`: no test queued more while an acknowledgement stayed away
+and looked at when the session ended. It is caught since by a test
+written for it
+(`docs/DESIGN_QUESTIONS.md` section 12.7).
 
 A retry that goes around Tor has no fault: no crate outside `monolith-tor`
 opens a socket (`docs/SECURITY_INVARIANTS.md` S1), and every attempt of

@@ -1130,7 +1130,7 @@ PHASE4 = [
 
 
 # The messaging runtime of Phase 5 (docs/adr/0007-delivery-semantics.md,
-# 0008-message-store.md, 0009-session-manager.md): MR1 to MR28.
+# 0008-message-store.md, 0009-session-manager.md): MR1 to MR57.
 PHASE5 = [
     # Durability before anything is reported or acknowledged.
     fault("MR1", CORE + "identity.rs", "a received message is acknowledged before it is durable",
@@ -1225,7 +1225,7 @@ PHASE5 = [
     fault("MR27", CORE + "sessions.rs", "a probe that was answered leaves the newer session open",
           ("                ProbeOutcome::CloseNewer => {\n                    if let Some(pending) = contenders.pending.take() {\n                        pending.control.close();\n                    }",
            "                ProbeOutcome::CloseNewer => {\n                    if let Some(pending) = contenders.pending.take() {\n                        let _ = pending;\n                    }")),
-    fault("MR28", CORE + "runtime.rs", "a session sends the next message before the one in flight is acknowledged",
+    fault("MR28", CORE + "runtime.rs", "a session sends its message in flight again and waits for it from the last send",
           ("                if running.in_flight.is_none()\n                    && runtime.manager.is_preferred(&contact, running.serial)",
            "                if runtime.manager.is_preferred(&contact, running.serial)")),
     fault("MR29", CORE + "identity.rs", "a message is recorded delivered when it is handed to a session to send",

@@ -2031,3 +2031,23 @@ that run takes about 16 minutes on this machine, and faults run beside
 each other took up to 20. A run that only reached the bound was counted
 caught, so a fault that survived could have been counted caught. The
 bound is now measured from the unmodified run (`mutation/README.md`).
+
+### 12.7 The final verification of 75ccf7c
+
+The final verification of `75ccf7c` passed every step up to the
+mutation lists, and the Phase 5 list caught 56 of its 57 faults. MR28
+survived (R5-30), so `75ccf7c` could not close the phase; the lists of
+Phases 4 to 1 were not run on it.
+
+| Id | Finding | Fix | Regression |
+| --- | --- | --- | --- |
+| R5-30 | MR28 removes the check that a session has no message in flight before it sends the head of the queue. The message in flight stays the head until its acknowledgement is taken, and nothing behind it is sent before that is durable, so the fault cannot send the next message, as its entry said: it sends the message in flight again whenever the session wakes, and its acknowledgement is then awaited from the last send. Against PROTOCOL.md 8.6 (a message is sent again on the next session) and `MESSAGE_ACK_TIMEOUT`, a peer that never acknowledges keeps the session open as long as something wakes it within that time: a message queued behind, or any frame the peer sends. No test queued more while an acknowledgement stayed away and looked at when the session ended | A test: while the acknowledgement of a message does not come, two more are queued behind it, and the session must end `MESSAGE_ACK_TIMEOUT` after the one send. Any send in between, of that message or of another, starts the wait again and fails it. The entry of MR28 now says what the fault does. The fault was in the list since `7aebaf4` and had not run until then: the run on `7aebaf4` was stopped after MR12, and later trials covered the faults added or moved after it | `tests/runtime.rs` (a message in flight is sent once and waited for from then); MR28 |
+
+MR25 and MR26 were caught by the timeout of the runner alone, and MR9 by
+the timeout and `a_failed_attempt_is_not_repeated_at_once`. Each fault
+turns a loop into one that never waits: MR25 and MR26 leave a deadline in
+the past that the loop sleeps until and checks against a later one, MR9
+dials again at once. With time paused the runtime is then never idle,
+time does not move, and the tests that wait for the session to end wait
+for ever; a bound in time inside a test would never fire either. This is
+the case of CS30 in Phase 4.

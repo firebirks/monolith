@@ -434,6 +434,64 @@ fn no_acknowledgement_in_time_closes_the_session_and_tries_again_later() {
 }
 
 #[test]
+fn a_message_in_flight_is_sent_once_and_waited_for_from_then() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = pair(&network).await;
+        a.start(&network, options()).await;
+        b.start(
+            &network,
+            RuntimeOptions {
+                acknowledgement_delay: MESSAGE_ACK_TIMEOUT * 10,
+                ..options()
+            },
+        )
+        .await;
+        let mut at_a_events = a.runtime().subscribe();
+        let mut at_b_events = b.runtime().subscribe();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "first")
+            .await
+            .unwrap();
+        event(&mut at_b_events, |event| {
+            matches!(event, Event::MessageReceived(_))
+        })
+        .await;
+        let sent = tokio::time::Instant::now();
+        // More is queued behind it while its acknowledgement does not come.
+        // A send of the session starts the wait for an acknowledgement
+        // again, so the session ends `MESSAGE_ACK_TIMEOUT` after the one
+        // send only if it sends neither this message again nor anything
+        // behind it.
+        for text in ["second", "third"] {
+            tokio::time::sleep(MESSAGE_ACK_TIMEOUT / 3).await;
+            a.runtime()
+                .send_message(&a.id(), &at_a, text)
+                .await
+                .unwrap();
+        }
+        event(&mut at_a_events, |event| {
+            matches!(
+                event,
+                Event::DeliveryDeferred {
+                    reason: DeferReason::AckTimeout,
+                    ..
+                }
+            )
+        })
+        .await;
+        assert!(
+            sent.elapsed() <= MESSAGE_ACK_TIMEOUT,
+            "{:?}",
+            sent.elapsed()
+        );
+        assert_eq!(a.statuses(&at_a), vec![MessageStatus::Queued; 3]);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
 fn a_blocked_contact_gets_nothing_of_its_queue() {
     run_paused(async {
         let network = MockNetwork::new();

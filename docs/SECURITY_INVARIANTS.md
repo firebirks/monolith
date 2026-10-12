@@ -638,7 +638,8 @@ The messaging runtime of Phase 5 (`adr/0007-delivery-semantics.md`,
   conversation of its session; the identities of one installation keep
   their messages apart; what arrived on a link that ended counts for
   nothing; the queue is first in, first out), `tests/runtime.rs` (a
-  session that ends with a message in flight reports nothing delivered),
+  session that ends with a message in flight reports nothing delivered;
+  a message in flight is sent once and waited for from then),
   `tests/structure.rs`, `messages::tests`, fuzz target `message_sequence`,
   the property tests `tests/message_model.rs` and `tests/runtime_model.rs`,
   mutation faults MR2, MR4, MR5, MR17, MR28, MR29, MR30, MR37 and MR47.
