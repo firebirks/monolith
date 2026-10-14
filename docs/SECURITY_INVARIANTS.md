@@ -914,6 +914,10 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
   a URL opener or a file-type sniffer. Front ends offer "copy" for links.
   Since Phase 6 the desktop links eframe's URL opener and never lets it
   act (S61); a card file is read only when the user names it or drops it.
+  eframe and arboard link the PNG decoder of `image`, for window icons and
+  clipboard images: the desktop builds its icon from pixels and takes only
+  text from the clipboard, so no peer data reaches it, and `deny.toml`
+  allows `image` only under those two crates.
 - Tests: ban list in `deny.toml`, T-NET-1, mutation fault UI16.
 
 ### S29. Displaying a message causes no network or filesystem access
@@ -952,9 +956,14 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
   for the jitter of the publication supervisor, which is not secret; in
   `monolith-storage` for the KDF salt, the vault key and the nonces of
   the vault; in `monolith-cli` for the message identifiers of the
-  development commands. No other generator crate is a dependency of a
-  product build. Non-cryptographic generator crates are banned by
-  `deny.toml`. A failure of the source fails the operation; there is no
+  development commands. No other generator crate gives Monolith a value.
+  Non-cryptographic generator crates are banned by `deny.toml`, with one
+  exception since Phase 6: on Linux the executor of the accessibility bus
+  under the desktop's window stack (`async-executor`, `futures-lite`,
+  `piper`) uses `fastrand` to vary the order in which it polls its tasks,
+  and `deny.toml` allows it only under those crates. Third-party crates
+  that read the operating system source for their own use (`ahash` seeds
+  its hash keys from `getrandom`) are listed in `DEPENDENCIES.md`. A failure of the source fails the operation; there is no
   fallback. A
   handshake with fixed ephemeral keys can be built only in the tests of
   that crate and in a build made with `--cfg fuzzing`; no cargo feature

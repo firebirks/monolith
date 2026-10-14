@@ -1,0 +1,25 @@
+# cargo-audit configuration. Run with: cargo audit
+#
+# Advisories may be ignored only with a written reason and a review date.
+# The same advisories are ignored for cargo deny in deny.toml, and
+# docs/DEPENDENCIES.md section 3 records each one.
+
+[advisories]
+ignore = [
+    # quick-xml 0.38.4: quadratic duplicate-attribute check, and unbounded
+    # namespace declarations in NsReader. It comes only through zbus_xml
+    # 5.1.0, the newest zbus_xml that builds with Rust 1.85; 5.1.1 and later
+    # need 1.87. zbus_xml serves zbus-lockstep, which atspi-common uses in a
+    # procedural macro, at build time, on the XML interface files shipped
+    # inside atspi-common, and in its own tests. The desktop parses no XML
+    # when it runs. Review on 2027-01-15.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # ttf-parser 0.25.1 is unmaintained. It parses fonts for ab_glyph under
+    # epaint 0.32.3. Monolith gives it the fonts compiled into the binary
+    # and the system fonts of the fixed list of ADR 0012, each tried in a
+    # separate egui context before use; no font comes from a peer. epaint
+    # 0.36 replaces it with skrifa and needs Rust 1.95. Review on
+    # 2027-01-15.
+    "RUSTSEC-2026-0192",
+]

@@ -25,7 +25,7 @@ newest egui is 0.36; the newest release that builds with 1.85 is 0.32.3.
 - Fonts, icons and the look are Monolith's own (ADR 0012).
 - Accessibility goes through AccessKit, which on Linux publishes the
   widget tree to AT-SPI over the session bus (`zbus`). This brings about
-  70 of the roughly 206 crates of a Linux build. It is kept: without it a
+  70 of the third-party crates of a Linux build. It is kept: without it a
   screen reader sees nothing.
 - eframe enables egui-winit's `links` feature, which opens URLs with the
   system browser through the `webbrowser` crate. Monolith opens no URL
@@ -53,9 +53,11 @@ newest egui is 0.36; the newest release that builds with 1.85 is 0.32.3.
   responsible for updating it. 0.32.3 is behind the current release
   because of the minimum Rust version; raising that version is the way to
   newer egui.
-- About 206 crates for a Linux build, against 62 for GTK 4. Each new crate
-  is checked by `cargo deny` like the rest; `docs/DEPENDENCIES.md` lists
-  the direct ones.
+- The workspace with the desktop client resolves 259 third-party crates
+  on Linux including build-time ones (247 without them), and 176 on
+  Windows, against 62 for GTK 4. Each new crate is checked by `cargo deny`
+  like the rest; `docs/DEPENDENCIES.md` lists the direct ones and the
+  exceptions.
 - The display connection (X11 or Wayland) and the session bus are local
   sockets of the desktop session. They carry no peer data, and no Monolith
   code opens another socket from the GUI (ADR 0011).

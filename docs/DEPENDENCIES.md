@@ -6,7 +6,8 @@ added by a change that also updates this file. Candidates that are not in
 use yet are in the ADRs.
 
 Facts were checked on 2026-10-01 against crates.io, the crate sources as
-downloaded by cargo, `cargo audit` and `cargo deny`.
+downloaded by cargo, `cargo audit` and `cargo deny`. The crates of the
+desktop client (Phase 6) were checked the same way on 2026-10-14.
 
 ## 1. Rules
 
@@ -18,6 +19,13 @@ downloaded by cargo, `cargo audit` and `cargo deny`.
 - One implementation of each primitive. `deny.toml` forbids two versions of
   the same crate in the product. A crate that is in the tree only through
   a development dependency is not counted; section 4 lists the one case.
+  The window stack of the desktop client brings second versions of crates
+  that are not cryptographic; `deny.toml` accepts each of them by exact
+  version, and section 4 lists them.
+- An exception to `deny.toml` (an ignored advisory, a banned crate allowed
+  under one parent, a second version, a licence) is written there with its
+  reason and recorded here. An ignored advisory also carries a review date
+  and is ignored for `cargo audit` in `.cargo/audit.toml` as well.
 - Features are switched off by default and enabled one by one.
 - `deny.toml` bans `native-tls` and `openssl-sys`. This is dependency
   control and says nothing about the quality of OpenSSL's cryptography.
@@ -90,6 +98,9 @@ and prehashed signing).
 Production dependencies of the library crates and of the `monolith`
 binary. Phase 3 added `tokio` and `hmac` for the Tor adapter; Phase 4 added
 `argon2`, `hkdf`, `rustix` and `unicode-normalization` for the vault.
+Phase 6 added the desktop client; its crates are listed under "Desktop
+client" below, and none of them is a dependency of the library crates of
+the core or of the `monolith` binary.
 
 ### Direct
 
@@ -102,9 +113,9 @@ binary. Phase 3 added `tokio` and `hmac` for the Tor adapter; Phase 4 added
 | `x25519-dalek` | 3.0.0, pinned exactly | BSD-3-Clause | 1.85 | X25519 for the session handshake | `static_secrets`, `zeroize`; no default features |
 | `chacha20poly1305` | 0.11.0, pinned exactly | Apache-2.0 OR MIT | 1.85 | the session cipher; XChaCha20-Poly1305 of the vault | `zeroize`; no default features |
 | `getrandom` | 0.3.4 | MIT OR Apache-2.0 | 1.63 | the random source of the operating system | none; no default features |
-| `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type, and invitation capabilities | none; no default features |
+| `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type, and invitation capabilities | none; no default features. The desktop crates add `alloc`. |
 | `sha3` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | the checksum of an onion address | none; no default features |
-| `tokio` | 1.53.1 | MIT | 1.71 | the runtime of the Tor adapter: sockets, timeouts, channels | `io-util`, `net`, `sync`, `time`; no default features. Tests add `rt` and `test-util`. |
+| `tokio` | 1.53.1 | MIT | 1.71 | the runtime of the Tor adapter: sockets, timeouts, channels | `io-util`, `net`, `sync`, `time`; no default features. Tests add `rt` and `test-util`; the desktop adds `macros`. |
 | `hmac` | 0.13.0 | MIT OR Apache-2.0 | 1.85 | HMAC-SHA256 of SAFECOOKIE control authentication | none; no default features |
 | `argon2` | 0.6.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | Argon2id, the key-encryption key of the vault from the passphrase | `alloc`, `zeroize`; no default features |
 | `hkdf` | 0.13.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | HKDF-SHA256, the payload key of the vault from the vault key | none; no default features |
@@ -256,6 +267,9 @@ binary. Phase 3 added `tokio` and `hmac` for the Tor adapter; Phase 4 added
   bytes when it is dropped, through the `Zeroize` trait and a `Drop` impl
   written by hand; the derive macros are not used, so the crate brings in
   nothing else.
+- The desktop crates enable `alloc` for `Zeroizing<String>`: the
+  passphrase fields and the card texts the client holds are wiped when
+  they are dropped (S62).
 - What it gives is best effort. It clears the memory a value occupies when
   the value is dropped. It does not reach copies the compiler made, and it
   is not a guarantee against every way a secret can stay in memory.
@@ -266,9 +280,14 @@ binary. Phase 3 added `tokio` and `hmac` for the Tor adapter; Phase 4 added
   Added in Phase 3 for `monolith-tor`, the one crate that opens sockets.
 - Features: `net` (TCP and Unix sockets), `io-util`, `time` (every
   timeout of `RESOURCE_LIMITS.md` section 4), `sync` (bounded channels of
-  the mock backend). Not enabled: `macros`, whose `tokio-macros` would
-  bring a second `syn`, `fs`, `process` (nothing may start a process),
-  `signal`, `rt-multi-thread`. The runtime itself is built by the binary.
+  the mock backend). Not enabled: `fs`, `process` (nothing may start a
+  process), `signal`, `rt-multi-thread`. The runtime itself is built by
+  the binary.
+- The desktop enables `macros`, for `select!` in the bridge between the
+  window and the runtime. It brings `tokio-macros`, which is built with
+  `syn` 3 while the core is built with `syn` 2. Both are build-time only,
+  and the window stack brings `syn` 3 in any case (section 4). The core
+  crates and the `monolith` binary do not enable `macros`.
 - Advisories: none for 1.53.1. Unsafe: much, in the I/O driver and the
   scheduler; it is the runtime every networked Rust program of this kind
   relies on, and the alternative is writing one.
@@ -429,23 +448,268 @@ others) into test builds. None of it is linked into a release binary. The
 fuzz targets under `fuzz/` are a separate cargo project with their own
 lock file and use `libfuzzer-sys`.
 
+### Desktop client: direct
+
+Dependencies of `monolith-desktop`, `monolith-ui`, `monolith-ui-kit`,
+`monolith-ui-model` and `monolith-ui-snapshot`, added in Phase 6
+(ADR 0010, ADR 0012).
+
+| Crate | Version | Licence | MSRV | Used for | Features |
+| --- | --- | --- | --- | --- | --- |
+| `egui` | 0.32.3, pinned exactly | MIT OR Apache-2.0 | 1.85 | the user interface: layout, input, text, painting | no default features; `eframe` adds `accesskit`, `bytemuck`, `log` |
+| `eframe` | 0.32.3, pinned exactly | MIT OR Apache-2.0 | 1.85 | the window, its OpenGL context and the event loop | `glow`, `x11`, `wayland`, `accesskit`; no default features |
+| `qrcodegen` | 1.8.0, pinned exactly | MIT | not declared | QR codes of cards, made locally (ADR 0011) | none; no default features |
+| `jiff` | 0.2.38, pinned exactly | Unlicense OR MIT | 1.70 | dates and times in the system's time zone | `std`, `tz-system`, `tzdb-zoneinfo`, `tzdb-bundle-platform`; no default features |
+| `unicode-segmentation` | 1.13.3, pinned exactly | MIT OR Apache-2.0 | 1.85 | grapheme clusters for the rendering limits (`RESOURCE_LIMITS.md` section 10) | no default features |
+| `png` | 0.18.1 | MIT OR Apache-2.0 | 1.73 | PNG files of the software renderer, for screenshots and visual tests | no default features |
+
+`egui` and `eframe`
+
+- Maintained by the egui project. 0.32.3 was released on 2025-09-12. It
+  is the newest release that builds with Rust 1.85; later releases need a
+  newer compiler (`epaint` 0.36.2 declares 1.95). ADR 0010 records the
+  choice.
+- Not enabled: `default_fonts` (the fonts are Monolith's, ADR 0012),
+  `persistence` (Monolith keeps the window size and its preferences
+  itself, ADR 0011), `wgpu`, `web_screen_reader`. `wgpu`, `naga` and the
+  rest of the `wgpu` back end are listed in `Cargo.lock` as optional
+  dependencies of `eframe` and are not compiled.
+- Whatever its features, `eframe` enables `egui-winit` with `clipboard`
+  (`arboard`, and `smithay-clipboard` on Linux) and `links`
+  (`webbrowser`), and links `image` for window icons. `webbrowser` and
+  `image` are banned crates; see "Exceptions in deny.toml" below.
+- Review: no public audit is known.
+- Advisories: none for these crates. Their text goes through
+  `ttf-parser`, which is unmaintained (RUSTSEC-2026-0192, below).
+- Unsafe: none in `egui`, `epaint`, `emath` and `ecolor`; 24 lines in
+  `eframe`, 35 in `egui_glow`, 1 in `egui-winit`. Most of the unsafe code
+  of the client is further down, in the bindings to the system (table
+  below).
+- Size: counted with `cargo tree -e normal,build`, a Linux build of the
+  desktop has 259 third-party crates and a Windows build 176, against 52
+  for the `monolith` binary on Linux. All of it is statically linked Rust
+  that Monolith ships and has to keep up to date (ADR 0010).
+
+`qrcodegen`
+
+- Project Nayuki's QR Code generator, in its Rust version. 1.8.0 was
+  released on 2022-04-17 and is the newest release. It has no
+  dependencies, no features and no unsafe code.
+- Used in `monolith-ui-kit` to turn the text of a card into a matrix of
+  modules, which the kit draws. It only encodes; the client reads no QR
+  code.
+- Advisories: none.
+
+`jiff`
+
+- Maintained by Andrew Gallant. 0.2.38 was released on 2026-10-06.
+- Used in one place: a timestamp is shown as a date and time in the
+  system's time zone. If the zone cannot be read, UTC is used.
+- Enabled: `std`; `tz-system` (which zone the system uses);
+  `tzdb-zoneinfo` (the zone database under `/usr/share/zoneinfo` on
+  Linux); `tzdb-bundle-platform` (a copy of the database compiled in,
+  through `jiff-tzdb-platform` and `jiff-tzdb`, on Windows, which has none
+  in that form). Not enabled: the defaults `tz-fat`, `tzdb-concatenated`
+  and `perf-inline`, and `serde`, `logging`, `static`. `jiff-static`, a
+  procedural macro of the crate, is compiled at build time.
+- Advisories: none. Unsafe: 79 lines.
+
+`unicode-segmentation`
+
+- Maintained by the unicode-rs project. Already in the tree through
+  `egui` and `winit`. `monolith-ui-model` depends on it directly to count
+  grapheme clusters for the rendering limits.
+- Advisories: none. Unsafe: none.
+
+`png`
+
+- Maintained by the image-rs project. `monolith-ui-snapshot`, the software
+  renderer of egui frames, uses it to write PNG files and to read back the
+  reference images it wrote, for the visual tests.
+- `monolith-ui-snapshot` is a development dependency, and the optional
+  `screenshot` feature of the desktop, which no release enables. A release
+  build links `png` all the same, through `image` under `eframe` (below).
+- Advisories: none. Unsafe: none. It brings `fdeflate`, `flate2`,
+  `miniz_oxide` and `crc32fast`.
+
+### Desktop client: transitive
+
+The notable crates under the ones above. `cargo tree -p monolith-desktop`
+gives the full list.
+
+| Crate | Version | Licence | Through | Unsafe lines |
+| --- | --- | --- | --- | --- |
+| `epaint`, `emath`, `ecolor` | 0.32.3 | MIT OR Apache-2.0 | `egui` | 0 |
+| `egui-winit` | 0.32.3 | MIT OR Apache-2.0 | `eframe` | 1 |
+| `egui_glow` | 0.32.3 | MIT OR Apache-2.0 | `eframe` | 35 |
+| `winit` | 0.30.13 | Apache-2.0 | `eframe` | 918 |
+| `glutin` | 0.32.3 | Apache-2.0 | `eframe` | 342 |
+| `glutin-winit` | 0.5.0 | MIT | `eframe` | 2 |
+| `glow` | 0.16.0 | MIT OR Apache-2.0 OR Zlib | `eframe`, `egui_glow` | 2635, bindings |
+| `libloading` | 0.8.9 | ISC | `glutin`, `x11rb` | 49 |
+| `x11rb` | 0.13.2 | MIT OR Apache-2.0 | `winit`, `arboard`, on Linux | 66 |
+| `x11-dl` | 2.21.0 | MIT | `winit`, `glutin`, on Linux | bindings |
+| `wayland-client` | 0.31.15 | MIT | `winit`, on Linux | 1 |
+| `wayland-backend` | 0.3.17 | MIT | `wayland-client` | 212 |
+| `smithay-client-toolkit` | 0.19.2 and 0.20.0 | MIT | `winit`; `smithay-clipboard` | 18 |
+| `ab_glyph` | 0.2.32 | Apache-2.0 | `epaint` | 0 |
+| `ab_glyph_rasterizer` | 0.1.10 | Apache-2.0 | `ab_glyph` | 5 |
+| `owned_ttf_parser` | 0.25.1 | Apache-2.0 | `ab_glyph` | 5 |
+| `ttf-parser` | 0.25.1 | MIT OR Apache-2.0 | `owned_ttf_parser` | 0 |
+| `ahash` | 0.8.12 | MIT OR Apache-2.0 | `egui`, `epaint`, `winit` | 7 |
+| `arboard` | 3.6.1 | MIT OR Apache-2.0 | `egui-winit` | 53 |
+| `smithay-clipboard` | 0.7.3 | MIT | `egui-winit`, on Linux | 6 |
+| `clipboard-win` | 5.4.1 | BSL-1.0 | `arboard`, on Windows | 72 |
+| `error-code` | 3.4.0 | BSL-1.0 | `clipboard-win` | 15 |
+| `accesskit` | 0.19.0 | MIT OR Apache-2.0 | `egui` | 0 |
+| `accesskit_winit` | 0.27.0 | Apache-2.0 | `egui-winit` | 3 |
+| `accesskit_consumer` | 0.28.0 | MIT OR Apache-2.0 | the platform crates below | 0 |
+| `accesskit_unix` | 0.15.0 | MIT OR Apache-2.0 | `accesskit_winit`, on Linux | 0 |
+| `accesskit_atspi_common` | 0.12.0 | MIT OR Apache-2.0 | `accesskit_unix` | 0 |
+| `atspi` | 0.25.0 | Apache-2.0 OR MIT | `accesskit_unix` | 0 |
+| `zbus` | 5.13.2 | MIT | `accesskit_unix`, `atspi` | 54 |
+| `async-executor` | 1.14.0 | Apache-2.0 OR MIT | `accesskit_unix`, `zbus` | 21 |
+| `fastrand` | 2.5.0 | Apache-2.0 OR MIT | `async-executor`, `futures-lite`, `piper` | 0 |
+| `zbus_xml` | 5.1.0 | MIT | `zbus-lockstep` under `atspi-common` | 0 |
+| `quick-xml` | 0.38.4 | MIT | `zbus_xml` | 0 |
+| `quick-xml` | 0.41.0 | MIT | `wayland-scanner`, build time | 0 |
+| `accesskit_windows` | 0.27.0 | MIT OR Apache-2.0 | `accesskit_winit`, on Windows | 85 |
+| `windows` | 0.61.3 | MIT OR Apache-2.0 | `accesskit_windows` | bindings |
+| `webbrowser` | 1.2.4 | MIT OR Apache-2.0 | `egui-winit` | 8 |
+| `url` | 2.5.8 | MIT OR Apache-2.0 | `webbrowser` | 1 |
+| `image` | 0.25.9 | MIT OR Apache-2.0 | `eframe`, `arboard` | 6 |
+| `jiff-tzdb-platform`, `jiff-tzdb` | 0.1.3, 0.1.9 | Unlicense OR MIT | `jiff`, on Windows | 0 |
+| `fdeflate` | 0.3.7 | MIT OR Apache-2.0 | `png` | 0 |
+| `flate2` | 1.1.10 | MIT OR Apache-2.0 | `png` | 36 |
+| `miniz_oxide` | 0.8.9 and 0.9.1 | MIT OR Zlib OR Apache-2.0 | `png`; `flate2` | 0 |
+| `crc32fast` | 1.5.2 | MIT OR Apache-2.0 | `png` | 15 |
+
+- Window: `winit` opens the window and reads input. On Linux it talks to
+  the X server through `x11rb` and `x11-dl`, or to the Wayland compositor
+  through `wayland-client` and `smithay-client-toolkit`; on Windows it
+  uses the Win32 API. `glutin` creates the OpenGL context (EGL or GLX on
+  Linux, WGL on Windows) and loads the system's libraries at run time
+  through `libloading`; `glow` holds the OpenGL bindings `egui_glow`
+  paints with. These crates bind C interfaces of the system and hold most
+  of the unsafe code of the client.
+- Text: `epaint` lays out text with `ab_glyph`, which reads fonts through
+  `owned_ttf_parser` and `ttf-parser`.
+- Clipboard: `arboard`, with `smithay-clipboard` on Wayland and
+  `clipboard-win` on Windows. `egui-winit` reads only text from it, and
+  writes an image only when an egui command asks to copy one, which the
+  client never issues.
+- Accessibility: AccessKit publishes the widget tree. On Linux
+  `accesskit_unix` speaks AT-SPI (`atspi`) on the session bus through
+  `zbus`; on Windows `accesskit_windows` uses UI Automation through the
+  `windows` crate. On Linux this is the largest part of the tree
+  (ADR 0010). `zbus` runs on the `async-io` executor stack
+  (`async-executor`, `async-io`, `futures-lite`, `piper`, `blocking`),
+  which `accesskit_winit` selects by default; `egui-winit` does not let it
+  be changed.
+- `webbrowser` opens a URL in the system's browser; on Linux it starts a
+  process such as `xdg-open`. It brings `url`, and with it `idna` and the
+  ICU crates. The client never lets it act (below).
+- `ahash` hashes the maps of egui and winit. On Linux it seeds its keys
+  from `getrandom` 0.3.4, the one in the tree.
+- `smithay-client-toolkit` 0.19 and 0.20, and `miniz_oxide` 0.8 and 0.9,
+  are second versions; section 4 lists them all.
+
+### Exceptions in deny.toml
+
+Each is written in `deny.toml` with its reason. The ignored advisories are
+also ignored for `cargo audit` in `.cargo/audit.toml`.
+
+Advisories ignored, to be reviewed on 2027-01-15:
+
+- RUSTSEC-2026-0194 and RUSTSEC-2026-0195, `quick-xml` 0.38.4. The first
+  makes the duplicate-attribute check of a start tag quadratic in the
+  number of attributes; the second lets the namespace declarations of a
+  start tag allocate without bound in `NsReader`. Both are fixed in
+  0.41.0. This `quick-xml` comes only through `zbus_xml` 5.1.0, which
+  requires 0.38. `zbus_xml` 5.1.1 moved to 0.39 and 5.2 parses XML
+  without `quick-xml`, but both need Rust 1.87. `zbus_xml` serves
+  `zbus-lockstep` and its procedural macro, which `atspi-common` uses to
+  check that its message types match the XML interface descriptions
+  shipped inside `atspi-common`: the macro parses those files when
+  `atspi-common` is compiled, and the functions of `zbus-lockstep` are
+  called only from that crate's tests. `zbus` itself does not depend on
+  `zbus_xml`. No XML is parsed while the client runs, and none comes from
+  a peer or from the session bus. `wayland-scanner` uses `quick-xml`
+  0.41.0, which is fixed.
+- RUSTSEC-2026-0192, `ttf-parser` 0.25.1: unmaintained; its author has
+  said it will get no further fixes. No vulnerability is known. It is the
+  font parser of `ab_glyph`, which `epaint` 0.32.3 uses for all text.
+  Monolith gives it the fonts compiled into the binary, which the tests
+  render, and the system fonts of the fixed list of ADR 0012, which are
+  read only if they are no larger than 32 MiB and are first tried in a
+  separate egui context, so that a font egui cannot read is left out. No
+  font comes from a peer or from a file the user names. `epaint` 0.36
+  replaces it with `skrifa` and needs Rust 1.95; raising the minimum Rust
+  version is the way to drop it (ADR 0010).
+
+Banned crates allowed only as a direct dependency of named crates
+(`wrappers`); any other crate that depends on them still fails the check:
+
+- `webbrowser`, under `egui-winit` only. `eframe` 0.32.3 enables the
+  `links` feature of `egui-winit` in every build. The window removes every
+  `OpenUrl` command from egui's output at the end of each frame, before
+  `eframe` hands the output to `egui-winit`, and the client draws no
+  hyperlink widget (ADR 0010, S61). The test
+  `window::tests::no_url_leaves_a_frame` checks the filter; mutation fault
+  UI16 removes it. Nothing that `webbrowser` brings is banned.
+- `image`, under `eframe` and `arboard` only. `eframe` links its PNG code
+  for window icons: it decodes its own default icon when the application
+  sets none, and on Windows it scales and encodes the icon it is given.
+  `arboard` links it (PNG on Linux, PNG and BMP on Windows) for images on
+  the clipboard. The client builds its icon from pixels it computes
+  (`window::icon`), never asks to copy an image, and `egui-winit` reads
+  only text from the clipboard. No peer data and no file reaches the
+  decoder (S16).
+- `fastrand`, under `async-executor`, `futures-lite`, `piper` and
+  `tempfile` only. The first three are the executor stack under `zbus` on
+  Linux, which uses it to vary the order in which tasks are polled.
+  `tempfile` is under `zbus` on Windows, where `zbus` is not built. No
+  value of Monolith comes from it: its randomness comes from `getrandom`
+  alone (S17). The executor cannot be swapped for `tokio`, because
+  `egui-winit` enables `accesskit_winit` with its default `async-io`
+  feature.
+
+Licence added: BSL-1.0, the Boost Software License 1.0, for
+`clipboard-win` and `error-code`, the Windows clipboard under `arboard`.
+It is OSI approved and permissive: it asks for its notice in copies of
+the source, not in binaries. Every other licence in the tree is either
+allowed already or offered next to an allowed one (`Unlicense OR MIT` of
+`jiff` and `memchr`, for example). The fonts under
+`crates/monolith-ui-kit/assets` are not crates and `cargo deny` does not
+see them; their licences (SIL Open Font License 1.1, ISC) are next to
+them (ADR 0012).
+
 ## 4. Checks
 
 Run on the dependency set above; the date is in each row.
 
 | Check | Result |
 | --- | --- |
-| `cargo audit` | no advisory applies; 82 crates in `Cargo.lock` (2026-10-05, Phase 4) |
-| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy (2026-10-05) |
-| `cargo tree -d` | one pair: `rand_core` 0.9.5 and 0.10.1, see below (2026-10-05) |
-| Build and tests with Rust 1.85.1 | pass |
-| Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `snow`, `zeroize`, `proptest`) |
+| `cargo audit` | no vulnerability applies; RUSTSEC-2026-0194, RUSTSEC-2026-0195 and RUSTSEC-2026-0192 are ignored with their reasons (section 3, "Exceptions in deny.toml"); 445 crates in `Cargo.lock` (2026-10-14, Phase 6) |
+| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy, no warning (2026-10-14) |
+| `cargo tree -d` | in the core, one pair: `rand_core` 0.9.5 and 0.10.1; in the desktop, the second versions of its window stack; see below (2026-10-14) |
+| Build and tests with Rust 1.85.1 | pass; after the Phase 6 changes to `Cargo.lock` the workspace was built with 1.85.1 on Windows (2026-10-14) |
+| Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `snow`, `zeroize`, `proptest`; for the desktop `egui`, `eframe`, `zbus`, `zbus_xml`, `webbrowser`, `image`, `unicode-segmentation` and others) |
 
 The highest declared MSRV equals the project's. A later release of any of
 these crates may need a newer compiler; the resolver will then keep the
-older version, and the MSRV job in CI fails if it cannot.
+older version, and the MSRV job in CI fails if it cannot. This already
+holds the egui crates at 0.32.3 (ADR 0010) and `zbus_xml` at 5.1.0, whose
+successors need Rust 1.87 or later.
 
-Duplicate versions. `cargo tree -d` reports
+`Cargo.lock` lists every optional dependency that some feature could
+enable, also those no build of Monolith compiles, such as the `wgpu` back
+end of `eframe`. `cargo audit` reads the lock file and so checks them
+too; `cargo deny` checks the graph that the features select, for every
+target.
+
+Duplicate versions. In the core, the library crates and the `monolith`
+binary, `cargo tree -d` reports
 
     rand_core v0.9.5    <- rand, rand_chacha, rand_xorshift <- proptest (development only)
     rand_core v0.10.1   <- x25519-dalek <- monolith-session
@@ -462,6 +726,49 @@ in the tree only through development dependencies is not counted as a
 duplicate. A second version of any crate in a product build still fails
 the check.
 
+The desktop client adds second versions, all from its window stack.
+Crates of that stack depend on different major versions of the same
+crate, and Monolith cannot unify them without patching those crates.
+`deny.toml` accepts each extra version by its exact version number in
+`skip`, with a reason; a new version of any of these crates, or a second
+version of any other crate, fails the check until it is reviewed. None of
+them is cryptographic. Six of these crates are also in the core
+(`rustix`, `linux-raw-sys`, `bitflags`, `syn`, `windows-sys`,
+`windows-link`); for each, the version accepted is the window stack's and
+never the one the core uses.
+
+| Crate | Accepted in `skip` | Other version | Where the accepted one comes from |
+| --- | --- | --- | --- |
+| `rustix` | 0.38.44 | 1.1.5 | `winit` 0.30, `calloop` 0.13 and `smithay-client-toolkit` 0.19 on Linux |
+| `linux-raw-sys` | 0.4.15 | 0.12.1 | `rustix` 0.38 |
+| `smithay-client-toolkit` | 0.19.2 | 0.20.0 | `winit` 0.30; 0.20 is under `smithay-clipboard` |
+| `calloop` | 0.13.0 | 0.14.4 | `winit` and `smithay-client-toolkit` 0.19 |
+| `calloop-wayland-source` | 0.3.0 | 0.4.1 | `smithay-client-toolkit` 0.19 |
+| `thiserror`, `thiserror-impl` | 1.0.69 | 2.0.21 | `calloop` 0.13, `smithay-client-toolkit` 0.19, `accesskit_atspi_common`, `ndk` |
+| `hashbrown` | 0.15.5 | 0.17.1 | AccessKit; 0.17 is under `toml_edit`, at build time |
+| `winnow` | 0.7.15 | 1.0.4 | `zbus` and `zvariant`; 1.0 is under `toml_edit`, at build time |
+| `quick-xml` | 0.38.4 | 0.41.0 | `zbus_xml` (section 3); 0.41 is under `wayland-scanner`, at build time |
+| `syn` | 3.0.9 | 2.0.119 | procedural macros of the window stack and `tokio-macros`, at build time |
+| `miniz_oxide` | 0.9.1 | 0.8.9 | `flate2` 1.1.10 under `png`, which itself uses 0.8 |
+| `windows-sys` | 0.52.0, 0.59.0, 0.60.2 | 0.61.2 | `glutin` and `winit`; `eframe` and `rustix` 0.38; `arboard` |
+| `windows-targets` and the eight `windows_*` crates | 0.52.6 | 0.53.x | `windows-sys` 0.52 and 0.59; 0.53 is under `arboard`'s `windows-sys` 0.60 |
+| `windows-link` | 0.1.3 | 0.2.1 | the `windows` 0.61 crates of `accesskit_windows` |
+
+The check covers every target, so second versions that exist only on
+platforms Monolith does not build for are accepted the same way:
+`bitflags` 1.3.2 (`core-graphics` on macOS, `redox_syscall` 0.4 on
+Redox), `objc2` 0.5.3, `objc2-app-kit` 0.2.2 and `objc2-foundation` 0.2.2
+(macOS), `jni-sys` 0.3.1 (Android), `redox_syscall` 0.4.1 and 0.5.18
+(Redox).
+
+`getrandom` is held to one version through the lock file. `jobserver`
+0.1.35 depends on `getrandom` 0.4 on Windows hosts. It is in the graph
+only through the `parallel` feature of `cc`, which `android-activity`
+enables for its build script, so only in Android builds. `Cargo.lock`
+keeps `jobserver` at 0.1.34, which uses `getrandom` 0.3 like the rest of
+the tree and which `cc` 1.8.0 accepts. A `cargo update` that raises it
+makes `cargo deny` fail on `getrandom` until it is reviewed again.
+
 ## 5. Not yet chosen
 
 - Storage: `argon2`, `hkdf`, and the message store: ADR 0005. The vault
@@ -473,7 +780,8 @@ the check.
   it. Whether the vault normalizes passphrases, and with what, is decided
   with storage.
 - Onion address checksum: `sha3`, with the Tor backend.
-- Runtime, logging, GUI: with the phases that need them.
+- Runtime, logging: with the phases that need them. The GUI toolkit is
+  egui with eframe (ADR 0010; section 3).
 
 ## 6. Sources
 
@@ -492,3 +800,16 @@ the check.
 - https://research.nccgroup.com/2020/02/26/public-report-rustcrypto-aes-gcm-and-chacha20poly1305-implementation-review/
 - https://rustsec.org/advisories/RUSTSEC-2019-0029.html
 - https://crates.io/crates/getrandom/0.3.4
+- https://crates.io/crates/egui/0.32.3
+- https://crates.io/crates/eframe/0.32.3
+- https://crates.io/crates/qrcodegen/1.8.0
+- https://crates.io/crates/jiff/0.2.38
+- https://crates.io/crates/unicode-segmentation/1.13.3
+- https://crates.io/crates/png/0.18.1
+- https://crates.io/crates/zbus_xml/versions
+- https://rustsec.org/advisories/RUSTSEC-2026-0194.html
+- https://rustsec.org/advisories/RUSTSEC-2026-0195.html
+- https://rustsec.org/advisories/RUSTSEC-2026-0192.html
+- https://github.com/harfbuzz/ttf-parser/issues/217
+- https://www.boost.org/LICENSE_1_0.txt
+- https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
