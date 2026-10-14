@@ -1,0 +1,234 @@
+//! Text field behaviour: typing, limits, notes under the field, and what
+//! a secret field leaves in egui's memory.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing
+)]
+
+mod common;
+
+use common::{Rig, command, dump, paints};
+use egui::{Context, FullOutput, Id, Key, TextEdit};
+use monolith_ui_kit::TextField;
+use monolith_ui_kit::text_field;
+
+/// The options a test sets on the field.
+#[derive(Clone, Copy, Default)]
+struct Cfg {
+    secret: bool,
+    enabled_off: bool,
+    limit: Option<usize>,
+    error: Option<&'static str>,
+    help: Option<&'static str>,
+    focus: bool,
+}
+
+/// What a frame of the field tells.
+#[derive(Default)]
+struct Seen {
+    height: f32,
+    changed: bool,
+    submitted: bool,
+}
+
+fn show(ctx: &Context, text: &mut String, cfg: Cfg, seen: &mut Seen) {
+    egui::CentralPanel::default().show(ctx, |ui| {
+        let top = ui.cursor().top();
+        let mut field = TextField::new("field", text)
+            .label("Name")
+            .secret(cfg.secret)
+            .enabled(!cfg.enabled_off)
+            .error(cfg.error)
+            .help(cfg.help)
+            .request_focus(cfg.focus);
+        if let Some(limit) = cfg.limit {
+            field = field.char_limit(limit);
+        }
+        let out = field.show(ui);
+        seen.height = ui.cursor().top() - top;
+        seen.changed |= out.changed;
+        seen.submitted |= out.submitted;
+    });
+}
+
+fn edit_id() -> Id {
+    TextField::new("field", &mut String::new()).edit_id()
+}
+
+/// A rig whose field has the focus.
+fn focused(text: &mut String, cfg: Cfg) -> Rig {
+    let mut rig = Rig::new();
+    let cfg = Cfg { focus: true, ..cfg };
+    let mut seen = Seen::default();
+    rig.settle(3, |ctx| show(ctx, text, cfg, &mut seen));
+    assert!(rig.ctx.memory(|memory| memory.has_focus(edit_id())));
+    rig
+}
+
+fn frame(rig: &mut Rig, text: &mut String, cfg: Cfg) -> (FullOutput, Seen) {
+    let mut seen = Seen::default();
+    let output = rig.frame(vec![], |ctx| show(ctx, text, cfg, &mut seen));
+    (output, seen)
+}
+
+#[test]
+fn typed_text_reaches_the_bound_string() {
+    let mut text = String::new();
+    let mut rig = focused(&mut text, Cfg::default());
+    let mut seen = Seen::default();
+    for chunk in ["hel", "lo"] {
+        rig.type_text(chunk, |ctx| show(ctx, &mut text, Cfg::default(), &mut seen));
+    }
+    assert_eq!(text, "hello");
+    assert!(seen.changed);
+}
+
+#[test]
+fn a_field_that_is_not_enabled_takes_no_text() {
+    let mut text = String::from("kept");
+    let cfg = Cfg {
+        enabled_off: true,
+        ..Cfg::default()
+    };
+    let mut rig = focused_even_if_off(&mut text, cfg);
+    let mut seen = Seen::default();
+    rig.type_text("more", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "kept");
+    assert!(!seen.changed);
+}
+
+fn focused_even_if_off(text: &mut String, cfg: Cfg) -> Rig {
+    let mut rig = Rig::new();
+    let mut seen = Seen::default();
+    rig.ctx.memory_mut(|memory| memory.request_focus(edit_id()));
+    rig.settle(3, |ctx| show(ctx, text, cfg, &mut seen));
+    rig
+}
+
+#[test]
+fn the_character_limit_cuts_typed_and_pasted_text() {
+    let cfg = Cfg {
+        limit: Some(5),
+        ..Cfg::default()
+    };
+    let mut text = String::new();
+    let mut rig = focused(&mut text, cfg);
+    let mut seen = Seen::default();
+    rig.type_text("abc", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "abc");
+    rig.type_text("defgh", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "abcde");
+    rig.type_text("x", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "abcde");
+}
+
+#[test]
+fn enter_in_a_focused_field_reports_a_submission() {
+    let mut text = String::from("done");
+    let mut rig = focused(&mut text, Cfg::default());
+    let mut seen = Seen::default();
+    rig.key(Key::Enter, |ctx| {
+        show(ctx, &mut text, Cfg::default(), &mut seen)
+    });
+    assert!(seen.submitted);
+    assert_eq!(text, "done");
+}
+
+#[test]
+fn an_error_is_shown_under_the_field_and_makes_it_taller() {
+    let mut text = String::new();
+    let mut rig = Rig::new();
+    rig.settle(3, |ctx| {
+        show(ctx, &mut text, Cfg::default(), &mut Seen::default())
+    });
+    let (plain, plain_seen) = frame(&mut rig, &mut text, Cfg::default());
+    let cfg = Cfg {
+        error: Some("Use at least twelve characters"),
+        ..Cfg::default()
+    };
+    let (wrong, wrong_seen) = frame(&mut rig, &mut text, cfg);
+    assert!(!paints(&plain, "twelve"));
+    assert!(paints(&wrong, "Use at least twelve characters"));
+    assert!(wrong_seen.height > plain_seen.height);
+    assert_ne!(dump(&plain), dump(&wrong));
+}
+
+#[test]
+fn help_is_shown_unless_there_is_an_error() {
+    let mut text = String::new();
+    let mut rig = Rig::new();
+    let help = Cfg {
+        help: Some("Shown to nobody"),
+        ..Cfg::default()
+    };
+    let both = Cfg {
+        error: Some("Too short"),
+        ..help
+    };
+    let (with_help, _) = frame(&mut rig, &mut text, help);
+    assert!(paints(&with_help, "Shown to nobody"));
+    let (with_both, _) = frame(&mut rig, &mut text, both);
+    assert!(paints(&with_both, "Too short"));
+    assert!(!paints(&with_both, "Shown to nobody"));
+}
+
+#[test]
+fn a_secret_field_masks_what_it_shows() {
+    let mut text = String::from("hunter2-passphrase");
+    let cfg = Cfg {
+        secret: true,
+        ..Cfg::default()
+    };
+    let mut rig = Rig::new();
+    rig.settle(2, |ctx| show(ctx, &mut text, cfg, &mut Seen::default()));
+    let (secret, _) = frame(&mut rig, &mut text, cfg);
+    assert!(!paints(&secret, "hunter2"));
+    let (open, _) = frame(&mut rig, &mut text, Cfg::default());
+    assert!(paints(&open, "hunter2-passphrase"));
+}
+
+/// Types two bursts a few seconds apart, then asks the field to undo.
+fn type_then_undo(cfg: Cfg) -> String {
+    let mut text = String::new();
+    let mut rig = focused(&mut text, cfg);
+    let mut seen = Seen::default();
+    rig.frame_after(2.0, vec![], |ctx| show(ctx, &mut text, cfg, &mut seen));
+    rig.type_text("first", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    rig.frame_after(3.0, vec![], |ctx| show(ctx, &mut text, cfg, &mut seen));
+    rig.type_text(" second", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    rig.frame_after(3.0, vec![], |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "first second");
+    rig.key_with(Key::Z, command(), |ctx| {
+        show(ctx, &mut text, cfg, &mut seen)
+    });
+    text
+}
+
+#[test]
+fn an_ordinary_field_can_undo_and_a_secret_one_keeps_no_history() {
+    assert_eq!(type_then_undo(Cfg::default()), "first");
+    let secret = Cfg {
+        secret: true,
+        ..Cfg::default()
+    };
+    assert_eq!(type_then_undo(secret), "first second");
+}
+
+#[test]
+fn forget_removes_the_state_egui_keeps_for_the_field() {
+    let mut text = String::new();
+    let cfg = Cfg {
+        secret: true,
+        ..Cfg::default()
+    };
+    let mut rig = focused(&mut text, cfg);
+    let mut seen = Seen::default();
+    rig.type_text("abc", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert!(TextEdit::load_state(&rig.ctx, edit_id()).is_some());
+    text_field::forget(&rig.ctx, edit_id());
+    assert!(TextEdit::load_state(&rig.ctx, edit_id()).is_none());
+}
