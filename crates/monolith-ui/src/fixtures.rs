@@ -26,11 +26,14 @@ pub const NAMES: &[&str] = &[
     "conversation-queued",
     "narrow-conversation",
     "waiting",
+    "waiting-card",
+    "card-added",
     "tor-unavailable",
     "tor-connecting",
     "requests",
     "narrow-requests",
     "invitation",
+    "own-card-open",
     "identity-switcher",
     "contact-details",
     "add-contact",
@@ -66,6 +69,9 @@ const FRANK_FP: &str = "F6QW 8NRT 3MKZ 5DPL 2XEC 9BVH";
 const OWN_FP: &str = "M0N0 L1TH 7QZK 4WPE 9RTD 2XBC";
 const WORK_FP: &str = "W0RK 4ZQP 8TNM 2KLE 6XRD 9VBC";
 
+/// The card of the personal identity, as the runtime gives it.
+const OWN_CARD: &str = "MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRVBJA6AEYSMFHKR2IW7O4WQ7POWQNX45A2JRYDL2OXJFJR2VJWTTKAAAAAAAAAAAACAMBHF3Q5KD5C5PVNI2UM3BUY7WMZOGYVENU5Y32EXPWB5NY7SNTSQAN4L47JWL3SCBZOLLAFXTZ6JK2RASOSQAL43SXXBA7ALY33GZ4R6QTXCN2RKXEPYRJ4PSJ34NEEL2XOAWXID2XQRJPDV3EHRZSDSKMAM";
+
 /// Names and words long enough to find where the screens cut or wrap.
 const LONG_IDENTITY: &str = "Personal identity for friends, family and the Thursday climbing group";
 const LONG_CONTACT: &str =
@@ -100,6 +106,7 @@ fn contact_view(
         full_fingerprint: full(fingerprint),
         accepted,
         verified: id == contact(1, 10),
+        invitation: true,
     }
 }
 
@@ -231,6 +238,9 @@ struct Builder {
     bob_new: u8,
     /// Long names and words everywhere.
     long: bool,
+    /// Carol, who has not accepted, was added by an invitation, not by
+    /// her card.
+    carol_invited: bool,
 }
 
 impl Builder {
@@ -244,6 +254,7 @@ impl Builder {
             mode: RequestMode::Invitation,
             bob_new: 0,
             long: false,
+            carol_invited: true,
         }
     }
 
@@ -322,6 +333,9 @@ impl Builder {
                 request_mode: RequestMode::Invitation,
             }))),
             Command::CheckTor => Some(Outcome::Tor(self.tor.clone())),
+            Command::OwnCard(id) if *id == personal => {
+                Some(Outcome::Card(Zeroizing::new(OWN_CARD.to_owned())))
+            }
             Command::LoadMessages { contact: asked, .. } => {
                 let messages = if *asked == contact(1, 10) {
                     alice_messages(self.queued_tail, self.long)
@@ -374,7 +388,10 @@ impl Builder {
             contacts: vec![
                 contact_view(alice, Some(alice_name), ALICE_FP, true),
                 contact_view(bob, Some("Bob at work"), BOB_FP, true),
-                contact_view(carol, None, CAROL_FP, false),
+                ContactView {
+                    invitation: self.carol_invited,
+                    ..contact_view(carol, None, CAROL_FP, false)
+                },
                 contact_view(erin, Some("Erin"), ERIN_FP, true),
             ],
             conversations: vec![
@@ -525,6 +542,23 @@ pub fn fixture(name: &str) -> Option<App> {
             app
         }
         "waiting" => standard().open(contact(1, 12)).app(),
+        "waiting-card" => {
+            let mut app = card_only().open(contact(1, 12)).app();
+            app.narrow_conversation = true;
+            app
+        }
+        "card-added" => {
+            let mut app = card_only().open(contact(1, 12)).app();
+            app.model.open(Dialog::AddContact {
+                identity: identity(1),
+                card: String::new(),
+                name: String::new(),
+                busy: None,
+                error: None,
+                added: Some(contact(1, 12)),
+            });
+            app
+        }
         "tor-unavailable" => {
             let mut builder = Builder::new().started(true);
             builder.tor = TorCheck::NotRunning;
@@ -560,6 +594,19 @@ pub fn fixture(name: &str) -> Option<App> {
             });
             app
         }
+        "own-card-open" => {
+            let mut builder = Builder::new().started(true);
+            builder.mode = RequestMode::Open;
+            let mut builder = builder.ready().open(contact(1, 10));
+            builder.model.open(Dialog::OwnCard {
+                identity: identity(1),
+                card: None,
+                busy: None,
+                error: None,
+            });
+            builder.settle();
+            builder.app()
+        }
         "identity-switcher" => {
             let mut builder = Builder::new().started(true).ready().open(contact(1, 10));
             // Bob wrote while Alice's conversation was open.
@@ -594,6 +641,7 @@ pub fn fixture(name: &str) -> Option<App> {
                 name: String::new(),
                 busy: None,
                 error: Some(monolith_ui_model::Failure::InvalidCard),
+                added: None,
             });
             app
         }
@@ -662,6 +710,13 @@ pub fn fixture(name: &str) -> Option<App> {
 fn queued() -> Builder {
     let mut builder = Builder::new().started(true);
     builder.queued_tail = true;
+    builder.ready()
+}
+
+/// The profile open with Carol added by her card, not by an invitation.
+fn card_only() -> Builder {
+    let mut builder = Builder::new().started(true);
+    builder.carol_invited = false;
     builder.ready()
 }
 

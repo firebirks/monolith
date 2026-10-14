@@ -85,6 +85,7 @@ fn contact_view(i: u8, k: u8, flags: u8) -> ContactView {
         full_fingerprint: String::new(),
         accepted: flags & 4 != 0,
         verified: flags & 8 != 0,
+        invitation: flags & 16 != 0,
     }
 }
 
@@ -225,7 +226,10 @@ fn outcome(kind: u8, a: u8, b: u8) -> Outcome {
         }),
         7 => Outcome::Card(card()),
         8 => Outcome::IdentityCreated(identity(a)),
-        9 => Outcome::ContactAdded(contact(a, b)),
+        9 => Outcome::ContactAdded {
+            contact: contact(a, b),
+            invitation: b & 1 != 0,
+        },
         10 => Outcome::MessageQueued(message(a, b, a >> 4)),
         11 => Outcome::RequestAccepted(contact(a, b)),
         12 => Outcome::InvitationCreated {
@@ -292,6 +296,7 @@ fn dialog(kind: u8, a: u8, b: u8) -> Dialog {
             name: "Bob".to_owned(),
             busy: none.0,
             error: none.1,
+            added: None,
         },
         2 => Dialog::OwnCard {
             identity: identity(a),

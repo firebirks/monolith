@@ -613,17 +613,18 @@ impl<B: TorBackend + 'static> Running<B> {
                 let identity = convert::identity_id(identity)?;
                 Box::pin(async move {
                     match messenger.add_contact(&identity, &card).await {
-                        Ok(record) => {
+                        Ok(added) => {
                             // The contact exists; a name that cannot be
                             // kept leaves it unnamed, to be named again.
                             if let Some(name) = name.as_deref() {
                                 let _ = messenger
-                                    .set_contact_name(&identity, &record, Some(name))
+                                    .set_contact_name(&identity, &added.contact, Some(name))
                                     .await;
                             }
-                            Finished::Outcome(Outcome::ContactAdded(convert::contact(
-                                &identity, &record,
-                            )))
+                            Finished::Outcome(Outcome::ContactAdded {
+                                contact: convert::contact(&identity, &added.contact),
+                                invitation: added.invitation,
+                            })
                         }
                         Err(error) => failed(error),
                     }
@@ -762,6 +763,7 @@ impl<B: TorBackend + 'static> Running<B> {
                 full_fingerprint: summary.full_fingerprint,
                 accepted: summary.accepted,
                 verified: summary.verified,
+                invitation: summary.invitation,
             })
             .collect();
         let conversations = messenger

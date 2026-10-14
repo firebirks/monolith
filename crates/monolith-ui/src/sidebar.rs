@@ -514,6 +514,7 @@ fn open_add_contact(app: &mut App, identity: UiIdentityId) {
         name: String::new(),
         busy: None,
         error: None,
+        added: None,
     });
 }
 

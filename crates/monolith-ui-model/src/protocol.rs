@@ -258,7 +258,12 @@ pub enum Outcome {
     /// An identity was made.
     IdentityCreated(UiIdentityId),
     /// A contact was added.
-    ContactAdded(UiContactId),
+    ContactAdded {
+        /// Which.
+        contact: UiContactId,
+        /// The card added was an invitation.
+        invitation: bool,
+    },
     /// A message was durably queued.
     MessageQueued(UiMessageId),
     /// A request was accepted.
@@ -291,7 +296,10 @@ impl fmt::Debug for Outcome {
             Self::Tor(check) => write!(f, "Tor({check:?})"),
             Self::Card(_) => f.write_str("Card"),
             Self::IdentityCreated(identity) => write!(f, "IdentityCreated({identity:?})"),
-            Self::ContactAdded(contact) => write!(f, "ContactAdded({contact:?})"),
+            Self::ContactAdded {
+                contact,
+                invitation,
+            } => write!(f, "ContactAdded({contact:?}, {invitation})"),
             Self::MessageQueued(message) => write!(f, "MessageQueued({message:?})"),
             Self::RequestAccepted(contact) => write!(f, "RequestAccepted({contact:?})"),
             Self::InvitationCreated { invitation, .. } => {

@@ -14,7 +14,7 @@ use std::path::Path;
 
 pub use monolith_core::api;
 use monolith_core::api::{
-    CommandError, ContactId, ContactSummary, ConversationSummary, Event, IdentityId,
+    AddedContact, CommandError, ContactId, ContactSummary, ConversationSummary, Event, IdentityId,
     IdentitySummary, InvitationRef, InvitationSummary, MessageRef, MessageView, RequestMode,
     RequestRef, RequestSummary, SendError, ServiceState, TorCheck,
 };
@@ -226,12 +226,13 @@ impl<B: TorBackend + 'static> Messenger<B> {
         self.runtime.contacts(identity)
     }
 
-    /// Imports a contact card given in its text form.
+    /// Imports a contact card given in its text form, and says whether it
+    /// carried an invitation.
     pub async fn add_contact(
         &self,
         identity: &IdentityId,
         card: &str,
-    ) -> Result<ContactId, CommandError> {
+    ) -> Result<AddedContact, CommandError> {
         self.runtime.add_contact(identity, card).await
     }
 

@@ -43,6 +43,10 @@ pub struct ContactView {
     pub accepted: bool,
     /// The user compared the fingerprint out of band.
     pub verified: bool,
+    /// The card held for it is an invitation, which its request carries.
+    /// A request without one is dropped unless the contact takes requests
+    /// from anyone: it has to add the card of this identity too.
+    pub invitation: bool,
 }
 
 impl fmt::Debug for ContactView {
@@ -51,6 +55,7 @@ impl fmt::Debug for ContactView {
             .field("id", &self.id)
             .field("accepted", &self.accepted)
             .field("verified", &self.verified)
+            .field("invitation", &self.invitation)
             .finish_non_exhaustive()
     }
 }

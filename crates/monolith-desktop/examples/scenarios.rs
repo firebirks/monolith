@@ -249,6 +249,7 @@ impl Client {
             name: name.to_owned(),
             busy: None,
             error: None,
+            added: None,
         });
         self.model().confirm();
         self.until("the contact is added and shown", |model| {

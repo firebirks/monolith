@@ -1,8 +1,9 @@
 //! What the window shows, and where a click or a key takes it: the
 //! settings of a narrow window, Escape out of the settings, a failed store
 //! on every view, the state of Tor in a narrow window, the counts of the
-//! identity switcher, empty states, the Tor settings once saved, and the
-//! first screens.
+//! identity switcher, empty states, the Tor settings once saved, the first
+//! screens, and what a contact added by a card or by an invitation waits
+//! for.
 
 #![cfg(feature = "fixtures")]
 #![allow(
@@ -18,7 +19,8 @@ use egui::{Context, Event, FullOutput, Key, Modifiers, PointerButton, Pos2, RawI
 use monolith_ui::fixtures::fixture;
 use monolith_ui::{App, Effect};
 use monolith_ui_kit::{Theme, fonts, icons, theme};
-use monolith_ui_model::{Command, Dialog, RuntimeEvent, Update};
+use monolith_ui_model::{Command, Dialog, Outcome, RuntimeEvent, Update};
+use zeroize::Zeroizing;
 
 /// The sizes of the reviews.
 const WIDE: Vec2 = Vec2::new(1180.0, 760.0);
@@ -93,7 +95,19 @@ impl Window {
         let Some((_, rect)) = self.texts.iter().find(|(shown, _)| shown == text) else {
             panic!("{text:?} is not shown: {:#?}", self.shown());
         };
-        let at = rect.center();
+        self.click_at(rect.center());
+    }
+
+    /// Clicks the middle of the last text that reads `text`: the one drawn
+    /// on top, in a dialog.
+    fn click_last(&mut self, text: &str) {
+        let Some((_, rect)) = self.texts.iter().rev().find(|(shown, _)| shown == text) else {
+            panic!("{text:?} is not shown: {:#?}", self.shown());
+        };
+        self.click_at(rect.center());
+    }
+
+    fn click_at(&mut self, at: Pos2) {
         let button = |pressed| Event::PointerButton {
             pos: at,
             button: PointerButton::Primary,
@@ -350,4 +364,117 @@ fn a_passphrase_is_cut_at_the_longest_the_vault_takes() {
                 _ => None,
             });
     assert_eq!(created, Some(1024));
+}
+
+/// What a contact added by a card, not an invitation, waits for.
+const CARD_ADDED: &str = "This is their card, not an invitation. Contact C7TQ must add your \
+                          card too before your messages can arrive.";
+const WAITING_CARD: &str = "You added their card, not an invitation. Contact C7TQ must add \
+                            your card too before your messages can arrive.";
+const WAITING_INVITATION: &str = "Your request leaves with your first message. Contact C7TQ sees \
+                                  it through the invitation they gave you, with your \
+                                  fingerprint only, and can read your messages after \
+                                  accepting. Tell them it is you.";
+
+/// The fixture `name`, with the conversation of Carol shown also in a
+/// narrow window.
+fn conversation_of_carol(name: &str, size: Vec2) -> Window {
+    let mut window = Window::new(name, size);
+    if size != WIDE {
+        window.click("Contact C7TQ");
+    }
+    window
+}
+
+#[test]
+fn a_conversation_says_whether_a_card_or_an_invitation_was_added() {
+    for size in [WIDE, NARROW, SMALLEST] {
+        let window = conversation_of_carol("waiting", size);
+        assert!(window.shows(WAITING_INVITATION), "{size:?}");
+        assert!(window.shows("Waiting for them to accept your request"));
+        assert!(!window.shows(WAITING_CARD));
+        assert!(!window.shows("Show my card"));
+
+        let mut window = conversation_of_carol("waiting-card", size);
+        assert!(window.shows(WAITING_CARD), "{size:?}");
+        assert!(window.shows("Waiting for them to add your card"));
+        assert!(!window.shows(WAITING_INVITATION));
+        window.click("Show my card");
+        assert!(matches!(
+            window.app.model.dialog(),
+            Some(Dialog::OwnCard { identity, .. }) if *identity == window.app.model.current().unwrap()
+        ));
+    }
+    // Accepted, the contact waits for nothing.
+    let window = Window::new("conversation", WIDE);
+    assert!(!window.shows(WAITING_CARD) && !window.shows(WAITING_INVITATION));
+}
+
+#[test]
+fn a_card_added_says_what_the_other_side_has_to_do_and_offers_the_own_card() {
+    for size in [WIDE, NARROW, SMALLEST] {
+        let mut window = Window::new("card-added", size);
+        assert!(window.shows("Contact added"));
+        assert!(window.shows(CARD_ADDED), "{size:?}: {:#?}", window.shown());
+        window.click("Done");
+        assert!(window.app.model.dialog().is_none());
+        // The conversation behind it, in a wide window, says the same for
+        // as long as the contact waits; a narrow one shows the list.
+        assert_eq!(window.shows(WAITING_CARD), size == WIDE);
+
+        // The conversation behind offers the card too; the dialog's button
+        // is drawn on top.
+        let mut window = Window::new("card-added", size);
+        let behind = usize::from(size == WIDE);
+        assert_eq!(window.count("Show my card"), 1 + behind);
+        window.click_last("Show my card");
+        assert!(matches!(
+            window.app.model.dialog(),
+            Some(Dialog::OwnCard { .. })
+        ));
+        assert!(!window.shows(CARD_ADDED));
+    }
+}
+
+#[test]
+fn the_own_card_says_what_a_card_alone_can_do_under_each_request_mode() {
+    const INVITATIONS: &str = "Share this card with people you want to talk to. It contains no \
+                               secret. Someone who has only your card can reach you once you \
+                               have added their card too. To let someone reach you first, give \
+                               them an invitation instead.";
+    const ANYONE: &str = "Share this card with people you want to talk to. It contains no \
+                          secret. Anyone who has it can send you a request.";
+    const NOBODY: &str = "Share this card with people you want to talk to. It contains no \
+                          secret. Requests are set to Nobody, so no request arrives at all. \
+                          Someone who has your card can reach you once you have added their \
+                          card too.";
+    let all = [INVITATIONS, ANYONE, NOBODY];
+    for (name, said) in [
+        ("conversation", INVITATIONS),
+        ("own-card-open", ANYONE),
+        ("settings-nobody", NOBODY),
+    ] {
+        let mut app = fixture(name).unwrap();
+        if app.model.dialog().is_none() {
+            let identity = app.model.current().unwrap();
+            app.model.open(Dialog::OwnCard {
+                identity,
+                card: None,
+                busy: None,
+                error: None,
+            });
+            for (command, asked) in app.model.take_commands() {
+                if matches!(asked, Command::OwnCard(_)) {
+                    app.model.apply(Update::Done {
+                        command,
+                        outcome: Outcome::Card(Zeroizing::new("MONOLITH1:AAAA".to_owned())),
+                    });
+                }
+            }
+        }
+        let window = Window::with(app, WIDE);
+        for text in all {
+            assert_eq!(window.shows(text), text == said, "{name}: {text}");
+        }
+    }
 }

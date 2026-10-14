@@ -88,7 +88,7 @@ scan, the smallest window, an idle window, the keyboard), its bridge
 against the runtime on the in-memory Tor, its crate boundary, its files;
 two more fuzz targets (`ui_present`, `ui_model_sequence`); the Phase 6
 mutation list (UI1 and on); the workflows of the brief run by script
-against the runtime; frame measurements. Covered now: T-UI-1 to 12.
+against the runtime; frame measurements. Covered now: T-UI-1 to 13.
 
 The rest need file transfer, and are not written yet.
 
@@ -602,6 +602,7 @@ to images by `monolith-ui-snapshot`.
 | T-UI-10 | Files and places: the settings file (a value cannot add a line, what is written is read back), Tor settings without a cookie path refused, a card never replaces a file, a card file is a small regular file, Tails places, fallback fonts that do not read are left out | `monolith-desktop` unit tests |
 | T-UI-11 | No URL leaves a frame | `window::tests` |
 | T-UI-12 | Workflows A to G of the brief, with pictures: two clients with profiles on disk, the real bridge and runtime on the in-memory Tor, in real time | `monolith-desktop/examples/scenarios.rs` (run by hand) |
+| T-UI-13 | A card or an invitation (P6-20): adding one says which it was, and the contact keeps saying it, also after a restart; a plain card's request is dropped in invitation mode until the card of its sender is added too; the model keeps "Add contact" open after a plain card, unless the contact had accepted; the dialog, the conversation and the own card say what each case waits for | `monolith-core/tests/front_end.rs`, `monolith-desktop/tests/bridge.rs`, `monolith-ui-model/tests/model.rs`, `monolith-ui/tests/views.rs` |
 
 ## 4. Property tests
 

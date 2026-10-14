@@ -100,6 +100,7 @@ fn check_names(name: &str, fingerprint: &str, no_name: bool) {
         full_fingerprint: String::new(),
         accepted: true,
         verified: false,
+        invitation: false,
     };
     let shown = contact_name(&contact);
     match &local {

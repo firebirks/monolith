@@ -2,9 +2,10 @@
 //! (`docs/DESIGN_QUESTIONS.md` P6-4), over the in-memory Tor: contact
 //! requests and invitations by handles that name one request or invitation
 //! of one instance of an identity, the local name and the verification of a
-//! contact record, the request mode, the state of the Onion Service, and a
-//! check of Tor. A handle of something answered, revoked, made again or of
-//! another identity names nothing.
+//! contact record, the request mode, the state of the Onion Service, a
+//! check of Tor, and whether an added card carried an invitation. A handle
+//! of something answered, revoked, made again or of another identity names
+//! nothing.
 //!
 //! Time is paused and advances only when every task waits.
 
@@ -31,6 +32,8 @@ use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::MAX_ACTIVE_INVITATIONS;
+use monolith_storage::dir::{CrashOutcome, MemoryDir};
+use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{Bootstrap, MockNetwork, MockTorBackend};
 use tokio::sync::broadcast;
 
@@ -41,22 +44,28 @@ struct Peer {
     runtime: Runtime<MockTorBackend>,
 }
 
+fn options() -> RuntimeOptions {
+    RuntimeOptions {
+        startup_spread: Duration::ZERO,
+        ..RuntimeOptions::default()
+    }
+}
+
+fn passphrase() -> Passphrase {
+    Passphrase::new("correct horse battery staple").unwrap()
+}
+
 impl Peer {
     async fn start(network: &MockNetwork, seed: u8) -> Self {
-        let installation = Installation::ephemeral();
+        Self::start_in(network, seed, Installation::ephemeral()).await
+    }
+
+    async fn start_in(network: &MockNetwork, seed: u8, installation: Installation) -> Self {
         let identity = installation
             .restore_identity(keys(seed, seed, 1, fixed_endpoint(seed)), None)
             .await
             .unwrap();
-        let runtime = Runtime::start(
-            installation,
-            network.backend(),
-            Budgets::new(),
-            RuntimeOptions {
-                startup_spread: Duration::ZERO,
-                ..RuntimeOptions::default()
-            },
-        );
+        let runtime = Runtime::start(installation, network.backend(), Budgets::new(), options());
         until(|| network.is_published(&fixed_endpoint(seed))).await;
         Self {
             seed,
@@ -105,7 +114,7 @@ async fn event(events: &mut broadcast::Receiver<Event>, matches: impl Fn(&Event)
 /// `a` imports `card` and sends a first message, which takes its request
 /// to the identity of the card. Returns the record `a` made.
 async fn request_with_card(a: &Peer, card: &str) -> ContactId {
-    let contact = a.runtime.add_contact(&a.id(), card).await.unwrap();
+    let contact = a.runtime.add_contact(&a.id(), card).await.unwrap().contact;
     a.runtime
         .send_message(&a.id(), &contact, "hello")
         .await
@@ -369,7 +378,12 @@ fn a_name_and_a_verification_go_to_the_record_they_were_set_for() {
         let network = MockNetwork::new();
         let a = Peer::start(&network, 1).await;
         let b = Peer::start(&network, 2).await;
-        let first = a.runtime.add_contact(&a.id(), &b.card()).await.unwrap();
+        let first = a
+            .runtime
+            .add_contact(&a.id(), &b.card())
+            .await
+            .unwrap()
+            .contact;
         a.runtime
             .set_contact_name(&a.id(), &first, Some("Bob"))
             .await
@@ -403,7 +417,12 @@ fn a_name_and_a_verification_go_to_the_record_they_were_set_for() {
         // Deleted and made again: a new record, which the handle of the
         // old one does not name.
         a.runtime.delete_contact(&a.id(), &first).await.unwrap();
-        let second = a.runtime.add_contact(&a.id(), &b.card()).await.unwrap();
+        let second = a
+            .runtime
+            .add_contact(&a.id(), &b.card())
+            .await
+            .unwrap()
+            .contact;
         assert_ne!(first, second);
         assert_eq!(
             a.runtime
@@ -478,5 +497,104 @@ fn a_tor_check_says_what_the_endpoints_answer() {
         assert_eq!(b.runtime.check_tor().await, TorCheck::NotRunning);
         network.set_socks_available(true);
         assert_eq!(b.runtime.check_tor().await, TorCheck::ControlUnavailable);
+    });
+}
+
+#[test]
+fn an_added_card_says_whether_it_carried_an_invitation_also_after_a_restart() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let b = Peer::start(&network, 2).await;
+        let c = Peer::start(&network, 3).await;
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let a = Peer::start_in(&network, 1, installation).await;
+        let (_, invitation) = b.runtime.create_invitation(&b.id(), None).await.unwrap();
+        let invited = a.runtime.add_contact(&a.id(), &invitation).await.unwrap();
+        assert!(invited.invitation);
+        let carded = a.runtime.add_contact(&a.id(), &c.card()).await.unwrap();
+        assert!(!carded.invitation);
+        let held = |runtime: &Runtime<MockTorBackend>, id: &IdentityId| {
+            let mut held: Vec<(ContactId, bool, bool)> = runtime
+                .contacts(id)
+                .unwrap()
+                .into_iter()
+                .map(|summary| (summary.contact, summary.invitation, summary.accepted))
+                .collect();
+            held.sort();
+            held
+        };
+        let mut expected = vec![
+            (invited.contact, true, false),
+            (carded.contact, false, false),
+        ];
+        expected.sort();
+        assert_eq!(held(&a.runtime, &a.id()), expected);
+
+        // The plain card of B over its invitation: a request to B carries
+        // none from then on; the invitation again, and it does.
+        let plain = a.runtime.add_contact(&a.id(), &b.card()).await.unwrap();
+        assert_eq!(plain.contact, invited.contact);
+        assert!(!plain.invitation);
+        let summary = |runtime: &Runtime<MockTorBackend>, id: &IdentityId| {
+            held(runtime, id)
+                .into_iter()
+                .find(|(contact, _, _)| *contact == invited.contact)
+                .unwrap()
+        };
+        assert_eq!(
+            summary(&a.runtime, &a.id()),
+            (invited.contact, false, false)
+        );
+        let again = a.runtime.add_contact(&a.id(), &invitation).await.unwrap();
+        assert_eq!(again, invited);
+        assert_eq!(summary(&a.runtime, &a.id()), (invited.contact, true, false));
+
+        // The store keeps the card, and with it whether it has one.
+        let id = a.id();
+        a.runtime.shutdown(Duration::ZERO).await;
+        drop(a);
+        let (installation, _) =
+            Installation::open(Box::new(dir.restart(CrashOutcome::ALL[0])), &passphrase()).unwrap();
+        let runtime = Runtime::start(installation, network.backend(), Budgets::new(), options());
+        assert_eq!(held(&runtime, &id), expected);
+        runtime.shutdown(Duration::ZERO).await;
+    });
+}
+
+#[test]
+fn a_plain_card_reaches_an_identity_that_wants_invitations_once_it_adds_the_card_back() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let a = Peer::start(&network, 1).await;
+        let b = Peer::start(&network, 2).await;
+        // B is in the default mode, invitations only, and A has its card.
+        assert_eq!(
+            b.runtime.request_mode(&b.id()).unwrap(),
+            RequestMode::Invitation
+        );
+        let mut events = b.runtime.subscribe();
+        let at_a = request_with_card(&a, &b.card()).await;
+        event(&mut events, |event| {
+            matches!(event, Event::RequestReceived { queued: false, .. })
+        })
+        .await;
+        // Dropped: B sees no request, and A only that it waits.
+        assert!(b.runtime.requests(&b.id()).unwrap().is_empty());
+        let summary = a.runtime.contacts(&a.id()).unwrap().remove(0);
+        assert_eq!(summary.contact, at_a);
+        assert!(!summary.invitation);
+        assert!(!summary.accepted);
+        // B adds the card of A too: the next session makes them contacts,
+        // and the message arrives.
+        let added = b.runtime.add_contact(&b.id(), &a.card()).await.unwrap();
+        assert!(!added.invitation);
+        until(|| {
+            a.runtime.messages(&a.id(), &at_a, None, 10).unwrap()[0].status
+                == MessageStatus::Delivered
+        })
+        .await;
+        assert!(a.runtime.contacts(&a.id()).unwrap()[0].accepted);
     });
 }

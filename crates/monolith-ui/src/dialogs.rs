@@ -34,7 +34,8 @@ use monolith_ui_kit::toast::Kind;
 use monolith_ui_kit::toggle::Toggle;
 use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_model::{
-    Dialog, Failure, TorCheck, TorIndicator, UiContactId, UiIdentityId, UiInvitationId, present,
+    Dialog, Failure, RequestMode, TorCheck, TorIndicator, UiContactId, UiIdentityId,
+    UiInvitationId, present,
 };
 use zeroize::Zeroizing;
 
@@ -66,6 +67,17 @@ const OWN_CARD: &str = "Share this card with people you want to talk to. It cont
                         card too. To let someone reach you first, give them an invitation \
                         instead.";
 
+/// The same, while the identity takes requests from anyone.
+const OWN_CARD_OPEN: &str = "Share this card with people you want to talk to. It contains no \
+                             secret. Anyone who has it can send you a request.";
+
+/// The same, while the identity takes no request: two people who add each
+/// other's cards still become contacts (`PROTOCOL.md` section 6.4).
+const OWN_CARD_NOBODY: &str = "Share this card with people you want to talk to. It contains no \
+                               secret. Requests are set to Nobody, so no request arrives at all. \
+                               Someone who has your card can reach you once you have added their \
+                               card too.";
+
 /// A QR code is shown, never scanned (`DESIGN_QUESTIONS.md` P6-11).
 const NO_SCAN: &str = "Monolith cannot scan QR codes; send the text.";
 
@@ -95,7 +107,10 @@ const BLOCK_REQUEST: &str = "They will not be able to send you a request or a me
 
 /// Draws the open dialog, if any.
 pub(crate) fn show(ctx: &Context, app: &mut App) {
-    let add_contact = matches!(app.model.dialog(), Some(Dialog::AddContact { .. }));
+    let add_contact = matches!(
+        app.model.dialog(),
+        Some(Dialog::AddContact { added: None, .. })
+    );
     track_card_field(ctx, app, add_contact);
     if !add_contact {
         app.card_file = None;
@@ -114,6 +129,13 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
     match app.model.dialog() {
         None => block_request(ctx, app),
         Some(Dialog::NewIdentity { .. }) => new_identity(ctx, app),
+        Some(Dialog::AddContact {
+            added: Some(contact),
+            ..
+        }) => {
+            let contact = *contact;
+            card_added(ctx, app, contact);
+        }
         Some(Dialog::AddContact { .. }) => add_contact_dialog(ctx, app),
         Some(Dialog::OwnCard { .. }) => card_dialog(ctx, app, "Your card"),
         Some(Dialog::ShowInvitation { .. }) => card_dialog(ctx, app, "Invitation"),
@@ -671,6 +693,49 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
     }
 }
 
+/// What adding a card that is not an invitation leaves to the other side,
+/// with the way to the card of this identity (`PROTOCOL.md` section 12.2).
+fn card_added(ctx: &Context, app: &mut App, contact: UiContactId) {
+    let theme = theme::current(ctx);
+    // Named as listed once the identity is read again; until then by the
+    // name typed, if any.
+    let typed = match app.model.dialog() {
+        Some(Dialog::AddContact { name, .. }) => name.trim().to_owned(),
+        _ => String::new(),
+    };
+    let name = match app.model.contact(contact) {
+        Some(view) => present::contact_name(view),
+        None if !typed.is_empty() => typed,
+        None => "They".to_owned(),
+    };
+    let name = present::prepare(&name, false).text;
+    let text = format!(
+        "This is their card, not an invitation. {name} must add your card too before your messages can arrive."
+    );
+    let (mut show_card, mut done) = (false, false);
+    let out = Modal::new(("card-added", contact), "Contact added").show(
+        ctx,
+        |ui| paragraph(ui, &theme, &text),
+        |ui| {
+            show_card = ui
+                .add(Button::primary("Show my card").icon(icons::ID_CARD))
+                .clicked();
+            done = ui.add(Button::secondary("Done")).clicked();
+        },
+    );
+    if show_card {
+        app.model.close();
+        app.model.open(Dialog::OwnCard {
+            identity: contact.identity(),
+            card: None,
+            busy: None,
+            error: None,
+        });
+    } else if done || out.close_requested {
+        close(app);
+    }
+}
+
 fn status_busy(app: &App) -> bool {
     app.model.dialog().is_some_and(|dialog| status(dialog).0)
 }
@@ -738,6 +803,7 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
         _ => None,
     };
     let invitation = own.is_none();
+    let mode = own.and_then(|identity| app.model.slice(identity)?.request_mode);
     // The fingerprint of the identity, which those who add the card check.
     let fingerprint = own.and_then(|identity| {
         app.model
@@ -761,7 +827,11 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
     let sentence = if invitation {
         "Give this invitation to one person. Anyone who has it can send you a request until you revoke it."
     } else {
-        OWN_CARD
+        match mode {
+            Some(RequestMode::Open) => OWN_CARD_OPEN,
+            Some(RequestMode::Closed) => OWN_CARD_NOBODY,
+            Some(RequestMode::Invitation) | None => OWN_CARD,
+        }
     };
     let qr_label = if invitation {
         "QR code of the invitation"
@@ -1010,6 +1080,7 @@ struct ContactInfo {
     full_fingerprint: String,
     accepted: bool,
     verified: bool,
+    invitation: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1028,6 +1099,7 @@ fn contact_info(app: &App, contact: UiContactId) -> Option<ContactInfo> {
         full_fingerprint: view.full_fingerprint.clone(),
         accepted: view.accepted,
         verified: view.verified,
+        invitation: view.invitation,
     })
 }
 
@@ -1083,7 +1155,9 @@ fn contact_details(ctx: &Context, app: &mut App) {
                         Text::new(&info.shown_name, &theme.text.heading, theme.color.text)
                             .truncate(),
                     );
-                    let line = if !info.accepted {
+                    let line = if !info.accepted && !info.invitation {
+                        "Waiting for them to add your card"
+                    } else if !info.accepted {
                         "Waiting for them to accept"
                     } else if info.verified {
                         "Fingerprint verified"
@@ -1534,6 +1608,7 @@ mod tests {
                     name: "Dana".to_owned(),
                     busy,
                     error,
+                    added: None,
                 },
             ),
             (
@@ -1544,6 +1619,18 @@ mod tests {
                     name: String::new(),
                     busy,
                     error: Some(Failure::InvalidCard),
+                    added: None,
+                },
+            ),
+            (
+                "card-added",
+                Dialog::AddContact {
+                    identity: identity(),
+                    card: String::new(),
+                    name: String::new(),
+                    busy,
+                    error,
+                    added: Some(contact(12)),
                 },
             ),
             (
@@ -1697,6 +1784,7 @@ mod tests {
             name: String::new(),
             busy: None,
             error: None,
+            added: None,
         });
         app.card_file = Some(CardFile {
             name: "dana-card.txt".to_owned(),

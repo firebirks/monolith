@@ -114,6 +114,20 @@ pub struct ContactSummary {
     pub accepted: bool,
     /// The user compared the fingerprint out of band.
     pub verified: bool,
+    /// The card held for the contact carries an invitation, and a request
+    /// to it carries that invitation. Without one, a contact in the
+    /// default request mode drops the request: it has to import the card
+    /// of the local identity too (`docs/PROTOCOL.md` section 12.2).
+    pub invitation: bool,
+}
+
+/// A contact card that was imported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct AddedContact {
+    /// The contact record of its identity.
+    pub contact: ContactId,
+    /// The card carried an invitation.
+    pub invitation: bool,
 }
 
 /// Why a message was not queued. Nothing was stored.

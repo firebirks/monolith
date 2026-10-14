@@ -343,10 +343,12 @@ impl App {
                 if self.model.dialog_instance() != Some(dialog) {
                     return;
                 }
+                // Not once the contact is added: the card has gone.
                 if let Some(Dialog::AddContact {
                     identity: owner,
                     card,
                     error,
+                    added: None,
                     ..
                 }) = self.model.dialog_mut()
                 {
@@ -400,6 +402,7 @@ mod tests {
             name: String::new(),
             busy: None,
             error: Some(Failure::InvalidCard),
+            added: None,
         }
     }
 
@@ -467,5 +470,18 @@ mod tests {
         assert_eq!(shown(&app), (String::new(), Some(Failure::InvalidCard)));
         app.effect_done(read(identity(1), now, "MONOLITH card"));
         assert_eq!(shown(&app), ("MONOLITH card".to_owned(), None));
+    }
+
+    #[test]
+    fn a_card_file_read_after_the_contact_was_added_is_dropped() {
+        let mut app = App::for_tests(Model::new(), 0);
+        let mut dialog = add_contact(identity(1));
+        if let Dialog::AddContact { added, .. } = &mut dialog {
+            *added = Some(UiContactId::new(identity(1), [2; 16]));
+        }
+        app.model.open(dialog);
+        let now = app.model.dialog_instance().unwrap();
+        app.effect_done(read(identity(1), now, "MONOLITH card"));
+        assert_eq!(shown(&app), (String::new(), Some(Failure::InvalidCard)));
     }
 }

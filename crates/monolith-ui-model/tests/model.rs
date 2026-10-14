@@ -46,6 +46,7 @@ fn contact_view(id: UiContactId, name: &str, fingerprint: &str) -> ContactView {
         full_fingerprint: String::new(),
         accepted: true,
         verified: false,
+        invitation: false,
     }
 }
 
@@ -794,6 +795,7 @@ fn no_secret_or_text_is_printed_by_debug() {
         name: "secret name".to_owned(),
         busy: None,
         error: None,
+        added: None,
     });
     let text = format!(
         "{model:?} {model:#?} {:?} {:?} {:?} {:?}",
@@ -832,6 +834,7 @@ fn a_dialog_opened_again_is_another_instance() {
         name: String::new(),
         busy: None,
         error: None,
+        added: None,
     };
     assert_eq!(model.dialog_instance(), None);
     model.open(add());
@@ -852,7 +855,10 @@ fn a_dialog_opened_again_is_another_instance() {
     let commands = answer_all(&mut model, |command| match command {
         Command::AddContact { card, .. } => {
             assert_eq!(card.as_str(), "MONOLITH card");
-            Some(Outcome::ContactAdded(contact(1, 12)))
+            Some(Outcome::ContactAdded {
+                contact: contact(1, 12),
+                invitation: true,
+            })
         }
         _ => None,
     });
@@ -1040,6 +1046,7 @@ fn a_dialog_takes_no_answer_that_names_another_identity() {
             name: String::new(),
             busy: None,
             error: None,
+            added: None,
         },
         Dialog::AcceptRequest {
             request: UiRequestId::new(identity(2), 3),
@@ -1053,7 +1060,10 @@ fn a_dialog_takes_no_answer_that_names_another_identity() {
         model.open(dialog);
         model.confirm();
         answer_all(&mut model, |command| match command {
-            Command::AddContact { .. } => Some(Outcome::ContactAdded(contact(1, 11))),
+            Command::AddContact { .. } => Some(Outcome::ContactAdded {
+                contact: contact(1, 11),
+                invitation: false,
+            }),
             Command::AcceptRequest { .. } => Some(Outcome::RequestAccepted(contact(1, 11))),
             _ => None,
         });
@@ -1112,4 +1122,118 @@ fn deleting_the_messages_of_the_conversation_shown_keeps_it_shown_and_read() {
     let messages = &model.thread(c).unwrap().messages;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].text, "again");
+}
+
+/// Adds a card to identity A, answered as the runtime does with `contact`
+/// and whether the card was an invitation.
+fn add_card(model: &mut Model, contact: UiContactId, invitation: bool) {
+    model.open(Dialog::AddContact {
+        identity: identity(1),
+        card: "MONOLITH card".to_owned(),
+        name: String::new(),
+        busy: None,
+        error: None,
+        added: None,
+    });
+    model.confirm();
+    answer_all(model, |command| match command {
+        Command::AddContact { .. } => Some(Outcome::ContactAdded {
+            contact,
+            invitation,
+        }),
+        _ => None,
+    });
+}
+
+#[test]
+fn a_card_that_is_not_an_invitation_keeps_the_dialog_to_say_so() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    model.take_notices();
+    let added = contact(1, 12);
+    add_card(&mut model, added, false);
+    // The dialog stays, names the contact, waits for nothing, and holds
+    // the card no longer; it is not told as done in a notice.
+    match model.dialog() {
+        Some(Dialog::AddContact {
+            identity: owner,
+            card,
+            busy: None,
+            added: Some(shown),
+            ..
+        }) => {
+            assert_eq!(*owner, identity(1));
+            assert_eq!(*shown, added);
+            assert!(card.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(model.take_notices().is_empty());
+    // The conversation opens behind it once A is read again.
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let mut view = contact_view(added, "Gina", "GGGG 4444");
+            view.accepted = false;
+            Some(Outcome::Identity(Box::new(snapshot(
+                identity(1),
+                vec![view],
+            ))))
+        }
+        _ => None,
+    });
+    assert_eq!(model.selection(), Some(Selection::Conversation(added)));
+    // Confirming it again adds nothing: it closes.
+    model.confirm();
+    assert!(model.dialog().is_none());
+    assert!(
+        !model
+            .take_commands()
+            .iter()
+            .any(|(_, command)| matches!(command, Command::AddContact { .. }))
+    );
+}
+
+#[test]
+fn an_invitation_or_the_card_of_an_accepted_contact_closes_the_dialog() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    model.take_notices();
+    // An invitation: done.
+    add_card(&mut model, contact(1, 12), true);
+    assert!(model.dialog().is_none());
+    // The plain card of Carol, who accepted already: nothing to wait for.
+    load(&mut model);
+    add_card(&mut model, contact(1, 10), false);
+    assert!(model.dialog().is_none());
+    let texts: Vec<String> = model
+        .take_notices()
+        .into_iter()
+        .map(|notice| notice.text)
+        .collect();
+    assert_eq!(texts, ["Contact added.", "Contact added."]);
+}
+
+#[test]
+fn a_contact_says_whether_its_card_was_an_invitation() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let invited = contact(1, 12);
+    let carded = contact(1, 13);
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let mut first = contact_view(invited, "Gina", "GGGG 4444");
+            first.accepted = false;
+            first.invitation = true;
+            let mut second = contact_view(carded, "Hal", "HHHH 5555");
+            second.accepted = false;
+            Some(Outcome::Identity(Box::new(snapshot(
+                identity(1),
+                vec![first, second],
+            ))))
+        }
+        _ => None,
+    });
+    assert!(model.contact(invited).unwrap().invitation);
+    assert!(!model.contact(carded).unwrap().invitation);
 }

@@ -479,6 +479,7 @@ mod tests {
             full_fingerprint: String::new(),
             accepted: true,
             verified: false,
+            invitation: false,
         };
         assert_eq!(contact_name(&contact), "Contact ABCD");
         let named = ContactView {

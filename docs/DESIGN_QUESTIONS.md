@@ -2262,6 +2262,22 @@ P6-19 Contrast: main text at least 7 to 1 and every other text, hints and
     themes (WCAG 2.1, a test computes it). Meeting it darkened the hints
     and times of the light theme and the accent of the dark one.
 
+P6-20 A card and an invitation are told apart (review finding B1: a
+    person who added a plain card waited for ever while the other side, in
+    the default mode, dropped every request without a word). Adding a card
+    says whether it carried an invitation, and a contact's summary says
+    whether the card held for it carries one, which its requests carry
+    (`PROTOCOL.md` sections 8.3 and 12.2). The store keeps that card in the
+    contact's credentials, so nothing new is stored and the answer
+    survives a restart. A contact added by a card without one is told to
+    add the user's card too: in "Add contact", which stays open to say so
+    with a button to the user's card, and in the conversation until the
+    contact accepts. Two people who add each other's cards become contacts
+    in every request mode (section 6.4), so the advice always works; that
+    the other side may take requests from anyone is not known and not
+    said. The own card dialog says what a card alone does under the
+    identity's request mode.
+
 ### 13.2 Not part of Phase 6
 
 The brief's exclusions: the Double Ratchet, groups, attachments, voice,

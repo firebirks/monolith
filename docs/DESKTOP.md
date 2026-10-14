@@ -161,7 +161,19 @@ identity switcher gives each identity its own counts.
 - Contacts: added by pasting a card or an invitation card, or reading one
   from a file (typed path or dropped on the window, at most 64 KiB, checked
   like pasted text). A request to a stranger leaves with the first message
-  (P6-6), which the conversation says while the contact waits.
+  (P6-6), which the conversation says while the contact waits. The runtime
+  says whether the text added was an invitation, and the contact keeps
+  saying it (P6-20). After a card that is not an invitation, "Add contact"
+  stays open to say that the other side must add the user's card too before
+  messages can arrive, with a button to the user's card; the conversation
+  says the same, with the same button, until the contact accepts. After an
+  invitation it says that the request leaves with the first message and is
+  seen through that invitation, without a name or a message.
+- The user's own card says what a card alone does under the request mode
+  of the identity: with Invitations only, someone who has only the card
+  can reach the user once the user has added their card too; with Anyone
+  with my card, anyone who has it can send a request; with Nobody, no
+  request arrives at all.
 - Requests: listed with the sender's fingerprint, the invitation that
   admitted them, and the name and introduction the sender chose, quoted as
   their words; accepted (naming the contact), declined or blocked.
@@ -298,6 +310,11 @@ drawn; frames happen only on input or events, and the window holds at most
   that stays is shown as "Former contact" and the first group of the
   fingerprint (P6-14).
 - QR codes are shown, never scanned (P6-11).
+- A contact added by a card that is not an invitation is said to wait until
+  it adds the user's card. The client cannot know whether that side takes
+  requests from anyone, in which case the request is also listed there
+  (P6-20). The list of conversations does not tell the two kinds of
+  waiting contact apart; the conversation does.
 - The window's size and maximized state are kept, not its position.
 - On Windows the permissions of the profile folder are not checked
   (`STORAGE.md` section 3.8).

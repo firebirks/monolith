@@ -264,6 +264,10 @@ pub enum Dialog {
         busy: Option<CommandId>,
         /// Why the last attempt failed.
         error: Option<Failure>,
+        /// The contact added from a card that was not an invitation: the
+        /// dialog stays to say that it has to add the card of this identity
+        /// too. The card typed is wiped by then.
+        added: Option<UiContactId>,
     },
     /// The card of an identity, to share.
     OwnCard {
@@ -500,6 +504,9 @@ impl fmt::Debug for Dialog {
                 discard_requests, ..
             } => {
                 out.field("discard_requests", discard_requests);
+            }
+            Self::AddContact { added, .. } => {
+                out.field("added", added);
             }
             _ => {}
         }
@@ -1218,6 +1225,7 @@ impl Model {
                 identity,
                 card,
                 name,
+                added: None,
                 ..
             } => Some(Command::AddContact {
                 identity: *identity,
@@ -1258,6 +1266,7 @@ impl Model {
             Dialog::OwnCard { .. }
             | Dialog::ShowInvitation { .. }
             | Dialog::NewInvitation { .. }
+            | Dialog::AddContact { .. }
             | Dialog::TorDetails => None,
         };
         let Some(command) = command else {
@@ -1640,6 +1649,14 @@ impl Model {
     }
 
     fn dialog_done(&mut self, command: CommandId, outcome: Outcome) {
+        // Whether a contact just added had accepted already: then its card
+        // changed nothing.
+        let accepted_before = match &outcome {
+            Outcome::ContactAdded { contact, .. } => {
+                self.contact(*contact).is_some_and(|view| view.accepted)
+            }
+            _ => false,
+        };
         let Some(dialog) = self.dialog.as_mut() else {
             // The dialog is gone; what its command changed is read again.
             self.mark_everything_of_outcome(&outcome);
@@ -1686,12 +1703,33 @@ impl Model {
                 self.pending_select = Some(identity);
                 message = Some("Identity created.");
             }
-            (Dialog::AddContact { identity, .. }, Outcome::ContactAdded(contact))
-                if contact.identity() == *identity =>
-            {
+            (
+                Dialog::AddContact {
+                    identity,
+                    card,
+                    busy,
+                    added,
+                    ..
+                },
+                Outcome::ContactAdded {
+                    contact,
+                    invitation,
+                },
+            ) if contact.identity() == *identity => {
                 affected = Some(contact.identity());
-                message = Some("Contact added.");
                 self.pending_open = Some(contact);
+                if invitation || accepted_before {
+                    message = Some("Contact added.");
+                } else {
+                    // A request without an invitation is dropped unless the
+                    // other side takes requests from anyone; it has to add
+                    // this identity's card too (`PROTOCOL.md` section
+                    // 12.2). The dialog stays to say so.
+                    card.zeroize();
+                    *busy = None;
+                    *added = Some(contact);
+                    close = false;
+                }
             }
             (Dialog::ContactDetails { busy, .. }, Outcome::Done) => {
                 *busy = None;
@@ -1744,7 +1782,7 @@ impl Model {
 
     fn mark_everything_of_outcome(&mut self, outcome: &Outcome) {
         match outcome {
-            Outcome::ContactAdded(contact) | Outcome::RequestAccepted(contact) => {
+            Outcome::ContactAdded { contact, .. } | Outcome::RequestAccepted(contact) => {
                 self.mark_identity(contact.identity());
             }
             Outcome::IdentityCreated(_) => self.identities_stale = true,

@@ -129,6 +129,12 @@ fn card(person: u8) -> String {
     }
 }
 
+/// Whether the card of `person` is an invitation: the others are plain
+/// cards, after which "Add contact" stays open to say so.
+const fn invited(person: u8) -> bool {
+    person % 2 == 1
+}
+
 /// The person whose card `text` is.
 fn person_of(text: &str) -> Option<u8> {
     let person: u8 = text.strip_prefix("card-P")?.parse().ok()?;
@@ -168,6 +174,7 @@ fn forged_contact(contact: UiContactId) -> ContactView {
         full_fingerprint: String::new(),
         accepted: true,
         verified: true,
+        invitation: false,
     }
 }
 
@@ -256,6 +263,7 @@ impl Record {
             full_fingerprint: format!("{} 2222 3333", fingerprint(self.person)),
             accepted: self.accepted,
             verified: self.verified,
+            invitation: invited(self.person),
         }
     }
 
@@ -955,7 +963,10 @@ impl Env {
         }
         let contact = self.add_record(owner, person, false, name);
         self.opened.insert(contact);
-        Outcome::ContactAdded(contact)
+        Outcome::ContactAdded {
+            contact,
+            invitation: invited(person),
+        }
     }
 
     fn change_contact(
@@ -1112,9 +1123,12 @@ impl Env {
                 Command::AddContact {
                     identity: owner, ..
                 },
-                Outcome::ContactAdded(_),
+                Outcome::ContactAdded { invitation, .. },
             ) => (
-                Outcome::ContactAdded(self.foreign_contact(*owner, k)),
+                Outcome::ContactAdded {
+                    contact: self.foreign_contact(*owner, k),
+                    invitation,
+                },
                 tells,
             ),
             (Command::AcceptRequest { request, .. }, Outcome::RequestAccepted(_)) => (
@@ -1442,7 +1456,10 @@ impl Env {
             },
             3 => Outcome::Done,
             4 => Outcome::Failed(Failure::NoSuchIdentity),
-            5 => Outcome::ContactAdded(contact),
+            5 => Outcome::ContactAdded {
+                contact,
+                invitation: pick % 2 == 0,
+            },
             6 => Outcome::MessageQueued(UiMessageId::new(contact, 1)),
             7 => Outcome::RequestAccepted(contact),
             8 => Outcome::InvitationCreated {
@@ -2297,6 +2314,7 @@ impl World {
                 name: "Gina".to_owned(),
                 busy,
                 error,
+                added: None,
             },
             DialogKind::OwnCard => Dialog::OwnCard {
                 identity: self.pick_identity(local, pick),

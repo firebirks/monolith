@@ -265,14 +265,14 @@ impl Node {
             }
             ["add", n, card] => {
                 let (index, identity) = self.identity(n)?;
-                let record = self
+                let added = self
                     .runtime
                     .add_contact(&identity, card)
                     .await
                     .map_err(|error| error.to_string())?;
                 say(&format!(
                     "added {index} {}",
-                    self.peer_name(&identity, &record)
+                    self.peer_name(&identity, &added.contact)
                 ));
                 Ok(())
             }

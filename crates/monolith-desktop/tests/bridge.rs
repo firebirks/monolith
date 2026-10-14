@@ -278,7 +278,10 @@ fn a_handle_of_one_identity_names_nothing_of_another() {
         card: card.clone(),
         name: Some("Bob".to_owned()),
     }) {
-        Outcome::ContactAdded(contact) => contact,
+        Outcome::ContactAdded {
+            contact,
+            invitation: true,
+        } => contact,
         other => panic!("{other:?}"),
     };
     assert_eq!(at_alice.identity(), alice);
@@ -395,6 +398,81 @@ fn a_handle_of_one_identity_names_nothing_of_another() {
 }
 
 #[test]
+fn a_contact_added_says_whether_its_card_was_an_invitation() {
+    let network = MockNetwork::new();
+    let mut driver = Driver::start(&network, None);
+    start_without_saving(&mut driver);
+    let alice = driver.identity("Alice");
+    let bob = driver.identity("Bob");
+    let carol = driver.identity("Carol");
+    let (_, invitation) = driver.invitation(bob);
+    let carol_card = match driver.ask(Command::OwnCard(carol)) {
+        Outcome::Card(card) => card,
+        other => panic!("{other:?}"),
+    };
+    let add = |driver: &mut Driver, owner: UiIdentityId, card: &str| match driver.ask(
+        Command::AddContact {
+            identity: owner,
+            card: Zeroizing::new(card.to_owned()),
+            name: None,
+        },
+    ) {
+        Outcome::ContactAdded {
+            contact,
+            invitation,
+        } => {
+            assert_eq!(contact.identity(), owner);
+            (contact, invitation)
+        }
+        other => panic!("{other:?}"),
+    };
+    let (bob_at_alice, invited) = add(&mut driver, alice, &invitation);
+    assert!(invited);
+    let (carol_at_alice, invited) = add(&mut driver, alice, &carol_card);
+    assert!(!invited);
+    let flags = |driver: &mut Driver| match driver.ask(Command::LoadIdentity(alice)) {
+        Outcome::Identity(snapshot) => {
+            let of = |contact| {
+                let view = snapshot
+                    .contacts
+                    .iter()
+                    .find(|view| view.id == contact)
+                    .unwrap();
+                (view.invitation, view.accepted)
+            };
+            (of(bob_at_alice), of(carol_at_alice))
+        }
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(flags(&mut driver), ((true, false), (false, false)));
+
+    // Carol, in the default mode, drops Alice's request; once she adds
+    // Alice's card too and writes, the two are contacts.
+    assert!(matches!(
+        driver.ask(Command::Send {
+            contact: carol_at_alice,
+            text: "hello Carol".to_owned(),
+        }),
+        Outcome::MessageQueued(_)
+    ));
+    let alice_card = match driver.ask(Command::OwnCard(alice)) {
+        Outcome::Card(card) => card,
+        other => panic!("{other:?}"),
+    };
+    let (alice_at_carol, invited) = add(&mut driver, carol, &alice_card);
+    assert!(!invited);
+    assert!(matches!(
+        driver.ask(Command::Send {
+            contact: alice_at_carol,
+            text: "hello Alice".to_owned(),
+        }),
+        Outcome::MessageQueued(_)
+    ));
+    driver.wait_event(|event| *event == RuntimeEvent::ContactAccepted(carol_at_alice));
+    assert_eq!(flags(&mut driver), ((true, false), (false, true)));
+}
+
+#[test]
 fn closing_the_window_stops_the_runtime() {
     let network = MockNetwork::new();
     let mut driver = Driver::start(&network, None);
@@ -453,7 +531,10 @@ fn messages_are_read_in_pages_up_to_the_limit() {
         card: card.clone(),
         name: None,
     }) {
-        Outcome::ContactAdded(contact) => contact,
+        Outcome::ContactAdded {
+            contact,
+            invitation: true,
+        } => contact,
         other => panic!("{other:?}"),
     };
     for number in 0..12 {

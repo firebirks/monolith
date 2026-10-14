@@ -48,9 +48,10 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::api::{
-    CommandError, ContactId, ContactSummary, ConversationSummary, DeferReason, Event, IdentityId,
-    IdentitySummary, InvitationRef, InvitationSummary, MessageRef, MessageStatus, MessageView,
-    RefusedReason, RequestMode, RequestRef, RequestSummary, SendError, ServiceState, TorCheck,
+    AddedContact, CommandError, ContactId, ContactSummary, ConversationSummary, DeferReason, Event,
+    IdentityId, IdentitySummary, InvitationRef, InvitationSummary, MessageRef, MessageStatus,
+    MessageView, RefusedReason, RequestMode, RequestRef, RequestSummary, SendError, ServiceState,
+    TorCheck,
 };
 use crate::budget::Budgets;
 use crate::contacts::StoreError;
@@ -1459,6 +1460,10 @@ impl<B: TorBackend + 'static> Runtime<B> {
                     alias: view.alias.map(|alias| alias.as_str().to_owned()),
                     accepted: view.kind == monolith_protocol::contact::RecordKind::Accepted,
                     verified: view.verified,
+                    invitation: view
+                        .credentials
+                        .as_ref()
+                        .is_some_and(|credentials| credentials.invitation().is_some()),
                 })
             })
             .collect();
@@ -1589,20 +1594,26 @@ impl<B: TorBackend + 'static> Runtime<B> {
     }
 
     /// Imports a contact card given in its text form. Returns the contact
-    /// record of its identity.
+    /// record of its identity, and whether the card carried an invitation.
     pub async fn add_contact(
         &self,
         identity: &IdentityId,
         card: &str,
-    ) -> Result<ContactId, CommandError> {
+    ) -> Result<AddedContact, CommandError> {
         let held = self.held(identity)?;
         let card = ContactCard::from_text(card).map_err(|_| CommandError::InvalidCard)?;
+        let invitation = card.invitation().is_some();
         self.inner
             .detached(async move {
                 held.identity.import(&card).await.map_err(store_error)?;
-                held.identity
+                let contact = held
+                    .identity
                     .contact_id(card.identity())
-                    .ok_or(CommandError::UnknownContact)
+                    .ok_or(CommandError::UnknownContact)?;
+                Ok(AddedContact {
+                    contact,
+                    invitation,
+                })
             })
             .await
             .unwrap_or(Err(CommandError::ShuttingDown))

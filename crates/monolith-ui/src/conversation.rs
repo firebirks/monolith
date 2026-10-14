@@ -59,10 +59,13 @@ fn inset<R>(ui: &mut Ui, pad: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     result
 }
 
-/// The words under the name in the header, if any.
-fn status_line(ended: bool, accepted: bool, verified: bool) -> Option<&'static str> {
+/// The words under the name in the header, if any. A contact added by a
+/// card that is not an invitation waits until it adds this identity's card.
+fn status_line(ended: bool, accepted: bool, verified: bool, invited: bool) -> Option<&'static str> {
     if ended {
         Some("No longer a contact")
+    } else if !accepted && !invited {
+        Some("Waiting for them to add your card")
     } else if !accepted {
         Some("Waiting for them to accept your request")
     } else if verified {
@@ -85,7 +88,14 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, contact: UiContactId) {
         .show_separator_line(false)
         .show_inside(ui, |ui| composer(ui, app, contact));
     header(ui, app, contact, narrow);
-    banners(ui, app, contact, pad);
+    if banners(ui, app, contact, pad) {
+        app.model.open(Dialog::OwnCard {
+            identity: contact.identity(),
+            card: None,
+            busy: None,
+            error: None,
+        });
+    }
     messages(ui, app, contact, pad);
     app.focus_composer = false;
     app.last_conversation = Some(contact);
@@ -107,7 +117,8 @@ fn header(ui: &mut Ui, app: &mut App, contact: UiContactId, narrow: bool) {
     let ended = view.is_none();
     let accepted = view.is_some_and(|view| view.accepted);
     let verified = view.is_some_and(|view| view.verified);
-    let line = status_line(ended, accepted, verified);
+    let invited = view.is_some_and(|view| view.invitation);
+    let line = status_line(ended, accepted, verified, invited);
     let (tor, tor_label) = common::tor_state(&app.model);
     let mut back = false;
     let mut open_tor = false;
@@ -273,13 +284,15 @@ fn deferral_text(
     Some(format!("{text} {BOTH_OPEN}"))
 }
 
-/// The notices under the bar.
-fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) {
+/// The notices under the bar. Returns true if the card of the identity was
+/// asked for.
+fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
     let theme = theme::current(ui.ctx());
     let name = present::prepare(&app.model.contact_name(contact), false).text;
     let view = app.model.contact(contact);
     let ended = view.is_none();
     let waiting = view.is_some_and(|view| !view.accepted);
+    let invited = view.is_some_and(|view| view.invitation);
     let queued = app
         .model
         .conversation(contact)
@@ -294,28 +307,41 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) {
         .thread(contact)
         .is_some_and(|thread| thread.refused);
     // A failed store is said once, for the whole window, not here.
-    let mut notices: Vec<(&str, Tone, String)> = Vec::new();
+    let mut notices: Vec<(&str, Tone, String, Option<&str>)> = Vec::new();
     if ended {
         notices.push((
             "ended",
             Tone::Info,
             "This contact was removed or blocked. You can read what is here, but not send messages."
                 .to_owned(),
+            None,
         ));
     }
-    if waiting {
+    // Without an invitation the request is dropped, unless they take
+    // requests from anyone (`PROTOCOL.md` section 12.2).
+    if waiting && invited {
         notices.push((
             "waiting",
             Tone::Info,
             format!(
-                "Your request leaves with your first message. {name} sees only that someone wants to connect, with your fingerprint, and can read your messages after accepting. Tell them it is you."
+                "Your request leaves with your first message. {name} sees it through the invitation they gave you, with your fingerprint only, and can read your messages after accepting. Tell them it is you."
             ),
+            None,
+        ));
+    } else if waiting {
+        notices.push((
+            "waiting-card",
+            Tone::Info,
+            format!(
+                "You added their card, not an invitation. {name} must add your card too before your messages can arrive."
+            ),
+            Some("Show my card"),
         ));
     }
     if queued && !ended {
         let tor_down = app.model.tor_indicator() == TorIndicator::Unavailable;
         if let Some(text) = deferral_text(deferral, &name, tor_down, waiting) {
-            notices.push(("deferral", Tone::Info, text));
+            notices.push(("deferral", Tone::Info, text, None));
         }
     }
     if refused {
@@ -325,19 +351,26 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) {
             format!(
                 "A message from {name} could not be saved on this device. Their Monolith will send it again."
             ),
+            None,
         ));
     }
     if notices.is_empty() {
-        return;
+        return false;
     }
+    let mut asked = false;
     ui.add_space(theme.space.md);
     inset(ui, pad, |ui| {
         ui.spacing_mut().item_spacing.y = theme.space.sm;
-        for (key, tone, text) in &notices {
-            Banner::new(("conversation-banner", contact, *key), *tone, text).show(ui);
+        for (key, tone, text, action) in &notices {
+            let mut banner = Banner::new(("conversation-banner", contact, *key), *tone, text);
+            if let Some(label) = action {
+                banner = banner.action(label);
+            }
+            asked |= banner.show(ui).action;
         }
     });
     ui.add_space(theme.space.sm);
+    asked
 }
 
 /// Whether message `b` continues the group of `a`.
@@ -363,6 +396,10 @@ fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
         .model
         .contact(contact)
         .is_some_and(|view| !view.accepted);
+    let invited = app
+        .model
+        .contact(contact)
+        .is_some_and(|view| view.invitation);
     let mut load = false;
     let mut expand = None;
     let mut first = None;
@@ -395,7 +432,7 @@ fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
                     ui.add_space(theme.space.sm);
                 }
                 if thread.messages.is_empty() && !thread.loading {
-                    empty_note(ui, waiting, &name);
+                    empty_note(ui, waiting, invited, &name);
                 }
                 let mut previous: Option<&monolith_ui_model::MessageView> = None;
                 let mut iter = thread.messages.iter().peekable();
@@ -479,7 +516,7 @@ fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
 }
 
 /// The note of a conversation without messages.
-fn empty_note(ui: &mut Ui, waiting: bool, name: &str) {
+fn empty_note(ui: &mut Ui, waiting: bool, invited: bool, name: &str) {
     let theme = theme::current(ui.ctx());
     ui.add_space(theme.space.huge);
     ui.vertical_centered(|ui| {
@@ -490,9 +527,13 @@ fn empty_note(ui: &mut Ui, waiting: bool, name: &str) {
             theme.color.text_secondary,
         ));
         if waiting {
-            let text = format!(
-                "Your first message sends your request. {name} can read it only after accepting."
-            );
+            let text = if invited {
+                format!(
+                    "Your first message sends your request. {name} can read it only after accepting."
+                )
+            } else {
+                format!("Your messages stay on this device until {name} has added your card too.")
+            };
             ui.add(Text::new(
                 &text,
                 &theme.text.caption,
@@ -625,6 +666,7 @@ pub(crate) fn show_nothing_selected(ui: &mut Ui, app: &mut App) {
                     name: String::new(),
                     busy: None,
                     error: None,
+                    added: None,
                 });
             }
             if output.secondary {
