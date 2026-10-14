@@ -1,14 +1,34 @@
 [package]
 name = "monolith-desktop"
-description = "Desktop front end for Monolith"
+description = "The Monolith desktop client: the window and the bridge between the screens and the runtime"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "monolith-desktop"
+path = "src/main.rs"
+
 [dependencies]
-monolith-core.workspace = true
+# The window (docs/adr/0010-gui-toolkit-egui.md): OpenGL through glow, X11
+# and Wayland on Linux, AccessKit for screen readers. No persistence, no
+# default fonts, no wgpu.
+eframe = { version = "=0.32.3", default-features = false, features = ["glow", "x11", "wayland", "accesskit"] }
+egui = { version = "=0.32.3", default-features = false }
+# Local times in the system's time zone, on Linux from its zoneinfo and on
+# Windows from a database compiled in.
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
+monolith-runtime.workspace = true
+monolith-ui = { path = "../monolith-ui" }
+monolith-ui-kit = { path = "../monolith-ui-kit" }
+monolith-ui-model = { path = "../monolith-ui-model" }
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+zeroize = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+monolith-tor = { workspace = true }
 
 [lints]
 workspace = true

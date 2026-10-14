@@ -20,11 +20,12 @@ use monolith_core::api::{
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, InstallationError};
+pub use monolith_core::runtime::MAX_PAGE;
 use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_storage::StorageError;
-use monolith_storage::dir::DiskDir;
+use monolith_storage::dir::{DiskDir, VAULT, VAULT_NEW};
 use monolith_storage::vault::{KdfParams, Passphrase};
-pub use monolith_tor::{SystemTorBackend, SystemTorConfig, TorBackend};
+pub use monolith_tor::{ControlAuth, Endpoint, SystemTorBackend, SystemTorConfig, TorBackend};
 use tokio::sync::broadcast;
 
 use core::fmt;
@@ -101,6 +102,15 @@ fn installation(error: InstallationError) -> OpenError {
         InstallationError::MessageStore => OpenError::MessageStore,
         _ => OpenError::Invalid,
     }
+}
+
+/// Returns true if the data directory at `path` holds a vault, or the new
+/// copy of one that an interrupted write left (`docs/STORAGE.md` section
+/// 3.5): a profile to open, not one to create. Nothing is opened.
+pub fn profile_exists(path: &Path) -> bool {
+    [VAULT, VAULT_NEW]
+        .iter()
+        .any(|name| path.join(name).symlink_metadata().is_ok())
 }
 
 /// Events, in the order they happened.
