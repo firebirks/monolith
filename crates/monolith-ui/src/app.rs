@@ -246,7 +246,8 @@ impl App {
                 settings: TorSettings {
                     socks: "127.0.0.1:9150".to_owned(),
                     control: "127.0.0.1:9151".to_owned(),
-                    cookie_file: "/home/user/tor-browser/Browser/TorBrowser/Data/Tor/                                  control_auth_cookie"
+                    cookie_file: "/home/user/tor-browser/Browser/TorBrowser/Data/Tor/\
+                                  control_auth_cookie"
                         .to_owned(),
                 },
             },

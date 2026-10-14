@@ -14,7 +14,9 @@ use monolith_ui_kit::message_status::Status as MarkStatus;
 use monolith_ui_kit::text::Text;
 use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_kit::{icons, theme};
-use monolith_ui_model::{Deferral, Dialog, Failure, Status, UiContactId, UiMessageId, present};
+use monolith_ui_model::{
+    Deferral, Dialog, Failure, Status, TorIndicator, UiContactId, UiMessageId, present,
+};
 
 use crate::app::App;
 use crate::common;
@@ -231,13 +233,19 @@ fn header(ui: &mut Ui, app: &mut App, contact: UiContactId, narrow: bool) {
     }
 }
 
-/// The sentence for a delivery that waits.
-fn deferral_text(reason: Deferral, name: &str) -> String {
+/// The sentence for a delivery that waits. Tor not opening a stream to
+/// the contact is what an offline contact looks like too; it is said to be
+/// Tor's doing only while Tor is known not to work.
+fn deferral_text(reason: Deferral, name: &str, tor_down: bool) -> String {
     match reason {
-        Deferral::Tor => {
+        Deferral::Tor if tor_down => {
             "Waiting for Tor. Your messages will be delivered when Tor is available again."
                 .to_owned()
         }
+        Deferral::Tor => format!(
+            "{name} could not be reached through Tor. Monolith will try again; messages stay \
+             queued until then."
+        ),
         Deferral::Unreachable => {
             format!("Waiting for {name} to come online. Messages stay queued until then.")
         }
@@ -299,7 +307,12 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) {
         ));
     }
     if let (true, Some(reason)) = (queued && !ended, deferral) {
-        notices.push(("deferral", Tone::Info, deferral_text(reason, &name)));
+        let tor_down = app.model.tor_indicator() == TorIndicator::Unavailable;
+        notices.push((
+            "deferral",
+            Tone::Info,
+            deferral_text(reason, &name, tor_down),
+        ));
     }
     if refused {
         notices.push((

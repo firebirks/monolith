@@ -43,7 +43,11 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, narrow: bool) {
         .show_separator_line(false)
         .show_inside(ui, |ui| footer(ui, app));
     if app.model.current_identity().is_none() {
-        no_identity(ui, app);
+        // In a wide window the content pane says what to do; the sidebar
+        // says it only when it is the whole window.
+        if narrow {
+            no_identity(ui, app);
+        }
         return;
     }
     ui.add_space(pad);
