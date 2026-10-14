@@ -94,7 +94,7 @@ fn content(ui: &mut egui::Ui, app: &mut App) {
 /// one shown, Escape to leave the settings. Enter sends, Shift+Enter starts a new line, and Escape
 /// closes a dialog or a menu, in their components.
 fn shortcuts(ctx: &Context, app: &mut App) {
-    if app.model.dialog().is_some() || app.asking_to_close() {
+    if app.model.dialog().is_some() || app.block_request.is_some() || app.asking_to_close() {
         return;
     }
     let find = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);

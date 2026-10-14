@@ -1978,6 +1978,22 @@ mod tests {
     }
 
     #[test]
+    fn the_shortcuts_of_the_window_wait_while_blocking_is_asked() {
+        let mut app = fixture("requests").expect("fixture");
+        app.block_request = Some(UiRequestId::new(identity(), 1));
+        let mut window = Window::new(app);
+        let _ = window.commands();
+        let selected = window.app.model.selection();
+        window.press(Key::ArrowDown, Modifiers::ALT);
+        window.press(Key::ArrowUp, Modifiers::ALT);
+        assert_eq!(window.app.model.selection(), selected);
+        assert_eq!(
+            window.app.block_request,
+            Some(UiRequestId::new(identity(), 1))
+        );
+    }
+
+    #[test]
     fn cancelling_the_question_blocks_nobody() {
         let mut app = fixture("requests").expect("fixture");
         app.block_request = Some(UiRequestId::new(identity(), 1));
