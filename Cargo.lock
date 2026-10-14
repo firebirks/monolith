@@ -564,6 +564,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "monolith-ui-model"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "unicode-segmentation",
+ "zeroize",
+]
+
+[[package]]
 name = "monolith-ui-snapshot"
 version = "0.0.0"
 dependencies = [

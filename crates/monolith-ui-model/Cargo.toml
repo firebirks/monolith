@@ -1,0 +1,20 @@
+[package]
+name = "monolith-ui-model"
+description = "The state of the Monolith desktop client: what the runtime said, what the user is doing, and the commands between them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+# Grapheme clusters for the rendering limits (RESOURCE_LIMITS.md section
+# 10); already in the tree through egui.
+unicode-segmentation = { version = "=1.13.3", default-features = false }
+zeroize = { workspace = true, features = ["alloc"] }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

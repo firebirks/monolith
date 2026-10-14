@@ -11,6 +11,7 @@ members = [
     "crates/monolith-cli",
     "crates/monolith-desktop",
     "crates/monolith-ui-kit",
+    "crates/monolith-ui-model",
     "crates/monolith-ui-snapshot",
 ]
 # The fuzz targets are a separate cargo project with its own lock file. They
