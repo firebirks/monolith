@@ -555,6 +555,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "monolith-ui"
+version = "0.0.0"
+dependencies = [
+ "egui",
+ "monolith-ui-kit",
+ "monolith-ui-model",
+ "monolith-ui-snapshot",
+ "zeroize",
+]
+
+[[package]]
 name = "monolith-ui-kit"
 version = "0.0.0"
 dependencies = [

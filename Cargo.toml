@@ -10,6 +10,7 @@ members = [
     "crates/monolith-runtime",
     "crates/monolith-cli",
     "crates/monolith-desktop",
+    "crates/monolith-ui",
     "crates/monolith-ui-kit",
     "crates/monolith-ui-model",
     "crates/monolith-ui-snapshot",

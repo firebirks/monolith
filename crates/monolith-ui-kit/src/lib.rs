@@ -32,6 +32,7 @@ pub mod section_header;
 pub mod segmented;
 pub mod settings_row;
 pub mod spinner;
+pub mod text;
 pub mod text_field;
 pub mod theme;
 pub mod toast;

@@ -297,6 +297,8 @@ pub struct Sizes {
     pub modal_wide: f32,
     /// Width of a toast.
     pub toast: f32,
+    /// Side of a QR code in a modal.
+    pub qr: f32,
     /// Smallest window.
     pub window_min: Vec2,
     /// Window at first start.
@@ -434,6 +436,7 @@ fn shared(mode: Mode, color: Palette) -> Theme {
             modal: 440.0,
             modal_wide: 560.0,
             toast: 360.0,
+            qr: 204.0,
             window_min: Vec2::new(760.0, 520.0),
             window_default: Vec2::new(1180.0, 760.0),
             narrow_below: 880.0,

@@ -58,6 +58,8 @@ pub enum Failure {
     File,
     /// The file is too large to be a card.
     FileTooLarge,
+    /// The Tor settings are incomplete, or name a place off this computer.
+    TorSettings,
     /// Something the app did not expect.
     Unexpected,
 }
@@ -98,6 +100,10 @@ impl Failure {
             Self::ShuttingDown => "Monolith is closing.",
             Self::File => "The file could not be read or written.",
             Self::FileTooLarge => "This file is too large to be a Monolith card.",
+            Self::TorSettings => {
+                "These Tor settings cannot be used. Tor must be on this computer, and the \
+                 cookie file needs its full path."
+            }
             Self::Unexpected => "Something went wrong.",
         }
     }

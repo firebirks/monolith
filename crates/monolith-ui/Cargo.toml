@@ -1,0 +1,28 @@
+[package]
+name = "monolith-ui"
+description = "The screens of the Monolith desktop client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+egui = { version = "=0.32.3", default-features = false }
+monolith-ui-kit = { path = "../monolith-ui-kit" }
+monolith-ui-model = { path = "../monolith-ui-model" }
+zeroize = { workspace = true, features = ["alloc"] }
+
+[features]
+# States of the window for screenshots and visual tests (src/fixtures.rs).
+fixtures = []
+
+[dev-dependencies]
+monolith-ui-snapshot = { path = "../monolith-ui-snapshot" }
+
+[[example]]
+name = "screens"
+required-features = ["fixtures"]
+
+[lints]
+workspace = true
