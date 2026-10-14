@@ -1,0 +1,254 @@
+//! The card of a contact request: who wants to connect, what they wrote
+//! (their words, marked as such), their fingerprint, and the three ways to
+//! answer.
+
+use egui::{Align, CornerRadius, Frame, Id, Label, Layout, Margin, Stroke, Ui, Vec2, WidgetType};
+
+use crate::avatar::{Avatar, AvatarSize};
+use crate::button::{Button, Size};
+use crate::interact;
+use crate::rows::{QuietDanger, wrapped};
+use crate::theme;
+
+/// The longest introduction that is laid out, in rows. Longer ones end in
+/// an ellipsis: they are written by someone else.
+const INTRO_MAX_ROWS: usize = 10;
+
+/// The answers to a request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestAction {
+    /// Accept the request.
+    Accept,
+    /// Decline it.
+    Decline,
+    /// Block the sender.
+    Block,
+}
+
+/// What the user did with a request card.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Output {
+    /// "Accept" was clicked.
+    pub accept: bool,
+    /// "Decline" was clicked.
+    pub decline: bool,
+    /// "Block" was clicked.
+    pub block: bool,
+}
+
+/// A contact request.
+#[must_use = "show it with `.show(ui)`"]
+pub struct RequestCard<'a> {
+    id: Id,
+    title: &'a str,
+    sender: &'a str,
+    seed: &'a [u8],
+    introduction: Option<(&'a str, &'a str)>,
+    fingerprint: &'a str,
+    caption: &'a str,
+    labels: (&'a str, &'a str, &'a str),
+    busy: Option<RequestAction>,
+}
+
+impl<'a> RequestCard<'a> {
+    /// A card for the request whose key is `id_salt`, under `title`. The
+    /// labels of the actions are, in this order, accept, decline and
+    /// block.
+    pub fn new(
+        id_salt: impl core::hash::Hash,
+        title: &'a str,
+        accept: &'a str,
+        decline: &'a str,
+        block: &'a str,
+    ) -> Self {
+        Self {
+            id: Id::new(("monolith-request-card", id_salt)),
+            title,
+            sender: "",
+            seed: &[],
+            introduction: None,
+            fingerprint: "",
+            caption: "",
+            labels: (accept, decline, block),
+            busy: None,
+        }
+    }
+
+    /// The name the sender chose (for the initials of the avatar, empty if
+    /// none) and the seed of its colour.
+    pub fn sender(mut self, name: &'a str, seed: &'a [u8]) -> Self {
+        self.sender = name;
+        self.seed = seed;
+        self
+    }
+
+    /// The sender's own words, under the caller's `label` that says whose
+    /// they are.
+    pub fn introduction(mut self, label: &'a str, text: &'a str) -> Self {
+        if !text.trim().is_empty() {
+            self.introduction = Some((label, text));
+        }
+        self
+    }
+
+    /// The fingerprint of the sender, grouped as it should be shown.
+    pub fn fingerprint(mut self, fingerprint: &'a str) -> Self {
+        self.fingerprint = fingerprint;
+        self
+    }
+
+    /// A line under the title, such as the invitation it came through.
+    pub fn caption(mut self, caption: &'a str) -> Self {
+        self.caption = caption;
+        self
+    }
+
+    /// The action under way: no input until it is done, and the button of
+    /// that action shows a progress mark.
+    pub fn busy(mut self, busy: Option<RequestAction>) -> Self {
+        self.busy = busy;
+        self
+    }
+
+    /// Shows the card.
+    pub fn show(self, ui: &mut Ui) -> Output {
+        let theme = theme::current(ui.ctx());
+        let c = &theme.color;
+        let mut output = Output::default();
+        let frame = Frame::new()
+            .fill(c.bg_surface)
+            .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))
+            .corner_radius(CornerRadius::same(theme.radius.lg))
+            .inner_margin(Margin::same(16));
+        let shown = frame.show(ui, |ui| {
+            ui.push_id(self.id, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing = Vec2::new(theme.space.md, theme.space.sm);
+
+                ui.horizontal_top(|ui| {
+                    ui.add(Avatar::new(self.sender, self.seed).size(AvatarSize::Large));
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 1.0;
+                        let width = ui.available_width();
+                        let title = wrapped(ui, self.title, &theme.text.heading, c.text, width, 3);
+                        ui.add(Label::new(title));
+                        if !self.caption.is_empty() {
+                            let caption = wrapped(
+                                ui,
+                                self.caption,
+                                &theme.text.caption,
+                                c.text_secondary,
+                                width,
+                                3,
+                            );
+                            ui.add(Label::new(caption));
+                        }
+                    });
+                });
+
+                if let Some((label, text)) = self.introduction {
+                    ui.add_space(theme.space.xs);
+                    Frame::new()
+                        .fill(c.bg_sunken)
+                        .corner_radius(CornerRadius::same(theme.radius.md))
+                        .inner_margin(Margin::same(12))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.spacing_mut().item_spacing.y = theme.space.xs;
+                            let width = ui.available_width();
+                            ui.add(Label::new(wrapped(
+                                ui,
+                                label,
+                                &theme.text.caption_strong,
+                                c.text_tertiary,
+                                width,
+                                1,
+                            )));
+                            let quote = Frame::new().inner_margin(Margin {
+                                left: 11,
+                                right: 0,
+                                top: 0,
+                                bottom: 0,
+                            });
+                            let shown = quote.show(ui, |ui| {
+                                let width = ui.available_width();
+                                ui.add(
+                                    Label::new(wrapped(
+                                        ui,
+                                        text,
+                                        &theme.text.body,
+                                        c.text,
+                                        width,
+                                        INTRO_MAX_ROWS,
+                                    ))
+                                    .selectable(true),
+                                );
+                            });
+                            let rect = shown.response.rect;
+                            let bar = egui::Rect::from_min_max(
+                                rect.min + Vec2::new(0.0, 1.0),
+                                egui::pos2(rect.min.x + 3.0, rect.max.y - 1.0),
+                            );
+                            ui.painter().rect_filled(
+                                bar,
+                                CornerRadius::same(theme.radius.xs),
+                                c.border_strong,
+                            );
+                        });
+                }
+
+                if !self.fingerprint.is_empty() {
+                    let width = ui.available_width();
+                    let token = crate::theme::TextToken {
+                        size: theme.text.caption.size,
+                        line_height: theme.text.caption.line_height + 2.0,
+                        ..theme.text.mono.clone()
+                    };
+                    ui.add(
+                        Label::new(wrapped(
+                            ui,
+                            self.fingerprint,
+                            &token,
+                            c.text_secondary,
+                            width,
+                            3,
+                        ))
+                        .selectable(true),
+                    );
+                }
+
+                ui.add_space(theme.space.xs);
+                let any_busy = self.busy.is_some();
+                let usable = |action: RequestAction| !any_busy || self.busy == Some(action);
+                let (accept, decline, block) = self.labels;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = theme.space.sm;
+                    let blocked = ui.add(QuietDanger {
+                        label: block,
+                        size: Size::Medium,
+                        enabled: usable(RequestAction::Block),
+                        busy: self.busy == Some(RequestAction::Block),
+                    });
+                    output.block = blocked.clicked();
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = theme.space.sm;
+                        let accepted = ui.add(
+                            Button::primary(accept)
+                                .enabled(usable(RequestAction::Accept))
+                                .busy(self.busy == Some(RequestAction::Accept)),
+                        );
+                        output.accept = accepted.clicked();
+                        let declined = ui.add(
+                            Button::secondary(decline)
+                                .enabled(usable(RequestAction::Decline))
+                                .busy(self.busy == Some(RequestAction::Decline)),
+                        );
+                        output.decline = declined.clicked();
+                    });
+                });
+            });
+        });
+        interact::describe(&shown.response, WidgetType::Label, self.title);
+        output
+    }
+}

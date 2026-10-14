@@ -9,6 +9,8 @@ license.workspace = true
 
 [dependencies]
 egui = { version = "=0.32.3", default-features = false }
+# QR codes of cards, generated locally (docs/adr/0011-ui-security-boundary.md).
+qrcodegen = { version = "=1.8.0", default-features = false }
 
 [lints]
 workspace = true
