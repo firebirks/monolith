@@ -25,6 +25,10 @@
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
 
 pub mod dir;
+#[cfg(unix)]
+mod disk_unix;
+#[cfg(windows)]
+mod disk_windows;
 pub mod message_records;
 pub mod messages;
 pub mod record;

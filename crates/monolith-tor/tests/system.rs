@@ -174,7 +174,13 @@ async fn serve(
                 None => format!(
                     "250-PROTOCOLINFO 1\r\n250-AUTH METHODS={} COOKIEFILE=\"{}\"\r\n250-VERSION Tor=\"{}\"\r\n250 OK\r\n",
                     script.methods,
-                    cookie.display(),
+                    // A QuotedString, as Tor writes it: a Windows path has
+                    // backslashes, which it escapes.
+                    cookie
+                        .display()
+                        .to_string()
+                        .replace('\\', "\\\\")
+                        .replace('"', "\\\""),
                     script.version
                 )
                 .into_bytes(),

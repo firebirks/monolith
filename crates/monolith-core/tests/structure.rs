@@ -52,7 +52,13 @@ fn production_sources() -> Vec<(String, String)> {
                     pending.push(path);
                 }
             } else if path.extension().is_some_and(|ext| ext == "rs") {
-                let name = path.strip_prefix(&root).unwrap().display().to_string();
+                // With `/` on every platform, as the expectations below.
+                let name = path
+                    .strip_prefix(&root)
+                    .unwrap()
+                    .display()
+                    .to_string()
+                    .replace('\\', "/");
                 if name.ends_with("testing.rs") {
                     continue;
                 }
