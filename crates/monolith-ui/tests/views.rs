@@ -18,15 +18,15 @@
 
 use egui::epaint::Shape;
 use egui::{
-    Context, Event, FullOutput, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2,
-    ViewportCommand, ViewportId,
+    Context, Event, FullOutput, Id, Key, Modifiers, OutputCommand, PointerButton, Pos2, RawInput,
+    Rect, Vec2, ViewportCommand, ViewportId, pos2,
 };
-use monolith_ui::fixtures::{NOW, fixture};
+use monolith_ui::fixtures::{NOW, conversation_window, fixture, long_text};
 use monolith_ui::{App, Effect};
 use monolith_ui_kit::{Theme, fonts, icons, theme};
 use monolith_ui_model::{
-    Command, Deferral, Dialog, Outcome, RuntimeEvent, UiBlockedId, UiContactId, UiIdentityId,
-    UiMessageId, Update,
+    Command, Deferral, Dialog, MessageView, Outcome, RuntimeEvent, Status, UiBlockedId,
+    UiContactId, UiIdentityId, UiMessageId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -65,6 +65,8 @@ struct Window {
     texts: Vec<(String, Rect)>,
     /// What the frames since the last look asked of the window.
     commands: Vec<ViewportCommand>,
+    /// What the last frame copied to the clipboard.
+    copied: Vec<String>,
 }
 
 impl Window {
@@ -73,19 +75,25 @@ impl Window {
     }
 
     fn with(app: App, size: Vec2) -> Self {
+        let mut window = Self::unsettled(app, size);
+        window.settle();
+        window
+    }
+
+    /// A window that has drawn no frame yet.
+    fn unsettled(app: App, size: Vec2) -> Self {
         let ctx = Context::default();
         fonts::install(&ctx, &[]);
         theme::install(&ctx, Theme::light().with_reduced_motion(true));
-        let mut window = Self {
+        Self {
             ctx,
             app,
             size,
             time: 0.0,
             texts: Vec::new(),
             commands: Vec::new(),
-        };
-        window.settle();
-        window
+            copied: Vec::new(),
+        }
     }
 
     fn frame(&mut self, events: Vec<Event>) {
@@ -103,11 +111,55 @@ impl Window {
         if let Some(viewport) = output.viewport_output.get(&ViewportId::ROOT) {
             self.commands.extend(viewport.commands.iter().cloned());
         }
+        self.copied = output
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                OutputCommand::CopyText(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
     }
 
     /// Takes what the window was asked since the last call.
     fn take_commands(&mut self) -> Vec<ViewportCommand> {
         core::mem::take(&mut self.commands)
+    }
+
+    /// Turns the wheel over `at` by `delta` points (up when positive), a
+    /// frame for each of `turns`, then lets the scrolling settle.
+    fn scroll(&mut self, at: Pos2, delta: f32, turns: usize) {
+        for _ in 0..turns {
+            self.frame(vec![
+                Event::PointerMoved(at),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, delta),
+                    modifiers: Modifiers::NONE,
+                },
+            ]);
+        }
+        for _ in 0..10 {
+            self.frame(Vec::new());
+        }
+    }
+
+    /// Where the text of message `sequence` of Alice was drawn in the last
+    /// frame, if it was in view.
+    fn message(&self, sequence: u64) -> Option<Rect> {
+        let start = format!("Message {sequence}.");
+        self.texts
+            .iter()
+            .find(|(text, _)| text.starts_with(&start))
+            .map(|(_, rect)| *rect)
+    }
+
+    /// Whether message `sequence` of Alice was laid out in the last frame,
+    /// in view or not.
+    fn laid_out(&self, sequence: u64) -> bool {
+        let id = Id::new(("monolith-bubble", UiMessageId::new(alice(), sequence))).with("text");
+        self.ctx.read_response(id).is_some()
     }
 
     /// Whether a text drawn holds `part`.
@@ -221,6 +273,279 @@ fn texts(output: &FullOutput) -> Vec<(String, Rect)> {
 
 fn back() -> String {
     icons::CHEVRON_LEFT.char().to_string()
+}
+
+fn alice() -> UiContactId {
+    UiContactId::new(UiIdentityId::from_bytes([1; 16]), [10; 16])
+}
+
+/// Message `n` of Alice as `conversation_window(first, count, 200)` makes
+/// it; one before `first` is older, one after the window newer.
+fn alice_message(first: u64, count: u64, n: u64) -> MessageView {
+    let status = match n.checked_sub(first).map(|index| index % 3) {
+        Some(1) => Status::Delivered,
+        Some(2) => Status::Queued,
+        _ => Status::Received,
+    };
+    MessageView {
+        id: UiMessageId::new(alice(), n),
+        status,
+        time: NOW - (first + count).saturating_sub(n) * 180,
+        text: long_text(usize::try_from(n).unwrap(), 200),
+    }
+}
+
+/// Answers the reads of Alice's messages the window asked for with
+/// `messages`, and returns how many there were.
+fn answer_messages(window: &mut Window, messages: &[MessageView]) -> usize {
+    let mut answered = 0;
+    for (command, asked) in window.app.model.take_commands() {
+        let complete = false;
+        let outcome = match asked {
+            Command::LoadMessages { contact, .. } | Command::LoadEarlier { contact, .. }
+                if contact == alice() =>
+            {
+                Outcome::Messages {
+                    contact,
+                    messages: messages.to_vec(),
+                    complete,
+                }
+            }
+            _ => continue,
+        };
+        window.app.model.apply(Update::Done { command, outcome });
+        answered += 1;
+    }
+    answered
+}
+
+/// The middle of the list of messages in a wide window.
+const MESSAGES: Pos2 = pos2(760.0, 360.0);
+
+#[test]
+fn a_long_conversation_opens_at_its_newest_message_and_lays_out_only_what_is_in_view() {
+    let window = Window::with(conversation_window(1, 2_000, 200), WIDE);
+    let newest = window
+        .message(2_000)
+        .unwrap_or_else(|| panic!("the newest message is not shown: {:#?}", window.shown()));
+    // Its whole bubble is in view, just above the composer.
+    let composer = window
+        .texts
+        .iter()
+        .find(|(text, _)| text == "Write a message")
+        .map(|(_, rect)| *rect)
+        .unwrap();
+    assert!(newest.bottom() < composer.top(), "{newest:?} {composer:?}");
+    assert!(
+        composer.top() - newest.bottom() < 80.0,
+        "{newest:?} {composer:?}"
+    );
+    // The oldest messages are neither shown nor laid out.
+    assert!(window.message(1).is_none());
+    assert!(!window.laid_out(1));
+    assert!(!window.laid_out(1_000));
+    assert!(window.laid_out(2_000));
+    let laid_out = (1..=2_000).filter(|n| window.laid_out(*n)).count();
+    assert!(laid_out < 40, "{laid_out} messages were laid out");
+    // Higher up, neither are the newest.
+    let mut window = window;
+    window.scroll(MESSAGES, 2_000.0, 5);
+    assert!(!window.laid_out(2_000));
+    let laid_out = (1..=2_000).filter(|n| window.laid_out(*n)).count();
+    assert!(
+        (1..40).contains(&laid_out),
+        "{laid_out} messages were laid out"
+    );
+}
+
+#[test]
+fn the_first_frame_of_a_long_conversation_shows_its_newest_messages_in_place() {
+    // Messages of 1.5 KB have more lines than their length tells, so their
+    // heights are known only once they are laid out.
+    let mut window = Window::unsettled(conversation_window(1, 2_000, 1_536), WIDE);
+    window.frame(Vec::new());
+    let first: Vec<Option<Rect>> = (1_990..=2_000).map(|n| window.message(n)).collect();
+    assert!(first[10].is_some(), "the newest message is not shown");
+    // No message is drawn over another.
+    let shown: Vec<Rect> = first.iter().flatten().copied().collect();
+    assert!(shown.len() >= 2);
+    for pair in shown.windows(2) {
+        assert!(pair[1].top() >= pair[0].bottom(), "{shown:#?}");
+    }
+    // And all are where they stay.
+    window.settle();
+    let settled: Vec<Option<Rect>> = (1_990..=2_000).map(|n| window.message(n)).collect();
+    assert_eq!(first, settled);
+}
+
+#[test]
+fn a_contact_without_a_name_has_a_person_for_an_avatar() {
+    // Carol has no name and Dana is no longer a contact: in the bar of
+    // Carol's conversation and in the list, a person, never initials.
+    let window = Window::new("waiting", WIDE);
+    let person = icons::USER.char().to_string();
+    assert!(window.count(&person) >= 3, "{:#?}", window.shown());
+    assert!(!window.shows("CC"));
+    assert!(!window.shows("FC"));
+    assert!(window.shows("AM"));
+}
+
+#[test]
+fn the_composer_of_a_conversation_whose_messages_are_deleted_is_forgotten() {
+    let mut window = Window::new("conversation", WIDE);
+    window.frame(vec![Event::Text("draft".to_owned())]);
+    let edit = Id::new(("monolith-composer", ("composer", alice()))).with("edit");
+    let bob = UiContactId::new(UiIdentityId::from_bytes([1; 16]), [11; 16]);
+    window.app.model.select_conversation(bob);
+    window.settle();
+    assert!(egui::TextEdit::load_state(&window.ctx, edit).is_some());
+    window.app.model.open(Dialog::DeleteConversation {
+        contact: alice(),
+        busy: None,
+        error: None,
+    });
+    window.app.model.confirm();
+    for (command, asked) in window.app.model.take_commands() {
+        if matches!(asked, Command::DeleteConversation(_)) {
+            window.app.model.apply(Update::Done {
+                command,
+                outcome: Outcome::Done,
+            });
+        }
+    }
+    window.settle();
+    assert!(egui::TextEdit::load_state(&window.ctx, edit).is_none());
+}
+
+#[test]
+fn reading_older_messages_keeps_the_reader_where_they_are() {
+    // Messages 301 to 500 are read; 201 to 300 come with the next page.
+    let mut window = Window::with(conversation_window(301, 200, 200), WIDE);
+    let mut turns = 0;
+    while !window.shows("Load earlier messages") {
+        window.scroll(MESSAGES, 2_000.0, 5);
+        turns += 1;
+        assert!(turns < 40, "the top was never reached");
+    }
+    let before = window.message(301).unwrap();
+    window.click("Load earlier messages");
+    let older: Vec<MessageView> = (201..=300).map(|n| alice_message(301, 200, n)).collect();
+    let asked: Vec<Command> = window
+        .app
+        .model
+        .take_commands()
+        .into_iter()
+        .map(|(command, asked)| {
+            if matches!(asked, Command::LoadEarlier { .. }) {
+                window.app.model.apply(Update::Done {
+                    command,
+                    outcome: Outcome::Messages {
+                        contact: alice(),
+                        messages: older.clone(),
+                        complete: false,
+                    },
+                });
+            }
+            asked
+        })
+        .collect();
+    assert!(
+        asked.iter().any(|command| matches!(
+            command,
+            Command::LoadEarlier {
+                before: 301,
+                limit: 100,
+                ..
+            }
+        )),
+        "{asked:?}"
+    );
+    window.settle();
+    assert_eq!(
+        window.app.model.thread(alice()).unwrap().messages.len(),
+        300
+    );
+    // The message at the top stays where it was; the older ones are above
+    // it, out of view, with the offer of more.
+    let after = window.message(301).unwrap();
+    assert!(
+        (after.top() - before.top()).abs() < 1.0,
+        "{before:?} {after:?}"
+    );
+    assert!(
+        window
+            .message(300)
+            .is_none_or(|rect| rect.bottom() <= after.top())
+    );
+    window.scroll(MESSAGES, 2_000.0, 20);
+    assert!(window.message(201).is_some());
+    assert!(window.shows("Load earlier messages"));
+}
+
+#[test]
+fn a_selection_in_a_message_stays_with_it_when_new_messages_arrive() {
+    let mut window = Window::with(conversation_window(1, 50, 200), WIDE);
+    // A double click on the first word of the newest message selects it.
+    let text = window.message(50).unwrap();
+    let at = pos2(text.left() + 8.0, text.top() + 8.0);
+    window.frame(vec![Event::PointerMoved(at)]);
+    for pressed in [true, false, true, false] {
+        window.frame(vec![Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        }]);
+    }
+    window.settle();
+    // Two messages arrive and are read.
+    for sequence in [51, 52] {
+        window
+            .app
+            .model
+            .apply(Update::Event(RuntimeEvent::MessageReceived(
+                UiMessageId::new(alice(), sequence),
+            )));
+        let messages: Vec<MessageView> = (1..=sequence).map(|n| alice_message(1, 50, n)).collect();
+        assert_eq!(answer_messages(&mut window, &messages), 1);
+        window.settle();
+    }
+    // The newest is in view, and so is the one selected, which copies the
+    // word selected.
+    assert!(window.message(52).is_some());
+    assert!(window.message(50).is_some());
+    window.frame(vec![Event::Copy]);
+    assert_eq!(window.copied, ["Message"]);
+}
+
+#[test]
+fn a_reader_who_scrolled_up_stays_put_and_each_conversation_keeps_its_place() {
+    let mut window = Window::with(conversation_window(1, 300, 200), WIDE);
+    window.scroll(MESSAGES, 120.0, 30);
+    let (seen, before) = (1..=300)
+        .rev()
+        .find_map(|n| window.message(n).map(|rect| (n, rect)))
+        .unwrap();
+    assert!(window.message(300).is_none(), "the view did not move up");
+    // A new message does not move what the reader sees.
+    window
+        .app
+        .model
+        .apply(Update::Event(RuntimeEvent::MessageReceived(
+            UiMessageId::new(alice(), 301),
+        )));
+    let messages: Vec<MessageView> = (1..=301).map(|n| alice_message(1, 300, n)).collect();
+    assert_eq!(answer_messages(&mut window, &messages), 1);
+    window.settle();
+    assert_eq!(window.message(seen), Some(before));
+    // Another conversation, and back: the place is kept.
+    let bob = UiContactId::new(UiIdentityId::from_bytes([1; 16]), [11; 16]);
+    window.app.model.select_conversation(bob);
+    window.settle();
+    assert!(window.message(seen).is_none());
+    window.app.model.select_conversation(alice());
+    window.settle();
+    assert_eq!(window.message(seen), Some(before));
 }
 
 #[test]
@@ -539,10 +864,6 @@ fn the_own_card_says_what_a_card_alone_can_do_under_each_request_mode() {
             assert_eq!(window.shows(text), text == said, "{name}: {text}");
         }
     }
-}
-
-fn alice() -> UiContactId {
-    UiContactId::new(UiIdentityId::from_bytes([1; 16]), [10; 16])
 }
 
 #[test]

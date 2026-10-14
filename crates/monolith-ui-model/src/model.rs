@@ -19,6 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use core::fmt;
+use core::ops::Range;
 
 use zeroize::{Zeroize, Zeroizing};
 
@@ -30,7 +31,7 @@ use crate::failure::Failure;
 use crate::ids::{
     UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
 };
-use crate::present;
+use crate::present::{self, Prepared};
 use crate::protocol::{Command, CommandId, IdentitySnapshot, Outcome, ProfileOnDisk, Update};
 
 /// How many messages a conversation reads at a time.
@@ -123,6 +124,9 @@ pub struct SidebarRow {
     pub contact: UiContactId,
     /// The name shown.
     pub name: String,
+    /// The user gave the contact a name; without one it is named by its
+    /// fingerprint.
+    pub named: bool,
     /// The fingerprint, compact.
     pub fingerprint: String,
     /// What it is.
@@ -131,10 +135,23 @@ pub struct SidebarRow {
     pub verified: bool,
     /// The newest message, if any.
     pub latest: Option<MessageView>,
+    /// The newest message in one line, at most [`present::PREVIEW_CHARS`]
+    /// characters; empty without one.
+    pub preview: String,
     /// Messages received while the conversation was not shown.
     pub unread: u32,
     /// Messages wait to be delivered.
     pub queued: usize,
+    /// The name in lower case, to sort and filter by.
+    key: String,
+}
+
+impl SidebarRow {
+    /// Whether the name holds `filter`, given in lower case. Every name
+    /// holds the empty filter.
+    pub fn matches(&self, filter: &str) -> bool {
+        self.key.contains(filter)
+    }
 }
 
 impl fmt::Debug for SidebarRow {
@@ -180,6 +197,26 @@ pub struct Thread {
     pub expanded: BTreeSet<UiMessageId>,
     /// A received message could not be stored.
     pub refused: bool,
+    /// The texts made ready to draw, each as it is shown now (expanded or
+    /// not), kept while its message is in the window.
+    prepared: BTreeMap<UiMessageId, Prepared>,
+    /// Changes with the messages and with what is expanded.
+    revision: u64,
+}
+
+impl Thread {
+    /// The text of `message` ready to draw, once
+    /// [`Model::prepare_messages`] made it.
+    pub fn prepared(&self, message: UiMessageId) -> Option<&Prepared> {
+        self.prepared.get(&message)
+    }
+
+    /// A number that changes whenever the messages change or one is
+    /// expanded, and is never given to another state of any thread: the
+    /// same number means the same messages, shown the same way.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
 }
 
 impl fmt::Debug for Thread {
@@ -194,6 +231,8 @@ impl fmt::Debug for Thread {
             .field("send_error", &self.send_error)
             .field("expanded", &self.expanded.len())
             .field("refused", &self.refused)
+            .field("prepared", &self.prepared.len())
+            .field("revision", &self.revision)
             .finish_non_exhaustive()
     }
 }
@@ -230,6 +269,102 @@ pub struct Slice {
     pub retries: BTreeMap<UiContactId, u64>,
     stale: bool,
     loading: bool,
+    /// The rows of the sidebar, made when the contacts, conversations or
+    /// unread counts change.
+    rows: Vec<SidebarRow>,
+    /// Changes with the rows.
+    rows_revision: u64,
+}
+
+impl Slice {
+    /// Makes the rows of the sidebar again: every contact and every
+    /// conversation, newest activity first, then by name. A row whose
+    /// newest message reads as before keeps its preview.
+    fn make_rows(&mut self, revision: u64) {
+        let mut before: BTreeMap<UiContactId, (Option<MessageView>, String)> =
+            core::mem::take(&mut self.rows)
+                .into_iter()
+                .map(|row| (row.contact, (row.latest, row.preview)))
+                .collect();
+        let row_of = |contact: UiContactId, name: String, fingerprint: &str| SidebarRow {
+            contact,
+            key: name.to_lowercase(),
+            name,
+            named: false,
+            fingerprint: fingerprint.to_owned(),
+            state: RowState::Ended,
+            verified: false,
+            latest: None,
+            preview: String::new(),
+            unread: 0,
+            queued: 0,
+        };
+        let mut rows: BTreeMap<UiContactId, SidebarRow> = BTreeMap::new();
+        for contact in &self.contacts {
+            let mut row = row_of(
+                contact.id,
+                present::contact_name(contact),
+                &contact.fingerprint,
+            );
+            row.state = if contact.accepted {
+                RowState::Contact
+            } else {
+                RowState::Waiting
+            };
+            row.verified = contact.verified;
+            row.named = present::named(contact);
+            rows.insert(contact.id, row);
+        }
+        for conversation in &self.conversations {
+            let row = rows.entry(conversation.contact).or_insert_with(|| {
+                row_of(
+                    conversation.contact,
+                    present::ended_contact_name(&conversation.fingerprint),
+                    &conversation.fingerprint,
+                )
+            });
+            if !conversation.active {
+                row.state = RowState::Ended;
+            }
+            row.latest = conversation.latest.clone();
+            row.queued = conversation.queued;
+        }
+        for (contact, count) in &self.unread {
+            if let Some(row) = rows.get_mut(contact) {
+                row.unread = *count;
+            }
+        }
+        let mut rows: Vec<SidebarRow> = rows.into_values().collect();
+        for row in &mut rows {
+            let text = row.latest.as_ref().map(|message| message.text.as_str());
+            row.preview = match before.remove(&row.contact) {
+                Some((Some(old), preview)) if Some(old.text.as_str()) == text => preview,
+                _ => text
+                    .map(|text| present::preview(text, present::PREVIEW_CHARS))
+                    .unwrap_or_default(),
+            };
+        }
+        rows.sort_by(|a, b| {
+            let time = |row: &SidebarRow| row.latest.as_ref().map_or(0, |message| message.time);
+            time(b)
+                .cmp(&time(a))
+                .then_with(|| a.state.cmp(&b.state))
+                .then_with(|| a.key.cmp(&b.key))
+                .then_with(|| a.contact.cmp(&b.contact))
+        });
+        self.rows = rows;
+        self.rows_revision = revision;
+    }
+
+    /// Puts the unread count of `contact` in its row; the order of the
+    /// rows does not depend on it.
+    fn unread_changed(&mut self, contact: UiContactId, revision: u64) {
+        let count = self.unread.get(&contact).copied().unwrap_or(0);
+        if let Some(row) = self.rows.iter_mut().find(|row| row.contact == contact) {
+            row.unread = count;
+            self.rows_revision = revision;
+        }
+    }
 }
 
 impl fmt::Debug for Slice {
@@ -251,8 +386,17 @@ impl fmt::Debug for Slice {
             .field("retries", &self.retries)
             .field("stale", &self.stale)
             .field("loading", &self.loading)
+            .field("rows", &self.rows.len())
+            .field("rows_revision", &self.rows_revision)
             .finish()
     }
+}
+
+/// Takes the next number of `counter`. Only equality of these numbers
+/// matters, so wrapping round is no harm.
+fn next(counter: &mut u64) -> u64 {
+    *counter = counter.wrapping_add(1);
+    *counter
 }
 
 /// A dialog. Each holds the handles it acts on from the moment it opens;
@@ -623,6 +767,11 @@ pub struct Model {
     pending_open: Option<UiContactId>,
     /// The time now as the window last said, in seconds since the epoch.
     now: u64,
+    /// The last number given to a state of a thread or of the rows.
+    revisions: u64,
+    /// Conversations whose messages were deleted, or whose contact or
+    /// identity went, since the window last asked.
+    forgotten: Vec<UiContactId>,
 }
 
 impl fmt::Debug for Model {
@@ -653,6 +802,8 @@ impl fmt::Debug for Model {
             .field("pending_select", &self.pending_select)
             .field("pending_open", &self.pending_open)
             .field("now", &self.now)
+            .field("revisions", &self.revisions)
+            .field("forgotten", &self.forgotten)
             .finish_non_exhaustive()
     }
 }
@@ -691,6 +842,8 @@ impl Model {
             pending_select: None,
             pending_open: None,
             now: 0,
+            revisions: 0,
+            forgotten: Vec::new(),
         }
     }
 
@@ -864,65 +1017,29 @@ impl Model {
     }
 
     /// The rows of the sidebar of the identity shown: every contact and
-    /// every conversation, newest activity first, then by name.
+    /// every conversation, newest activity first, then by name. They are
+    /// made when what they show changes, not when they are read.
+    pub fn sidebar_rows(&self) -> &[SidebarRow] {
+        self.current_slice()
+            .map_or(&[], |slice| slice.rows.as_slice())
+    }
+
+    /// A copy of [`Self::sidebar_rows`].
     pub fn sidebar(&self) -> Vec<SidebarRow> {
-        let Some(slice) = self.current_slice() else {
-            return Vec::new();
-        };
-        let mut rows: BTreeMap<UiContactId, SidebarRow> = BTreeMap::new();
-        for contact in &slice.contacts {
-            rows.insert(
-                contact.id,
-                SidebarRow {
-                    contact: contact.id,
-                    name: present::contact_name(contact),
-                    fingerprint: contact.fingerprint.clone(),
-                    state: if contact.accepted {
-                        RowState::Contact
-                    } else {
-                        RowState::Waiting
-                    },
-                    verified: contact.verified,
-                    latest: None,
-                    unread: 0,
-                    queued: 0,
-                },
-            );
-        }
-        for conversation in &slice.conversations {
-            let row = rows
-                .entry(conversation.contact)
-                .or_insert_with(|| SidebarRow {
-                    contact: conversation.contact,
-                    name: present::ended_contact_name(&conversation.fingerprint),
-                    fingerprint: conversation.fingerprint.clone(),
-                    state: RowState::Ended,
-                    verified: false,
-                    latest: None,
-                    unread: 0,
-                    queued: 0,
-                });
-            if !conversation.active {
-                row.state = RowState::Ended;
-            }
-            row.latest = conversation.latest.clone();
-            row.queued = conversation.queued;
-        }
-        for (contact, count) in &slice.unread {
-            if let Some(row) = rows.get_mut(contact) {
-                row.unread = *count;
-            }
-        }
-        let mut rows: Vec<SidebarRow> = rows.into_values().collect();
-        rows.sort_by(|a, b| {
-            let time = |row: &SidebarRow| row.latest.as_ref().map_or(0, |message| message.time);
-            time(b)
-                .cmp(&time(a))
-                .then_with(|| a.state.cmp(&b.state))
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                .then_with(|| a.contact.cmp(&b.contact))
-        });
-        rows
+        self.sidebar_rows().to_vec()
+    }
+
+    /// A number that changes whenever the rows of the sidebar of the
+    /// identity shown change: the same number means the same rows.
+    pub fn sidebar_revision(&self) -> u64 {
+        self.current_slice().map_or(0, |slice| slice.rows_revision)
+    }
+
+    /// Takes the conversations whose messages were deleted, or whose
+    /// contact or identity went, since the last call, so that the window
+    /// forgets what it kept of them.
+    pub fn take_forgotten(&mut self) -> Vec<UiContactId> {
+        core::mem::take(&mut self.forgotten)
     }
 
     /// How many messages wait to be delivered, over every identity. Those
@@ -1105,7 +1222,9 @@ impl Model {
             return;
         };
         slice.selection = Some(Selection::Conversation(contact));
-        slice.unread.remove(&contact);
+        if slice.unread.remove(&contact).is_some() {
+            slice.unread_changed(contact, next(&mut self.revisions));
+        }
         let thread = slice.threads.entry(contact).or_default();
         if thread.messages.is_empty() && !thread.loading {
             thread.stale = true;
@@ -1198,8 +1317,36 @@ impl Model {
 
     /// Shows all of a collapsed message.
     pub fn expand(&mut self, message: UiMessageId) {
+        let revision = next(&mut self.revisions);
         if let Some(thread) = self.thread_mut(message.contact()) {
-            thread.expanded.insert(message);
+            if thread.expanded.insert(message) {
+                // Made again, whole, when it is drawn next.
+                thread.prepared.remove(&message);
+                thread.revision = revision;
+            }
+        }
+    }
+
+    /// Makes the texts of the messages of `contact` at `range` (positions
+    /// in [`Thread::messages`]) ready to draw, those not made yet. Each is
+    /// made once and kept until its message leaves the window or is
+    /// expanded ([`Thread::prepared`]).
+    pub fn prepare_messages(&mut self, contact: UiContactId, range: Range<usize>) {
+        let Some(thread) = self.thread_mut(contact) else {
+            return;
+        };
+        let Thread {
+            messages,
+            expanded,
+            prepared,
+            ..
+        } = thread;
+        let end = range.end.min(messages.len());
+        let start = range.start.min(end);
+        for message in messages.get(start..end).unwrap_or_default() {
+            prepared
+                .entry(message.id)
+                .or_insert_with(|| present::prepare(&message.text, expanded.contains(&message.id)));
         }
     }
 
@@ -1566,6 +1713,9 @@ impl Model {
                 .then_with(|| a.id.cmp(&b.id))
         });
         let present: BTreeSet<UiIdentityId> = list.iter().map(|view| view.id).collect();
+        for (_, slice) in self.slices.iter().filter(|(id, _)| !present.contains(id)) {
+            self.forgotten.extend(slice.threads.keys().copied());
+        }
         // An identity that is gone takes everything of it with it.
         self.slices.retain(|id, _| present.contains(id));
         if self
@@ -1637,6 +1787,23 @@ impl Model {
             .filter(|view| view.active && view.queued > 0)
             .map(|view| view.contact)
             .collect();
+        // A contact removed or blocked, and a conversation that is gone,
+        // leave nothing behind in the window either.
+        let current: BTreeSet<UiContactId> = contacts.iter().map(|view| view.id).collect();
+        let gone: BTreeSet<UiContactId> = slice
+            .contacts
+            .iter()
+            .map(|view| view.id)
+            .filter(|contact| !current.contains(contact))
+            .chain(
+                slice
+                    .threads
+                    .keys()
+                    .copied()
+                    .filter(|contact| !known.contains(contact)),
+            )
+            .collect();
+        self.forgotten.extend(gone);
         slice.contacts = contacts;
         slice.conversations = conversations;
         slice.requests = requests;
@@ -1651,6 +1818,7 @@ impl Model {
         slice.unread.retain(|contact, _| known.contains(contact));
         slice.deferrals.retain(|contact, _| known.contains(contact));
         slice.retries.retain(|contact, _| queued.contains(contact));
+        slice.make_rows(next(&mut self.revisions));
         if let Some(Selection::Conversation(contact)) = slice.selection {
             if !known.contains(&contact) {
                 slice.selection = None;
@@ -1669,6 +1837,7 @@ impl Model {
     }
 
     fn set_window(&mut self, contact: UiContactId, messages: Vec<MessageView>, complete: bool) {
+        let revision = next(&mut self.revisions);
         let Some(thread) = self.thread_mut(contact) else {
             return;
         };
@@ -1677,16 +1846,34 @@ impl Model {
             .filter(|message| message.id.contact() == contact)
             .collect();
         messages.sort_by_key(|message| message.id.sequence());
+        // A text prepared before is kept only for a message that reads the
+        // same.
+        let same: BTreeSet<UiMessageId> = {
+            let before: BTreeMap<UiMessageId, &str> = thread
+                .messages
+                .iter()
+                .map(|message| (message.id, message.text.as_str()))
+                .collect();
+            messages
+                .iter()
+                .filter(|message| before.get(&message.id) == Some(&message.text.as_str()))
+                .map(|message| message.id)
+                .collect()
+        };
+        thread.prepared.retain(|message, _| same.contains(message));
         thread.messages = messages;
         thread.complete = complete;
         let present: BTreeSet<UiMessageId> = thread.messages.iter().map(|m| m.id).collect();
         thread.expanded.retain(|message| present.contains(message));
+        thread.revision = revision;
     }
 
     fn prepend(&mut self, contact: UiContactId, messages: Vec<MessageView>, complete: bool) {
+        let revision = next(&mut self.revisions);
         let Some(thread) = self.thread_mut(contact) else {
             return;
         };
+        thread.revision = revision;
         let oldest = thread.messages.first().map(|message| message.id.sequence());
         let mut older: Vec<MessageView> = messages
             .into_iter()
@@ -1834,8 +2021,11 @@ impl Model {
                 {
                     thread.messages.clear();
                     thread.expanded.clear();
+                    thread.prepared.clear();
+                    thread.revision = next(&mut self.revisions);
                     thread.stale = true;
                 }
+                self.forgotten.push(contact);
                 message = Some("Messages deleted.");
             }
             (Dialog::AcceptRequest { request, .. }, Outcome::RequestAccepted(contact))
@@ -1889,6 +2079,7 @@ impl Model {
                     if !shown {
                         let count = slice.unread.entry(contact).or_insert(0);
                         *count = count.saturating_add(1);
+                        slice.unread_changed(contact, next(&mut self.revisions));
                     }
                 }
                 self.mark_thread(contact);

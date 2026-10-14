@@ -800,24 +800,96 @@ pub fn long_conversation(count: usize) -> App {
          schedule first, then the budget, and the supplier last.",
         "Can you send me the address again? I lost the message.",
     ];
+    conversation_of(1, count, |index| {
+        index
+            .checked_rem(TEXTS.len())
+            .and_then(|slot| TEXTS.get(slot))
+            .copied()
+            .unwrap_or_default()
+            .to_owned()
+    })
+}
+
+/// The conversation with Alice open and holding `count` messages of about
+/// `bytes` bytes each, every one different: long histories of long
+/// messages.
+pub fn long_conversation_of(count: usize, bytes: usize) -> App {
+    conversation_window(1, count, bytes)
+}
+
+/// The conversation with Alice open and holding `count` messages of about
+/// `bytes` bytes each, numbered from `first`, with older ones still to
+/// read. Message `n` starts with "Message n." ([`long_text`]).
+pub fn conversation_window(first: u64, count: usize, bytes: usize) -> App {
+    conversation_of(first, count, |index| {
+        let number = u64::try_from(index)
+            .unwrap_or(u64::MAX)
+            .saturating_add(first);
+        long_text(usize::try_from(number).unwrap_or(usize::MAX), bytes)
+    })
+}
+
+/// A text of about `bytes` bytes for message `index`, starting with
+/// "Message index.": sentences, with a new paragraph about every 600
+/// bytes, so that a message of the largest size is drawn whole.
+pub fn long_text(index: usize, bytes: usize) -> String {
+    const SENTENCES: [&str; 4] = [
+        "We went through the list again this morning and agreed on the order.",
+        "The schedule comes first, then the budget, and the supplier last.",
+        "Can you send me the address again? I lost the message with the map.",
+        "I will be there at seven, with the papers and the keys to the hut.",
+    ];
+    let mut text = format!("Message {index}.");
+    let mut paragraph = text.len();
+    let mut turn = index;
+    while text.len() < bytes {
+        let sentence = turn
+            .checked_rem(SENTENCES.len())
+            .and_then(|slot| SENTENCES.get(slot))
+            .copied()
+            .unwrap_or_default();
+        if paragraph > 600 {
+            text.push_str("\n\n");
+            paragraph = 0;
+        } else {
+            text.push(' ');
+        }
+        text.push_str(sentence);
+        paragraph = paragraph.saturating_add(sentence.len());
+        turn = turn.saturating_add(1);
+    }
+    let mut end = bytes.min(text.len());
+    while !text.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    text.truncate(end);
+    text
+}
+
+/// The status of message `index` of a long conversation: received,
+/// delivered and queued in turn.
+fn status_of(index: usize) -> Status {
+    match index.checked_rem(3).unwrap_or(0) {
+        0 => Status::Received,
+        1 => Status::Delivered,
+        _ => Status::Queued,
+    }
+}
+
+/// The conversation with Alice open and holding `count` messages three
+/// minutes apart, numbered from `first`, message `index` of them reading
+/// `text(index)`.
+fn conversation_of(first: u64, count: usize, text: impl Fn(usize) -> String) -> App {
     let alice = contact(1, 10);
     let messages: Vec<MessageView> = (0..count)
         .map(|index| {
-            let sequence = u64::try_from(index).unwrap_or(u64::MAX).saturating_add(1);
-            let status = match index.checked_rem(3).unwrap_or(0) {
-                0 => Status::Received,
-                1 => Status::Delivered,
-                _ => Status::Queued,
-            };
+            let sequence = u64::try_from(index)
+                .unwrap_or(u64::MAX)
+                .saturating_add(first);
             let ago = u64::try_from(count.saturating_sub(index))
                 .unwrap_or(0)
                 .saturating_mul(3);
-            let text = index
-                .checked_rem(TEXTS.len())
-                .and_then(|slot| TEXTS.get(slot))
-                .copied()
-                .unwrap_or_default();
-            message(alice, sequence, status, ago, text)
+            message(alice, sequence, status_of(index), ago, &text(index))
         })
         .collect();
     let mut builder = Builder::new().started(true).ready();
@@ -832,5 +904,62 @@ pub fn long_conversation(count: usize) -> App {
         }
         _ => None,
     });
+    builder.app()
+}
+
+/// The personal identity with `count` contacts, each with a conversation
+/// whose latest message is about `bytes` bytes, and none of them open: a
+/// long sidebar of long previews.
+pub fn many_contacts(count: usize, bytes: usize) -> App {
+    let personal = identity(1);
+    let mut contacts = Vec::new();
+    let mut conversations = Vec::new();
+    for index in 0..count {
+        let number = u64::try_from(index).unwrap_or(u64::MAX);
+        let mut record = [0x80; 16];
+        for (slot, byte) in record.iter_mut().zip(number.to_be_bytes()) {
+            *slot = byte;
+        }
+        let id = UiContactId::new(personal, record);
+        let fingerprint = format!("{:04X} 72PQ 9XZT M4LB D8EV 61RC", index & 0xFFFF);
+        let name = format!("Person {index:04}");
+        contacts.push(contact_view(id, Some(&name), &fingerprint, true));
+        conversations.push(ConversationView {
+            contact: id,
+            fingerprint,
+            active: true,
+            messages: 1,
+            queued: 0,
+            latest: Some(message(
+                id,
+                1,
+                status_of(index),
+                number.saturating_mul(7),
+                &long_text(index, bytes),
+            )),
+        });
+    }
+    let snapshot = IdentitySnapshot {
+        identity: personal,
+        contacts,
+        conversations,
+        requests: Vec::new(),
+        invitations: Vec::new(),
+        blocked: Vec::new(),
+        service: Service::Available,
+        request_mode: RequestMode::Invitation,
+    };
+    let mut builder = Builder::new().started(true);
+    builder
+        .model
+        .unlock(Zeroizing::new("correct horse".to_owned()));
+    let standard = Builder::new();
+    builder.answer(|command| match command {
+        Command::LoadIdentity(id) if *id == personal => {
+            Some(Outcome::Identity(Box::new(snapshot.clone())))
+        }
+        other => standard.respond(other),
+    });
+    builder.model.select_identity(personal);
     builder.app()
 }

@@ -19,7 +19,7 @@ use core::time::Duration;
 
 use egui::{Context, Event, Pos2, RawInput, Rect, Vec2};
 use monolith_ui::App;
-use monolith_ui::fixtures::{fixture, long_conversation};
+use monolith_ui::fixtures::{fixture, long_conversation, long_conversation_of, many_contacts};
 use monolith_ui_kit::{Theme, fonts, theme};
 use monolith_ui_model::{RuntimeEvent, UiContactId, UiIdentityId, UiMessageId, Update};
 
@@ -105,6 +105,41 @@ fn idle(what: &str, app: App) {
     report(what, times, vertices);
 }
 
+/// The frame that opens the conversation of `app` after another was shown:
+/// its messages are taken and the newest laid out for the first time.
+fn opening(what: &str, app: App) {
+    let mut window = Window::new(app);
+    let alice = UiContactId::new(UiIdentityId::from_bytes([1; 16]), [10; 16]);
+    let bob = UiContactId::new(UiIdentityId::from_bytes([1; 16]), [11; 16]);
+    window.app.model.select_conversation(bob);
+    window.settle();
+    window.app.model.select_conversation(alice);
+    let (time, vertices) = window.frame(Vec::new());
+    report(what, vec![time], vertices);
+}
+
+/// The frames of scrolling up through `app` with the pointer at `at`, a
+/// wheel turn a frame.
+fn scrolling(what: &str, app: App, at: Pos2) {
+    let mut window = Window::new(app);
+    window.settle();
+    let mut times = Vec::new();
+    let mut vertices = 0;
+    for _ in 0..FRAMES {
+        let (time, count) = window.frame(vec![
+            Event::PointerMoved(at),
+            Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, 120.0),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]);
+        times.push(time);
+        vertices = count;
+    }
+    report(what, times, vertices);
+}
+
 fn main() {
     // The first frame of a window builds the font atlas.
     let started = Instant::now();
@@ -132,26 +167,45 @@ fn main() {
             long_conversation(count),
         );
     }
-
-    // Scrolling through the longest window, a wheel turn a frame.
-    let mut window = Window::new(long_conversation(2_000));
-    window.settle();
-    let middle = Pos2::new(800.0, 400.0);
-    let mut times = Vec::new();
-    let mut vertices = 0;
-    for _ in 0..FRAMES {
-        let (time, count) = window.frame(vec![
-            Event::PointerMoved(middle),
-            Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: Vec2::new(0.0, 120.0),
-                modifiers: egui::Modifiers::NONE,
-            },
-        ]);
-        times.push(time);
-        vertices = count;
+    // The longest window of long messages: 1.5 KB, and the largest a
+    // message can be.
+    for (bytes, label) in [(1_536, "1.5 KB"), (16_384, "16 KB")] {
+        idle(
+            &format!("conversation of 2000 messages of {label}"),
+            long_conversation_of(2_000, bytes),
+        );
     }
-    report("scrolling 2000 messages", times, vertices);
+    // Many contacts, each with a long latest message.
+    idle(
+        "sidebar of 500 contacts, 16 KB previews",
+        many_contacts(500, 16_384),
+    );
+
+    // Opening the longest windows.
+    opening("opening 2000 messages", long_conversation(2_000));
+    for (bytes, label) in [(1_536, "1.5 KB"), (16_384, "16 KB")] {
+        opening(
+            &format!("opening 2000 messages of {label}"),
+            long_conversation_of(2_000, bytes),
+        );
+    }
+
+    // Scrolling through the longest windows and the long sidebar, a wheel
+    // turn a frame.
+    let middle = Pos2::new(800.0, 400.0);
+    scrolling("scrolling 2000 messages", long_conversation(2_000), middle);
+    for (bytes, label) in [(1_536, "1.5 KB"), (16_384, "16 KB")] {
+        scrolling(
+            &format!("scrolling 2000 messages of {label}"),
+            long_conversation_of(2_000, bytes),
+            middle,
+        );
+    }
+    scrolling(
+        "scrolling the sidebar of 500 contacts",
+        many_contacts(500, 16_384),
+        Pos2::new(150.0, 400.0),
+    );
 
     // Switching between the two identities, a switch a frame.
     let mut window = Window::new(long_conversation(500));

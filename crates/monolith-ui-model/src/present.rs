@@ -21,6 +21,15 @@ pub const MAX_MESSAGE_BYTES: usize = 16_384;
 /// (`MAX_DISPLAY_NAME_LEN`).
 pub const MAX_NAME_BYTES: usize = 64;
 
+/// The longest preview of the newest message of a conversation, in
+/// characters; the list cuts it to its width.
+pub const PREVIEW_CHARS: usize = 120;
+
+/// A preview reads at most this many bytes of a text for each character
+/// it can show: room for any script, marks and runs of white space, and
+/// never the whole of a long message.
+pub const PREVIEW_BYTES_PER_CHAR: usize = 16;
+
 const ELLIPSIS: char = '\u{2026}';
 const REPLACEMENT: char = '\u{FFFD}';
 
@@ -36,6 +45,12 @@ pub fn contact_name(contact: &ContactView) -> String {
         Some(name) if !name.is_empty() => name.clone(),
         _ => fallback_contact_name(&contact.fingerprint),
     }
+}
+
+/// Whether the user gave `contact` a name; without one it is named by
+/// its fingerprint ([`contact_name`]).
+pub fn named(contact: &ContactView) -> bool {
+    contact.name.as_ref().is_some_and(|name| !name.is_empty())
 }
 
 /// The name of a contact that has no name, from its fingerprint.
@@ -131,9 +146,20 @@ pub fn prepare(text: &str, expanded: bool) -> Prepared {
 
 /// One line of preview of `text`, at most `max_chars` characters: lines
 /// joined by spaces, runs of white space made one, and an ellipsis where
-/// it is cut.
+/// it is cut. Only the start of the text is read
+/// ([`PREVIEW_BYTES_PER_CHAR`] for each character), and a text longer
+/// than that counts as cut.
 pub fn preview(text: &str, max_chars: usize) -> String {
-    let prepared = prepare(text, false);
+    let mut end = text.len().min(
+        max_chars
+            .saturating_add(1)
+            .saturating_mul(PREVIEW_BYTES_PER_CHAR),
+    );
+    while !text.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    let unread = end < text.len();
+    let prepared = prepare(text.get(..end).unwrap_or_default(), false);
     let mut out = String::new();
     let mut count = 0_usize;
     let mut space = false;
@@ -159,9 +185,10 @@ pub fn preview(text: &str, max_chars: usize) -> String {
         out.push(character);
         count = count.saturating_add(1);
     }
-    // Lines past the limit were left out by `prepare`: that is a cut too.
-    // White space at the end of the text is not.
-    if prepared.collapsed {
+    // Lines past the limit were left out by `prepare`, or the rest of the
+    // text was not read: that is a cut too. White space at the end of the
+    // text is not.
+    if prepared.collapsed || unread {
         out.push(ELLIPSIS);
     }
     out
@@ -424,6 +451,24 @@ mod tests {
         // Lines left out by the line limit are.
         let text = vec!["a"; MAX_RENDERED_MESSAGE_LINES + 5].join("\n");
         assert!(preview(&text, 1_000).ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn a_preview_reads_only_the_start_of_a_long_message() {
+        // A direction mark far into a message of 64 KB is never read: the
+        // preview is the start, cut where the reading stopped.
+        let late = format!("Hello{}\u{202E}olleh", " ".repeat(65_536));
+        assert_eq!(preview(&late, PREVIEW_CHARS), "Hello\u{2026}");
+        // Within what is read, it is shown as its mark.
+        let early = format!("Hello \u{202E}olleh{}", "a".repeat(65_536));
+        let shown = preview(&early, PREVIEW_CHARS);
+        assert!(shown.starts_with("Hello <U+202E>olleh"), "{shown}");
+        assert!(shown.ends_with('\u{2026}'));
+        assert_eq!(shown.chars().count(), PREVIEW_CHARS + 1);
+        // What is read is a bounded start, cut at a character.
+        let wide = "\u{20AC}".repeat(32_768);
+        let shown = preview(&wide, 3);
+        assert_eq!(shown, "\u{20AC}\u{20AC}\u{20AC}\u{2026}");
     }
 
     #[test]

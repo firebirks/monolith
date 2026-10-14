@@ -282,6 +282,10 @@ What is missing, and not claimed:
   Orca). AccessKit reports what egui knows; text drawn by hand (message
   bubbles, the QR code) has names, but the order a reader follows has not
   been checked.
+- A conversation lays out only the messages in view and half a view
+  around it (section 12), so only those are in the AccessKit tree; a
+  screen reader reaches the others by scrolling. The keyboard does not
+  reach the "Show more" of a message out of view either.
 - Right-to-left scripts are drawn in logical order, unshaped, and scripts
   that need shaping (Arabic, Indic) are drawn without it (`adr/0010`).
 - The text size does not follow the system's setting; the zoom is not kept.
@@ -338,14 +342,27 @@ Measured on the development machine (Windows 11, release build):
 - start: about 0.2 s of CPU to the first frame;
 - frames (layout and tessellation, `cargo run --release -p monolith-ui
   --features fixtures --example measure`): 0.1 ms for the first-start
-  screen, 0.3 ms for a conversation of 8 messages, 0.5 ms with 100, 1.9 ms
-  with 500 and 7 ms with 2000 (the most a window holds); scrolling 2000 at
-  7.6 ms a frame; switching identity 2.7 ms; a burst of 1000 events is
-  folded into 2 reads in 0.03 ms.
+  screen, 0.2 ms for a conversation of 8 messages, and 0.2 ms with 2000
+  (the most a window holds) whether they are of 42 characters, of 1.5 KB
+  or of 16 KB (the largest a message can be); the frame that opens such a
+  conversation 0.7 to 1.3 ms; scrolling through them 0.2 ms a frame, at
+  most 1.3 ms when a message of 16 KB comes into view; a sidebar of 500
+  contacts whose newest messages are of 16 KB 0.4 ms, 0.5 ms scrolling;
+  switching identity 0.3 ms; a burst of 1000 events is folded into 2 reads
+  in 0.03 ms.
 
-A conversation lays out all the messages of its window each frame it is
-drawn; frames happen only on input or events, and the window holds at most
-2000 messages, so this stays bounded.
+A conversation lays out and paints only the messages in view and half a
+view above and below it. The height of a message at the width it is shown
+in is measured the first time it is laid out and kept; until then it is
+estimated from the length of its text, and the space of the messages out
+of view is that of their heights. The view keeps the message at its top
+where it is when heights above it change (older messages read, a message
+measured), and stays at the bottom as messages arrive while it is there.
+The text of a message is made ready to draw (`present::prepare`) once, the
+first time it is drawn, and kept with the message in the UI model. The rows
+of the sidebar are made when what they show changes (a read of the
+identity, an unread count), not each frame, and a preview reads only the
+start of the newest message.
 
 ## 13. Limitations
 

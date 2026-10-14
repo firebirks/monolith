@@ -4,7 +4,8 @@
 //! `RESOURCE_LIMITS.md` section 10; no invisible or direction-changing
 //! character reaches the output as itself, only as its `<U+XXXX>` mark;
 //! the text of an unexpanded message is a prefix of the expanded one;
-//! a preview is one line cut at the character limit; a draft is sendable
+//! a preview is one line of the start of the text, cut at the character
+//! limit; a draft is sendable
 //! exactly when it holds a character that is not white space and is not
 //! longer than a message may be.
 //!
@@ -26,8 +27,9 @@ use libfuzzer_sys::fuzz_target;
 use monolith_ui_model::data::{ContactView, IdentityView};
 use monolith_ui_model::ids::{UiContactId, UiIdentityId};
 use monolith_ui_model::present::{
-    MAX_MESSAGE_BYTES, MAX_RENDERED_MESSAGE_LINES, contact_name, ended_contact_name,
-    fallback_contact_name, first_group, identity_name, prepare, preview, sendable,
+    MAX_MESSAGE_BYTES, MAX_RENDERED_MESSAGE_LINES, PREVIEW_BYTES_PER_CHAR, contact_name,
+    ended_contact_name, fallback_contact_name, first_group, identity_name, prepare, preview,
+    sendable,
 };
 
 /// Drawn as nothing or changing the direction of text: shown as a mark.
@@ -177,9 +179,20 @@ fn check_preview(text: &str, limit: usize) {
     assert!(!shown.starts_with(' '));
     assert!(shown.chars().all(|c| c == ' ' || !white_space(c)));
 
-    // What the preview shows is the words of the prepared text, joined
+    // A preview reads only the start of the text, a fixed number of bytes
+    // for each character it can show, cut at a character; a text longer
+    // than that counts as cut.
+    let mut end = text
+        .len()
+        .min((limit + 1).saturating_mul(PREVIEW_BYTES_PER_CHAR));
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let unread = end < text.len();
+
+    // What the preview shows is the words of the prepared start, joined
     // by single spaces, up to the limit.
-    let prepared = prepare(text, false);
+    let prepared = prepare(&text[..end], false);
     let words: Vec<&str> = prepared
         .text
         .split(white_space)
@@ -188,8 +201,13 @@ fn check_preview(text: &str, limit: usize) {
     let full = words.join(" ");
     let full_len = full.chars().count();
     if full_len <= limit && !prepared.collapsed {
-        // Nothing was cut: the line as it is, with no ellipsis added.
-        assert_eq!(shown, full);
+        // Nothing was cut within what was read: the line as it is, with an
+        // ellipsis only if the text goes on.
+        if unread {
+            assert_eq!(shown, format!("{full}\u{2026}"));
+        } else {
+            assert_eq!(shown, full);
+        }
         return;
     }
     // The text before the ellipsis is a prefix of the full line, within the

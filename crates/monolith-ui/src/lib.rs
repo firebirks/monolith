@@ -15,6 +15,7 @@ mod conversation;
 mod dialogs;
 #[cfg(feature = "fixtures")]
 pub mod fixtures;
+mod message_list;
 mod onboarding;
 mod requests;
 mod settings;

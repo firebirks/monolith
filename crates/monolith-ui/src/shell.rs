@@ -14,6 +14,9 @@ use crate::{conversation, dialogs, onboarding, requests, settings, sidebar};
 /// Draws the window for this frame.
 pub fn show(ctx: &Context, app: &mut App) {
     app.pump_notices();
+    for contact in app.model.take_forgotten() {
+        conversation::forget(ctx, contact);
+    }
     match app.model.phase() {
         Phase::Ready => main(ctx, app),
         Phase::Starting | Phase::Welcome | Phase::Locked | Phase::Opening | Phase::Stopped => {

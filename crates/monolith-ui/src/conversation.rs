@@ -1,27 +1,31 @@
 //! A conversation: its header, its messages and the composer.
 
 use core::time::Duration;
+use std::sync::Arc;
 
-use egui::{Align, Layout, Margin, Sense, TopBottomPanel, Ui, UiBuilder, Vec2};
+use egui::{Align, Layout, Margin, Popup, Sense, TopBottomPanel, Ui, UiBuilder, Vec2};
 use monolith_ui_kit::avatar::{Avatar, AvatarSize};
 use monolith_ui_kit::banner::{Banner, InlineError, Tone};
 use monolith_ui_kit::bubble::{DaySeparator, Direction, MessageBubble};
 use monolith_ui_kit::button::{Button, Size};
-use monolith_ui_kit::chrome::{self, TopBar, scroll_area};
-use monolith_ui_kit::composer::Composer;
+use monolith_ui_kit::chrome::{self, TopBar};
+use monolith_ui_kit::composer::{self, Composer};
 use monolith_ui_kit::empty_state::EmptyState;
 use monolith_ui_kit::icon_button::IconButton;
 use monolith_ui_kit::menu::{MenuItem, context_menu, menu_below, menu_separator};
 use monolith_ui_kit::message_status::Status as MarkStatus;
 use monolith_ui_kit::text::Text;
 use monolith_ui_kit::tor_status::TorStatus;
-use monolith_ui_kit::{icons, theme};
+use monolith_ui_kit::{Theme, icons, theme};
+use monolith_ui_model::present::Calendar;
 use monolith_ui_model::{
-    Deferral, Dialog, Failure, Status, TorIndicator, UiContactId, UiMessageId, present,
+    Deferral, Dialog, Failure, MessageView, Model, Status, Thread, TorIndicator, UiContactId,
+    UiMessageId, present,
 };
 
 use crate::app::App;
 use crate::common;
+use crate::message_list::{self, Key};
 
 /// Messages of one sender within this many seconds form a group.
 const GROUP_SECONDS: u64 = 300;
@@ -35,12 +39,8 @@ enum MenuAction {
     Delete,
 }
 
-/// What is remembered of the scroll position of a thread between frames:
-/// the first message shown, the height of the content, the offset.
-type Remembered = (Option<UiMessageId>, f32, f32);
-
 /// Runs `add` in a column narrower than `ui` by `pad` on both sides.
-fn inset<R>(ui: &mut Ui, pad: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+pub(crate) fn inset<R>(ui: &mut Ui, pad: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     let mut rect = ui.available_rect_before_wrap();
     rect.min.x += pad;
     rect.max.x = (rect.max.x - pad).max(rect.min.x);
@@ -120,6 +120,7 @@ fn header(ui: &mut Ui, app: &mut App, contact: UiContactId, narrow: bool) {
     let accepted = view.is_some_and(|view| view.accepted);
     let verified = view.is_some_and(|view| view.verified);
     let invited = view.is_some_and(|view| view.invitation);
+    let anonymous = !view.is_some_and(present::named);
     let line = status_line(ended, accepted, verified, invited);
     let (tor, tor_label) = common::tor_state(&app.model);
     let mut back = false;
@@ -133,7 +134,11 @@ fn header(ui: &mut Ui, app: &mut App, contact: UiContactId, narrow: bool) {
                     .add(IconButton::new(icons::CHEVRON_LEFT, "Back").id_salt(("back", contact)))
                     .clicked();
             }
-            ui.add(Avatar::new(&name, common::seed(&fingerprint)).size(AvatarSize::Medium));
+            ui.add(
+                Avatar::new(&name, common::seed(&fingerprint))
+                    .anonymous(anonymous)
+                    .size(AvatarSize::Medium),
+            );
             ui.add_space(theme.space.xs);
             let lines = theme.text.body_strong.line_height
                 + if line.is_some() {
@@ -405,23 +410,182 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
 }
 
 /// Whether message `b` continues the group of `a`.
-fn same_group(
-    app: &App,
-    a: &monolith_ui_model::MessageView,
-    b: &monolith_ui_model::MessageView,
-) -> bool {
+fn same_group(calendar: &dyn Calendar, a: &MessageView, b: &MessageView) -> bool {
     a.status.outgoing() == b.status.outgoing()
         && b.time.saturating_sub(a.time) <= GROUP_SECONDS
-        && present::same_day(&*app.calendar, a.time, b.time)
+        && present::same_day(calendar, a.time, b.time)
 }
 
-/// The list of messages, with "Load earlier messages" above it.
+/// The name of the scroll area of the messages of `contact`.
+fn scroll_id(contact: UiContactId) -> egui::Id {
+    egui::Id::new(("thread-scroll", contact))
+}
+
+/// The messages of one conversation, as the list draws them, and what the
+/// user asked for while they were drawn.
+struct Messages<'a> {
+    model: &'a mut Model,
+    calendar: &'a dyn Calendar,
+    theme: Arc<Theme>,
+    contact: UiContactId,
+    /// The contact has not accepted yet.
+    waiting: bool,
+    /// The card held for the contact carries an invitation.
+    invited: bool,
+    /// The name of the contact.
+    name: String,
+    /// "Load earlier messages" was chosen.
+    load: bool,
+    /// "Show more" was chosen on this message.
+    expand: Option<UiMessageId>,
+}
+
+/// About how high a message of `bytes` bytes is at `width`, its spacing
+/// included, before it is laid out: rows of characters half the font size
+/// wide, in a bubble no wider than the theme's.
+fn estimate(theme: &Theme, width: f32, bytes: usize, new_day: bool, first: bool) -> f32 {
+    let bubble = theme.size.bubble_max.min(width) - theme.space.md * 2.0;
+    let per_row = (bubble * 2.0 / theme.text.body.size).max(1.0);
+    let rows = (bytes as f32 / per_row).ceil().max(1.0);
+    let mut height = rows * theme.text.body.line_height + theme.space.lg + theme.space.sm;
+    height += if first {
+        theme.space.md
+    } else {
+        theme.space.xxs
+    };
+    if new_day {
+        height += theme.space.md + theme.space.xl + theme.space.lg * 2.0 + theme.space.sm;
+    }
+    height
+}
+
+impl message_list::Content for Messages<'_> {
+    fn revision(&self) -> u64 {
+        self.model.thread(self.contact).map_or(0, Thread::revision)
+    }
+
+    fn entries(&self, width: f32) -> Vec<(Key, f32)> {
+        let Some(thread) = self.model.thread(self.contact) else {
+            return Vec::new();
+        };
+        let mut previous: Option<&MessageView> = None;
+        let mut entries = Vec::with_capacity(thread.messages.len());
+        for message in &thread.messages {
+            let new_day = previous
+                .is_none_or(|before| !present::same_day(self.calendar, before.time, message.time));
+            let first_in_group =
+                previous.is_none_or(|before| !same_group(self.calendar, before, message));
+            let key = Key {
+                message: message.id,
+                expanded: thread.expanded.contains(&message.id),
+                new_day,
+                first_in_group,
+            };
+            let height = estimate(
+                &self.theme,
+                width,
+                message.text.len(),
+                new_day,
+                first_in_group,
+            );
+            entries.push((key, height));
+            previous = Some(message);
+        }
+        entries
+    }
+
+    fn header(&mut self, ui: &mut Ui) {
+        let theme = theme::current(ui.ctx());
+        let Some(thread) = self.model.thread(self.contact) else {
+            return;
+        };
+        if !thread.complete && !thread.messages.is_empty() {
+            ui.vertical_centered(|ui| {
+                if ui
+                    .add(
+                        Button::ghost("Load earlier messages")
+                            .size(Size::Small)
+                            .busy(thread.loading),
+                    )
+                    .clicked()
+                {
+                    self.load = true;
+                }
+            });
+            ui.add_space(theme.space.sm);
+        }
+        if thread.messages.is_empty() && !thread.loading {
+            empty_note(ui, self.waiting, self.invited, &self.name);
+        }
+    }
+
+    fn message(&mut self, ui: &mut Ui, index: usize) {
+        let theme = theme::current(ui.ctx());
+        // Its text is made ready once, the first time it is drawn.
+        self.model
+            .prepare_messages(self.contact, index..index.saturating_add(1));
+        let Some(thread) = self.model.thread(self.contact) else {
+            return;
+        };
+        let messages = &thread.messages;
+        let Some(message) = messages.get(index) else {
+            return;
+        };
+        let Some(prepared) = thread.prepared(message.id) else {
+            return;
+        };
+        let previous = index.checked_sub(1).and_then(|before| messages.get(before));
+        let next = messages.get(index.saturating_add(1));
+        let calendar = self.calendar;
+        let new_day =
+            previous.is_none_or(|before| !present::same_day(calendar, before.time, message.time));
+        if new_day {
+            ui.add_space(theme.space.md);
+            let heading = present::day_heading(calendar, message.time);
+            ui.add(DaySeparator::new(&heading));
+        }
+        let first_in_group = previous.is_none_or(|before| !same_group(calendar, before, message));
+        let last_in_group = next.is_none_or(|after| !same_group(calendar, message, after));
+        let direction = if message.status.outgoing() {
+            Direction::Outgoing
+        } else {
+            Direction::Incoming
+        };
+        let clock = present::clock_time(calendar, message.time);
+        let mut bubble = MessageBubble::new(message.id, direction, &prepared.text, &clock)
+            .first_in_group(first_in_group)
+            .last_in_group(last_in_group);
+        if let Some((mark, label)) = mark(message.status) {
+            bubble = bubble.status(mark, label);
+        }
+        if prepared.collapsed {
+            bubble = bubble.collapsed("Show more");
+        }
+        let shown = bubble.show(ui);
+        if shown.show_more {
+            self.expand = Some(message.id);
+        }
+        // The menu is built only for the message it opens on.
+        let response = &shown.response;
+        if response.secondary_clicked()
+            || Popup::is_id_open(ui.ctx(), Popup::default_response_id(response))
+        {
+            context_menu(response, |ui| {
+                if ui
+                    .add(MenuItem::new("Copy text").icon(icons::COPY))
+                    .clicked()
+                {
+                    ui.ctx().copy_text(message.text.clone());
+                }
+            });
+        }
+    }
+}
+
+/// The list of messages, with "Load earlier messages" above it. Only the
+/// messages in or near view are laid out (`message_list`).
 fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
     let theme = theme::current(ui.ctx());
-    let ctx = ui.ctx().clone();
-    let scroll_id = egui::Id::new(("thread-scroll", contact));
-    let memory_id = scroll_id.with("remembered");
-    let remembered: Option<Remembered> = ctx.data(|data| data.get_temp(memory_id));
     let name = app.model.contact_name(contact);
     let waiting = app
         .model
@@ -431,119 +595,39 @@ fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
         .model
         .contact(contact)
         .is_some_and(|view| view.invitation);
-    let mut load = false;
-    let mut expand = None;
-    let mut first = None;
-    let mut area = scroll_area(scroll_id).stick_to_bottom(true);
-    if let Some((_, _, offset)) = remembered {
-        area = area.vertical_scroll_offset(offset);
-    }
-    let output = {
-        let app: &App = app;
-        area.show(ui, |ui| {
-            ui.add_space(theme.space.md);
-            let Some(thread) = app.model.thread(contact) else {
-                return;
-            };
-            first = thread.messages.first().map(|message| message.id);
-            inset(ui, pad, |ui| {
-                if !thread.complete && !thread.messages.is_empty() {
-                    ui.vertical_centered(|ui| {
-                        if ui
-                            .add(
-                                Button::ghost("Load earlier messages")
-                                    .size(Size::Small)
-                                    .busy(thread.loading),
-                            )
-                            .clicked()
-                        {
-                            load = true;
-                        }
-                    });
-                    ui.add_space(theme.space.sm);
-                }
-                if thread.messages.is_empty() && !thread.loading {
-                    empty_note(ui, waiting, invited, &name);
-                }
-                let mut previous: Option<&monolith_ui_model::MessageView> = None;
-                let mut iter = thread.messages.iter().peekable();
-                while let Some(message) = iter.next() {
-                    let new_day = previous.is_none_or(|before| {
-                        !present::same_day(&*app.calendar, before.time, message.time)
-                    });
-                    if new_day {
-                        ui.add_space(theme.space.md);
-                        let heading = present::day_heading(&*app.calendar, message.time);
-                        ui.add(DaySeparator::new(&heading));
-                    }
-                    let first_in_group =
-                        previous.is_none_or(|before| !same_group(app, before, message));
-                    let last_in_group = iter
-                        .peek()
-                        .is_none_or(|next| !same_group(app, message, next));
-                    let outgoing = message.status.outgoing();
-                    let direction = if outgoing {
-                        Direction::Outgoing
-                    } else {
-                        Direction::Incoming
-                    };
-                    let expanded = thread.expanded.contains(&message.id);
-                    let prepared = present::prepare(&message.text, expanded);
-                    let clock = present::clock_time(&*app.calendar, message.time);
-                    let mut bubble =
-                        MessageBubble::new(message.id, direction, &prepared.text, &clock)
-                            .first_in_group(first_in_group)
-                            .last_in_group(last_in_group);
-                    if let Some((mark, label)) = mark(message.status) {
-                        bubble = bubble.status(mark, label);
-                    }
-                    if prepared.collapsed {
-                        bubble = bubble.collapsed("Show more");
-                    }
-                    let shown = bubble.show(ui);
-                    if shown.show_more {
-                        expand = Some(message.id);
-                    }
-                    context_menu(&shown.response, |ui| {
-                        if ui
-                            .add(MenuItem::new("Copy text").icon(icons::COPY))
-                            .clicked()
-                        {
-                            ui.ctx().copy_text(message.text.clone());
-                        }
-                    });
-                    previous = Some(message);
-                }
-            });
-            ui.add_space(theme.space.md);
-        })
+    let mut shown = Messages {
+        model: &mut app.model,
+        calendar: &*app.calendar,
+        theme: theme.clone(),
+        contact,
+        waiting,
+        invited,
+        name,
+        load: false,
+        expand: None,
     };
+    message_list::show(ui, scroll_id(contact), pad, theme.space.md, &mut shown);
+    let (load, expand) = (shown.load, shown.expand);
     if let Some(id) = expand {
         app.model.expand(id);
     }
     if load {
         app.model.load_earlier(contact);
     }
-    // Keep the reader where they are when older messages are put above.
-    let mut state = output.state;
-    if let Some((was_first, was_height, was_offset)) = remembered {
-        let older = match (was_first, first) {
-            (Some(before), Some(now)) => now.sequence() < before.sequence(),
-            _ => false,
-        };
-        if older {
-            let was_bottom = was_offset + output.inner_rect.height() >= was_height - 1.0;
-            if !was_bottom {
-                let grown = output.content_size.y - was_height;
-                state.offset.y = was_offset + grown;
-                state.store(&ctx, output.id);
-                ctx.request_discard("older messages were added");
-            }
-        }
-    }
-    ctx.data_mut(|data| {
-        data.insert_temp::<Remembered>(memory_id, (first, output.content_size.y, state.offset.y));
-    });
+}
+
+/// Forgets what the window keeps of the conversation of `contact`: what
+/// egui keeps of its composer and of its list of messages, and the error
+/// of its last send. For a conversation whose messages were deleted, or
+/// whose contact or identity went.
+pub(crate) fn forget(ctx: &egui::Context, contact: UiContactId) {
+    let mut none = String::new();
+    composer::forget(
+        ctx,
+        Composer::new(("composer", contact), &mut none).edit_id(),
+    );
+    message_list::forget(ctx, scroll_id(contact));
+    ctx.data_mut(|data| data.remove::<Failure>(egui::Id::new(("send-error", contact))));
 }
 
 /// The note of a conversation without messages.
@@ -716,11 +800,12 @@ pub(crate) fn show_nothing_selected(ui: &mut Ui, app: &mut App) {
     }
 }
 
-/// The mark of a message: exactly the status the runtime gave it. A
-/// received message has none.
+/// The mark of a message, and its words for a screen reader and the
+/// tooltip: exactly the status the runtime gave it. A received message has
+/// none.
 fn mark(status: Status) -> Option<(MarkStatus, &'static str)> {
     match status {
-        Status::Queued => Some((MarkStatus::Queued, "Queued")),
+        Status::Queued => Some((MarkStatus::Queued, "Queued: not delivered yet")),
         Status::Delivered => Some((MarkStatus::Delivered, "Delivered")),
         Status::Received => None,
     }
@@ -734,7 +819,7 @@ mod tests {
     fn a_message_is_marked_with_the_status_the_runtime_gave() {
         assert!(matches!(
             mark(Status::Queued),
-            Some((MarkStatus::Queued, "Queued"))
+            Some((MarkStatus::Queued, "Queued: not delivered yet"))
         ));
         assert!(matches!(
             mark(Status::Delivered),

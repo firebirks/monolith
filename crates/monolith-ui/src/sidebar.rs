@@ -23,9 +23,6 @@ use monolith_ui_model::{Dialog, RowState, Selection, SidebarRow, Slice, UiIdenti
 use crate::app::{App, SettingsPage, View};
 use crate::common;
 
-/// The longest preview that is laid out; the row cuts it to its width.
-const PREVIEW_CHARS: usize = 120;
-
 /// The key of the identity switcher.
 const SWITCHER: &str = "sidebar-identity";
 
@@ -325,20 +322,18 @@ fn requests_entry(ui: &mut Ui, app: &mut App, narrow: bool) {
     }
 }
 
-/// What the preview of a row says.
-fn preview_of(row: &SidebarRow) -> (String, bool) {
+/// What the preview of a row says, and whether it is a message of the
+/// user's.
+fn preview_of(row: &SidebarRow) -> (&str, bool) {
     match &row.latest {
-        Some(message) => (
-            present::preview(&message.text, PREVIEW_CHARS),
-            message.status.outgoing(),
-        ),
+        Some(message) => (&row.preview, message.status.outgoing()),
         None => {
             let text = match row.state {
                 RowState::Ended => "No longer a contact",
                 RowState::Waiting => "Waiting for them to accept",
                 RowState::Contact => "No messages yet",
             };
-            (text.to_owned(), false)
+            (text, false)
         }
     }
 }
@@ -351,12 +346,11 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
     if !slice.loaded {
         return;
     }
-    let all = app.model.sidebar();
-    if all.is_empty() {
+    if app.model.sidebar_rows().is_empty() {
         no_contacts(ui, app, narrow);
         return;
     }
-    let rows = filtered(all, &app.search);
+    let rows = filtered(app.model.sidebar_rows(), &app.search);
     if rows.is_empty() {
         no_match(ui);
         return;
@@ -376,7 +370,7 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
     );
     scroll_area("sidebar-rows").show(&mut list, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
-        for row in &rows {
+        for row in rows {
             let (preview, outgoing) = preview_of(row);
             let time = row
                 .latest
@@ -394,7 +388,8 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
             }
             let mut widget =
                 ConversationRow::new(row.contact, &row.name, common::seed(&row.fingerprint))
-                    .preview(&preview)
+                    .anonymous(!row.named)
+                    .preview(preview)
                     .timestamp(&time)
                     .unread(row.unread)
                     .statuses(&statuses)
@@ -449,19 +444,18 @@ fn no_contacts(ui: &mut Ui, app: &mut App, narrow: bool) {
     }
 }
 
-/// The rows whose name holds the filter, in the order of the list.
-fn filtered(rows: Vec<SidebarRow>, search: &str) -> Vec<SidebarRow> {
+/// The rows whose name holds the filter, in the order of the list. The
+/// rows are the model's; nothing of them is copied.
+fn filtered<'a>(rows: &'a [SidebarRow], search: &str) -> Vec<&'a SidebarRow> {
     let filter = search.trim().to_lowercase();
-    rows.into_iter()
-        .filter(|row| filter.is_empty() || row.name.to_lowercase().contains(&filter))
-        .collect()
+    rows.iter().filter(|row| row.matches(&filter)).collect()
 }
 
 /// Shows the conversation after (`forward`) or before the one shown, among
 /// those the list shows, and gives its composer the focus. With none
 /// shown, the first or the last.
 pub(crate) fn step(app: &mut App, forward: bool) {
-    let rows = filtered(app.model.sidebar(), &app.search);
+    let rows = filtered(app.model.sidebar_rows(), &app.search);
     let current = match app.model.selection() {
         Some(Selection::Conversation(contact)) => {
             rows.iter().position(|row| row.contact == contact)
@@ -474,11 +468,15 @@ pub(crate) fn step(app: &mut App, forward: bool) {
         (None, true) => Some(0),
         (None, false) => rows.len().checked_sub(1),
     };
-    if let Some(row) = target.and_then(|index| rows.get(index)) {
-        app.model.select_conversation(row.contact);
-        app.narrow_conversation = true;
-        app.focus_composer = true;
-    }
+    let Some(contact) = target
+        .and_then(|index| rows.get(index))
+        .map(|row| row.contact)
+    else {
+        return;
+    };
+    app.model.select_conversation(contact);
+    app.narrow_conversation = true;
+    app.focus_composer = true;
 }
 
 /// The filter matches nothing.

@@ -19,7 +19,7 @@ use monolith_ui_model::{
     BlockedView, Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure,
     IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase,
     ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Status, UiBlockedId,
-    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update, present,
 };
 use zeroize::Zeroizing;
 
@@ -1527,4 +1527,322 @@ fn an_unblock_answered_while_another_identity_is_shown_changes_only_its_own() {
     });
     assert_eq!(format!("{model:?}"), before);
     assert_eq!(model.take_notices().len(), 1);
+}
+
+/// Answers the read of identity 1 with Carol (1/10), dan (1/11) and a
+/// contact without a name (1/12), and a conversation with each of the
+/// first two whose newest message is `carol` and `dan`.
+fn conversations_of(model: &mut Model, carol: &str, dan: &str) {
+    answer_all(model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let c = contact(1, 10);
+            let d = contact(1, 11);
+            let mut unnamed = contact_view(contact(1, 12), "", "FFFF 3333");
+            unnamed.name = None;
+            let mut snap = snapshot(
+                identity(1),
+                vec![
+                    contact_view(c, "Carol", "CCCC 1111"),
+                    contact_view(d, "dan", "DDDD 2222"),
+                    unnamed,
+                ],
+            );
+            snap.conversations = vec![
+                ConversationView {
+                    contact: c,
+                    fingerprint: "CCCC 1111".to_owned(),
+                    active: true,
+                    messages: 1,
+                    queued: 0,
+                    latest: Some(message(c, 1, Status::Received, carol)),
+                },
+                ConversationView {
+                    contact: d,
+                    fingerprint: "DDDD 2222".to_owned(),
+                    active: true,
+                    messages: 1,
+                    queued: 0,
+                    latest: Some(message(d, 1, Status::Received, dan)),
+                },
+            ];
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        _ => None,
+    });
+}
+
+#[test]
+fn a_message_is_prepared_once_and_kept_while_it_reads_the_same() {
+    let mut model = ready();
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    let one = UiMessageId::new(c, 1);
+    let two = UiMessageId::new(c, 2);
+    let first = vec![
+        message(c, 1, Status::Received, "hello\u{202E}"),
+        message(c, 2, Status::Queued, "again"),
+    ];
+    messages_of(&mut model, c, first.clone());
+    // Nothing is prepared before it is drawn, and then as `prepare` does.
+    assert!(model.thread(c).unwrap().prepared(one).is_none());
+    model.prepare_messages(c, 0..1);
+    let thread = model.thread(c).unwrap();
+    assert_eq!(
+        thread.prepared(one),
+        Some(&present::prepare("hello\u{202E}", false))
+    );
+    assert!(thread.prepared(two).is_none());
+    // A range past the end prepares what there is.
+    model.prepare_messages(c, 1..10);
+    assert!(model.thread(c).unwrap().prepared(two).is_some());
+    // Read again, with a status changed and a message more: kept.
+    let revision = model.thread(c).unwrap().revision();
+    model.apply(Update::Event(RuntimeEvent::MessageDelivered(two)));
+    let mut again = first;
+    again[1].status = Status::Delivered;
+    again.push(message(c, 3, Status::Received, "new"));
+    messages_of(&mut model, c, again);
+    let thread = model.thread(c).unwrap();
+    assert_ne!(thread.revision(), revision);
+    assert!(thread.prepared(one).is_some());
+    assert!(thread.prepared(two).is_some());
+    assert!(thread.prepared(UiMessageId::new(c, 3)).is_none());
+    // A message that reads otherwise, or left the window, is not kept.
+    model.apply(Update::Event(RuntimeEvent::MessageReceived(
+        UiMessageId::new(c, 4),
+    )));
+    messages_of(
+        &mut model,
+        c,
+        vec![
+            message(c, 1, Status::Received, "otherwise"),
+            message(c, 4, Status::Received, "later"),
+        ],
+    );
+    let thread = model.thread(c).unwrap();
+    assert!(thread.prepared(one).is_none());
+    assert!(thread.prepared(two).is_none());
+    model.prepare_messages(c, 0..2);
+    assert_eq!(
+        model.thread(c).unwrap().prepared(one).unwrap().text,
+        "otherwise"
+    );
+}
+
+#[test]
+fn an_expanded_message_is_prepared_again_whole() {
+    let mut model = ready();
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    let long = vec!["line"; present::MAX_RENDERED_MESSAGE_LINES + 5].join("\n");
+    messages_of(&mut model, c, vec![message(c, 1, Status::Received, &long)]);
+    let one = UiMessageId::new(c, 1);
+    model.prepare_messages(c, 0..1);
+    assert!(model.thread(c).unwrap().prepared(one).unwrap().collapsed);
+    let revision = model.thread(c).unwrap().revision();
+    model.expand(one);
+    let thread = model.thread(c).unwrap();
+    assert!(thread.prepared(one).is_none());
+    assert_ne!(thread.revision(), revision);
+    model.prepare_messages(c, 0..1);
+    let whole = model.thread(c).unwrap().prepared(one).unwrap();
+    assert!(!whole.collapsed);
+    assert_eq!(whole.text, long);
+    // Expanding it again changes nothing.
+    let revision = model.thread(c).unwrap().revision();
+    model.expand(one);
+    assert_eq!(model.thread(c).unwrap().revision(), revision);
+    assert!(model.thread(c).unwrap().prepared(one).is_some());
+}
+
+#[test]
+fn a_revision_is_never_given_twice() {
+    let mut model = ready();
+    let mut seen = std::collections::BTreeSet::new();
+    for record in [10, 11] {
+        let c = contact(1, record);
+        model.select_conversation(c);
+        answer_all(&mut model, |command| match command {
+            Command::LoadMessages { .. } => Some(Outcome::Messages {
+                contact: c,
+                messages: vec![message(c, 5, Status::Received, "hi")],
+                complete: false,
+            }),
+            _ => None,
+        });
+        assert!(seen.insert(model.thread(c).unwrap().revision()));
+        model.expand(UiMessageId::new(c, 5));
+        assert!(seen.insert(model.thread(c).unwrap().revision()));
+    }
+    // Older messages put above.
+    let c = contact(1, 10);
+    model.load_earlier(c);
+    answer_all(&mut model, |command| match command {
+        Command::LoadEarlier { .. } => Some(Outcome::Messages {
+            contact: c,
+            messages: vec![message(c, 4, Status::Received, "before")],
+            complete: true,
+        }),
+        _ => None,
+    });
+    assert_eq!(model.thread(c).unwrap().messages.len(), 2);
+    assert!(seen.insert(model.thread(c).unwrap().revision()));
+    assert!(!seen.contains(&0));
+}
+
+#[test]
+fn deleted_messages_take_their_prepared_texts_and_the_window_forgets_them() {
+    let mut model = ready();
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    messages_of(&mut model, c, vec![message(c, 1, Status::Received, "hi")]);
+    model.prepare_messages(c, 0..1);
+    assert!(model.take_forgotten().is_empty());
+    model.open(Dialog::DeleteConversation {
+        contact: c,
+        busy: None,
+        error: None,
+    });
+    model.confirm();
+    answer_all(&mut model, |command| match command {
+        Command::DeleteConversation(_) => Some(Outcome::Done),
+        _ => None,
+    });
+    assert!(
+        model
+            .thread(c)
+            .unwrap()
+            .prepared(UiMessageId::new(c, 1))
+            .is_none()
+    );
+    assert_eq!(model.take_forgotten(), [c]);
+    assert!(model.take_forgotten().is_empty());
+}
+
+#[test]
+fn a_contact_or_an_identity_that_goes_is_forgotten_by_the_window() {
+    let mut model = ready();
+    let d = contact(1, 11);
+    model.select_conversation(d);
+    model.select_identity(identity(2));
+    model.select_conversation(contact(2, 20));
+    assert!(model.take_forgotten().is_empty());
+    // Dan is removed: identity 1 is read without him.
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentities => Some(Outcome::Identities(vec![
+            identity_view(1, "Alice"),
+            identity_view(2, "Work"),
+        ])),
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            Some(Outcome::Identity(Box::new(snapshot(
+                identity(1),
+                vec![contact_view(contact(1, 10), "Carol", "CCCC 1111")],
+            ))))
+        }
+        _ => None,
+    });
+    assert_eq!(model.take_forgotten(), [d]);
+    // Identity 2 is deleted, with its conversation.
+    model.apply(Update::Event(RuntimeEvent::IdentityClosed(identity(2))));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentities => Some(Outcome::Identities(vec![identity_view(1, "Alice")])),
+        _ => None,
+    });
+    assert_eq!(model.take_forgotten(), [contact(2, 20)]);
+}
+
+#[test]
+fn the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes() {
+    let mut model = ready();
+    let c = contact(1, 10);
+    let d = contact(1, 11);
+    let rows = model.sidebar_revision();
+    assert_ne!(rows, 0);
+    // Nothing the rows show changes.
+    model.select_conversation(c);
+    messages_of(&mut model, c, vec![message(c, 1, Status::Queued, "hi")]);
+    model.draft_mut(c).unwrap().push_str("draft");
+    model.check_tor();
+    answer_all(&mut model, |command| match command {
+        Command::CheckTor => Some(Outcome::Tor(monolith_ui_model::TorCheck::NotRunning)),
+        _ => None,
+    });
+    model.open(Dialog::TorDetails);
+    model.close();
+    model.expand(UiMessageId::new(c, 1));
+    model.apply(Update::Event(RuntimeEvent::MessageDelivered(
+        UiMessageId::new(c, 1),
+    )));
+    // An answer to no command in flight, and an event of another identity.
+    model.apply(Update::Done {
+        command: CommandId::new(u64::MAX),
+        outcome: Outcome::Identity(Box::new(snapshot(identity(1), Vec::new()))),
+    });
+    model.apply(Update::Event(RuntimeEvent::MessageReceived(
+        UiMessageId::new(contact(2, 20), 1),
+    )));
+    assert_eq!(model.sidebar_revision(), rows);
+    // The identity read again: new rows, with their previews and names.
+    let long = format!("Hello{}\u{202E}", " ".repeat(65_536));
+    conversations_of(&mut model, "See you\nat nine", &long);
+    let rows = model.sidebar_revision();
+    let shown = model.sidebar_rows();
+    assert_eq!(shown.len(), 3);
+    let carol = shown.iter().find(|row| row.contact == c).unwrap();
+    assert_eq!(carol.preview, "See you at nine");
+    assert!(carol.named);
+    let dan = shown.iter().find(|row| row.contact == d).unwrap();
+    assert_eq!(dan.preview, "Hello\u{2026}");
+    let unnamed = shown.iter().find(|row| row.name == "Contact FFFF").unwrap();
+    assert!(!unnamed.named);
+    // By time, then by state, then by name in any case.
+    let names: Vec<&str> = shown.iter().map(|row| row.name.as_str()).collect();
+    assert_eq!(names, ["Carol", "dan", "Contact FFFF"]);
+    // The filter is matched in lower case.
+    assert!(dan.matches("da") && carol.matches("car") && carol.matches(""));
+    assert!(!carol.matches("dan"));
+    // Read again with Carol's newest message changed: her preview follows.
+    model.apply(Update::Event(RuntimeEvent::MessageDelivered(
+        UiMessageId::new(c, 1),
+    )));
+    conversations_of(&mut model, "Changed", &long);
+    assert_ne!(model.sidebar_revision(), rows);
+    let rows = model.sidebar_revision();
+    let preview = |model: &Model, contact: UiContactId| {
+        model
+            .sidebar_rows()
+            .iter()
+            .find(|row| row.contact == contact)
+            .unwrap()
+            .preview
+            .clone()
+    };
+    assert_eq!(preview(&model, c), "Changed");
+    assert_eq!(preview(&model, d), "Hello\u{2026}");
+    // An unread message changes the rows, and reading it too.
+    model.apply(Update::Event(RuntimeEvent::MessageReceived(
+        UiMessageId::new(d, 2),
+    )));
+    assert_ne!(model.sidebar_revision(), rows);
+    let rows = model.sidebar_revision();
+    let unread = |model: &Model| {
+        model
+            .sidebar_rows()
+            .iter()
+            .find(|row| row.contact == d)
+            .unwrap()
+            .unread
+    };
+    assert_eq!(unread(&model), 1);
+    model.select_conversation(d);
+    assert_ne!(model.sidebar_revision(), rows);
+    assert_eq!(unread(&model), 0);
+    // Shown again without unread messages: the same rows.
+    let rows = model.sidebar_revision();
+    model.select_conversation(c);
+    model.select_conversation(d);
+    assert_eq!(model.sidebar_revision(), rows);
+    // A copy is what the rows are.
+    assert_eq!(model.sidebar(), model.sidebar_rows());
 }
