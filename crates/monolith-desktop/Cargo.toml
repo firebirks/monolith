@@ -36,6 +36,7 @@ screenshot = ["dep:monolith-ui-snapshot"]
 
 [dev-dependencies]
 monolith-tor = { workspace = true }
+monolith-ui-snapshot = { path = "../monolith-ui-snapshot" }
 
 [lints]
 workspace = true
