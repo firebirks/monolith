@@ -11,9 +11,12 @@
 
 mod common;
 
-use common::{Rig, clicked_infos, dump, paints};
+use std::cell::Cell;
+
+use common::{Rig, clicked_infos, dump, paints, texts};
 use egui::{Context, Rect, WidgetType};
-use monolith_ui_kit::rows::{ContactRow, ConversationRow, Secondary};
+use monolith_ui_kit::icons;
+use monolith_ui_kit::rows::{ContactRow, ConversationRow, RowStatus, Secondary};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Style {
@@ -185,6 +188,45 @@ fn distinct_keys_give_distinct_ids_and_equal_keys_equal_ones() {
     assert_ne!(ContactRow::id_for(1_u32), ContactRow::id_for(2_u32));
     // The same key in the two kinds of list does not clash.
     assert_ne!(ConversationRow::id_for("a"), ContactRow::id_for("a"));
+}
+
+#[test]
+fn a_conversation_row_tells_a_screen_reader_its_markers_in_words() {
+    let statuses = [RowStatus::WaitingForAcceptance, RowStatus::Queued];
+    let rect = Cell::new(Rect::NOTHING);
+    let run = |ctx: &Context| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let row = ConversationRow::new("c", "Contact C7TQ", &[2])
+                .preview("Hello, this is Sam")
+                .statuses(&statuses);
+            rect.set(ui.add(row).rect);
+        });
+    };
+    let mut rig = Rig::new();
+    rig.settle(2, run);
+    let at = rect.get().center();
+    let infos = clicked_infos(&rig.click(at, run));
+    let label = infos[0].label.clone().unwrap();
+    assert!(label.contains("waiting for acceptance"), "{label}");
+    assert!(label.contains("messages queued"), "{label}");
+    assert_eq!(RowStatus::Blocked.label(), "no longer a contact");
+}
+
+#[test]
+fn an_anonymous_row_draws_a_person_instead_of_initials() {
+    let glyph = icons::USER.char().to_string();
+    for anonymous in [false, true] {
+        let mut rig = Rig::new();
+        let out = rig.settle(2, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.add(ConversationRow::new("c", "Contact C7TQ", &[2]).anonymous(anonymous));
+                ui.add(ContactRow::new("d", "Former contact D4XM", &[3]).anonymous(anonymous));
+            });
+        });
+        assert_eq!(paints(&out, &glyph), anonymous);
+        assert_eq!(texts(&out).iter().any(|text| text == "CC"), !anonymous);
+        assert_eq!(texts(&out).iter().any(|text| text == "FC"), !anonymous);
+    }
 }
 
 #[test]

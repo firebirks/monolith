@@ -116,6 +116,15 @@ impl RowStatus {
             Self::Queued => icons::CLOCK,
         }
     }
+
+    /// The marker in words, as a screen reader reads it in the row.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::WaitingForAcceptance => "waiting for acceptance",
+            Self::Blocked => "no longer a contact",
+            Self::Queued => "messages queued",
+        }
+    }
 }
 
 /// A conversation in the sidebar.
@@ -132,6 +141,7 @@ pub struct ConversationRow<'a> {
     statuses: &'a [RowStatus],
     selected: bool,
     enabled: bool,
+    anonymous: bool,
 }
 
 impl<'a> ConversationRow<'a> {
@@ -156,7 +166,16 @@ impl<'a> ConversationRow<'a> {
             statuses: &[],
             selected: false,
             enabled: true,
+            anonymous: false,
         }
+    }
+
+    /// The avatar shows a person glyph instead of initials, for a contact
+    /// with no name of its own (one shown as "Contact" and a fingerprint
+    /// group).
+    pub fn anonymous(mut self, anonymous: bool) -> Self {
+        self.anonymous = anonymous;
+        self
     }
 
     /// The last message, one line.
@@ -229,12 +248,17 @@ impl Widget for ConversationRow<'_> {
             Some(prefix) => format!("{prefix}{}", self.preview),
             None => self.preview.to_owned(),
         };
-        let label = join_label(&[self.name, &preview_text, self.timestamp, unread_label]);
-        interact::describe_selectable(
+        // The markers are glyphs on screen; a screen reader reads them.
+        let mut parts = vec![self.name, preview_text.as_str()];
+        parts.extend(self.statuses.iter().map(|status| status.label()));
+        parts.extend([self.timestamp, unread_label]);
+        let label = join_label(&parts);
+        interact::describe_selectable_enabled(
             &response,
             WidgetType::SelectableLabel,
             &label,
             self.selected,
+            self.enabled,
         );
 
         if !ui.is_rect_visible(rect) {
@@ -263,6 +287,7 @@ impl Widget for ConversationRow<'_> {
                 outline: Outline::Circle,
                 verified: false,
                 dim: !state.enabled,
+                anonymous: self.anonymous,
             },
         );
 
@@ -389,6 +414,7 @@ pub struct ContactRow<'a> {
     selected: bool,
     enabled: bool,
     verified: bool,
+    anonymous: bool,
     trailing: Option<Trailing<'a>>,
 }
 
@@ -409,8 +435,16 @@ impl<'a> ContactRow<'a> {
             selected: false,
             enabled: true,
             verified: false,
+            anonymous: false,
             trailing: None,
         }
+    }
+
+    /// The avatar shows a person glyph instead of initials, for a contact
+    /// with no name of its own.
+    pub fn anonymous(mut self, anonymous: bool) -> Self {
+        self.anonymous = anonymous;
+        self
     }
 
     /// The line under the name.
@@ -462,11 +496,12 @@ impl Widget for ContactRow<'_> {
             None => "",
         };
         let label = join_label(&[self.name, second]);
-        interact::describe_selectable(
+        interact::describe_selectable_enabled(
             &response,
             WidgetType::SelectableLabel,
             &label,
             self.selected,
+            self.enabled,
         );
 
         if !ui.is_rect_visible(rect) {
@@ -495,6 +530,7 @@ impl Widget for ContactRow<'_> {
                 outline: Outline::Circle,
                 verified: self.verified,
                 dim: !state.enabled,
+                anonymous: self.anonymous,
             },
         );
         let text_left = avatar_rect.right() + theme.space.md;
@@ -552,6 +588,11 @@ impl Widget for ContactRow<'_> {
     }
 }
 
+/// The fill of a pressed quiet danger button, under `danger_pressed` text.
+pub(crate) fn quiet_danger_pressed(theme: &Theme) -> Color32 {
+    mix(theme.color.danger_subtle, theme.color.danger, 0.12)
+}
+
 /// A small or medium text button for destructive actions that are not the
 /// main one: no frame until hovered, danger-coloured text.
 #[derive(Clone, Debug)]
@@ -592,14 +633,15 @@ impl Widget for QuietDanger<'_> {
             Color32::PLACEHOLDER,
         );
         let content_width = galley.size().x + if self.busy { icon_size + gap } else { 0.0 };
-        let sense = if self.enabled && !self.busy {
+        let interactive = self.enabled && !self.busy;
+        let sense = if interactive {
             Sense::click()
         } else {
             Sense::hover()
         };
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(content_width + padding * 2.0, height), sense);
-        interact::describe(&response, WidgetType::Button, self.label);
+        interact::describe_enabled(&response, WidgetType::Button, self.label, interactive);
         if ui.is_rect_visible(rect) {
             let state = State {
                 enabled: self.enabled,
@@ -608,7 +650,7 @@ impl Widget for QuietDanger<'_> {
             let (fill, text) = if !state.enabled {
                 (Color32::TRANSPARENT, c.text_disabled)
             } else if state.pressed {
-                (mix(c.danger_subtle, c.danger, 0.18), c.danger_pressed)
+                (quiet_danger_pressed(&theme), c.danger_pressed)
             } else {
                 (
                     c.danger_subtle.gamma_multiply(state.hover),

@@ -8,7 +8,7 @@ use egui::{
     WidgetType, pos2,
 };
 
-use crate::interact::{self, State, mix, over};
+use crate::interact::{self, State, mix};
 use crate::theme::{self, Mode};
 
 /// A choice among `options`, each a value and its label.
@@ -97,7 +97,13 @@ impl<T: Copy + PartialEq + Hash> Widget for Segmented<'_, T> {
             };
             let segment = ui.interact(rect, id, sense);
             let chosen = *self.value == value;
-            interact::describe_selectable(&segment, WidgetType::RadioButton, label, chosen);
+            interact::describe_selectable_enabled(
+                &segment,
+                WidgetType::RadioButton,
+                label,
+                chosen,
+                self.enabled,
+            );
             if chosen {
                 selected_x = Some(x);
             }
@@ -110,10 +116,14 @@ impl<T: Copy + PartialEq + Hash> Widget for Segmented<'_, T> {
         }
 
         if ui.is_rect_visible(track) {
+            // The track and the thumb are washes over whatever the control
+            // sits on (a surface, a card, a modal), so that the choice
+            // reads on each: the track a little darker in the light theme
+            // and lighter in the dark one, the thumb lighter again.
             ui.painter().rect(
                 track,
                 track_radius,
-                c.bg_sunken,
+                c.pressed,
                 Stroke::new(theme.stroke.hairline, c.border_subtle),
                 StrokeKind::Inside,
             );
@@ -124,25 +134,24 @@ impl<T: Copy + PartialEq + Hash> Widget for Segmented<'_, T> {
                     .animate_value_with_time(self.id.with("slide"), target, duration);
                 let thumb =
                     Rect::from_min_size(pos2(at, track.top() + inset), Vec2::new(segment_w, seg_h));
-                // Raised above the track: white on the light one; on the dark
-                // one the sunken track is lighter than the surface, so the
-                // thumb is the raised colour with a wash of light over it.
                 let dark = theme.mode == Mode::Dark;
-                let raised = if dark {
-                    over(c.bg_raised, c.hover)
+                let (lift, edge) = if dark {
+                    (c.pressed.gamma_multiply(1.4), c.border)
                 } else {
-                    c.bg_surface
+                    (c.bg_surface, c.border_subtle)
                 };
-                let edge = if dark { c.border } else { c.border_subtle };
                 let painter = ui.painter();
-                painter.add(theme.shadow.sm.as_shape(thumb, seg_radius));
+                if !dark {
+                    // Under a wash a shadow would darken the thumb itself.
+                    painter.add(theme.shadow.sm.as_shape(thumb, seg_radius));
+                }
                 painter.rect(
                     thumb,
                     seg_radius,
                     if self.enabled {
-                        raised
+                        lift
                     } else {
-                        mix(c.bg_sunken, raised, 0.5)
+                        lift.gamma_multiply(0.6)
                     },
                     Stroke::new(theme.stroke.hairline, edge),
                     StrokeKind::Inside,

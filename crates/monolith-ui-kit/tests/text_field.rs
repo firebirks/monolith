@@ -218,6 +218,43 @@ fn an_ordinary_field_can_undo_and_a_secret_one_keeps_no_history() {
     assert_eq!(type_then_undo(secret), "first second");
 }
 
+/// Whether a focused field with `cfg` asks the platform for its input
+/// method.
+fn asks_for_the_input_method(cfg: Cfg) -> bool {
+    let mut text = String::from("abc");
+    let mut rig = focused(&mut text, cfg);
+    let (output, _) = frame(&mut rig, &mut text, cfg);
+    output.platform_output.ime.is_some()
+}
+
+#[test]
+fn a_focused_secret_field_turns_the_input_method_off() {
+    assert!(asks_for_the_input_method(Cfg::default()));
+    let secret = Cfg {
+        secret: true,
+        ..Cfg::default()
+    };
+    assert!(!asks_for_the_input_method(secret));
+}
+
+#[test]
+fn a_secret_field_cuts_typed_and_pasted_text_at_its_limit() {
+    let cfg = Cfg {
+        secret: true,
+        limit: Some(12),
+        ..Cfg::default()
+    };
+    let mut text = String::new();
+    let mut rig = focused(&mut text, cfg);
+    let mut seen = Seen::default();
+    rig.type_text("correct horse", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "correct hors");
+    rig.frame(vec![egui::Event::Paste("battery".to_owned())], |ctx| {
+        show(ctx, &mut text, cfg, &mut seen)
+    });
+    assert_eq!(text, "correct hors");
+}
+
 #[test]
 fn forget_removes_the_state_egui_keeps_for_the_field() {
     let mut text = String::new();

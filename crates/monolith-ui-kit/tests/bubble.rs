@@ -11,7 +11,7 @@
 mod common;
 
 use common::{Rig, dump, paints};
-use egui::{Context, FullOutput, Id, Rect};
+use egui::{Context, Event, FullOutput, Id, OutputCommand, Rect, pos2};
 use monolith_ui_kit::bubble::{Direction, MessageBubble};
 use monolith_ui_kit::icons;
 use monolith_ui_kit::message_status::{MessageStatus, Status};
@@ -161,6 +161,87 @@ fn a_bubble_without_a_collapse_has_no_show_more() {
     let (out, seen) = render(&|| MessageBubble::new(8, Direction::Incoming, "Hi", "09:40"));
     assert!(!paints(&out, "Show more"));
     assert!(!seen.show_more);
+}
+
+#[test]
+fn the_status_mark_says_its_state_in_words_under_the_pointer() {
+    let make = || {
+        MessageBubble::new(1, Direction::Outgoing, "See you at nine", "09:41")
+            .status(Status::Queued, "Queued: not delivered yet")
+    };
+    let mut rig = Rig::new();
+    let mut seen = Seen::default();
+    let before = rig.settle(2, |ctx| show(ctx, &mut seen, &make));
+    assert!(!paints(&before, "Queued: not delivered yet"));
+    let mark = rig
+        .ctx
+        .read_response(Id::new(("monolith-bubble", 1)).with("status"))
+        .expect("the mark was shown")
+        .rect;
+    rig.frame(vec![Event::PointerMoved(mark.center())], |ctx| {
+        show(ctx, &mut seen, &make)
+    });
+    let mut after = rig.frame_after(1.0, vec![], |ctx| show(ctx, &mut seen, &make));
+    for _ in 0..3 {
+        after = rig.frame(vec![], |ctx| show(ctx, &mut seen, &make));
+    }
+    assert!(paints(&after, "Queued: not delivered yet"));
+}
+
+/// The text a frame asked the platform to copy.
+fn copied(outputs: &[FullOutput]) -> Vec<String> {
+    outputs
+        .iter()
+        .flat_map(|output| output.platform_output.commands.iter())
+        .filter_map(|command| match command {
+            OutputCommand::CopyText(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Shows `bubble` under `above` lines of other text.
+fn list(ctx: &Context, above: usize, seen: &mut Seen) {
+    egui::CentralPanel::default().show(ctx, |ui| {
+        for line in 0..above {
+            ui.label(format!("Earlier {line}"));
+        }
+        let out = MessageBubble::new(9, Direction::Incoming, "See you at nine", "09:41").show(ui);
+        seen.bubble = Some(out.response.rect);
+    });
+}
+
+/// Double-clicks the first word of the bubble and returns the rig.
+fn select_first_word(seen: &mut Seen) -> Rig {
+    let mut rig = Rig::new();
+    rig.settle(2, |ctx| list(ctx, 0, seen));
+    let text = rig
+        .ctx
+        .read_response(Id::new(("monolith-bubble", 9)).with("text"))
+        .expect("the text was shown")
+        .rect;
+    let at = pos2(text.left() + 6.0, text.center().y);
+    for _ in 0..2 {
+        rig.click(at, |ctx| list(ctx, 0, seen));
+    }
+    rig
+}
+
+#[test]
+fn a_double_click_selects_a_word_and_copy_takes_only_that_word() {
+    let mut seen = Seen::default();
+    let mut rig = select_first_word(&mut seen);
+    let out = rig.frame(vec![Event::Copy], |ctx| list(ctx, 0, &mut seen));
+    assert_eq!(copied(&[out]), ["See"]);
+}
+
+#[test]
+fn a_selection_stays_with_its_message_when_the_list_above_changes() {
+    let mut seen = Seen::default();
+    let mut rig = select_first_word(&mut seen);
+    rig.settle(2, |ctx| list(ctx, 3, &mut seen));
+    let out = rig.frame(vec![Event::Copy], |ctx| list(ctx, 3, &mut seen));
+    assert_eq!(copied(&[out]), ["See"]);
 }
 
 fn status_widget(ctx: &Context, status: Status) {

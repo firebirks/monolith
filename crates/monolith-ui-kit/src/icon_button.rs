@@ -216,7 +216,13 @@ impl Widget for IconButton<'_> {
         let (auto_id, rect) = ui.allocate_space(Vec2::splat(side));
         let id = self.id_salt.map_or(auto_id, |salt| ui.id().with(salt));
         let mut response = ui.interact(rect, id, sense);
-        interact::describe_selectable(&response, WidgetType::Button, self.label, self.selected);
+        interact::describe_selectable_enabled(
+            &response,
+            WidgetType::Button,
+            self.label,
+            self.selected,
+            interactive,
+        );
 
         if ui.is_rect_visible(rect) {
             // A button that takes no input does not react to the pointer,

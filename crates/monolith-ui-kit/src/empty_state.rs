@@ -115,7 +115,8 @@ impl<'a> EmptyState<'a> {
         if has_actions {
             y += theme.space.xxl;
             // The width of the buttons is known after they are laid out;
-            // the frame before gives it for centring them.
+            // the pass before gives it for centring them, and a pass that
+            // did not know it is laid out again before it is shown.
             let measured_id = self.id.with("actions-width");
             let known: f32 = ui
                 .ctx()
@@ -147,7 +148,8 @@ impl<'a> EmptyState<'a> {
             if (used - known).abs() > 0.5 {
                 ui.ctx()
                     .data_mut(|data| data.insert_temp(measured_id, used));
-                ui.ctx().request_repaint();
+                ui.ctx()
+                    .request_discard("the actions of an empty state were measured");
             }
         }
         output

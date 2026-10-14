@@ -5,14 +5,16 @@
 //! user can select and copy it.
 
 use egui::emath::GuiRounding;
+use egui::text_selection::LabelSelectionState;
 use egui::{
-    Align, Align2, Color32, CornerRadius, Id, Label, Layout, Rect, Response, RichText, Sense,
-    Stroke, StrokeKind, Ui, UiBuilder, Vec2, Widget, WidgetType, text::LayoutJob,
+    Align, Align2, Color32, CornerRadius, Id, Layout, Rect, Response, Sense, Stroke, StrokeKind,
+    Ui, UiBuilder, Vec2, Widget, WidgetInfo, WidgetType, text::LayoutJob,
 };
 
 use crate::interact::{self, State, mix, over};
 use crate::message_status::{self, Status};
 use crate::theme;
+use crate::tooltip;
 
 /// Which side a message came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -72,8 +74,9 @@ impl<'a> MessageBubble<'a> {
     }
 
     /// The delivery status of an outgoing message, and `label` for it in
-    /// words (the accessible text of the glyph). Incoming messages have no
-    /// status; it is ignored for them.
+    /// words (for example "Queued: not delivered yet" or "Delivered"): the
+    /// accessible text of the glyph and its tooltip. Incoming messages have
+    /// no status; it is ignored for them.
     pub fn status(mut self, status: Status, label: &'a str) -> Self {
         self.status = Some((status, label));
         self
@@ -225,16 +228,21 @@ impl<'a> MessageBubble<'a> {
             ui.painter().rect_filled(rect, radius, fill);
         }
 
-        // The text: a selectable label in a child ui, as wide as it was
-        // measured.
+        // The bubble: a click on it is for a context menu. It is no Tab
+        // stop: the keyboard goes through the conversation, not through
+        // every message.
+        let bubble = ui.interact(rect, self.id, Sense::CLICK);
+
+        // The text, as it was measured: selectable, above the bubble in the
+        // order of widgets so that a drag or a double click on it selects.
+        // Its id is the message's, so that a selection stays with it when
+        // the list around it changes.
         let text_origin = egui::pos2(rect.left() + pad_x, rect.top() + pad_y);
+        let text_rect = Rect::from_min_size(text_origin, text_size);
         let mut text_ui = ui.new_child(
             UiBuilder::new()
-                .id_salt(self.id.with("text"))
-                .max_rect(Rect::from_min_size(
-                    text_origin,
-                    Vec2::new(content_max, text_size.y + theme.space.xs),
-                ))
+                .id_salt(self.id.with("text-ui"))
+                .max_rect(text_rect)
                 .layout(Layout::top_down(Align::Min)),
         );
         if outgoing {
@@ -242,20 +250,20 @@ impl<'a> MessageBubble<'a> {
             // colour of this bubble.
             text_ui.visuals_mut().selection.bg_fill = c.bubble_out_text.gamma_multiply(0.30);
         }
-        text_ui.add(
-            Label::new(
-                RichText::new(self.text)
-                    .font(theme.text.body.font_id())
-                    .line_height(Some(line))
-                    .color(text_color),
-            )
-            .selectable(true)
-            .wrap(),
-        );
-
-        // The bubble itself, above the text in the order of widgets: a
-        // click goes to it (a context menu), a drag to the text.
-        let response = ui.interact(rect, self.id, Sense::click());
+        let text = text_ui.interact(text_rect, self.id.with("text"), Sense::CLICK | Sense::DRAG);
+        text.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, galley.text()));
+        if text_ui.is_rect_visible(text_rect) {
+            LabelSelectionState::label_text_selection(
+                &text_ui,
+                &text,
+                text_origin,
+                galley,
+                text_color,
+                Stroke::NONE,
+            );
+        }
+        // A secondary click on the text opens the bubble's menu too.
+        let response = bubble.union(text);
 
         // Time and status.
         let baseline = theme.stroke.hairline;
@@ -273,6 +281,8 @@ impl<'a> MessageBubble<'a> {
                 let area = Rect::from_center_size(center, Vec2::splat(glyph));
                 let node = ui.interact(area, self.id.with("status"), Sense::hover());
                 interact::describe(&node, WidgetType::Label, label);
+                // The glyph says it in words under the pointer.
+                tooltip::show(&node, label);
                 x -= glyph + theme.space.xs;
             }
             let time_pos = egui::pos2(

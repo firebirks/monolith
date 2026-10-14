@@ -19,7 +19,7 @@ use monolith_ui_kit::search_field::SearchField;
 use monolith_ui_kit::section_header::SectionHeader;
 use monolith_ui_kit::segmented::Segmented;
 use monolith_ui_kit::toggle::Toggle;
-use monolith_ui_kit::{Theme, fonts, icons, theme, tooltip};
+use monolith_ui_kit::{Theme, fonts, icons, interact, theme, tooltip};
 use monolith_ui_snapshot::{Options, render};
 
 /// Where the pointer goes in the second render of a sheet.
@@ -48,6 +48,8 @@ fn sheet(name: &str, size: Vec2, dir: &Path, mut body: impl FnMut(&mut Ui, &mut 
             let ctx = Context::default();
             fonts::install(&ctx, &[]);
             theme::install(&ctx, theme.clone().with_reduced_motion(true));
+            // Focus set by hand shows its ring, as if Tab had moved it.
+            interact::set_focus_visible(&ctx, true);
             render(&ctx, options, |ctx| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().fill(background).inner_margin(24))
@@ -206,6 +208,9 @@ fn search(ui: &mut Ui, probe: &mut Probe) {
 const DRAFT_LONG: &str = "Notes for tomorrow:\n- Move the call to 10:30\n- Send the signed copy back before noon\n- Ask Dana about the venue and the budget\n- Check that the new device is paired\n- Bring the printed list\n- Do not forget the charger\n- Confirm the dinner\n- Book the train\n- Water the plants\n- Call the landlord about the heating, again, and keep a record of when it was reported\n- Send the photos";
 
 fn composer(ui: &mut Ui, probe: &mut Probe) {
+    // The composer is focused by the conversation, not by Tab: a quiet
+    // border and no ring.
+    interact::set_focus_visible(ui.ctx(), false);
     ui.set_max_width(560.0);
     let mut empty = String::new();
     let mut short = "On my way, see you in ten minutes".to_owned();
@@ -220,7 +225,10 @@ fn composer(ui: &mut Ui, probe: &mut Probe) {
     let mut hovered = String::new();
     let mut unsendable = "Waiting for the connection".to_owned();
 
-    caption(ui, "Empty, focused empty, hovered empty");
+    caption(
+        ui,
+        "Empty, focused by the conversation (no ring), hovered empty",
+    );
     Composer::new("a", &mut empty).max_bytes(4000).show(ui);
     ui.add_space(8.0);
     Composer::new("b", &mut focused)

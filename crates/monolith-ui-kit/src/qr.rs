@@ -124,7 +124,9 @@ impl<'a> QrCode<'a> {
     }
 
     /// The card is at most this many points on a side (the module size is
-    /// whole pixels, so it can be a little smaller).
+    /// whole pixels, so it can be a little smaller). A dense code grows
+    /// past it, up to 276 points and the width available, so that each
+    /// module has at least three pixels.
     pub fn max_side(mut self, side: f32) -> Self {
         self.max_side = side;
         self
@@ -140,18 +142,32 @@ fn total_modules(matrix: &QrMatrix) -> f32 {
     total
 }
 
+/// The fewest physical pixels a module takes, room allowing: fewer make a
+/// code that cameras read badly from a screen.
+const MIN_MODULE_PX: f32 = 3.0;
+
+/// How far a card grows past the side it was given, in points, to give its
+/// modules [`MIN_MODULE_PX`] pixels.
+const GROW_TO: f32 = 276.0;
+
 /// Physical pixels per module: the largest whole number that keeps the
-/// card within `max_px`, and at least one.
-fn module_pixels(matrix: &QrMatrix, max_px: f32) -> f32 {
-    (max_px / total_modules(matrix)).floor().max(1.0)
+/// card within `max_px`; but at least [`MIN_MODULE_PX`] if the card then
+/// stays within `limit_px`; and at least one.
+fn module_pixels(matrix: &QrMatrix, max_px: f32, limit_px: f32) -> f32 {
+    let total = total_modules(matrix);
+    let fit = (max_px / total).floor();
+    let least = MIN_MODULE_PX.min((limit_px / total).floor());
+    fit.max(least).max(1.0)
 }
 
 impl Widget for QrCode<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let theme = theme::current(ui.ctx());
         let ppp = ui.ctx().pixels_per_point();
-        let max_side = self.max_side.min(ui.available_width()).max(1.0);
-        let module_px = module_pixels(self.matrix, max_side * ppp);
+        let room = ui.available_width().max(1.0);
+        let max_side = self.max_side.min(room).max(1.0);
+        let limit = self.max_side.max(GROW_TO).min(room).max(1.0);
+        let module_px = module_pixels(self.matrix, max_side * ppp, limit * ppp);
         let total = total_modules(self.matrix);
         let side = module_px * total / ppp;
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::hover());
@@ -280,7 +296,22 @@ mod tests {
             panic!("encodes");
         };
         // 21 + 8 = 29 modules.
-        assert!((module_pixels(&matrix, 300.0) - 10.0).abs() < f32::EPSILON);
-        assert!((module_pixels(&matrix, 5.0) - 1.0).abs() < f32::EPSILON);
+        assert!((module_pixels(&matrix, 300.0, 300.0) - 10.0).abs() < f32::EPSILON);
+        assert!((module_pixels(&matrix, 5.0, 5.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_dense_code_grows_to_three_pixels_a_module_within_its_limit() {
+        // 61 modules and the quiet zone, as an invitation card makes.
+        let Ok(matrix) = QrMatrix::encode(&"a".repeat(230)) else {
+            panic!("encodes");
+        };
+        assert_eq!(matrix.size(), 61);
+        // 204 pixels hold only two pixels a module; 276 allow three.
+        assert!((module_pixels(&matrix, 204.0, 276.0) - 3.0).abs() < f32::EPSILON);
+        // Without room to grow, it stays within what it was given.
+        assert!((module_pixels(&matrix, 204.0, 204.0) - 2.0).abs() < f32::EPSILON);
+        // With more room than that, it takes the room.
+        assert!((module_pixels(&matrix, 408.0, 408.0) - 5.0).abs() < f32::EPSILON);
     }
 }

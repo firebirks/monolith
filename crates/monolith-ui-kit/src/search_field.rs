@@ -108,7 +108,8 @@ impl<'a> SearchField<'a> {
             changed = true;
         }
 
-        let (rect, frame) = ui.allocate_exact_size(Vec2::new(width, height), Sense::click());
+        // A click on the frame focuses the text; the frame is no Tab stop.
+        let (rect, frame) = ui.allocate_exact_size(Vec2::new(width, height), Sense::CLICK);
         if self.enabled && frame.clicked() {
             ui.memory_mut(|memory| memory.request_focus(edit_id));
         }
@@ -197,6 +198,10 @@ impl<'a> SearchField<'a> {
         );
         let edited = edit.show(&mut child);
         let response = edited.response;
+        if !self.enabled {
+            ui.ctx()
+                .accesskit_node_builder(edit_id, |node| node.set_disabled());
+        }
         changed |= response.changed();
         if self.request_focus && !focused {
             response.request_focus();

@@ -135,7 +135,13 @@ impl Widget for Toggle<'_> {
             response.mark_changed();
         }
         let on = *self.value;
-        interact::describe_selectable(&response, WidgetType::Checkbox, name, on);
+        interact::describe_selectable_enabled(
+            &response,
+            WidgetType::Checkbox,
+            name,
+            on,
+            self.enabled,
+        );
 
         if ui.is_rect_visible(rect) {
             let state = if self.enabled {

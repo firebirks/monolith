@@ -3,8 +3,9 @@
 //! way.
 
 use egui::{
-    Align, Context, CornerRadius, Frame, Id, InnerResponse, Layout, Margin, Rect, Response,
-    ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2, containers::scroll_area::ScrollBarVisibility,
+    Align, Context, CornerRadius, Frame, Id, InnerResponse, LayerId, Layout, Margin, Rect,
+    Response, ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2,
+    containers::scroll_area::{ScrollBarVisibility, ScrollSource},
 };
 
 use crate::theme;
@@ -29,12 +30,13 @@ pub fn surface_frame(ctx: &Context, margin: impl Into<Margin>) -> Frame {
         .inner_margin(margin)
 }
 
-/// A card on a surface: a raised background, a hairline and the large
-/// radius, with `margin` points inside.
+/// A card on a surface: the card colour (as a group of settings rows and
+/// a request card), a hairline and the large radius, with `margin` points
+/// inside.
 pub fn card_frame(ctx: &Context, margin: impl Into<Margin>) -> Frame {
     let theme = theme::current(ctx);
     Frame::new()
-        .fill(theme.color.bg_raised)
+        .fill(theme.color.bg_card)
         .stroke(Stroke::new(
             theme.stroke.hairline,
             theme.color.border_subtle,
@@ -44,13 +46,18 @@ pub fn card_frame(ctx: &Context, margin: impl Into<Margin>) -> Frame {
 }
 
 /// A vertical scroll area that fills its space, with the scroll bar of the
-/// theme (thin, floating, visible while scrolling or hovered). `id_salt`
-/// names its scroll position.
+/// theme (thin, floating, faint at rest, clearer while hovered). `id_salt`
+/// names its scroll position. It scrolls with the wheel and the bar, not
+/// by dragging its content, so that a drag selects text.
 pub fn scroll_area(id_salt: impl core::hash::Hash) -> ScrollArea {
     ScrollArea::vertical()
         .id_salt(id_salt)
         .auto_shrink([false, false])
         .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
+        .scroll_source(ScrollSource {
+            drag: false,
+            ..ScrollSource::ALL
+        })
         .animated(true)
 }
 
@@ -181,7 +188,7 @@ impl SidebarPanel {
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> InnerResponse<R> {
         let theme = theme::current(ctx);
-        egui::SidePanel::left(self.id)
+        let shown = egui::SidePanel::left(self.id)
             .frame(sidebar_frame(ctx))
             .resizable(self.resizable)
             .default_width(self.width.unwrap_or(theme.size.sidebar))
@@ -197,7 +204,30 @@ impl SidebarPanel {
                     Stroke::new(theme.stroke.hairline, theme.color.border_subtle),
                 );
                 result
-            })
+            });
+        if self.resizable {
+            // egui marks the edge under the pointer in the colour of text;
+            // the theme's marks are painted over it, on the same pixels.
+            let edge = ctx.read_response(self.id.with("__resize"));
+            let color = edge.and_then(|edge| {
+                if edge.dragged() {
+                    Some(theme.color.accent)
+                } else if edge.hovered() {
+                    Some(theme.color.border_strong)
+                } else {
+                    None
+                }
+            });
+            if let Some(color) = color {
+                let rect = shown.response.rect;
+                ctx.layer_painter(LayerId::background()).vline(
+                    rect.right() - theme.stroke.hairline / 2.0,
+                    rect.y_range(),
+                    Stroke::new(theme.stroke.hairline, color),
+                );
+            }
+        }
+        shown
     }
 }
 

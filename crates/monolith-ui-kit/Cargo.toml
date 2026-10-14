@@ -8,7 +8,8 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-egui = { version = "=0.32.3", default-features = false }
+# AccessKit: what a screen reader is told, live regions included.
+egui = { version = "=0.32.3", default-features = false, features = ["accesskit"] }
 # QR codes of cards, generated locally (docs/adr/0011-ui-security-boundary.md).
 qrcodegen = { version = "=1.8.0", default-features = false }
 

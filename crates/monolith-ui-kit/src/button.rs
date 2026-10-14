@@ -8,7 +8,7 @@ use egui::{
 };
 
 use crate::icons::Icon;
-use crate::interact::{self, State, mix, over};
+use crate::interact::{self, State, mix};
 use crate::theme::{self, Theme};
 
 /// What the button is for.
@@ -128,6 +128,9 @@ struct Colors {
     text: egui::Color32,
 }
 
+/// The colours of a button of `kind` in `state`. Fills that are not
+/// opaque are washes over whatever the button sits on (a surface, a card
+/// or a modal), so that it reads on each of them.
 fn colors(theme: &Theme, kind: Kind, state: State) -> Colors {
     let c = &theme.color;
     if !state.enabled {
@@ -137,9 +140,10 @@ fn colors(theme: &Theme, kind: Kind, state: State) -> Colors {
                 stroke: egui::Color32::TRANSPARENT,
                 text: c.text_disabled,
             },
+            // An outline that stays visible on every surface.
             _ => Colors {
-                fill: c.bg_sunken,
-                stroke: c.border_subtle,
+                fill: c.hover,
+                stroke: c.border,
                 text: c.text_disabled,
             },
         };
@@ -149,7 +153,7 @@ fn colors(theme: &Theme, kind: Kind, state: State) -> Colors {
             let (base, hover, pressed) = if kind == Kind::Primary {
                 (c.accent, c.accent_hover, c.accent_pressed)
             } else {
-                (c.danger, c.danger_hover, c.danger_pressed)
+                (c.danger_fill, c.danger_fill_hover, c.danger_fill_pressed)
             };
             let fill = if state.pressed {
                 pressed
@@ -168,8 +172,9 @@ fn colors(theme: &Theme, kind: Kind, state: State) -> Colors {
             } else {
                 c.hover.gamma_multiply(state.hover)
             };
+            // No fill of its own: a wash over its parent on hover.
             Colors {
-                fill: over(c.bg_surface, tint),
+                fill: tint,
                 stroke: mix(c.border, c.border_strong, state.hover),
                 text: c.text,
             }
@@ -236,13 +241,20 @@ impl Widget for Button<'_> {
             Sense::hover()
         };
         let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), sense);
-        interact::describe(&response, WidgetType::Button, self.label);
+        interact::describe_enabled(&response, WidgetType::Button, self.label, interactive);
 
         if ui.is_rect_visible(rect) {
-            let state = State::of(ui, &response, response.id, &theme, false);
-            let state = State {
-                enabled: self.enabled,
-                ..state
+            // A button that takes no input does not react to the pointer.
+            let state = if interactive {
+                State::of(ui, &response, response.id, &theme, false)
+            } else {
+                State {
+                    enabled: self.enabled,
+                    hover: 0.0,
+                    pressed: false,
+                    focused: false,
+                    selected: false,
+                }
             };
             let colors = colors(&theme, self.kind, state);
             let radius = CornerRadius::same(theme.radius.md);

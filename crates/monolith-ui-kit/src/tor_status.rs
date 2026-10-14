@@ -25,9 +25,10 @@ pub enum TorState {
     Unavailable,
 }
 
-/// How often a pulsing dot is redrawn: about 20 frames per second is
-/// smooth enough for a slow glow and cheap.
-const PULSE_FRAME: Duration = Duration::from_millis(50);
+/// How often a pulsing dot is redrawn: four times a second. Tor can take
+/// long to connect, and the whole window is drawn for each step of the
+/// glow; a slow glow in steps is enough to say that something goes on.
+const PULSE_FRAME: Duration = Duration::from_millis(250);
 
 /// The pill. Add it with `ui.add(...)`; the response is clicked when the
 /// user asks for the details.

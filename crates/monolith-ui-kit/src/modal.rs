@@ -8,11 +8,13 @@
 
 use egui::{
     Align, Area, Context, CornerRadius, Frame, Id, Key, Label, Layout, Modifiers, Order, Popup,
-    RichText, Sense, Stroke, Ui, Vec2, emath::TSTransform,
+    Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2,
+    containers::scroll_area::{ScrollBarVisibility, ScrollSource},
+    emath::TSTransform,
 };
 
 use crate::button::{Button, Size};
-use crate::theme;
+use crate::theme::{self, Theme};
 
 /// What came of showing a modal.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +48,50 @@ pub struct Modal<'a> {
 
 /// How small the card is when it starts to appear.
 const APPEAR_SCALE: f32 = 0.96;
+
+/// Lays out `body` in a scroll area at most `max_height` tall, as wide as
+/// `ui`. The scroll bar floats in the right padding of the card, clear of
+/// the content.
+fn scrolling_body<R>(
+    ui: &mut Ui,
+    theme: &Theme,
+    id: Id,
+    max_height: f32,
+    body: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let width = ui.available_width();
+    let gutter = theme.space.md;
+    let top = ui.cursor().min;
+    let slot = Rect::from_min_size(top, Vec2::new(width + gutter, max_height));
+    let mut area_ui = ui.new_child(
+        UiBuilder::new()
+            .id_salt(id)
+            .max_rect(slot)
+            .layout(Layout::top_down(Align::Min)),
+    );
+    let shown = ScrollArea::vertical()
+        .id_salt(id)
+        .auto_shrink([false, true])
+        .max_height(max_height)
+        .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
+        .scroll_source(ScrollSource {
+            drag: false,
+            ..ScrollSource::ALL
+        })
+        .animated(true)
+        .show(&mut area_ui, |ui| {
+            ui.set_width(width);
+            ui.spacing_mut().item_spacing = Vec2::new(theme.space.sm, theme.space.sm);
+            body(ui)
+        });
+    // The parent takes the height the area took (as tall as its content, at
+    // most `max_height`) and the width of the content only, so that the
+    // gutter does not widen the card.
+    let height = area_ui.min_rect().height().min(max_height);
+    let used = Rect::from_min_size(top, Vec2::new(width, height));
+    ui.allocate_rect(used, Sense::hover());
+    shown.inner
+}
 
 impl<'a> Modal<'a> {
     /// A modal titled `title`. Its egui ids derive from `id_salt`.
@@ -114,13 +160,16 @@ impl<'a> Modal<'a> {
             .order(Order::Foreground)
             .fixed_pos(screen.min)
             .interactable(true)
-            .movable(false);
+            .movable(false)
+            // The widget inside takes the clicks; the area is no Tab stop.
+            .sense(Sense::hover());
         // Everything below this layer is out of reach, keyboard included.
         ctx.memory_mut(|memory| memory.set_modal_layer(scrim_area.layer()));
         let scrim = scrim_area
             .show(ctx, |ui| {
+                // Clicks and drags, but no Tab stop.
                 let (rect, response) =
-                    ui.allocate_exact_size(screen.size(), Sense::click_and_drag());
+                    ui.allocate_exact_size(screen.size(), Sense::CLICK | Sense::DRAG);
                 ui.painter()
                     .rect_filled(rect, 0.0, theme.color.scrim.gamma_multiply(appear));
                 response
@@ -135,16 +184,21 @@ impl<'a> Modal<'a> {
         .min(screen.width() - theme.space.lg * 2.0)
         .max(theme.size.control);
         let padding = theme.space.xxl;
+        // The card is never taller than the window less a margin; its body
+        // scrolls, its title and its actions stay in view.
+        let card_max_height = (screen.height() - theme.space.lg * 2.0).max(theme.size.control);
         let card_layer = Area::new(self.card_id()).layer();
         let title = self.title;
         let subtitle = self.subtitle;
+        let body_id = self.id.with("body");
         let card = Area::new(self.card_id())
             .order(Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .interactable(true)
             .movable(false)
-            // Clicks on the card are the card's, not the scrim's.
-            .sense(Sense::click_and_drag())
+            // Clicks on the card are the card's, not the scrim's; the card
+            // is no Tab stop.
+            .sense(Sense::CLICK | Sense::DRAG)
             .show(ctx, |ui| {
                 ui.set_opacity(appear);
                 Frame::new()
@@ -184,7 +238,15 @@ impl<'a> Modal<'a> {
                         }
                         ui.add_space(theme.space.xl);
                         ui.spacing_mut().item_spacing = Vec2::new(theme.space.sm, theme.space.sm);
-                        let inner = body(ui);
+                        // What is not the body: the title above, the space and
+                        // the actions below, the padding.
+                        let fixed = ui.min_rect().height()
+                            + theme.space.sm
+                            + theme.space.xl
+                            + theme.size.control
+                            + padding * 2.0;
+                        let body_max = (card_max_height - fixed).max(theme.size.control);
+                        let inner = scrolling_body(ui, &theme, body_id, body_max, body);
                         ui.add_space(theme.space.xl);
                         ui.allocate_ui_with_layout(
                             Vec2::new(ui.available_width(), theme.size.control),

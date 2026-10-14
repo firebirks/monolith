@@ -9,11 +9,12 @@
     clippy::indexing_slicing
 )]
 
+use egui::accesskit::{Node, NodeId};
 use egui::epaint::Shape;
 use egui::output::OutputEvent;
 use egui::{
-    Context, Event, FullOutput, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, WidgetInfo,
-    pos2, vec2,
+    Color32, Context, Event, FullOutput, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect,
+    Vec2, WidgetInfo, pos2, vec2,
 };
 use monolith_ui_kit::{Theme, fonts, theme};
 
@@ -26,6 +27,7 @@ pub fn screen() -> Rect {
 pub struct Rig {
     pub ctx: Context,
     time: f64,
+    screen: Rect,
 }
 
 impl Rig {
@@ -34,10 +36,24 @@ impl Rig {
     }
 
     pub fn with_theme(theme: Theme) -> Self {
+        Self::sized(theme, screen().size())
+    }
+
+    /// A rig whose window is `size` points.
+    pub fn sized(theme: Theme, size: Vec2) -> Self {
         let ctx = Context::default();
         fonts::install(&ctx, &[]);
         theme::install(&ctx, theme.with_reduced_motion(true));
-        Self { ctx, time: 1.0 }
+        Self {
+            ctx,
+            time: 1.0,
+            screen: Rect::from_min_size(Pos2::ZERO, size),
+        }
+    }
+
+    /// The window of this rig.
+    pub fn screen(&self) -> Rect {
+        self.screen
     }
 
     /// Runs one frame with `events`, 50 ms after the last.
@@ -54,7 +70,7 @@ impl Rig {
     ) -> FullOutput {
         self.time += seconds;
         let input = RawInput {
-            screen_rect: Some(screen()),
+            screen_rect: Some(self.screen),
             time: Some(self.time),
             events,
             ..RawInput::default()
@@ -160,6 +176,69 @@ pub fn paints(output: &FullOutput, needle: &str) -> bool {
 /// Everything painted in `output`, as text, to compare two frames.
 pub fn dump(output: &FullOutput) -> String {
     format!("{:?}", output.shapes)
+}
+
+/// The labels of the widgets that gained the focus in `outputs`, in order.
+pub fn focused_labels(outputs: &[FullOutput]) -> Vec<String> {
+    outputs
+        .iter()
+        .flat_map(|output| output.platform_output.events.iter())
+        .filter_map(|event| match event {
+            OutputEvent::FocusGained(info) => Some(info.label.clone().unwrap_or_default()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The AccessKit node of the widget `id` in `output`. The context must
+/// have AccessKit on (`ctx.enable_accesskit()`).
+pub fn node(output: &FullOutput, id: Id) -> Option<Node> {
+    let wanted = NodeId(id.value());
+    output
+        .platform_output
+        .accesskit_update
+        .as_ref()?
+        .nodes
+        .iter()
+        .find(|(node_id, _)| *node_id == wanted)
+        .map(|(_, node)| node.clone())
+}
+
+fn strokes(shape: &Shape, into: &mut Vec<Color32>) {
+    match shape {
+        Shape::Vec(shapes) => {
+            for shape in shapes {
+                strokes(shape, into);
+            }
+        }
+        Shape::Rect(rect) => into.push(rect.stroke.color),
+        _ => {}
+    }
+}
+
+/// The colours of the outlines of rectangles painted in `output`.
+pub fn rect_strokes(output: &FullOutput) -> Vec<Color32> {
+    let mut found = Vec::new();
+    for clipped in &output.shapes {
+        strokes(&clipped.shape, &mut found);
+    }
+    found
+}
+
+/// Whether a focus ring of `theme` is painted in `output`.
+pub fn paints_focus_ring(output: &FullOutput, theme: &Theme) -> bool {
+    rect_strokes(output).contains(&theme.color.focus_ring)
+}
+
+/// A press of `key` with no modifier.
+pub fn key_event(key: Key, pressed: bool) -> Event {
+    Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    }
 }
 
 /// What the widgets reported as clicked in `outputs`, as AccessKit would

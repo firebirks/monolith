@@ -3,7 +3,7 @@
 //! frame, the states and the text around it are the design system's.
 
 use egui::{
-    Color32, CornerRadius, Id, Key, Margin, Response, Sense, Stroke, StrokeKind, TextBuffer,
+    Color32, CornerRadius, Id, Key, Label, Margin, Response, Sense, Stroke, StrokeKind, TextBuffer,
     TextEdit, Ui, Vec2,
 };
 
@@ -88,8 +88,9 @@ impl<'a> TextField<'a> {
         self
     }
 
-    /// A secret, such as a passphrase: masked, and nothing of it is kept
-    /// in egui's memory (no undo history; [`forget`] removes the rest).
+    /// A secret, such as a passphrase: masked, nothing of it is kept in
+    /// egui's memory (no undo history; [`forget`] removes the rest), and
+    /// the input method of the system is off while it has the focus.
     pub fn secret(mut self, secret: bool) -> Self {
         self.secret = secret;
         self
@@ -101,7 +102,7 @@ impl<'a> TextField<'a> {
         self
     }
 
-    /// At most this many characters.
+    /// At most this many characters; typed and pasted text is cut there.
     pub fn char_limit(mut self, limit: usize) -> Self {
         self.char_limit = Some(limit);
         self
@@ -136,14 +137,17 @@ impl<'a> TextField<'a> {
             ui.spacing_mut().item_spacing = Vec2::new(0.0, theme.space.xs + 2.0);
             let mut label_id = None;
             if let Some(label) = self.label {
-                let label_response = ui.label(
-                    egui::RichText::new(label)
-                        .font(theme.text.caption_strong.font_id())
-                        .color(if self.enabled {
-                            c.text_secondary
-                        } else {
-                            c.text_disabled
-                        }),
+                let label_response = ui.add(
+                    Label::new(
+                        egui::RichText::new(label)
+                            .font(theme.text.caption_strong.font_id())
+                            .color(if self.enabled {
+                                c.text_secondary
+                            } else {
+                                c.text_disabled
+                            }),
+                    )
+                    .selectable(false),
                 );
                 label_id = Some(label_response.id);
             }
@@ -237,6 +241,15 @@ impl<'a> TextField<'a> {
                     state.clear_undoer();
                     TextEdit::store_state(ui.ctx(), edit_id, state);
                 }
+                // Nor goes to the input method of the system, which may
+                // learn it: without IME output the window turns it off.
+                if ui.memory(|memory| memory.has_focus(edit_id)) {
+                    ui.ctx().output_mut(|output| output.ime = None);
+                }
+            }
+            if !self.enabled {
+                ui.ctx()
+                    .accesskit_node_builder(edit_id, |node| node.set_disabled());
             }
             let submitted =
                 response.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
@@ -248,10 +261,13 @@ impl<'a> TextField<'a> {
                 } else {
                     c.text_tertiary
                 };
-                ui.label(
-                    egui::RichText::new(note)
-                        .font(theme.text.caption.font_id())
-                        .color(color),
+                ui.add(
+                    Label::new(
+                        egui::RichText::new(note)
+                            .font(theme.text.caption.font_id())
+                            .color(color),
+                    )
+                    .selectable(false),
                 );
             }
             output = Some(Output {

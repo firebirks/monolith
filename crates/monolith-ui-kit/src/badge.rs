@@ -71,7 +71,7 @@ impl Widget for Badge {
         interact::describe(&response, WidgetType::Label, &format!("{text} unread"));
         if ui.is_rect_visible(rect) {
             let (fill, ink) = if self.muted {
-                (c.border, c.text_secondary)
+                (c.border_subtle, c.text_secondary)
             } else {
                 (c.accent, c.text_on_accent)
             };

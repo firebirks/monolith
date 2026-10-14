@@ -156,6 +156,7 @@ impl<'a, K: Hash + PartialEq + Clone> IdentitySwitcher<'a, K> {
                     outline: Outline::RoundedSquare,
                     verified: false,
                     dim: false,
+                    anonymous: false,
                 },
             );
             let chevron = if open {
@@ -237,6 +238,7 @@ impl<'a, K: Hash + PartialEq + Clone> IdentitySwitcher<'a, K> {
                                 outline: Outline::RoundedSquare,
                                 verified: false,
                                 dim: false,
+                                anonymous: false,
                             },
                         );
                         let left = avatar_rect.right() + theme.space.md;

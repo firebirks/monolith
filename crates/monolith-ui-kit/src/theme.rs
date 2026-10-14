@@ -36,6 +36,8 @@ pub struct Palette {
     pub bg_sunken: Color32,
     /// Modals, menus, toasts and other things above the surface.
     pub bg_raised: Color32,
+    /// Cards and groups of rows laid on a surface.
+    pub bg_card: Color32,
     /// The scrim behind a modal.
     pub scrim: Color32,
     /// Laid over a control that the pointer is over.
@@ -90,12 +92,18 @@ pub struct Palette {
     pub warning: Color32,
     /// A wash of the warning colour.
     pub warning_subtle: Color32,
-    /// Something wrong, or an action that destroys.
+    /// Something wrong, or an action that destroys: text and marks.
     pub danger: Color32,
-    /// The danger colour under the pointer.
+    /// Danger text under the pointer.
     pub danger_hover: Color32,
-    /// The danger colour pressed.
+    /// Danger text pressed.
     pub danger_pressed: Color32,
+    /// The fill of a destructive button, under text on the accent.
+    pub danger_fill: Color32,
+    /// The fill of a destructive button under the pointer.
+    pub danger_fill_hover: Color32,
+    /// The fill of a destructive button pressed.
+    pub danger_fill_pressed: Color32,
     /// A wash of the danger colour.
     pub danger_subtle: Color32,
     /// The ring around the control that has keyboard focus.
@@ -455,10 +463,11 @@ impl Theme {
                 bg_surface: rgb(0xFFFFFF),
                 bg_sunken: rgb(0xF2F2EF),
                 bg_raised: rgb(0xFFFFFF),
+                bg_card: rgb(0xFFFFFF),
                 scrim: rgba(0x14151A, 92),
                 hover: rgba(0x1B1C22, 10),
                 pressed: rgba(0x1B1C22, 20),
-                selected: rgb(0xE6E9FA),
+                selected: rgb(0xEAEDFB),
                 border_subtle: rgb(0xE5E4DF),
                 border: rgb(0xD6D5CF),
                 border_strong: rgb(0xB9B8B1),
@@ -478,13 +487,16 @@ impl Theme {
                 bubble_in: rgb(0xF0F0EC),
                 bubble_in_text: rgb(0x1B1C21),
                 bubble_in_meta: rgb(0x6A6B73),
-                success: rgb(0x2E7D52),
+                success: rgb(0x2A7650),
                 success_subtle: rgb(0xE5F3EA),
-                warning: rgb(0xA8650A),
+                warning: rgb(0x8A5208),
                 warning_subtle: rgb(0xFBF0DC),
                 danger: rgb(0xC03A2B),
                 danger_hover: rgb(0xAA3122),
                 danger_pressed: rgb(0x932A1C),
+                danger_fill: rgb(0xC03A2B),
+                danger_fill_hover: rgb(0xAA3122),
+                danger_fill_pressed: rgb(0x932A1C),
                 danger_subtle: rgb(0xFBE9E6),
                 focus_ring: rgba(0x4A5BD4, 150),
                 text_selection: rgba(0x4A5BD4, 70),
@@ -514,16 +526,18 @@ impl Theme {
                 bg_surface: rgb(0x1B1C20),
                 bg_sunken: rgb(0x232429),
                 bg_raised: rgb(0x25262B),
+                bg_card: rgb(0x25262B),
                 scrim: rgba(0x000000, 150),
                 hover: rgba(0xFFFFFF, 12),
                 pressed: rgba(0xFFFFFF, 22),
                 selected: rgb(0x262B48),
-                border_subtle: rgb(0x26272C),
-                border: rgb(0x33343A),
-                border_strong: rgb(0x4A4B53),
+                // Seen on both the surface and the raised colour.
+                border_subtle: rgb(0x34363C),
+                border: rgb(0x404249),
+                border_strong: rgb(0x55575F),
                 text: rgb(0xEDEDF0),
                 text_secondary: rgb(0xA6A7AF),
-                text_tertiary: rgb(0x8E8F97),
+                text_tertiary: rgb(0x93949C),
                 text_disabled: rgb(0x55565D),
                 text_on_accent: rgb(0xFFFFFF),
                 accent: rgb(0x5566E4),
@@ -542,8 +556,13 @@ impl Theme {
                 warning: rgb(0xE3A445),
                 warning_subtle: rgb(0x3A2B12),
                 danger: rgb(0xEC6A5B),
+                // Lighter, not darker: text on a dark wash.
                 danger_hover: rgb(0xF07C6F),
-                danger_pressed: rgb(0xD9594A),
+                danger_pressed: rgb(0xF38D82),
+                // Darker than the danger text, so that white reads on it.
+                danger_fill: rgb(0xC4473A),
+                danger_fill_hover: rgb(0xB53F33),
+                danger_fill_pressed: rgb(0xA3372C),
                 danger_subtle: rgb(0x3D1D19),
                 focus_ring: rgba(0x8190F3, 170),
                 text_selection: rgba(0x6F7FF0, 90),
@@ -590,7 +609,12 @@ impl Theme {
         };
         style.interaction.tooltip_delay = 0.45;
         style.interaction.show_tooltips_only_when_still = true;
-        style.interaction.selectable_labels = true;
+        // Text is selectable only where a component or a screen says so
+        // (`Text::selectable`); elsewhere a label is not a text target.
+        style.interaction.selectable_labels = false;
+        if self.motion.reduced {
+            style.scroll_animation = egui::style::ScrollAnimation::none();
+        }
 
         let spacing = &mut style.spacing;
         spacing.item_spacing = Vec2::new(self.space.sm, self.space.sm);
@@ -610,7 +634,8 @@ impl Theme {
         spacing.scroll.dormant_background_opacity = 0.0;
         spacing.scroll.active_background_opacity = 0.0;
         spacing.scroll.interact_background_opacity = 0.0;
-        spacing.scroll.dormant_handle_opacity = 0.0;
+        // A faint handle at rest, so that a list that goes on below says so.
+        spacing.scroll.dormant_handle_opacity = 0.25;
         spacing.scroll.active_handle_opacity = 0.6;
         spacing.scroll.interact_handle_opacity = 1.0;
 
@@ -635,7 +660,7 @@ impl Theme {
         visuals.selection.bg_fill = c.text_selection;
         visuals.selection.stroke = Stroke::new(self.stroke.hairline, c.accent);
         visuals.text_cursor.stroke = Stroke::new(2.0, c.accent);
-        visuals.text_cursor.blink = true;
+        visuals.text_cursor.blink = !self.motion.reduced;
         visuals.text_cursor.on_duration = 0.6;
         visuals.text_cursor.off_duration = 0.4;
         visuals.text_cursor.preview = false;
@@ -643,7 +668,8 @@ impl Theme {
         visuals.button_frame = true;
         visuals.striped = false;
         visuals.disabled_alpha = 0.5;
-        visuals.clip_rect_margin = 3.0;
+        // Room for a focus ring at the edge of a scroll area.
+        visuals.clip_rect_margin = self.stroke.focus_gap + self.stroke.focus;
         visuals.image_loading_spinners = false;
 
         let radius = CornerRadius::same(self.radius.md);
@@ -669,11 +695,13 @@ fn theme_id() -> Id {
 }
 
 /// Installs `theme` in `ctx`: egui's style follows it, and components read
-/// it with [`current`]. Fonts are installed separately, once
-/// ([`crate::fonts::install`]).
+/// it with [`current`]. It also starts following how the focus moves
+/// ([`crate::interact::focus_visible`]). Fonts are installed separately,
+/// once ([`crate::fonts::install`]).
 pub fn install(ctx: &Context, theme: Theme) {
     ctx.set_style(theme.egui_style());
     ctx.data_mut(|data| data.insert_temp(theme_id(), Arc::new(theme)));
+    crate::interact::track_focus_source(ctx);
 }
 
 /// The installed theme, or the light theme if none was installed.

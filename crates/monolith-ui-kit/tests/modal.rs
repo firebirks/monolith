@@ -11,9 +11,9 @@
 mod common;
 
 use common::{Rig, paints};
-use egui::{Context, Id, Key, pos2};
-use monolith_ui_kit::Button;
+use egui::{Context, Event, Id, Key, Modifiers, MouseWheelUnit, Rect, pos2, vec2};
 use monolith_ui_kit::modal::{Decision, Modal};
+use monolith_ui_kit::{Button, TextField, Theme};
 
 /// Shows a modal and tells whether it asked to close.
 fn show(ctx: &Context, dismissable: bool, requested: &mut bool) {
@@ -152,6 +152,132 @@ fn the_keyboard_reaches_nothing_behind_a_modal() {
         rig.key(Key::Space, |ctx| frame(ctx, &mut clicks, true));
     }
     assert_eq!(clicks, 0);
+}
+
+/// Where the parts of a tall modal were, and whether Save was clicked.
+#[derive(Clone, Copy)]
+struct Tall {
+    card: Rect,
+    save: Rect,
+    field_id: Id,
+    save_id: Id,
+    cancel_id: Id,
+    saved: bool,
+}
+
+impl Default for Tall {
+    fn default() -> Self {
+        Self {
+            card: Rect::NOTHING,
+            save: Rect::NOTHING,
+            field_id: Id::NULL,
+            save_id: Id::NULL,
+            cancel_id: Id::NULL,
+            saved: false,
+        }
+    }
+}
+
+/// A modal with a field and forty lines of body, as tall as a contact's
+/// details.
+fn tall(ctx: &Context, seen: &mut Tall) {
+    Modal::new("tall", "Contact").show(
+        ctx,
+        |ui| {
+            let mut name = String::from("Alice");
+            let field = TextField::new("name", &mut name).label("Name");
+            seen.field_id = field.edit_id();
+            field.show(ui);
+            for line in 0..40 {
+                ui.label(format!("Line {line}"));
+            }
+        },
+        |ui| {
+            let save = ui.add(Button::primary("Save"));
+            let cancel = ui.add(Button::secondary("Cancel"));
+            seen.save = save.rect;
+            seen.save_id = save.id;
+            seen.cancel_id = cancel.id;
+            seen.saved |= save.clicked();
+        },
+    );
+    if let Some(card) = ctx.read_response(Id::new(("monolith-modal", "tall")).with("card")) {
+        seen.card = card.rect;
+    }
+}
+
+/// The smallest window the client allows.
+fn smallest() -> Rig {
+    Rig::sized(Theme::light(), Theme::light().size.window_min)
+}
+
+#[test]
+fn a_tall_modal_keeps_its_title_and_actions_inside_the_smallest_window() {
+    let mut rig = smallest();
+    let mut seen = Tall::default();
+    rig.settle(4, |ctx| tall(ctx, &mut seen));
+    let screen = rig.screen();
+    assert!(screen.contains_rect(seen.card), "{:?}", seen.card);
+    assert!(screen.contains_rect(seen.save), "{:?}", seen.save);
+    let at = seen.save.center();
+    rig.click(at, |ctx| tall(ctx, &mut seen));
+    assert!(seen.saved);
+}
+
+#[test]
+fn a_short_modal_is_only_as_tall_as_its_content() {
+    let mut rig = Rig::new();
+    let mut requested = false;
+    rig.settle(3, |ctx| show(ctx, true, &mut requested));
+    let card = rig
+        .ctx
+        .read_response(Id::new(("monolith-modal", "dialog")).with("card"))
+        .expect("the card was shown")
+        .rect;
+    assert!(card.height() < 260.0, "{card:?}");
+    assert!((card.center().y - rig.screen().center().y).abs() < 1.0);
+}
+
+#[test]
+fn the_body_of_a_tall_modal_scrolls_under_the_wheel() {
+    let mut rig = smallest();
+    let mut seen = Tall::default();
+    let before = rig.settle(4, |ctx| tall(ctx, &mut seen));
+    assert!(paints(&before, "Line 0"));
+    assert!(!paints(&before, "Line 39"));
+    let over = seen.card.center();
+    rig.frame(vec![Event::PointerMoved(over)], |ctx| tall(ctx, &mut seen));
+    let wheel = Event::MouseWheel {
+        unit: MouseWheelUnit::Point,
+        delta: vec2(0.0, -4000.0),
+        modifiers: Modifiers::NONE,
+    };
+    rig.frame(vec![wheel], |ctx| tall(ctx, &mut seen));
+    let after = rig.settle(3, |ctx| tall(ctx, &mut seen));
+    assert!(paints(&after, "Line 39"));
+    assert!(paints(&after, "Contact") && paints(&after, "Save"));
+}
+
+#[test]
+fn the_scrim_and_the_card_are_no_tab_stops() {
+    let mut rig = Rig::new();
+    let mut seen = Tall::default();
+    rig.settle(3, |ctx| tall(ctx, &mut seen));
+    let mut stops = Vec::new();
+    for _ in 0..10 {
+        rig.key(Key::Tab, |ctx| tall(ctx, &mut seen));
+        if let Some(id) = rig.ctx.memory(|memory| memory.focused()) {
+            if !stops.contains(&id) {
+                stops.push(id);
+            }
+        }
+    }
+    // The field, the two actions and the scroll bar of the body, which
+    // egui makes a stop of its own; nothing else.
+    assert_eq!(stops.len(), 4, "{stops:?}");
+    for id in [seen.field_id, seen.save_id, seen.cancel_id] {
+        assert!(stops.contains(&id));
+    }
 }
 
 fn confirm(ctx: &Context, busy: bool, decision: &mut Option<Decision>) {

@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 
 use egui::{Context, Vec2};
 use monolith_ui_kit::button::{Kind, Size};
-use monolith_ui_kit::{Button, TextField, Theme, fonts, icons, theme};
+use monolith_ui_kit::divider::Divider;
+use monolith_ui_kit::segmented::Segmented;
+use monolith_ui_kit::text::Text;
+use monolith_ui_kit::{Button, TextField, Theme, fonts, icons, interact, theme};
 use monolith_ui_snapshot::{Options, render};
 
 fn sheet(name: &str, size: Vec2, dir: &Path, mut body: impl FnMut(&mut egui::Ui)) {
@@ -16,6 +19,8 @@ fn sheet(name: &str, size: Vec2, dir: &Path, mut body: impl FnMut(&mut egui::Ui)
         fonts::install(&ctx, &[]);
         let background = theme.color.bg_app;
         theme::install(&ctx, theme.with_reduced_motion(true));
+        // Focus set by hand shows its ring, as if Tab had moved it.
+        interact::set_focus_visible(&ctx, true);
         let options = Options {
             size,
             background,
@@ -53,6 +58,47 @@ fn main() {
             ui.add(Button::secondary("Disabled").enabled(false));
             ui.add(Button::primary("Creating").busy(true));
         });
+    });
+    // Every kind of button, and a segmented control, on each surface they
+    // are put on: the content surface, a card, and a modal.
+    sheet("on-surfaces", Vec2::new(720.0, 560.0), &dir, |ui| {
+        let theme = theme::current(ui.ctx());
+        let grounds = [
+            ("surface", theme.color.bg_surface, theme.color.bg_surface),
+            ("card", theme.color.bg_card, theme.color.border_subtle),
+            ("modal", theme.color.bg_raised, theme.color.border_subtle),
+        ];
+        for (name, fill, edge) in grounds {
+            egui::Frame::new()
+                .fill(fill)
+                .stroke(egui::Stroke::new(theme.stroke.hairline, edge))
+                .corner_radius(egui::CornerRadius::same(theme.radius.lg))
+                .inner_margin(16)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        for kind in [Kind::Primary, Kind::Secondary, Kind::Ghost, Kind::Danger] {
+                            ui.add(Button::new(kind, "Save"));
+                        }
+                        ui.add(Button::primary("Off").enabled(false));
+                        ui.add(Button::secondary("Off").enabled(false));
+                    });
+                    ui.horizontal(|ui| {
+                        let mut choice = 1_u8;
+                        let options = [(0_u8, "System"), (1_u8, "Light"), (2_u8, "Dark")];
+                        ui.add(Segmented::new(name, &mut choice, &options));
+                        let mut off = 2_u8;
+                        ui.add(Segmented::new((name, "off"), &mut off, &options).enabled(false));
+                    });
+                    ui.add(Divider::horizontal());
+                    ui.add(Text::new(
+                        name,
+                        &theme.text.caption,
+                        theme.color.text_secondary,
+                    ));
+                });
+            ui.add_space(8.0);
+        }
     });
     sheet("fields", Vec2::new(720.0, 420.0), &dir, |ui| {
         let mut empty = String::new();

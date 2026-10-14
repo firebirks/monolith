@@ -88,6 +88,8 @@ pub(crate) struct Face<'a> {
     pub(crate) verified: bool,
     /// Drawn faded, for a disabled row.
     pub(crate) dim: bool,
+    /// A person glyph instead of initials.
+    pub(crate) anonymous: bool,
 }
 
 /// Paints an avatar filling `rect` (square).
@@ -98,6 +100,7 @@ pub(crate) fn paint(painter: &Painter, theme: &Theme, rect: Rect, face: Face<'_>
         outline,
         verified,
         dim,
+        anonymous,
     } = face;
     let c = &theme.color;
     let size = rect.width().min(rect.height());
@@ -121,7 +124,11 @@ pub(crate) fn paint(painter: &Painter, theme: &Theme, rect: Rect, face: Face<'_>
             painter.rect_filled(rect, CornerRadius::same(radius), fill);
         }
     }
-    let letters = initials(name);
+    let letters = if anonymous {
+        String::new()
+    } else {
+        initials(name)
+    };
     if letters.is_empty() {
         icons::USER.paint(painter, rect.center(), size * 0.5, ink);
     } else {
@@ -161,6 +168,7 @@ pub struct Avatar<'a> {
     seed: &'a [u8],
     size: AvatarSize,
     verified: bool,
+    anonymous: bool,
 }
 
 impl<'a> Avatar<'a> {
@@ -171,7 +179,16 @@ impl<'a> Avatar<'a> {
             seed,
             size: AvatarSize::Medium,
             verified: false,
+            anonymous: false,
         }
+    }
+
+    /// A person glyph instead of initials, for a contact with no name of
+    /// its own (one shown as "Contact" and a group of its fingerprint).
+    /// `name` stays its accessible name.
+    pub fn anonymous(mut self, anonymous: bool) -> Self {
+        self.anonymous = anonymous;
+        self
     }
 
     /// The size.
@@ -187,26 +204,12 @@ impl<'a> Avatar<'a> {
     }
 }
 
-fn show(
-    ui: &mut Ui,
-    name: &str,
-    seed: &[u8],
-    size: AvatarSize,
-    outline: Outline,
-    verified: bool,
-) -> Response {
+fn show(ui: &mut Ui, face: Face<'_>, size: AvatarSize) -> Response {
     let theme = theme::current(ui.ctx());
     let edge = size.points(&theme);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(edge), Sense::hover());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, name));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, face.name));
     if ui.is_rect_visible(rect) {
-        let face = Face {
-            name,
-            seed,
-            outline,
-            verified,
-            dim: false,
-        };
         paint(ui.painter(), &theme, rect, face);
     }
     response
@@ -214,14 +217,15 @@ fn show(
 
 impl Widget for Avatar<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        show(
-            ui,
-            self.name,
-            self.seed,
-            self.size,
-            Outline::Circle,
-            self.verified,
-        )
+        let face = Face {
+            name: self.name,
+            seed: self.seed,
+            outline: Outline::Circle,
+            verified: self.verified,
+            dim: false,
+            anonymous: self.anonymous,
+        };
+        show(ui, face, self.size)
     }
 }
 
@@ -253,14 +257,15 @@ impl<'a> IdentityAvatar<'a> {
 
 impl Widget for IdentityAvatar<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        show(
-            ui,
-            self.name,
-            self.seed,
-            self.size,
-            Outline::RoundedSquare,
-            false,
-        )
+        let face = Face {
+            name: self.name,
+            seed: self.seed,
+            outline: Outline::RoundedSquare,
+            verified: false,
+            dim: false,
+            anonymous: false,
+        };
+        show(ui, face, self.size)
     }
 }
 

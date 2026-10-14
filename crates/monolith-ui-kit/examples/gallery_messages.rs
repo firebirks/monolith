@@ -66,7 +66,7 @@ fn conversation(ctx: &Context, with_menu: bool) {
             );
         },
         |ui| {
-            ui.add(TorStatus::new(TorState::Connected, "Connected through Tor"));
+            ui.add(TorStatus::new(TorState::Connected, "Tor connected"));
         },
     );
     ContentPanel.show(ctx, |ui| {
@@ -245,9 +245,9 @@ fn main() {
                 .frame(egui::Frame::new().inner_margin(24))
                 .show(ctx, |ui| {
                     for (state, label) in [
-                        (TorState::Starting, "Starting"),
+                        (TorState::Starting, "Checking Tor"),
                         (TorState::Connecting, "Connecting to Tor"),
-                        (TorState::Connected, "Connected through Tor"),
+                        (TorState::Connected, "Tor connected"),
                         (TorState::Unavailable, "Tor unavailable"),
                     ] {
                         ui.add(TorStatus::new(state, label));
@@ -327,8 +327,72 @@ fn main() {
             toasts
         },
         |toasts, ctx| {
+            // Under the top bar, clear of the composer and of modal actions.
+            TopBar::new("toasts").panel(ctx, |_| {}, |_| {});
             egui::CentralPanel::default().show(ctx, |_| {});
             let _ = toasts.show(ctx);
+        },
+    );
+
+    // The smallest window and a modal taller than it: the title and the
+    // actions stay in view, the body scrolls.
+    sheet(
+        "modal-tall",
+        Theme::light().size.window_min,
+        1.0,
+        &dir,
+        || "Alice Martin".to_owned(),
+        |name, ctx| {
+            dim_backdrop(ctx);
+            Modal::new("details", "Contact").show(
+                ctx,
+                |ui| {
+                    TextField::new("details-name", name)
+                        .label("Name (only you see it)")
+                        .show(ui);
+                    for line in [
+                        "Fingerprint",
+                        "AF3K 72PQ 9XZT M4LB D8EV 61RC",
+                        "5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM",
+                        "Compare this fingerprint with the one your contact sees, in person or on a call you trust, then mark them verified.",
+                    ] {
+                        ui.label(line);
+                    }
+                    for _ in 0..3 {
+                        ui.add(Button::ghost("Block").icon(icons::BAN));
+                        ui.add(Button::ghost("Remove").icon(icons::USER_X));
+                        ui.add(Button::ghost("Delete messages").icon(icons::TRASH_2));
+                    }
+                },
+                |ui| {
+                    ui.add(Button::primary("Save"));
+                    ui.add(Button::secondary("Close"));
+                },
+            );
+        },
+    );
+
+    // A dense code at the side the screens give it: three pixels a module.
+    sheet(
+        "qr-dense",
+        Vec2::new(560.0, 520.0),
+        1.0,
+        &dir,
+        || QrMatrix::encode(&"monolith:card:1:".repeat(15)).expect("a matrix"),
+        |matrix, ctx| {
+            dim_backdrop_small(ctx);
+            Modal::new("qr-dense", "New invitation").wide(true).show(
+                ctx,
+                |ui| {
+                    ui.vertical_centered(|ui| {
+                        let side = theme::current(ui.ctx()).size.qr;
+                        ui.add(QrCode::new(matrix, "QR code of the invitation").max_side(side));
+                    });
+                },
+                |ui| {
+                    ui.add(Button::primary("Done"));
+                },
+            );
         },
     );
 

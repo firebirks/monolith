@@ -131,10 +131,13 @@ impl<'a> Composer<'a> {
                         theme.size.icon_sm,
                         c.text_tertiary,
                     );
-                    ui.label(
-                        egui::RichText::new(reason)
-                            .font(theme.text.caption.font_id())
-                            .color(c.text_secondary),
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(reason)
+                                .font(theme.text.caption.font_id())
+                                .color(c.text_secondary),
+                        )
+                        .selectable(false),
                     );
                 });
             }
@@ -189,6 +192,13 @@ impl<'a> Composer<'a> {
                             let response = edit.show(ui).response;
                             changed = response.changed();
                             edited = Some(response);
+                            // No undo history: once a message is sent and the
+                            // draft cleared, Ctrl+Z must not bring it back, and
+                            // message text stays out of egui's memory.
+                            if let Some(mut state) = TextEdit::load_state(ui.ctx(), edit_id) {
+                                state.clear_undoer();
+                                TextEdit::store_state(ui.ctx(), edit_id, state);
+                            }
                         });
                 },
             );
@@ -213,10 +223,12 @@ impl<'a> Composer<'a> {
                 hovered,
                 theme.motion.duration(theme.motion.fast),
             );
+            // The composer has the focus most of the time: a quiet border
+            // says so, and the ring shows only when Tab brought it here.
             let border = if over_limit {
                 c.danger
             } else if focused {
-                c.accent
+                c.border_strong
             } else {
                 mix(c.border, c.border_strong, hover)
             };
@@ -254,6 +266,10 @@ impl<'a> Composer<'a> {
 
         let response =
             edited.unwrap_or_else(|| ui.allocate_response(Vec2::ZERO, egui::Sense::hover()));
+        if locked {
+            ui.ctx()
+                .accesskit_node_builder(edit_id, |node| node.set_disabled());
+        }
         if self.request_focus && !focused && !locked {
             response.request_focus();
         }
@@ -266,4 +282,11 @@ impl<'a> Composer<'a> {
             response,
         }
     }
+}
+
+/// Removes everything egui keeps for the composer `edit_id` (its cursor
+/// and selection). Call when the messages of its conversation are deleted
+/// or the conversation goes away.
+pub fn forget(ctx: &egui::Context, edit_id: Id) {
+    ctx.data_mut(|data| data.remove::<egui::text_edit::TextEditState>(edit_id));
 }

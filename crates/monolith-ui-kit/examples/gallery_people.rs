@@ -10,12 +10,17 @@ use egui::{Color32, Context, Pos2, Vec2};
 use monolith_ui_kit::avatar::{Avatar, AvatarSize, IdentityAvatar};
 use monolith_ui_kit::banner::{Banner, InlineError, Tone};
 use monolith_ui_kit::empty_state::EmptyState;
+use monolith_ui_kit::fingerprint::Fingerprint;
 use monolith_ui_kit::identity_switcher::{IdentityItem, IdentitySwitcher, set_open};
 use monolith_ui_kit::invitation_row::InvitationRow;
 use monolith_ui_kit::request_card::{RequestAction, RequestCard};
 use monolith_ui_kit::rows::{ContactRow, ConversationRow, RowStatus, Secondary};
+use monolith_ui_kit::segmented::Segmented;
 use monolith_ui_kit::settings_row::{SettingsGroup, SettingsRow};
-use monolith_ui_kit::{Button, Theme, fonts, icons, theme};
+use monolith_ui_kit::{Button, Theme, fonts, icons, interact, theme};
+
+/// A fingerprint in its full form: 13 groups of four.
+const FINGERPRINT: &str = "F6QW 8NRT 3MKZ 5DPL 2XEC 9BVH 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM";
 use monolith_ui_snapshot::{Options, render};
 
 #[derive(Clone, Copy)]
@@ -43,6 +48,8 @@ fn sheet(spec: &Sheet<'_>, dir: &Path, mut body: impl FnMut(&mut egui::Ui)) {
             Ground::Surface => theme.color.bg_surface,
         };
         theme::install(&ctx, theme.with_reduced_motion(true));
+        // Focus set by hand shows its ring, as if Tab had moved it.
+        interact::set_focus_visible(&ctx, true);
         let options = Options {
             size: spec.size,
             background,
@@ -85,13 +92,15 @@ fn conversations(ui: &mut egui::Ui, focus: bool, selected: Option<u32>) {
             .preview("Waiting for them to accept")
             .timestamp("Sun")
             .statuses(&waiting)
+            .anonymous(true)
             .selected(selected == Some(3)),
     );
     ui.add(
-        ConversationRow::new(4_u32, "Dario Blocked", seeds[3])
-            .preview("You blocked this contact")
+        ConversationRow::new(4_u32, "Former contact D4XM", seeds[3])
+            .preview("Talk soon.")
             .timestamp("12 Oct")
             .statuses(&blocked)
+            .anonymous(true)
             .selected(selected == Some(4)),
     );
     ui.add(
@@ -217,6 +226,7 @@ fn main() {
         );
         ui.add(
             ContactRow::new(2_u32, "Contact 21DD", b"yy")
+                .anonymous(true)
                 .secondary(Secondary::Text("Waiting for them to accept"))
                 .trailing(|ui| {
                     ui.add(Button::secondary("Cancel").size(monolith_ui_kit::button::Size::Small));
@@ -247,6 +257,7 @@ fn main() {
                 ui.add(Avatar::new("Alice Martin", b"s1").size(size));
             }
             ui.add(Avatar::new("", b"s2"));
+            ui.add(Avatar::new("Contact C7TQ", b"s5").anonymous(true));
             ui.add(
                 Avatar::new("Bob", b"s3")
                     .verified(true)
@@ -283,7 +294,7 @@ fn main() {
                 "Their message",
                 "Hi, it is Bob from the climbing gym. I got your invitation from Dana. AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             )
-            .fingerprint("7F3A 91C2 0B44 D5E1 21DD 8E05")
+            .fingerprint(FINGERPRINT)
             .caption("Through your invitation Friends")
             .show(ui);
         ui.add_space(16.0);
@@ -294,17 +305,41 @@ fn main() {
             "Decline",
             "Block",
         )
-        .fingerprint("5B00 17AF 66E1 C0DE 1234 5678")
+        .fingerprint(FINGERPRINT)
         .busy(Some(RequestAction::Accept))
         .show(ui);
     });
-    sheet(&wide("settings", 360.0), &dir, |ui| {
+    sheet(&wide("fingerprints", 300.0), &dir, |ui| {
+        let theme = theme::current(ui.ctx());
+        ui.add(Fingerprint::new(FINGERPRINT));
+        ui.add_space(12.0);
+        ui.add(
+            Fingerprint::new(FINGERPRINT)
+                .compact(true)
+                .color(theme.color.text_secondary),
+        );
+        ui.add_space(12.0);
+        // Too narrow for six groups: fewer on each row.
+        ui.allocate_ui(Vec2::new(180.0, 120.0), |ui| {
+            ui.add(Fingerprint::new(FINGERPRINT));
+        });
+    });
+    sheet(&wide("settings", 420.0), &dir, |ui| {
         SettingsGroup::new("g").show(ui, |rows| {
             rows.row(
                 SettingsRow::new("a", "Appearance")
                     .description("Follow the system, or choose light or dark.")
                     .icon(icons::SUN)
                     .navigates(),
+            );
+            rows.row(
+                SettingsRow::new("t", "Theme")
+                    .icon(icons::MONITOR)
+                    .trailing(|ui| {
+                        let mut choice = 2_u8;
+                        let options = [(0_u8, "System"), (1_u8, "Light"), (2_u8, "Dark")];
+                        ui.add(Segmented::new("theme", &mut choice, &options));
+                    }),
             );
             rows.row(
                 SettingsRow::new("b", "Reduce motion")

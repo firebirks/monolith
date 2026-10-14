@@ -3,11 +3,14 @@
 //! [`Toasts`] is owned by the caller, in its own state: it holds the
 //! notices and their timers, and egui's memory holds nothing of them.
 //! Errors stay until the user dismisses them; the others go by
-//! themselves. At most three are shown, the newest at the bottom; the
-//! others wait their turn, with their timers not yet started.
+//! themselves. At most three are shown, at the top of the window under the
+//! top bar, clear of the composer and of the actions of a modal; the newest
+//! is at the bottom of the stack. The others wait their turn, with their
+//! timers not yet started. A screen reader is told of each as it comes.
 
 use std::time::Duration;
 
+use egui::accesskit::Live;
 use egui::{
     Align2, Area, Color32, Context, CornerRadius, Id, Order, Rect, Sense, Stroke, StrokeKind, Vec2,
     WidgetInfo, WidgetType, text::LayoutJob,
@@ -94,6 +97,8 @@ pub struct Toasts {
     items: Vec<Toast>,
     last_tick: Option<f64>,
     dismiss_label: String,
+    /// The notices shown in the last frame.
+    shown: Vec<u64>,
 }
 
 impl Toasts {
@@ -160,9 +165,17 @@ impl Toasts {
         self.items.len()
     }
 
-    /// Draws the notices above everything, at the bottom centre of the
-    /// window, and keeps their timers. Call it once per frame, last.
+    /// Draws the notices above everything, centred at the top of the
+    /// window under the height of the top bar, and keeps their timers. Call
+    /// it once per frame, last.
     pub fn show(&mut self, ctx: &Context) -> ToastsOutput {
+        self.show_in(ctx, ctx.screen_rect())
+    }
+
+    /// Like [`Toasts::show`], centred in `area` (the content panel, say,
+    /// so that the notices sit over the view they are about) and under the
+    /// height of a top bar from its top edge.
+    pub fn show_in(&mut self, ctx: &Context, area: Rect) -> ToastsOutput {
         let theme = theme::current(ctx);
         let now = ctx.input(|input| input.time);
         let elapsed = self.last_tick.map_or(0.0, |last| (now - last).max(0.0));
@@ -196,21 +209,39 @@ impl Toasts {
         let mut dismissed = Vec::new();
         let mut next_wake: Option<f64> = None;
         let dismiss_label = self.dismiss_label.clone();
+        let shown: Vec<u64> = self
+            .items
+            .iter()
+            .skip(first_visible)
+            .map(|toast| toast.id)
+            .collect();
+        if shown != self.shown {
+            // The stack changed: lay this frame out again with the new
+            // sizes rather than present it misplaced.
+            if !shown.is_empty() {
+                ctx.request_discard("the notices shown changed");
+            }
+            self.shown = shown;
+        }
         let visible: Vec<&mut Toast> = self.items.iter_mut().skip(first_visible).collect();
         if visible.is_empty() {
             return output;
         }
+        let width = theme
+            .size
+            .toast
+            .min(area.width() - theme.space.lg * 2.0)
+            .max(theme.size.control);
+        let origin = egui::pos2(
+            area.center().x - width / 2.0,
+            area.top() + theme.size.topbar + theme.space.sm,
+        );
         Area::new(Id::new("monolith-toasts"))
             .order(Order::Foreground)
-            .anchor(Align2::CENTER_BOTTOM, Vec2::new(0.0, -theme.space.xl))
+            .fixed_pos(origin)
             .interactable(true)
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = theme.space.sm;
-                let width = theme
-                    .size
-                    .toast
-                    .min(ctx.screen_rect().width() - theme.space.lg * 2.0)
-                    .max(theme.size.control);
                 for toast in visible {
                     let shown = toast.shown_at.unwrap_or(now);
                     let appear = if fade > 0.0 {
@@ -311,10 +342,20 @@ fn draw(
 
     let height = galley.size().y + pad * 2.0;
     let (slot, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
-    let rect = slot.translate(Vec2::new(0.0, slide));
+    // Comes down from above and goes back up.
+    let rect = slot.translate(Vec2::new(0.0, -slide));
     let id = Id::new(("monolith-toast", toast.id));
     let card = ui.interact(rect, id, Sense::hover());
     card.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, toast.text.as_str()));
+    // A live region: a screen reader reads the notice when it comes, at
+    // once for an error, after what it is reading for the others.
+    let live = if toast.kind == Kind::Error {
+        Live::Assertive
+    } else {
+        Live::Polite
+    };
+    ui.ctx()
+        .accesskit_node_builder(id, |node| node.set_live(live));
 
     let radius = CornerRadius::same(theme.radius.lg);
     let painter = ui.painter();

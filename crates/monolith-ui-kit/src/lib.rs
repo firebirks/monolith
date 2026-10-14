@@ -15,6 +15,7 @@ pub mod chrome;
 pub mod composer;
 pub mod divider;
 pub mod empty_state;
+pub mod fingerprint;
 pub mod fonts;
 pub mod icon_button;
 pub mod icons;

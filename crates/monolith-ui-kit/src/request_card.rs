@@ -2,10 +2,14 @@
 //! (their words, marked as such), their fingerprint, and the three ways to
 //! answer.
 
-use egui::{Align, CornerRadius, Frame, Id, Label, Layout, Margin, Stroke, Ui, Vec2, WidgetType};
+use egui::{
+    Align, CornerRadius, Frame, Id, Label, Layout, Margin, Sense, Stroke, Ui, UiBuilder, Vec2,
+    WidgetType,
+};
 
 use crate::avatar::{Avatar, AvatarSize};
 use crate::button::{Button, Size};
+use crate::fingerprint::Fingerprint;
 use crate::interact;
 use crate::rows::{QuietDanger, wrapped};
 use crate::theme;
@@ -116,7 +120,7 @@ impl<'a> RequestCard<'a> {
         let c = &theme.color;
         let mut output = Output::default();
         let frame = Frame::new()
-            .fill(c.bg_surface)
+            .fill(c.bg_card)
             .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))
             .corner_radius(CornerRadius::same(theme.radius.lg))
             .inner_margin(Margin::same(16));
@@ -131,7 +135,7 @@ impl<'a> RequestCard<'a> {
                         ui.spacing_mut().item_spacing.y = 1.0;
                         let width = ui.available_width();
                         let title = wrapped(ui, self.title, &theme.text.heading, c.text, width, 3);
-                        ui.add(Label::new(title));
+                        ui.add(Label::new(title).selectable(false));
                         if !self.caption.is_empty() {
                             let caption = wrapped(
                                 ui,
@@ -141,7 +145,7 @@ impl<'a> RequestCard<'a> {
                                 width,
                                 3,
                             );
-                            ui.add(Label::new(caption));
+                            ui.add(Label::new(caption).selectable(false));
                         }
                     });
                 });
@@ -156,14 +160,17 @@ impl<'a> RequestCard<'a> {
                             ui.set_width(ui.available_width());
                             ui.spacing_mut().item_spacing.y = theme.space.xs;
                             let width = ui.available_width();
-                            ui.add(Label::new(wrapped(
-                                ui,
-                                label,
-                                &theme.text.caption_strong,
-                                c.text_tertiary,
-                                width,
-                                1,
-                            )));
+                            ui.add(
+                                Label::new(wrapped(
+                                    ui,
+                                    label,
+                                    &theme.text.caption_strong,
+                                    c.text_tertiary,
+                                    width,
+                                    1,
+                                ))
+                                .selectable(false),
+                            );
                             let quote = Frame::new().inner_margin(Margin {
                                 left: 11,
                                 right: 0,
@@ -198,22 +205,10 @@ impl<'a> RequestCard<'a> {
                 }
 
                 if !self.fingerprint.is_empty() {
-                    let width = ui.available_width();
-                    let token = crate::theme::TextToken {
-                        size: theme.text.caption.size,
-                        line_height: theme.text.caption.line_height + 2.0,
-                        ..theme.text.mono.clone()
-                    };
                     ui.add(
-                        Label::new(wrapped(
-                            ui,
-                            self.fingerprint,
-                            &token,
-                            c.text_secondary,
-                            width,
-                            3,
-                        ))
-                        .selectable(true),
+                        Fingerprint::new(self.fingerprint)
+                            .compact(true)
+                            .color(c.text_secondary),
                     );
                 }
 
@@ -221,31 +216,47 @@ impl<'a> RequestCard<'a> {
                 let any_busy = self.busy.is_some();
                 let usable = |action: RequestAction| !any_busy || self.busy == Some(action);
                 let (accept, decline, block) = self.labels;
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = theme.space.sm;
-                    let blocked = ui.add(QuietDanger {
-                        label: block,
-                        size: Size::Medium,
-                        enabled: usable(RequestAction::Block),
-                        busy: self.busy == Some(RequestAction::Block),
-                    });
-                    output.block = blocked.clicked();
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = theme.space.sm;
-                        let accepted = ui.add(
-                            Button::primary(accept)
-                                .enabled(usable(RequestAction::Accept))
-                                .busy(self.busy == Some(RequestAction::Accept)),
-                        );
-                        output.accept = accepted.clicked();
-                        let declined = ui.add(
-                            Button::secondary(decline)
-                                .enabled(usable(RequestAction::Decline))
-                                .busy(self.busy == Some(RequestAction::Decline)),
-                        );
-                        output.decline = declined.clicked();
-                    });
+                // Block sits at the left but comes last from the keyboard:
+                // Tab reaches Accept and Decline first, so that Enter or
+                // Space on the first stop never blocks anyone.
+                let (row, _) = ui.allocate_exact_size(
+                    Vec2::new(ui.available_width(), theme.size.control),
+                    Sense::hover(),
+                );
+                let mut answers = ui.new_child(
+                    UiBuilder::new()
+                        .id_salt("answers")
+                        .max_rect(row)
+                        .layout(Layout::right_to_left(Align::Center)),
+                );
+                answers.spacing_mut().item_spacing.x = theme.space.sm;
+                let accepted = answers.add(
+                    Button::primary(accept)
+                        .enabled(usable(RequestAction::Accept))
+                        .busy(self.busy == Some(RequestAction::Accept)),
+                );
+                output.accept = accepted.clicked();
+                let declined = answers.add(
+                    Button::secondary(decline)
+                        .enabled(usable(RequestAction::Decline))
+                        .busy(self.busy == Some(RequestAction::Decline)),
+                );
+                output.decline = declined.clicked();
+                let mut left = row;
+                left.max.x = (answers.min_rect().left() - theme.space.sm).max(row.left());
+                let mut blocking = ui.new_child(
+                    UiBuilder::new()
+                        .id_salt("block")
+                        .max_rect(left)
+                        .layout(Layout::left_to_right(Align::Center)),
+                );
+                let blocked = blocking.add(QuietDanger {
+                    label: block,
+                    size: Size::Medium,
+                    enabled: usable(RequestAction::Block),
+                    busy: self.busy == Some(RequestAction::Block),
                 });
+                output.block = blocked.clicked();
             });
         });
         interact::describe(&shown.response, WidgetType::Label, self.title);

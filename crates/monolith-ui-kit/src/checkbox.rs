@@ -87,7 +87,13 @@ impl Widget for Checkbox<'_> {
             response.mark_changed();
         }
         let checked = *self.value;
-        interact::describe_selectable(&response, WidgetType::Checkbox, self.label, checked);
+        interact::describe_selectable_enabled(
+            &response,
+            WidgetType::Checkbox,
+            self.label,
+            checked,
+            self.enabled,
+        );
 
         if ui.is_rect_visible(rect) {
             let state = if self.enabled {

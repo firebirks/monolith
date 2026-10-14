@@ -199,7 +199,7 @@ impl SettingsRows<'_> {
         };
         let response = ui.interact(rect, row.id, sense);
         let label = join_label(&[row.title, row.description]);
-        interact::describe(&response, WidgetType::Button, &label);
+        interact::describe_enabled(&response, WidgetType::Button, &label, row.enabled);
         let state = State {
             enabled: row.enabled,
             ..State::of(ui, &response, row.id, &theme, false)
@@ -308,7 +308,7 @@ impl SettingsGroup {
         let theme = theme::current(ui.ctx());
         let c = &theme.color;
         let frame = Frame::new()
-            .fill(c.bg_surface)
+            .fill(c.bg_card)
             .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))
             .corner_radius(CornerRadius::same(theme.radius.lg))
             .inner_margin(Margin::ZERO);

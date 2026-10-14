@@ -154,7 +154,7 @@ impl Widget for MenuItem<'_> {
         };
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(content + pad * 2.0, height), sense);
-        interact::describe(&response, WidgetType::Button, self.label);
+        interact::describe_enabled(&response, WidgetType::Button, self.label, self.enabled);
         if ui.is_rect_visible(rect) {
             let state = State::of(ui, &response, response.id, &theme, false);
             let state = State {
