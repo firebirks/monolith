@@ -206,7 +206,30 @@ what its reviews added:
   lost service that leaves the proof standing, waiting dials that each
   make their own, a filter's answer taken as a proof, a status query that
   greets an unlisted endpoint, and the desktop that dials without the
-  proof (UI35 to UI43).
+  proof (UI35 to UI43);
+- a card is not an invitation (`docs/DESIGN_QUESTIONS.md` P6-20): every
+  contact or every added card said to carry an invitation, by the runtime
+  or the bridge, "Add contact" closed after a plain card or kept open after
+  the card of an accepted contact, the card typed kept once the contact is
+  added, a plain card's contact said to wait for an acceptance, the
+  waiting notice's button or "Show my card" that opens nothing, the own
+  card that ignores the request mode, and a card file read that lands in a
+  dialog whose contact was added (UI50 to UI61);
+- closing and delivery: what was typed during a send cleared, or the sent
+  text left in the draft, ended conversations counted as waiting, a session
+  that saves nothing or messages not delivered that close without a
+  question, a close agreed to that asks again, a close not cancelled, the
+  window hidden while it asks, Close Monolith that does not close, the
+  question not asked over an open dialog, shortcuts behind it, and the time
+  of the next attempt counted from nothing, kept with nothing queued, said
+  while Tor is down or never said again (UI62 to UI76);
+- unblocking (P6-21): a handle of another identity or of an instance from
+  before, the first blocked identity unblocked whatever the handle, every
+  record listed as blocked, someone not listed unblocked, the blocked people
+  of another identity kept, a late answer that reads the identity shown, a
+  refused unblock told as done, a number kept for someone unblocked, a
+  refusal told as unexpected, and the Unblock button of one row that acts
+  on another or does nothing (UI77 to UI87).
 
 UI33 first removed the scrim's interaction and the modal layer together;
 the scrim's own widget still shielded the pointer, so it survived. It is
