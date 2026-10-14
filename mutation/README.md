@@ -12,7 +12,7 @@ key kept.
 
 ## Files
 
-- `faults.py`: the lists `PHASE1` to `PHASE5`. An entry names the
+- `faults.py`: the lists `PHASE1` to `PHASE6`. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
@@ -20,6 +20,7 @@ key kept.
 ## Running
 
     python3 mutation/run.py all 3
+    python3 mutation/run.py phase6 3
     python3 mutation/run.py phase5 3
     python3 mutation/run.py phase4 3
     python3 mutation/run.py phase3 3
@@ -44,7 +45,10 @@ with a time newer than any build, so that cargo never runs the build of a
 fault after it. A copy that fails one of these checks stops the run: the
 build system, not the code, would decide the results after it. For each fault it runs the tests of
 the crate that holds the fault and of every crate that depends on it,
-with `--no-fail-fast`, so the result names every test that noticed.
+with `--no-fail-fast`, so the result names every test that noticed. When
+`monolith-ui` is among them, its `fixtures` feature is on, so that the
+tests of the screens run in the states their fixtures build. The runner
+runs on Linux.
 
 Outcomes:
 
@@ -63,7 +67,7 @@ each fault that reached it.
 
 The results go to `mutation/results-<list>-<commit>.json`. The exit code
 is 0 if every fault had the outcome its entry expects, and 1 otherwise. A
-full run of all five lists takes more than a day with two workers on
+full run of all six lists takes more than a day with two workers on
 four cores; a fault caught only by the timeout takes the whole of it.
 
 When code moves, a pattern may no longer match. The runner then stops
@@ -161,6 +165,53 @@ of `75ccf7c`: no test queued more while an acknowledgement stayed away
 and looked at when the session ended. It is caught since by a test
 written for it
 (`docs/DESIGN_QUESTIONS.md` section 12.7).
+
+The Phase 6 list, UI1 and up, covers the desktop client
+(`docs/adr/0010-gui-toolkit-egui.md` to `0012-design-system.md`) and
+what its reviews added:
+
+- the UI model: a late answer or event of one identity taken for another,
+  contacts of another identity kept, a confirmation that acts on the
+  selection instead of the handles it captured, missed events not followed
+  by a full read, drafts cleared by a refused send or by a send of another
+  conversation, the state of a deleted identity kept, a dialog of one
+  identity left open over another, a burst of events read one by one, an
+  ended conversation or a request no longer listed acted on, an answer to
+  no command in flight taken, and a failure told in its debug form (UI1 to
+  UI14);
+- secrets and diagnostics: the passphrase in `Debug` output, the card of a
+  closed dialog kept, the undo history of a secret field or of the
+  composer, the input method left on in a secret field (UI15, UI27, UI31,
+  UI47, UI48);
+- the boundary of the window: a request to open a URL that reaches the
+  system, sessions coming and going that reach the window (UI16, UI21);
+- the bridge: a request or invitation number taken for another identity,
+  the references of one identity forgotten with another's, a number given
+  twice, the answer of one command given for another (UI17 to UI20);
+- files: a settings value that adds a line, Tor settings without a cookie
+  file, a saved card that replaces a file, the size limit of a card file,
+  a device read as a card (UI22 to UI26);
+- the screens and the design system: a queued message marked delivered,
+  a stock egui label, a sender's chosen name made the title of a request,
+  a colour of a screen's own, a disabled or busy button that takes clicks,
+  the keyboard reaching behind a modal, a modal closed while its action
+  runs, a control that takes no input reacting to the pointer (UI3, UI28
+  to UI30, UI32 to UI34, UI49);
+- how a peer's text is drawn: a direction-changing character drawn as it
+  is, an over-long grapheme cluster drawn whole, a collapsed message drawn
+  in full (UI44 to UI46);
+- the proof that the SOCKS endpoint is Tor's (`docs/THREAT_MODEL.md`
+  adversary O): a dial without it, a proof that outlives its lifetime,
+  any listed listener taken for the configured one, a failed dial or a
+  lost service that leaves the proof standing, waiting dials that each
+  make their own, a filter's answer taken as a proof, a status query that
+  greets an unlisted endpoint, and the desktop that dials without the
+  proof (UI35 to UI43).
+
+UI33 first removed the scrim's interaction and the modal layer together;
+the scrim's own widget still shielded the pointer, so it survived. It is
+now the modal layer alone, which lets the keyboard reach what is behind a
+modal, and a test catches it.
 
 A retry that goes around Tor has no fault: no crate outside `monolith-tor`
 opens a socket (`docs/SECURITY_INVARIANTS.md` S1), and every attempt of
