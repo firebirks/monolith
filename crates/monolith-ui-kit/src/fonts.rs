@@ -27,12 +27,15 @@ const LUCIDE: &[u8] = include_bytes!("../assets/fonts/LucideMonolith.ttf");
 const NOTO_EMOJI: &[u8] = include_bytes!("../assets/fonts/NotoEmoji-Regular.ttf");
 
 /// A font the caller adds after the bundled ones, for scripts they lack.
+/// Its file is borrowed for the life of the process, as the bundled ones
+/// are: egui keeps a copy of a font it is given to own, and a font of
+/// Chinese characters is 20 MiB.
 #[derive(Clone)]
 pub struct Fallback {
     /// A name of the caller's choice, unique among fallbacks.
     pub name: String,
     /// The font file.
-    pub data: Arc<Vec<u8>>,
+    pub data: &'static [u8],
     /// The face within a collection, 0 for a single font.
     pub index: u32,
 }
@@ -61,7 +64,7 @@ pub fn definitions(fallbacks: &[Fallback]) -> FontDefinitions {
     add(ICONS, FontData::from_static(LUCIDE));
     add(EMOJI, FontData::from_static(NOTO_EMOJI));
     for fallback in fallbacks {
-        let mut font = FontData::from_owned(fallback.data.as_ref().clone());
+        let mut font = FontData::from_static(fallback.data);
         font.index = fallback.index;
         add(&fallback.name, font);
     }

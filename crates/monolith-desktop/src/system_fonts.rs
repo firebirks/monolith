@@ -2,9 +2,11 @@
 //! (`docs/adr/0012-design-system.md`): from a fixed list of paths, when
 //! they exist and are not larger than [`MAX_FONT`].
 
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use egui::{Context, FontData, FontDefinitions, FontFamily, RawInput};
 use monolith_ui_kit::fonts::Fallback;
 
 /// The largest font file loaded.
@@ -53,7 +55,31 @@ fn candidates() -> Vec<(&'static str, Vec<PathBuf>)> {
     }
 }
 
-/// The fallback fonts found.
+/// Whether egui can read the face `index` of `data`. egui stops the
+/// process on a font it cannot read, when it first lays out text; a system
+/// font that is damaged is left out instead. The check borrows the file as
+/// egui will, so that it makes no copy of it.
+fn readable(data: &'static [u8], index: u32) -> bool {
+    let mut font = FontData::from_static(data);
+    font.index = index;
+    let mut definitions = FontDefinitions::empty();
+    definitions
+        .font_data
+        .insert("candidate".to_owned(), Arc::new(font));
+    definitions
+        .families
+        .insert(FontFamily::Proportional, vec!["candidate".to_owned()]);
+    let ctx = Context::default();
+    ctx.set_fonts(definitions);
+    // The fonts are made at the start of a frame.
+    std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let _ = ctx.run(RawInput::default(), |_| {});
+    }))
+    .is_ok()
+}
+
+/// The fallback fonts found. Each file is kept for the life of the process,
+/// once: egui borrows it from there.
 pub fn load() -> Vec<Fallback> {
     candidates()
         .into_iter()
@@ -64,12 +90,33 @@ pub fn load() -> Vec<Fallback> {
                     return None;
                 }
                 let data = std::fs::read(path).ok()?;
-                (u64::try_from(data.len()).ok()? <= MAX_FONT).then(|| Fallback {
+                if u64::try_from(data.len()).ok()? > MAX_FONT {
+                    return None;
+                }
+                // Kept from here on; a damaged file stays unused.
+                let data: &'static [u8] = Box::leak(data.into_boxed_slice());
+                readable(data, 0).then(|| Fallback {
                     name: name.to_owned(),
-                    data: Arc::new(data),
+                    data,
                     index: 0,
                 })
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_that_is_not_a_font_is_left_out() {
+        // The default hook would print the panic egui raises; it is the
+        // expected outcome here.
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let refused = !readable(b"not a font at all", 0);
+        std::panic::set_hook(hook);
+        assert!(refused);
+    }
 }
