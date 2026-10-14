@@ -3,10 +3,10 @@
 //! `fixtures` feature, which the binary does not enable.
 
 use monolith_ui_model::{
-    Command, ContactView, ConversationView, Deferral, Dialog, IdentitySnapshot, IdentityView,
-    InvitationView, MessageView, Model, Outcome, ProfileOnDisk, RequestMode, RequestView,
-    RuntimeEvent, Service, Status, TorCheck, UiContactId, UiIdentityId, UiInvitationId,
-    UiMessageId, UiRequestId, Update,
+    BlockedView, Command, ContactView, ConversationView, Deferral, Dialog, IdentitySnapshot,
+    IdentityView, InvitationView, MessageView, Model, Outcome, ProfileOnDisk, RequestMode,
+    RequestView, RuntimeEvent, Service, Status, TorCheck, UiBlockedId, UiContactId, UiIdentityId,
+    UiInvitationId, UiMessageId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -44,6 +44,7 @@ pub const NAMES: &[&str] = &[
     "settings-appearance",
     "settings-identities",
     "settings-nobody",
+    "settings-blocked",
     "settings-tor",
     "settings-data",
     "about",
@@ -70,6 +71,7 @@ const CAROL_FP: &str = "C7TQ 2ZKW 8MPE 4NRD 6VBX 3HLA";
 const DANA_FP: &str = "D4XM 9QTB 2KWE 7RLN 5PZC 8HVA";
 const ERIN_FP: &str = "E9KR 3TWM 6ZQP 2BLD 7NXC 4VHE";
 const FRANK_FP: &str = "F6QW 8NRT 3MKZ 5DPL 2XEC 9BVH";
+const GREG_FP: &str = "G3VD 8KTN 5QWZ 2MLE 7XRC 4PBH";
 const OWN_FP: &str = "M0N0 L1TH 7QZK 4WPE 9RTD 2XBC";
 const WORK_FP: &str = "W0RK 4ZQP 8TNM 2KLE 6XRD 9VBC";
 
@@ -245,6 +247,9 @@ struct Builder {
     /// Carol, who has not accepted, was added by an invitation, not by
     /// her card.
     carol_invited: bool,
+    /// The personal identity blocked Dana, a contact, and Greg, who sent a
+    /// request.
+    blocked: bool,
 }
 
 impl Builder {
@@ -259,6 +264,7 @@ impl Builder {
             bob_new: 0,
             long: false,
             carol_invited: true,
+            blocked: false,
         }
     }
 
@@ -333,6 +339,7 @@ impl Builder {
                 conversations: Vec::new(),
                 requests: Vec::new(),
                 invitations: Vec::new(),
+                blocked: Vec::new(),
                 service: self.service,
                 request_mode: RequestMode::Invitation,
             }))),
@@ -456,6 +463,19 @@ impl Builder {
                     label: Some("Laptop".to_owned()),
                 },
             ],
+            blocked: if self.blocked {
+                [DANA_FP, GREG_FP]
+                    .into_iter()
+                    .zip(1..)
+                    .map(|(fingerprint, handle)| BlockedView {
+                        id: UiBlockedId::new(personal, handle),
+                        fingerprint: fingerprint.to_owned(),
+                        full_fingerprint: full(fingerprint),
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
             service: self.service,
             request_mode: self.mode,
         }
@@ -688,6 +708,11 @@ pub fn fixture(name: &str) -> Option<App> {
         "settings-nobody" => {
             let mut builder = Builder::new().started(true);
             builder.mode = RequestMode::Closed;
+            settings(builder.ready().app(), SettingsPage::Identities)
+        }
+        "settings-blocked" => {
+            let mut builder = Builder::new().started(true);
+            builder.blocked = true;
             settings(builder.ready().app(), SettingsPage::Identities)
         }
         "settings-tor" => settings(standard().app(), SettingsPage::Tor),

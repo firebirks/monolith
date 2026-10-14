@@ -1662,6 +1662,7 @@ mod tests {
                         conversations: Vec::new(),
                         requests: requests.clone(),
                         invitations: Vec::new(),
+                        blocked: Vec::new(),
                         service: Service::Available,
                         request_mode: RequestMode::Invitation,
                     })),

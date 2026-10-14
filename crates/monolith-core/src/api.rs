@@ -20,6 +20,10 @@ use core::time::Duration;
 
 pub use monolith_storage::record::{ContactId, IdentityId};
 
+/// The length of a fingerprint (`monolith_identity::FINGERPRINT_LEN`); a
+/// handle made from one of another length does not compile.
+const FINGERPRINT_LEN: usize = 32;
+
 /// One message of a conversation: its local identity, its contact record,
 /// its place in the conversation. Never the same for two messages of the
 /// installation.
@@ -199,6 +203,9 @@ pub enum CommandError {
     /// No such invitation: it was revoked, or belongs to another identity
     /// or to an instance of it from before.
     UnknownInvitation,
+    /// No such blocked identity: it was unblocked, or the handle belongs
+    /// to another identity or to an instance of it from before.
+    NotBlocked,
 }
 
 impl fmt::Display for CommandError {
@@ -216,6 +223,7 @@ impl fmt::Display for CommandError {
             Self::ShuttingDown => "shutting down",
             Self::UnknownRequest => "no such request",
             Self::UnknownInvitation => "no such invitation",
+            Self::NotBlocked => "not blocked",
         })
     }
 }
@@ -269,6 +277,37 @@ impl InvitationRef {
     }
 }
 
+/// An identity a local identity blocked, as a front end names it: its
+/// local identity, and the fingerprint blocked bound to that instance of
+/// the identity, which is not kept across restarts. Only a query makes
+/// one.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BlockedRef {
+    /// The local identity that blocked it.
+    pub identity: IdentityId,
+    /// The instance of the identity and the fingerprint blocked.
+    blocked: (u64, [u8; FINGERPRINT_LEN]),
+}
+
+impl BlockedRef {
+    pub(crate) const fn new(identity: IdentityId, blocked: (u64, [u8; FINGERPRINT_LEN])) -> Self {
+        Self { identity, blocked }
+    }
+
+    pub(crate) const fn blocked(&self) -> (u64, [u8; FINGERPRINT_LEN]) {
+        self.blocked
+    }
+}
+
+impl fmt::Debug for BlockedRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Not whom: a fingerprint is not printed.
+        f.debug_struct("BlockedRef")
+            .field("identity", &self.identity)
+            .finish_non_exhaustive()
+    }
+}
+
 /// A contact request, for display. The display name and the introduction
 /// are the sender's own words: data, never a statement of who the sender
 /// is.
@@ -310,6 +349,26 @@ impl fmt::Debug for InvitationSummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InvitationSummary")
             .field("invitation", &self.invitation)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A blocked identity, for a list. The contact store keeps nothing of it
+/// but its key: no name, no card.
+#[derive(Clone, PartialEq, Eq)]
+pub struct BlockedSummary {
+    /// Which.
+    pub blocked: BlockedRef,
+    /// The fingerprint of its identity key, compact.
+    pub fingerprint: String,
+    /// The same fingerprint in its full form.
+    pub full_fingerprint: String,
+}
+
+impl fmt::Debug for BlockedSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BlockedSummary")
+            .field("blocked", &self.blocked)
             .finish_non_exhaustive()
     }
 }

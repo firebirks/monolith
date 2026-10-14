@@ -2163,13 +2163,13 @@ P6-3 Design system (`adr/0012-design-system.md`): one theme of tokens, a
 P6-4 What the runtime adds for a front end, wrapping what the core already
     does: contact requests (list, accept, decline, block the sender),
     invitations (create, list, show the card again, revoke, revoke and
-    discard their requests), the local name of a contact (a new operation
-    of the contact store, durable before it returns), marking a contact
-    verified, the request mode of an identity, the state of the Onion
-    Service of each identity as a query, and a check of the Tor endpoints.
-    Requests and invitations keep the identifiers of the core, which are
-    local to one instance of an identity. Nothing changes on the wire or in
-    delivery.
+    discard their requests), the identities an identity blocked (list,
+    unblock; P6-21), the local name of a contact (a new operation of the
+    contact store, durable before it returns), marking a contact verified,
+    the request mode of an identity, the state of the Onion Service of each
+    identity as a query, and a check of the Tor endpoints. Requests and
+    invitations keep the identifiers of the core, which are local to one
+    instance of an identity. Nothing changes on the wire or in delivery.
 
 P6-5 Names. A contact is shown by the name the user gave it; without one,
     as "Contact" with the first group of its fingerprint. A request shows
@@ -2277,6 +2277,28 @@ P6-20 A card and an invitation are told apart (review finding B1: a
     the other side may take requests from anyone is not known and not
     said. The own card dialog says what a card alone does under the
     identity's request mode.
+P6-21 Unblocking (review finding B3: a block could not be undone in the
+    client). `Messenger::blocked` lists the identities an identity blocked,
+    with their fingerprints: the contact store keeps nothing else of a
+    blocked identity, no name and no card. Each is named by a `BlockedRef`:
+    the local identity, its instance, and the fingerprint blocked. Only
+    the query makes one; `Messenger::unblock` refuses one of another
+    identity or of an instance from before (the profile opened again) with
+    `CommandError::NotBlocked`, as it does for an identity not blocked now.
+    The handle names the identity blocked, not one block of it: giving each
+    block an identifier would change the records of the contact store and
+    the vault. The bridge forgets the number of someone no longer listed:
+    once a read of the identity has shown them unblocked, their old number
+    names nothing, also if they are blocked again. Unblocking is
+    `LocalIdentity::unblock` of Phase 4, durable when it returns: the
+    identity has no record at all afterwards, as one never met. It is not a
+    contact again and not on the declined list; a request of its is
+    considered as the request mode says (with "invitations only", only with
+    an active invitation; with "nobody", never); an import of its card
+    makes a requested contact with a new record and a new conversation; the
+    conversation that ended with the block stays ended. The client unblocks
+    without a confirmation, since blocking again undoes it, and says so in
+    a toast.
 
 ### 13.2 Not part of Phase 6
 

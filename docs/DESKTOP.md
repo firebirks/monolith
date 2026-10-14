@@ -59,17 +59,21 @@ The bridge runs queries and forwards events in one task, in order, so that
 the model sees them in an order the runtime went through. A command that
 writes or waits (sending, accepting, revoking, checking Tor) runs as a task
 of its own and reports back through that same task. Reading one identity
-(contacts, conversations, requests, invitations, the state of its service,
-its request mode) is one run of queries with nothing in between.
+(contacts, conversations, requests, invitations, the people it blocked,
+the state of its service, its request mode) is one run of queries with
+nothing in between.
 
 Every command carries the handles it acts on (`UiIdentityId`,
-`UiContactId`, `UiMessageId`, `UiRequestId`, `UiInvitationId`), and its
-answer names the command. Identity, contact and message handles hold the
-durable identifiers of the runtime. Requests and invitations, whose
-references in the core are local to one instance of an identity, get a
-number from the bridge, never given twice in a process; the bridge checks
-on every use that the number belongs to the identity the command names, so
-a number of one identity names nothing of another.
+`UiContactId`, `UiMessageId`, `UiRequestId`, `UiInvitationId`,
+`UiBlockedId`), and its answer names the command. Identity, contact and
+message handles hold the durable identifiers of the runtime. Requests,
+invitations and blocked people, whose references in the core are local to
+one instance of an identity, get a number from the bridge, never given
+twice in a process; the bridge checks on every use that the number belongs
+to the identity the command names, so a number of one identity names
+nothing of another. A number is forgotten once a read of its identity no
+longer lists what it names: someone unblocked and, after such a read,
+blocked again gets a new number, and the old one names nothing.
 
 Errors of the runtime are mapped to one of the fixed sentences of
 `monolith_ui_model::Failure` (`crates/monolith-desktop/src/convert.rs`).
@@ -79,11 +83,11 @@ the screen, a log or the settings file.
 ## 4. What is shown, and from where
 
 Everything authoritative on screen (identities, contacts, conversations,
-messages and their status, requests, invitations, the state of Tor) is
-what a query of the runtime answered, kept per identity. The model never
-changes it on its own. Events are notifications: one makes the model read
-again the part of the state it names, for the identity it names; many
-events about one part make one read. Transient state belongs to the window:
+messages and their status, requests, invitations, the people blocked, the
+state of Tor) is what a query of the runtime answered, kept per identity.
+The model never changes it on its own. Events are notifications: one makes
+the model read again the part of the state it names, for the identity it
+names; many events about one part make one read. Transient state belongs to the window:
 the selection (a handle), the open dialog (with the handles it captured when
 it opened), drafts, the filter, focus.
 
@@ -186,6 +190,19 @@ identity switcher gives each identity its own counts.
 - Requests: listed with the sender's fingerprint, the invitation that
   admitted them, and the name and introduction the sender chose, quoted as
   their words; accepted (naming the contact), declined or blocked.
+- Blocking: a contact from the menu of its conversation or its details,
+  the sender of a request from the request, each after a confirmation.
+  Someone blocked cannot reach the identity: no session, no request, no
+  message.
+- Unblocking: Settings > Identities lists, under each identity, the people
+  it blocked by their short fingerprint, the only thing the contact store
+  keeps of them (P6-14), each with Unblock; an identity that blocked nobody
+  says so in one line. Unblocking takes no confirmation, since blocking
+  again undoes it, and a toast says what it did. Someone unblocked has no
+  record at all (P6-21): not a contact again and not declined; a request
+  from them is considered as the request mode says, and adding their card
+  makes a new contact with a new conversation. A conversation that ended
+  with the block stays ended.
 - Invitations: made with a label only the user sees, shown as a card with
   its QR code, copied or saved, listed with "N of 16 active", revoked with
   or without the requests they admitted.
@@ -195,6 +212,7 @@ identity switcher gives each identity its own counts.
 - Destructive actions (block, remove a contact, delete messages on this
   device, revoke, delete an identity) each have a confirmation that names
   what happens, and are shown done only when the runtime says so.
+  Unblocking is not one of them: it is undone by blocking again.
 - Closing: the window's close button, Alt+F4 and a close by the system take
   one path (`window::close_or_ask`; the client has no Quit shortcut of its
   own). When closing costs nothing the window is hidden at once and the
@@ -331,7 +349,8 @@ drawn; frames happen only on input or events, and the window holds at most
 - The name the user gave a contact is not kept once it is blocked or
   removed: the contact store keeps no record of it, and the conversation
   that stays is shown as "Former contact" and the first group of the
-  fingerprint (P6-14).
+  fingerprint (P6-14). The list of blocked people shows fingerprints
+  only, for the same reason.
 - QR codes are shown, never scanned (P6-11).
 - A contact added by a card that is not an invitation is said to wait until
   it adds the user's card. The client cannot know whether that side takes

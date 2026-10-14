@@ -5,7 +5,9 @@
 
 use core::fmt;
 
-use crate::ids::{UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId};
+use crate::ids::{
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+};
 
 /// A local identity.
 #[derive(Clone, PartialEq, Eq)]
@@ -166,6 +168,26 @@ pub struct InvitationView {
 impl fmt::Debug for InvitationView {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InvitationView")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Someone an identity blocked. The runtime keeps nothing of them but
+/// their key: no name.
+#[derive(Clone, PartialEq, Eq)]
+pub struct BlockedView {
+    /// Which.
+    pub id: UiBlockedId,
+    /// Their fingerprint, compact.
+    pub fingerprint: String,
+    /// Their fingerprint, full.
+    pub full_fingerprint: String,
+}
+
+impl fmt::Debug for BlockedView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BlockedView")
             .field("id", &self.id)
             .finish_non_exhaustive()
     }

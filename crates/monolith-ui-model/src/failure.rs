@@ -33,6 +33,8 @@ pub enum Failure {
     NoSuchRequest,
     /// The invitation was revoked.
     NoSuchInvitation,
+    /// The person was unblocked already.
+    NotBlocked,
     /// The record is not a contact that can receive messages.
     NotAContact,
     /// The card does not parse or does not verify.
@@ -96,6 +98,7 @@ impl Failure {
             Self::NoSuchContact => "This contact no longer exists.",
             Self::NoSuchRequest => "This request is no longer waiting.",
             Self::NoSuchInvitation => "This invitation is no longer active.",
+            Self::NotBlocked => "This person is no longer blocked.",
             Self::NotAContact => "Messages cannot be sent to this contact.",
             Self::InvalidCard => "This is not a valid Monolith card.",
             Self::OwnCard => "This is the card of one of your own identities.",

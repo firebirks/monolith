@@ -1,6 +1,7 @@
 //! The bridge against a runtime on the mock Tor network: commands are
 //! answered with the handles they carry, handles of one identity name
-//! nothing of another, and the runtime stops when the window goes.
+//! nothing of another, a number of something gone is not given again, and
+//! the runtime stops when the window goes.
 
 #![allow(
     clippy::unwrap_used,
@@ -17,8 +18,8 @@ use std::time::{Duration, Instant};
 use monolith_desktop::bridge::{Bridge, Setup};
 use monolith_tor::{MockNetwork, MockTorBackend};
 use monolith_ui_model::{
-    Command, CommandId, Failure, Outcome, ProfileOnDisk, RequestMode, RuntimeEvent, UiIdentityId,
-    UiInvitationId, UiRequestId, Update,
+    Command, CommandId, Failure, Outcome, ProfileOnDisk, RequestMode, RuntimeEvent, UiBlockedId,
+    UiIdentityId, UiInvitationId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -576,4 +577,90 @@ fn messages_are_read_in_pages_up_to_the_limit() {
     }));
     assert_eq!(earlier, ["message 8", "message 9", "message 10"]);
     assert!(!complete);
+}
+
+#[test]
+fn a_blocked_person_is_unblocked_by_a_number_of_their_identity_once() {
+    let network = MockNetwork::new();
+    let mut driver = Driver::start(&network, None);
+    start_without_saving(&mut driver);
+    let alice = driver.identity("Alice");
+    let bob = driver.identity("Bob");
+    let fingerprint = match driver.ask(Command::LoadIdentities) {
+        Outcome::Identities(list) => {
+            let view = list.iter().find(|view| view.id == alice).unwrap();
+            view.fingerprint.clone()
+        }
+        other => panic!("{other:?}"),
+    };
+    let card = match driver.ask(Command::OwnCard(alice)) {
+        Outcome::Card(card) => card,
+        other => panic!("{other:?}"),
+    };
+    // Bob adds Alice and blocks her.
+    let block = |driver: &mut Driver| {
+        let contact = match driver.ask(Command::AddContact {
+            identity: bob,
+            card: card.clone(),
+            name: Some("Alice".to_owned()),
+        }) {
+            Outcome::ContactAdded { contact, .. } => contact,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(driver.ask(Command::BlockContact(contact)), Outcome::Done);
+        match driver.ask(Command::LoadIdentity(bob)) {
+            Outcome::Identity(snapshot) => {
+                assert!(snapshot.contacts.is_empty());
+                assert_eq!(snapshot.blocked.len(), 1);
+                let view = &snapshot.blocked[0];
+                assert_eq!(view.id.identity(), bob);
+                assert_eq!(view.fingerprint, fingerprint);
+                assert!(view.full_fingerprint.starts_with(&fingerprint));
+                view.id
+            }
+            other => panic!("{other:?}"),
+        }
+    };
+    let blocked = block(&mut driver);
+    match driver.ask(Command::LoadIdentity(alice)) {
+        Outcome::Identity(snapshot) => assert!(snapshot.blocked.is_empty()),
+        other => panic!("{other:?}"),
+    }
+
+    // The same number, said of Alice, names nothing; nor does a number
+    // never given.
+    assert_eq!(
+        driver.ask(Command::Unblock(UiBlockedId::new(alice, blocked.handle()))),
+        Outcome::Failed(Failure::NotBlocked)
+    );
+    assert_eq!(
+        driver.ask(Command::Unblock(UiBlockedId::new(bob, u64::MAX))),
+        Outcome::Failed(Failure::NotBlocked)
+    );
+    // Bob's own number unblocks her: not blocked, and not a contact.
+    assert_eq!(driver.ask(Command::Unblock(blocked)), Outcome::Done);
+    // Asked again before Bob is read: the runtime refuses it.
+    assert_eq!(
+        driver.ask(Command::Unblock(blocked)),
+        Outcome::Failed(Failure::NotBlocked)
+    );
+    match driver.ask(Command::LoadIdentity(bob)) {
+        Outcome::Identity(snapshot) => {
+            assert!(snapshot.blocked.is_empty());
+            assert!(snapshot.contacts.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        driver.ask(Command::Unblock(blocked)),
+        Outcome::Failed(Failure::NotBlocked)
+    );
+    // Blocked again, she has another number; the old one names nothing.
+    let again = block(&mut driver);
+    assert_ne!(again, blocked);
+    assert_eq!(
+        driver.ask(Command::Unblock(blocked)),
+        Outcome::Failed(Failure::NotBlocked)
+    );
+    assert_eq!(driver.ask(Command::Unblock(again)), Outcome::Done);
 }

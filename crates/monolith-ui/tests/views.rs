@@ -1,10 +1,11 @@
 //! What the window shows, and where a click or a key takes it: the
 //! settings of a narrow window, Escape out of the settings, a failed store
 //! on every view, the state of Tor in a narrow window, the counts of the
-//! identity switcher, empty states, the Tor settings once saved, the first
-//! screens, what a contact added by a card or by an invitation waits for,
-//! the question before closing, what a conversation says of delivery, and
-//! the composer while a message is being queued.
+//! identity switcher, empty states, the Tor settings once saved, the people
+//! an identity blocked, the first screens, what a contact added by a card
+//! or by an invitation waits for, the question before closing, what a
+//! conversation says of delivery, and the composer while a message is being
+//! queued.
 
 #![cfg(feature = "fixtures")]
 #![allow(
@@ -24,8 +25,8 @@ use monolith_ui::fixtures::{NOW, fixture};
 use monolith_ui::{App, Effect};
 use monolith_ui_kit::{Theme, fonts, icons, theme};
 use monolith_ui_model::{
-    Command, Deferral, Dialog, Outcome, RuntimeEvent, UiContactId, UiIdentityId, UiMessageId,
-    Update,
+    Command, Deferral, Dialog, Outcome, RuntimeEvent, UiBlockedId, UiContactId, UiIdentityId,
+    UiMessageId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -40,6 +41,20 @@ const SAVES_NOTHING: &str = "This session saves nothing. Closing Monolith delete
                              contacts and messages for good.";
 
 const BOTH_OPEN: &str = "Messages can be delivered only while Monolith is open on both sides.";
+/// What the identities page says over the people an identity blocked.
+const BLOCKED: &str = "People you blocked cannot send you requests or messages. Unblocking \
+                       someone does not make them your contact again: they can send you a \
+                       request if \"Who can send you requests\" lets them, and you can add \
+                       their card.";
+
+/// What the toast says once someone is unblocked.
+const UNBLOCKED: &str = "Unblocked. They become a contact again only if you add their card or \
+                         accept a request from them.";
+
+/// The short fingerprints of Dana and Greg, whom the personal identity
+/// blocked.
+const DANA: &str = "D4XM 9QTB 2KWE 7RLN 5PZC 8HVA";
+const GREG: &str = "G3VD 8KTN 5QWZ 2MLE 7XRC 4PBH";
 
 struct Window {
     ctx: Context,
@@ -131,6 +146,25 @@ impl Window {
     fn click_last(&mut self, text: &str) {
         let Some((_, rect)) = self.texts.iter().rev().find(|(shown, _)| shown == text) else {
             panic!("{text:?} is not shown: {:#?}", self.shown());
+        };
+        self.click_at(rect.center());
+    }
+
+    /// Clicks the text that reads `text` on the line of the text `beside`.
+    fn click_beside(&mut self, text: &str, beside: &str) {
+        let Some((_, row)) = self.texts.iter().find(|(shown, _)| shown == beside) else {
+            panic!("{beside:?} is not shown: {:#?}", self.shown());
+        };
+        let line = row.center().y;
+        let Some((_, rect)) = self
+            .texts
+            .iter()
+            .find(|(shown, rect)| shown == text && (rect.top()..=rect.bottom()).contains(&line))
+        else {
+            panic!(
+                "{text:?} is not shown beside {beside:?}: {:#?}",
+                self.shown()
+            );
         };
         self.click_at(rect.center());
     }
@@ -673,4 +707,57 @@ fn what_is_typed_while_a_message_is_queued_stays_in_the_composer() {
         "Bring the map."
     );
     assert!(window.shows("Bring the map."));
+}
+
+#[test]
+fn the_identities_page_lists_who_is_blocked_and_unblocks_at_once() {
+    // Tall enough to show the whole page, wide and narrow.
+    for size in [Vec2::new(1180.0, 2000.0), Vec2::new(760.0, 2200.0)] {
+        let mut window = Window::new("settings-blocked", size);
+        assert!(window.shows(BLOCKED), "{size:?}");
+        assert!(window.shows(DANA));
+        assert!(window.shows(GREG));
+        assert_eq!(window.count("Unblock"), 2);
+        // Work blocked nobody: one line says so.
+        assert_eq!(window.count("Nobody is blocked."), 1);
+
+        // No question first: the person on the row is unblocked at once.
+        window.click_beside("Unblock", DANA);
+        assert!(window.app.model.dialog().is_none());
+        let dana = UiBlockedId::new(UiIdentityId::from_bytes([1; 16]), 1);
+        let commands = window.app.model.take_commands();
+        let asked: Vec<&Command> = commands.iter().map(|(_, command)| command).collect();
+        assert_eq!(asked, [&Command::Unblock(dana)]);
+        // While it is under way, the button takes no click.
+        window.click_beside("Unblock", DANA);
+        assert!(window.app.model.take_commands().is_empty());
+
+        window.app.model.apply(Update::Done {
+            command: commands[0].0,
+            outcome: Outcome::Done,
+        });
+        window.settle();
+        assert!(window.shows(UNBLOCKED), "the toast does not say it");
+
+        // The button of the other row names the other person.
+        window.click_beside("Unblock", GREG);
+        let greg = UiBlockedId::new(UiIdentityId::from_bytes([1; 16]), 2);
+        let unblocks: Vec<Command> = window
+            .app
+            .model
+            .take_commands()
+            .into_iter()
+            .map(|(_, command)| command)
+            .filter(|command| matches!(command, Command::Unblock(_)))
+            .collect();
+        assert_eq!(unblocks, [Command::Unblock(greg)]);
+    }
+}
+
+#[test]
+fn an_identity_that_blocked_nobody_says_so_in_one_line() {
+    let window = Window::new("settings-identities", Vec2::new(1180.0, 2000.0));
+    assert_eq!(window.count("Nobody is blocked."), 2);
+    assert!(!window.shows(BLOCKED));
+    assert!(!window.shows("Unblock"));
 }

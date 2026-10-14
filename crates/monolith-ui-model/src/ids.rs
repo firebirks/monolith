@@ -6,9 +6,10 @@
 //! another: an identity handle holds its durable identifier, a contact
 //! handle holds its identity handle and the durable identifier of its
 //! record, a message handle holds its contact handle and its place in the
-//! conversation. Requests and invitations, whose identifiers in the core
-//! do not outlive the process, get handles from the bridge that are never
-//! reused. No handle comes from a list position, a name or loop order.
+//! conversation. Requests, invitations and blocked people, whose
+//! identifiers in the core do not outlive the process, get handles from the
+//! bridge that are never reused. No handle comes from a list position, a
+//! name or loop order.
 
 use core::fmt;
 
@@ -151,6 +152,31 @@ impl UiInvitationId {
     }
 
     /// The identity that made the invitation.
+    pub const fn identity(&self) -> UiIdentityId {
+        self.identity
+    }
+
+    /// The number the bridge gave it.
+    pub const fn handle(&self) -> u64 {
+        self.handle
+    }
+}
+
+/// Someone a local identity blocked. The number is given by the bridge,
+/// once, and never reused in the process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct UiBlockedId {
+    identity: UiIdentityId,
+    handle: u64,
+}
+
+impl UiBlockedId {
+    /// The blocked person numbered `handle` by the bridge, of `identity`.
+    pub const fn new(identity: UiIdentityId, handle: u64) -> Self {
+        Self { identity, handle }
+    }
+
+    /// The identity that blocked them.
     pub const fn identity(&self) -> UiIdentityId {
         self.identity
     }

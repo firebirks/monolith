@@ -8,11 +8,13 @@ use core::fmt;
 use zeroize::Zeroizing;
 
 use crate::data::{
-    ContactView, ConversationView, IdentityView, InvitationView, MessageView, RequestMode,
-    RequestView, RuntimeEvent, Service, TorCheck,
+    BlockedView, ContactView, ConversationView, IdentityView, InvitationView, MessageView,
+    RequestMode, RequestView, RuntimeEvent, Service, TorCheck,
 };
 use crate::failure::Failure;
-use crate::ids::{UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId};
+use crate::ids::{
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+};
 
 /// The number of a command, given by the model, never reused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -51,7 +53,8 @@ pub enum Command {
     /// Read the local identities.
     LoadIdentities,
     /// Read everything about one identity: contacts, conversations,
-    /// requests, invitations, the state of its service, its request mode.
+    /// requests, invitations, the people it blocked, the state of its
+    /// service, its request mode.
     LoadIdentity(UiIdentityId),
     /// Read the newest `limit` messages of a conversation.
     LoadMessages {
@@ -144,6 +147,8 @@ pub enum Command {
         /// Also drop the requests it admitted that still wait.
         discard_requests: bool,
     },
+    /// Unblock someone.
+    Unblock(UiBlockedId),
     /// Set which requests from strangers an identity considers.
     SetRequestMode {
         /// The identity.
@@ -196,6 +201,7 @@ impl fmt::Debug for Command {
                 invitation,
                 discard_requests,
             } => write!(f, "RevokeInvitation({invitation:?}, {discard_requests})"),
+            Self::Unblock(blocked) => write!(f, "Unblock({blocked:?})"),
             Self::SetRequestMode { identity, mode } => {
                 write!(f, "SetRequestMode({identity:?}, {mode:?})")
             }
@@ -217,6 +223,8 @@ pub struct IdentitySnapshot {
     pub requests: Vec<RequestView>,
     /// Its active invitations.
     pub invitations: Vec<InvitationView>,
+    /// The people it blocked.
+    pub blocked: Vec<BlockedView>,
     /// The state of its Onion Service.
     pub service: Service,
     /// Its request mode.

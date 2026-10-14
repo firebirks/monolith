@@ -423,6 +423,11 @@ impl LocalIdentity {
         self.id
     }
 
+    /// The instance of this identity, which the handles it gives out carry.
+    pub(crate) fn instance(&self) -> u64 {
+        lock(&self.keys).instance
+    }
+
     /// The card of the key the identity answers with: what the user hands
     /// to others, without a capability.
     pub fn card(&self) -> ContactCard {
@@ -628,6 +633,11 @@ impl LocalIdentity {
     pub async fn unblock(&self, identity: &IdentityPublicKey) -> Result<(), StoreError> {
         let generation = self.contacts.unblock(identity)?;
         self.commit(generation).await
+    }
+
+    /// Every blocked identity.
+    pub fn blocked(&self) -> Vec<IdentityPublicKey> {
+        self.contacts.blocked()
     }
 
     /// Deletes the contact `identity`. Its sessions are withdrawn at once;

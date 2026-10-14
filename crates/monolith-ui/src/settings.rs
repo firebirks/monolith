@@ -24,13 +24,23 @@ use monolith_ui_kit::toggle::Toggle;
 use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_kit::{Button, Icon, icons};
 use monolith_ui_model::present::identity_name;
-use monolith_ui_model::{Dialog, RequestMode, TorCheck, UiIdentityId, UiInvitationId};
+use monolith_ui_model::{Dialog, RequestMode, TorCheck, UiBlockedId, UiIdentityId, UiInvitationId};
 
 use crate::app::{App, Effect, SettingsPage, ThemeChoice, View};
 use crate::common;
 
 /// How many invitations an identity can have active.
 const MAX_INVITATIONS: usize = 16;
+
+/// What blocking does and what unblocking does: the runtime keeps no record
+/// of someone unblocked (`DESIGN_QUESTIONS.md` P6-21).
+const BLOCKED: &str = "People you blocked cannot send you requests or messages. Unblocking \
+                       someone does not make them your contact again: they can send you a \
+                       request if \"Who can send you requests\" lets them, and you can add \
+                       their card.";
+
+/// What the list of blocked people says when it is empty.
+const NOBODY_BLOCKED: &str = "Nobody is blocked.";
 
 const THEMES: [(ThemeChoice, &str); 3] = [
     (ThemeChoice::System, "System"),
@@ -421,12 +431,16 @@ struct IdentityCard {
     fingerprint: String,
     mode: Option<RequestMode>,
     invitations: Option<Vec<(UiInvitationId, String)>>,
+    /// The people it blocked: their short fingerprint, and whether they are
+    /// being unblocked.
+    blocked: Vec<(UiBlockedId, String, bool)>,
 }
 
 enum Action {
     NewIdentity,
     Mode(UiIdentityId, RequestMode),
     Open(Dialog),
+    Unblock(UiBlockedId),
 }
 
 /// What is said while requests are refused and invitations are active.
@@ -457,6 +471,19 @@ fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
                         .iter()
                         .map(|invitation| {
                             (invitation.id, invitation.label.clone().unwrap_or_default())
+                        })
+                        .collect()
+                }),
+                blocked: slice.map_or_else(Vec::new, |slice| {
+                    slice
+                        .blocked
+                        .iter()
+                        .map(|blocked| {
+                            (
+                                blocked.id,
+                                blocked.fingerprint.clone(),
+                                app.model.unblocking(blocked.id),
+                            )
                         })
                         .collect()
                 }),
@@ -492,6 +519,8 @@ fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
         }),
         Some(Action::Mode(identity, mode)) => app.model.set_request_mode(identity, mode),
         Some(Action::Open(dialog)) => app.model.open(dialog),
+        // At once: blocking again undoes it.
+        Some(Action::Unblock(blocked)) => app.model.unblock(blocked),
         None => {}
     }
 }
@@ -643,6 +672,48 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
             &format!("{} of {MAX_INVITATIONS} active", invitations.len()),
         );
     });
+
+    // The people this identity blocked.
+    ui.add_space(theme.space.md);
+    SectionHeader::new("Blocked").show(ui);
+    if card.blocked.is_empty() {
+        caption(ui, theme, NOBODY_BLOCKED);
+        return;
+    }
+    caption(ui, theme, BLOCKED);
+    ui.add_space(theme.space.xs);
+    chrome::card_frame(ui.ctx(), theme.space.md).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = theme.space.sm;
+        let last = card.blocked.len().saturating_sub(1);
+        for (position, (blocked, fingerprint, busy)) in card.blocked.iter().enumerate() {
+            ui.push_id(("blocked", *blocked), |ui| {
+                if blocked_row(ui, theme, fingerprint, *busy) {
+                    *action = Some(Action::Unblock(*blocked));
+                }
+            });
+            if position != last {
+                ui.add(Divider::horizontal());
+            }
+        }
+    });
+}
+
+/// Someone blocked: their short fingerprint, and the button that unblocks
+/// them, busy while that is under way. Returns whether it was clicked.
+fn blocked_row(ui: &mut Ui, theme: &Theme, fingerprint: &str, busy: bool) -> bool {
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let unblock = Button::secondary("Unblock").size(Size::Small).busy(busy);
+            clicked = ui.add(unblock).clicked();
+            ui.add_space(theme.space.md);
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                text(ui, fingerprint, &theme.text.mono, theme.color.text);
+            });
+        });
+    });
+    clicked
 }
 
 /// The request modes as a button that opens them as a menu, for a column

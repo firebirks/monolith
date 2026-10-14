@@ -48,10 +48,10 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::api::{
-    AddedContact, CommandError, ContactId, ContactSummary, ConversationSummary, DeferReason, Event,
-    IdentityId, IdentitySummary, InvitationRef, InvitationSummary, MessageRef, MessageStatus,
-    MessageView, RefusedReason, RequestMode, RequestRef, RequestSummary, SendError, ServiceState,
-    TorCheck,
+    AddedContact, BlockedRef, BlockedSummary, CommandError, ContactId, ContactSummary,
+    ConversationSummary, DeferReason, Event, IdentityId, IdentitySummary, InvitationRef,
+    InvitationSummary, MessageRef, MessageStatus, MessageView, RefusedReason, RequestMode,
+    RequestRef, RequestSummary, SendError, ServiceState, TorCheck,
 };
 use crate::budget::Budgets;
 use crate::contacts::StoreError;
@@ -309,6 +309,13 @@ fn request_error(error: StoreError) -> CommandError {
 fn invitation_error(error: StoreError) -> CommandError {
     match error {
         StoreError::NotFound => CommandError::UnknownInvitation,
+        error => store_error(error),
+    }
+}
+
+fn blocked_error(error: StoreError) -> CommandError {
+    match error {
+        StoreError::NotFound => CommandError::NotBlocked,
         error => store_error(error),
     }
 }
@@ -1931,6 +1938,52 @@ impl<B: TorBackend + 'static> Runtime<B> {
                 }
                 .map_err(invitation_error)
             })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// The identities `identity` blocked, by their fingerprints.
+    pub fn blocked(&self, identity: &IdentityId) -> Result<Vec<BlockedSummary>, CommandError> {
+        let held = self.held(identity)?;
+        let instance = held.identity.instance();
+        let mut blocked: Vec<BlockedSummary> = held
+            .identity
+            .blocked()
+            .iter()
+            .map(|peer| {
+                let fingerprint = Fingerprint::of(peer);
+                BlockedSummary {
+                    blocked: BlockedRef::new(*identity, (instance, *fingerprint.as_bytes())),
+                    fingerprint: fingerprint.to_compact_text(),
+                    full_fingerprint: fingerprint.to_full_text(),
+                }
+            })
+            .collect();
+        blocked.sort_by(|a, b| a.fingerprint.cmp(&b.fingerprint));
+        Ok(blocked)
+    }
+
+    /// Unblocks the identity `blocked` names: it has no record afterwards,
+    /// as one never met. It is not a contact again, and a request of its is
+    /// considered as the request mode says. Fails with
+    /// [`CommandError::NotBlocked`] if the identity is not blocked now, or
+    /// the handle is of another local identity or of an instance of it
+    /// from before. The handle names the identity blocked, not one block of
+    /// it: the store keeps nothing else of a block.
+    pub async fn unblock(&self, blocked: &BlockedRef) -> Result<(), CommandError> {
+        let held = self.held(&blocked.identity)?;
+        let (instance, fingerprint) = blocked.blocked();
+        if instance != held.identity.instance() {
+            return Err(CommandError::NotBlocked);
+        }
+        let peer = held
+            .identity
+            .blocked()
+            .into_iter()
+            .find(|peer| Fingerprint::of(peer).as_bytes() == &fingerprint)
+            .ok_or(CommandError::NotBlocked)?;
+        self.inner
+            .detached(async move { held.identity.unblock(&peer).await.map_err(blocked_error) })
             .await
             .unwrap_or(Err(CommandError::ShuttingDown))
     }

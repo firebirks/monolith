@@ -727,11 +727,12 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
 ### S59. A late or stale answer or event never acts on another identity, contact record, request or invitation
 
 - Mechanism: everything is named by opaque handles that hold the durable
-  identifiers of the runtime, or, for requests and invitations, a number
-  the bridge gives once and checks against the identity on every use. A
-  command carries the handles it acts on; an answer is applied only to the
-  command in flight that it names; a dialog acts on the handles it
-  captured when it opened. Events only make the model read again.
+  identifiers of the runtime, or, for requests, invitations and blocked
+  people, a number the bridge gives once and checks against the identity
+  on every use. A command carries the handles it acts on; an answer is
+  applied only to the command in flight that it names; a dialog acts on
+  the handles it captured when it opened. Events only make the model read
+  again.
 - Tests: `crates/monolith-ui-model/tests/model.rs` (the scenarios of the
   brief's section 42), `tests/properties.rs` (random sequences against a
   model of the runtime), `crates/monolith-desktop/tests/bridge.rs` (a

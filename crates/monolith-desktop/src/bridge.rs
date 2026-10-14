@@ -9,11 +9,11 @@
 //! order; commands that write run as tasks of their own and report back
 //! through that same task.
 //!
-//! Requests and invitations are named in the core by references that hold
-//! no meaning outside it and do not outlive the process. The bridge gives
-//! each one it reports a number of its own, never reused, and checks on
-//! every use that the number belongs to the identity the window names
-//! with it.
+//! Requests, invitations and blocked people are named in the core by
+//! references that hold no meaning outside it and do not outlive the
+//! process. The bridge gives each one it reports a number of its own, never
+//! reused, and checks on every use that the number belongs to the identity
+//! the window names with it.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -27,13 +27,13 @@ use core::hash::Hash;
 use core::time::Duration;
 
 use monolith_runtime::api::{
-    self, CommandError, IdentityId, InvitationRef, MessageRef, RequestRef,
+    self, BlockedRef, CommandError, IdentityId, InvitationRef, MessageRef, RequestRef,
 };
 use monolith_runtime::{MAX_PAGE, Messenger, Missed, TorBackend};
 use monolith_ui_model::{
-    Command, CommandId, ContactView, ConversationView, Failure, IdentitySnapshot, IdentityView,
-    InvitationView, Outcome, ProfileOnDisk, RequestView, RuntimeEvent, UiContactId, UiIdentityId,
-    UiInvitationId, UiRequestId, Update,
+    BlockedView, Command, CommandId, ContactView, ConversationView, Failure, IdentitySnapshot,
+    IdentityView, InvitationView, Outcome, ProfileOnDisk, RequestView, RuntimeEvent, UiBlockedId,
+    UiContactId, UiIdentityId, UiInvitationId, UiRequestId, Update,
 };
 use tokio::sync::mpsc;
 use tokio::task::{self, JoinSet, LocalSet};
@@ -243,6 +243,7 @@ async fn run<B: TorBackend + 'static>(
         out,
         requests: Handles::default(),
         invitations: Handles::default(),
+        blocked: Handles::default(),
     };
     if running.out.done(command, outcome).await {
         running.serve(commands, events).await;
@@ -330,6 +331,12 @@ impl Owned for InvitationRef {
     }
 }
 
+impl Owned for BlockedRef {
+    fn owner(&self) -> IdentityId {
+        self.identity
+    }
+}
+
 /// The numbers given to references of the core.
 #[derive(Debug)]
 struct Handles<T> {
@@ -370,8 +377,8 @@ impl<T: Owned> Handles<T> {
     }
 
     /// Forgets the references of `owner` that are not in `listed`: they
-    /// were answered, revoked or dropped. Their numbers are not given
-    /// again.
+    /// were answered, revoked, dropped or unblocked. Their numbers are not
+    /// given again.
     fn keep(&mut self, owner: &IdentityId, listed: &HashSet<T>) {
         self.by_reference
             .retain(|reference, _| reference.owner() != *owner || listed.contains(reference));
@@ -434,6 +441,7 @@ struct Running<B: TorBackend + 'static> {
     out: Out,
     requests: Handles<RequestRef>,
     invitations: Handles<InvitationRef>,
+    blocked: Handles<BlockedRef>,
 }
 
 impl<B: TorBackend + 'static> Running<B> {
@@ -568,6 +576,12 @@ impl<B: TorBackend + 'static> Running<B> {
         self.requests
             .get(request.identity(), request.handle())
             .ok_or(Failure::NoSuchRequest)
+    }
+
+    fn blocked(&self, blocked: UiBlockedId) -> Result<BlockedRef, Failure> {
+        self.blocked
+            .get(blocked.identity(), blocked.handle())
+            .ok_or(Failure::NotBlocked)
     }
 
     /// The task of a command that writes or waits. The handles it names
@@ -736,6 +750,10 @@ impl<B: TorBackend + 'static> Running<B> {
                     )
                 })
             }
+            Command::Unblock(blocked) => {
+                let blocked = self.blocked(blocked)?;
+                Box::pin(async move { done(messenger.unblock(&blocked).await) })
+            }
             Command::SetRequestMode { identity, mode } => {
                 let identity = convert::identity_id(identity)?;
                 let mode = convert::runtime_request_mode(mode);
@@ -791,11 +809,13 @@ impl<B: TorBackend + 'static> Running<B> {
             .collect();
         let pending = messenger.requests(&identity).map_err(error)?;
         let active = messenger.invitations(&identity).map_err(error)?;
+        let blocked = messenger.blocked(&identity).map_err(error)?;
         let service = convert::service(messenger.service_state(&identity).map_err(error)?);
         let request_mode = convert::request_mode(messenger.request_mode(&identity).map_err(error)?);
 
         // A request is known while it waits; an invitation while it is
-        // active or a request it admitted waits. The others are forgotten.
+        // active or a request it admitted waits; a blocked person while
+        // they are blocked. The others are forgotten.
         let listed_requests: HashSet<RequestRef> =
             pending.iter().map(|summary| summary.request).collect();
         let listed_invitations: HashSet<InvitationRef> = active
@@ -803,8 +823,11 @@ impl<B: TorBackend + 'static> Running<B> {
             .map(|summary| summary.invitation)
             .chain(pending.iter().filter_map(|summary| summary.invitation))
             .collect();
+        let listed_blocked: HashSet<BlockedRef> =
+            blocked.iter().map(|summary| summary.blocked).collect();
         self.requests.keep(&identity, &listed_requests);
         self.invitations.keep(&identity, &listed_invitations);
+        self.blocked.keep(&identity, &listed_blocked);
         let requests = pending
             .into_iter()
             .map(|summary| RequestView {
@@ -825,12 +848,21 @@ impl<B: TorBackend + 'static> Running<B> {
                 label: summary.label,
             })
             .collect();
+        let blocked = blocked
+            .into_iter()
+            .map(|summary| BlockedView {
+                id: UiBlockedId::new(handle, self.blocked.handle(summary.blocked)),
+                fingerprint: summary.fingerprint,
+                full_fingerprint: summary.full_fingerprint,
+            })
+            .collect();
         Ok(IdentitySnapshot {
             identity: handle,
             contacts,
             conversations,
             requests,
             invitations,
+            blocked,
             service,
             request_mode,
         })

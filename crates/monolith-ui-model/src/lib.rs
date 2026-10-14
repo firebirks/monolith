@@ -16,11 +16,11 @@ pub mod present;
 pub mod protocol;
 
 pub use data::{
-    ContactView, ConversationView, Deferral, IdentityView, InvitationView, MessageView,
-    RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck,
+    BlockedView, ContactView, ConversationView, Deferral, IdentityView, InvitationView,
+    MessageView, RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck,
 };
 pub use failure::Failure;
-pub use ids::{UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId};
+pub use ids::{UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId};
 pub use model::{
     Dialog, Model, Notice, NoticeKind, Phase, RowState, Selection, SidebarRow, Slice, Thread,
     TorIndicator,

@@ -3,10 +3,11 @@
 //! Two kinds of state live here, kept apart:
 //!
 //! - what the runtime said: identities, and per identity its contacts,
-//!   conversations, requests, invitations, the state of its service, and
-//!   the messages of the conversations that were read. It changes only
-//!   when an answer to a query arrives, for the handles that query named;
-//!   an event only marks a part as stale, and that part is asked again;
+//!   conversations, requests, invitations, the people it blocked, the
+//!   state of its service, and the messages of the conversations that were
+//!   read. It changes only when an answer to a query arrives, for the
+//!   handles that query named; an event only marks a part as stale, and
+//!   that part is asked again;
 //! - what the user is doing: the identity and the conversation shown,
 //!   drafts, the open dialog, notices. A dialog that confirms an action
 //!   holds the handles it acts on from the moment it opens.
@@ -22,11 +23,13 @@ use core::fmt;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::data::{
-    ContactView, ConversationView, IdentityView, InvitationView, MessageView, RequestMode,
-    RequestView, RuntimeEvent, Service, Status, TorCheck,
+    BlockedView, ContactView, ConversationView, IdentityView, InvitationView, MessageView,
+    RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck,
 };
 use crate::failure::Failure;
-use crate::ids::{UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId};
+use crate::ids::{
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+};
 use crate::present;
 use crate::protocol::{Command, CommandId, IdentitySnapshot, Outcome, ProfileOnDisk, Update};
 
@@ -35,6 +38,11 @@ pub const PAGE: usize = 100;
 
 /// The most messages of one conversation kept in memory.
 pub const MAX_WINDOW: usize = 2_000;
+
+/// What the user is told once someone is unblocked: the runtime keeps no
+/// record of them, so they are not a contact again.
+pub const UNBLOCKED: &str = "Unblocked. They become a contact again only if you add their card \
+                             or accept a request from them.";
 
 /// Where the client is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -203,6 +211,8 @@ pub struct Slice {
     pub requests: Vec<RequestView>,
     /// Its invitations.
     pub invitations: Vec<InvitationView>,
+    /// The people it blocked.
+    pub blocked: Vec<BlockedView>,
     /// The state of its service.
     pub service: Option<Service>,
     /// Its request mode.
@@ -231,6 +241,7 @@ impl fmt::Debug for Slice {
             .field("conversations", &self.conversations.len())
             .field("requests", &self.requests.len())
             .field("invitations", &self.invitations.len())
+            .field("blocked", &self.blocked.len())
             .field("service", &self.service)
             .field("request_mode", &self.request_mode)
             .field("selection", &self.selection)
@@ -555,6 +566,7 @@ enum Pending {
         text: String,
     },
     Answer(UiRequestId, Answer),
+    Unblock(UiBlockedId),
     RequestMode(UiIdentityId),
     Verified(UiContactId),
     Shutdown,
@@ -573,6 +585,7 @@ impl fmt::Debug for Pending {
             // The text sent is never printed.
             Self::Send { contact, .. } => write!(f, "Send({contact:?})"),
             Self::Answer(request, answer) => write!(f, "Answer({request:?}, {answer:?})"),
+            Self::Unblock(blocked) => write!(f, "Unblock({blocked:?})"),
             Self::RequestMode(identity) => write!(f, "RequestMode({identity:?})"),
             Self::Verified(contact) => write!(f, "Verified({contact:?})"),
             Self::Shutdown => f.write_str("Shutdown"),
@@ -1349,6 +1362,25 @@ impl Model {
             .any(|pending| matches!(pending, Pending::Answer(asked, _) if *asked == request))
     }
 
+    /// Unblocks `blocked` at once (no dialog): it can be undone by blocking
+    /// again. Asked only for someone listed, once.
+    pub fn unblock(&mut self, blocked: UiBlockedId) {
+        let listed = self
+            .slices
+            .get(&blocked.identity())
+            .is_some_and(|slice| slice.blocked.iter().any(|view| view.id == blocked));
+        if listed && !self.unblocking(blocked) {
+            self.issue(Command::Unblock(blocked), Pending::Unblock(blocked));
+        }
+    }
+
+    /// Whether unblocking `blocked` is under way.
+    pub fn unblocking(&self, blocked: UiBlockedId) -> bool {
+        self.pending
+            .values()
+            .any(|pending| matches!(pending, Pending::Unblock(asked) if *asked == blocked))
+    }
+
     /// Sets the request mode of `identity`.
     pub fn set_request_mode(&mut self, identity: UiIdentityId, mode: RequestMode) {
         if self.slices.contains_key(&identity) {
@@ -1479,6 +1511,14 @@ impl Model {
                     _ => self.notice(NoticeKind::Info, answer.done()),
                 }
             }
+            Pending::Unblock(blocked) => {
+                self.mark_identity(blocked.identity());
+                if let Outcome::Failed(failure) = outcome {
+                    self.notice(NoticeKind::Error, failure.message());
+                } else {
+                    self.notice(NoticeKind::Success, UNBLOCKED);
+                }
+            }
             Pending::RequestMode(identity) => {
                 if let Outcome::Failed(failure) = outcome {
                     self.notice(NoticeKind::Error, failure.message());
@@ -1578,6 +1618,11 @@ impl Model {
             .into_iter()
             .filter(|view| view.id.identity() == identity)
             .collect();
+        let blocked: Vec<BlockedView> = snapshot
+            .blocked
+            .into_iter()
+            .filter(|view| view.id.identity() == identity)
+            .collect();
         let Some(slice) = self.slices.get_mut(&identity) else {
             return;
         };
@@ -1596,6 +1641,7 @@ impl Model {
         slice.conversations = conversations;
         slice.requests = requests;
         slice.invitations = invitations;
+        slice.blocked = blocked;
         slice.service = Some(snapshot.service);
         slice.request_mode = Some(snapshot.request_mode);
         slice.loaded = true;

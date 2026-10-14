@@ -1,11 +1,12 @@
 //! What the runtime offers a front end since Phase 6
 //! (`docs/DESIGN_QUESTIONS.md` P6-4), over the in-memory Tor: contact
-//! requests and invitations by handles that name one request or invitation
-//! of one instance of an identity, the local name and the verification of a
-//! contact record, the request mode, the state of the Onion Service, a
-//! check of Tor, and whether an added card carried an invitation. A handle
-//! of something answered, revoked, made again or of another identity names
-//! nothing.
+//! requests, invitations and blocked identities by handles that name one
+//! request, invitation or blocked identity of one instance of an identity,
+//! the local name and the verification of a contact record, the request
+//! mode, the state of the Onion Service, a check of Tor, and whether an
+//! added card carried an invitation. A handle of something answered,
+//! revoked, unblocked, made again, of another identity or of an instance
+//! from before names nothing.
 //!
 //! Time is paused and advances only when every task waits.
 
@@ -31,6 +32,7 @@ use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_protocol::card::ContactCard;
+use monolith_protocol::contact::RecordKind;
 use monolith_protocol::limits::MAX_ACTIVE_INVITATIONS;
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
@@ -65,6 +67,16 @@ impl Peer {
             .restore_identity(keys(seed, seed, 1, fixed_endpoint(seed)), None)
             .await
             .unwrap();
+        Self::run(network, installation, identity, seed).await
+    }
+
+    /// The runtime of `installation`, whose identity is `identity`.
+    async fn run(
+        network: &MockNetwork,
+        installation: Installation,
+        identity: Arc<LocalIdentity>,
+        seed: u8,
+    ) -> Self {
         let runtime = Runtime::start(installation, network.backend(), Budgets::new(), options());
         until(|| network.is_published(&fixed_endpoint(seed))).await;
         Self {
@@ -369,6 +381,266 @@ fn revoking_and_discarding_drops_the_requests_of_that_invitation_only() {
             b.runtime.accept_request(&requests[0].request).await,
             Err(CommandError::UnknownRequest)
         );
+    });
+}
+
+#[test]
+fn a_blocked_contact_is_listed_by_its_fingerprint_and_unblocked_by_its_handle() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let a = Peer::start(&network, 1).await;
+        let b = Peer::start(&network, 2).await;
+        let c = Peer::start(&network, 3).await;
+        let first = b
+            .runtime
+            .add_contact(&b.id(), &a.card())
+            .await
+            .unwrap()
+            .contact;
+        b.runtime
+            .set_contact_name(&b.id(), &first, Some("Alice"))
+            .await
+            .unwrap();
+        let other = b
+            .runtime
+            .add_contact(&b.id(), &c.card())
+            .await
+            .unwrap()
+            .contact;
+        assert!(b.runtime.blocked(&b.id()).unwrap().is_empty());
+        b.runtime.block_contact(&b.id(), &first).await.unwrap();
+        b.runtime.block_contact(&b.id(), &other).await.unwrap();
+
+        let blocked = b.runtime.blocked(&b.id()).unwrap();
+        assert_eq!(blocked.len(), 2);
+        let of = |peer: &Peer| {
+            let own = &peer.runtime.identities()[0];
+            let found = blocked
+                .iter()
+                .find(|view| view.fingerprint == own.fingerprint)
+                .unwrap()
+                .clone();
+            assert_eq!(found.full_fingerprint, own.full_fingerprint);
+            found
+        };
+        let (at_a, at_c) = (of(&a), of(&c));
+        assert_eq!(at_a.blocked.identity, b.id());
+        assert!(b.runtime.contacts(&b.id()).unwrap().is_empty());
+        // While blocked, the card is refused.
+        assert_eq!(
+            b.runtime.add_contact(&b.id(), &a.card()).await,
+            Err(CommandError::Blocked)
+        );
+
+        // A is unblocked, and only A.
+        b.runtime.unblock(&at_a.blocked).await.unwrap();
+        assert_eq!(
+            b.runtime.blocked(&b.id()).unwrap(),
+            core::slice::from_ref(&at_c)
+        );
+        // No record at all: neither a contact again nor declined.
+        assert!(b.runtime.contacts(&b.id()).unwrap().is_empty());
+        assert_eq!(b.identity.kind(a.identity.identity()), RecordKind::None);
+        assert_eq!(b.identity.kind(c.identity.identity()), RecordKind::Blocked);
+        // Unblocked: the handle names nothing.
+        assert_eq!(
+            b.runtime.unblock(&at_a.blocked).await,
+            Err(CommandError::NotBlocked)
+        );
+        // The card makes a new record, which has nothing of the old one.
+        let second = b
+            .runtime
+            .add_contact(&b.id(), &a.card())
+            .await
+            .unwrap()
+            .contact;
+        assert_ne!(first, second);
+        let contacts = b.runtime.contacts(&b.id()).unwrap();
+        assert_eq!(contacts.len(), 1);
+        assert_eq!(contacts[0].contact, second);
+        assert_eq!(contacts[0].alias, None);
+        assert!(!contacts[0].accepted);
+        // A contact is not blocked: the handle still names nothing.
+        assert_eq!(
+            b.runtime.unblock(&at_a.blocked).await,
+            Err(CommandError::NotBlocked)
+        );
+        assert_eq!(b.runtime.blocked(&b.id()).unwrap(), [at_c]);
+    });
+}
+
+#[test]
+fn an_unblocked_sender_is_left_to_the_request_mode() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let a = Peer::start(&network, 1).await;
+        let b = Peer::start(&network, 2).await;
+        b.runtime
+            .set_request_mode(&b.id(), RequestMode::Open)
+            .await
+            .unwrap();
+        let mut events = b.runtime.subscribe();
+        request_with_card(&a, &b.card()).await;
+        event(&mut events, |event| {
+            matches!(event, Event::RequestReceived { queued: true, .. })
+        })
+        .await;
+        let request = b.runtime.requests(&b.id()).unwrap()[0].request;
+        b.runtime.block_request(&request).await.unwrap();
+        let blocked = b.runtime.blocked(&b.id()).unwrap();
+        assert_eq!(blocked.len(), 1);
+        assert_eq!(
+            blocked[0].fingerprint,
+            a.runtime.identities()[0].fingerprint
+        );
+        assert!(b.runtime.requests(&b.id()).unwrap().is_empty());
+
+        // Blocked: A keeps trying and reaches nothing, though anyone may
+        // ask.
+        let mut events = b.runtime.subscribe();
+        let mut tries = a.runtime.subscribe();
+        tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+        let mut tried = false;
+        while let Ok(event) = tries.try_recv() {
+            tried |= matches!(event, Event::DeliveryDeferred { .. });
+        }
+        assert!(tried, "A did not try again");
+        while let Ok(event) = events.try_recv() {
+            assert!(!matches!(event, Event::RequestReceived { .. }), "{event:?}");
+        }
+        assert!(b.runtime.requests(&b.id()).unwrap().is_empty());
+
+        // Unblocked under "invitations only": a request without one is
+        // dropped, as anyone's is.
+        b.runtime
+            .set_request_mode(&b.id(), RequestMode::Invitation)
+            .await
+            .unwrap();
+        b.runtime.unblock(&blocked[0].blocked).await.unwrap();
+        assert_eq!(b.identity.kind(a.identity.identity()), RecordKind::None);
+        let mut events = b.runtime.subscribe();
+        event(&mut events, |event| {
+            matches!(event, Event::RequestReceived { queued: false, .. })
+        })
+        .await;
+        assert!(b.runtime.requests(&b.id()).unwrap().is_empty());
+
+        // Open: the next one waits for an answer, a new request.
+        b.runtime
+            .set_request_mode(&b.id(), RequestMode::Open)
+            .await
+            .unwrap();
+        let mut events = b.runtime.subscribe();
+        event(&mut events, |event| {
+            matches!(event, Event::RequestReceived { queued: true, .. })
+        })
+        .await;
+        let requests = b.runtime.requests(&b.id()).unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].fingerprint, blocked[0].fingerprint);
+        assert_ne!(requests[0].request, request);
+        assert!(b.identity.contact_id(a.identity.identity()).is_none());
+    });
+}
+
+#[test]
+fn a_blocked_handle_of_one_identity_names_nothing_at_another() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let a = Peer::start(&network, 1).await;
+        let b = Peer::start(&network, 2).await;
+        let c = Peer::start(&network, 3).await;
+        // B and C both block A.
+        for peer in [&b, &c] {
+            let contact = peer
+                .runtime
+                .add_contact(&peer.id(), &a.card())
+                .await
+                .unwrap()
+                .contact;
+            peer.runtime
+                .block_contact(&peer.id(), &contact)
+                .await
+                .unwrap();
+        }
+        let at_b = b.runtime.blocked(&b.id()).unwrap();
+        let at_c = c.runtime.blocked(&c.id()).unwrap();
+        assert_eq!(at_b[0].fingerprint, at_c[0].fingerprint);
+        // B's handle, said to be of C: C blocked the same person, and the
+        // handle still names nothing there.
+        let mut crossed = at_b[0].blocked;
+        crossed.identity = c.id();
+        assert_eq!(
+            c.runtime.unblock(&crossed).await,
+            Err(CommandError::NotBlocked)
+        );
+        assert_eq!(
+            b.runtime.unblock(&crossed).await,
+            Err(CommandError::UnknownIdentity)
+        );
+        assert_eq!(b.runtime.blocked(&b.id()).unwrap().len(), 1);
+        assert_eq!(c.runtime.blocked(&c.id()).unwrap().len(), 1);
+        // Each identity's own handle unblocks there, and only there.
+        c.runtime.unblock(&at_c[0].blocked).await.unwrap();
+        assert!(c.runtime.blocked(&c.id()).unwrap().is_empty());
+        assert_eq!(b.runtime.blocked(&b.id()).unwrap(), at_b);
+    });
+}
+
+#[test]
+fn a_block_outlives_the_profile_and_a_handle_from_before_names_nothing() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let a = Peer::start(&network, 1).await;
+        let dir = MemoryDir::new();
+        let passphrase = Passphrase::new("correct horse battery staple").unwrap();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase, KdfParams::FLOOR).unwrap();
+        let identity = installation
+            .restore_identity(keys(2, 2, 1, fixed_endpoint(2)), None)
+            .await
+            .unwrap();
+        let b = Peer::run(&network, installation, identity, 2).await;
+        let contact = b
+            .runtime
+            .add_contact(&b.id(), &a.card())
+            .await
+            .unwrap()
+            .contact;
+        b.runtime.block_contact(&b.id(), &contact).await.unwrap();
+        let before = b.runtime.blocked(&b.id()).unwrap();
+        b.runtime.shutdown(Duration::from_secs(1)).await;
+        drop(b);
+
+        // The profile opened again, from what the last one wrote.
+        let reopen = |dir: &MemoryDir| {
+            let dir = dir.restart(CrashOutcome::ALL[0]);
+            let (installation, _) = Installation::open(Box::new(dir.clone()), &passphrase).unwrap();
+            let identity = installation.identities().into_iter().next().unwrap();
+            (dir, Peer::run(&network, installation, identity, 2))
+        };
+        let (dir, b) = reopen(&dir);
+        let b = b.await;
+        let after = b.runtime.blocked(&b.id()).unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].fingerprint, before[0].fingerprint);
+        // The handle of the instance from before names nothing.
+        assert_ne!(after[0].blocked, before[0].blocked);
+        assert_eq!(
+            b.runtime.unblock(&before[0].blocked).await,
+            Err(CommandError::NotBlocked)
+        );
+        assert_eq!(b.runtime.blocked(&b.id()).unwrap(), after);
+        b.runtime.unblock(&after[0].blocked).await.unwrap();
+        b.runtime.shutdown(Duration::from_secs(1)).await;
+        drop(b);
+
+        // Unblocked durably: no record.
+        let (_, b) = reopen(&dir);
+        let b = b.await;
+        assert!(b.runtime.blocked(&b.id()).unwrap().is_empty());
+        assert!(b.runtime.contacts(&b.id()).unwrap().is_empty());
+        assert_eq!(b.identity.kind(a.identity.identity()), RecordKind::None);
     });
 }
 

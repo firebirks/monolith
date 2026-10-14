@@ -1306,6 +1306,19 @@ impl ContactStore {
         identities
     }
 
+    /// Every blocked identity, in the order of their keys.
+    pub(crate) fn blocked(&self) -> Vec<IdentityPublicKey> {
+        let slots = lock(&self.slots);
+        let mut blocked: Vec<IdentityPublicKey> = slots
+            .iter()
+            .filter(|(_, slot)| lock(&slot.0).record == Record::Blocked)
+            .map(|(identity, _)| *identity)
+            .collect();
+        drop(slots);
+        blocked.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        blocked
+    }
+
     /// Withdraws every session of every contact: the installation failed
     /// or the identity is being removed.
     pub(crate) fn withdraw_all(&self) {

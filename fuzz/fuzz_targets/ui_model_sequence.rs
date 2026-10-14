@@ -19,8 +19,8 @@
 //!
 //! Every step is five bytes: the action (modulo 24), then four bytes of
 //! arguments. Handles come from small pools: two identities, three
-//! contact records each, four messages per contact, three requests and
-//! three invitations per identity. Arguments pick from the pools without
+//! contact records each, four messages per contact, three requests, three
+//! invitations and three blocked people per identity. Arguments pick from the pools without
 //! regard to which identity is shown, so handles of the other identity
 //! occur everywhere. An answer to a command picks one of the commands
 //! taken so far; its outcome is one of sixteen kinds built from the pools,
@@ -34,10 +34,10 @@ use std::collections::BTreeSet;
 use libfuzzer_sys::fuzz_target;
 use monolith_ui_model::data::{Deferral, Service, Status, TorCheck};
 use monolith_ui_model::{
-    Command, CommandId, ContactView, ConversationView, Dialog, Failure, IdentitySnapshot,
-    IdentityView, InvitationView, MessageView, Model, Outcome, Phase, ProfileOnDisk, RequestMode,
-    RequestView, RuntimeEvent, Selection, SidebarRow, TorIndicator, UiContactId, UiIdentityId,
-    UiInvitationId, UiMessageId, UiRequestId, Update,
+    BlockedView, Command, CommandId, ContactView, ConversationView, Dialog, Failure,
+    IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, Outcome, Phase,
+    ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, SidebarRow, TorIndicator,
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -62,6 +62,10 @@ fn request(i: u8, h: u8) -> UiRequestId {
 
 fn invitation(i: u8, h: u8) -> UiInvitationId {
     UiInvitationId::new(identity(i), u64::from(h % 3))
+}
+
+fn blocked(i: u8, h: u8) -> UiBlockedId {
+    UiBlockedId::new(identity(i), u64::from(h % 3))
 }
 
 const NAMES: [Option<&str>; 4] = [None, Some(""), Some("Bob"), Some("\u{202E}Eve")];
@@ -115,14 +119,15 @@ fn conversation_view(i: u8, k: u8, flags: u8) -> ConversationView {
 }
 
 /// A snapshot of identity `i`; each bit of `mask` adds a record, a
-/// conversation, a request or an invitation, of the identity read or, for
-/// the high bits, of the other one.
+/// conversation, a request, an invitation or a blocked person, of the
+/// identity read or, for the high bits, of the other one.
 fn snapshot(i: u8, mask: u8, flags: u8) -> IdentitySnapshot {
     let owner = |bit: u8| if mask & bit != 0 { i } else { i.wrapping_add(1) };
     let mut contacts = Vec::new();
     let mut conversations = Vec::new();
     let mut requests = Vec::new();
     let mut invitations = Vec::new();
+    let mut blocked_list = Vec::new();
     for k in 0..3_u8 {
         if mask & (1 << k) != 0 {
             contacts.push(contact_view(owner(0x40), k, flags));
@@ -147,12 +152,20 @@ fn snapshot(i: u8, mask: u8, flags: u8) -> IdentitySnapshot {
             label: None,
         });
     }
+    if mask & 0x20 != 0 {
+        blocked_list.push(BlockedView {
+            id: blocked(owner(0x40), flags),
+            fingerprint: "BBBB".to_owned(),
+            full_fingerprint: String::new(),
+        });
+    }
     IdentitySnapshot {
         identity: identity(i),
         contacts,
         conversations,
         requests,
         invitations,
+        blocked: blocked_list,
         service: [
             Service::Publishing,
             Service::Available,
@@ -388,6 +401,7 @@ fn identities_of(command: &Command) -> Vec<UiIdentityId> {
         Command::AcceptRequest { request, .. }
         | Command::DeclineRequest(request)
         | Command::BlockRequest(request) => vec![request.identity()],
+        Command::Unblock(blocked) => vec![blocked.identity()],
     }
 }
 
@@ -414,6 +428,7 @@ struct ObservedSlice {
     conversations: Vec<ConversationView>,
     requests: Vec<RequestView>,
     invitations: Vec<InvitationView>,
+    blocked: Vec<BlockedView>,
     service: Option<Service>,
     request_mode: Option<RequestMode>,
     selection: Option<Selection>,
@@ -433,8 +448,8 @@ type ObservedDialog = (
     Option<u64>,
 );
 
-/// Everything the public accessors of the model show, for the identities
-/// and requests of the pools.
+/// Everything the public accessors of the model show, for the identities,
+/// requests and blocked people of the pools.
 #[derive(Debug, PartialEq)]
 struct Observed {
     phase: Phase,
@@ -454,6 +469,7 @@ struct Observed {
     tor_indicator: TorIndicator,
     dialog: Option<ObservedDialog>,
     answering: Vec<bool>,
+    unblocking: Vec<bool>,
 }
 
 fn observe_dialog(model: &Model) -> Option<ObservedDialog> {
@@ -495,6 +511,7 @@ fn observe(model: &Model) -> Observed {
                 conversations: slice.conversations.clone(),
                 requests: slice.requests.clone(),
                 invitations: slice.invitations.clone(),
+                blocked: slice.blocked.clone(),
                 service: slice.service,
                 request_mode: slice.request_mode,
                 selection: slice.selection,
@@ -540,6 +557,10 @@ fn observe(model: &Model) -> Observed {
         answering: (0..2_u8)
             .flat_map(|i| (0..3_u8).map(move |h| request(i, h)))
             .map(|id| model.answering(id))
+            .collect(),
+        unblocking: (0..2_u8)
+            .flat_map(|i| (0..3_u8).map(move |h| blocked(i, h)))
+            .map(|id| model.unblocking(id))
             .collect(),
     }
 }
@@ -686,6 +707,9 @@ fuzz_target!(|data: &[u8]| {
                     model.block_sender(request(a, c));
                 }
                 let _ = model.answering(request(a, c));
+                if b & 4 != 0 {
+                    model.unblock(blocked(a, c));
+                }
             }
             22 => {
                 if b & 1 != 0 {

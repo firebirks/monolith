@@ -2,7 +2,8 @@
 //! the runtime does (`docs/adr/0011-ui-security-boundary.md`). The runtime
 //! is played by an environment that keeps the truth in a model of its own,
 //! written here: identities, their contact records, the conversations with
-//! their messages and statuses, requests and invitations. It runs the
+//! their messages and statuses, requests, invitations and the people each
+//! identity blocked. It runs the
 //! commands the model issues against that truth and answers them at once,
 //! late, in another order, never, or with handles of another identity or
 //! record, as the sequence says. It changes the truth by itself (messages
@@ -49,10 +50,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use monolith_ui_model::{
-    Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure, IdentitySnapshot,
-    IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase, ProfileOnDisk,
-    RequestMode, RequestView, RuntimeEvent, Selection, Service, Slice, Status, TorCheck,
-    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    BlockedView, Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure,
+    IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase,
+    ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Slice, Status,
+    TorCheck, UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+    Update,
 };
 use proptest::prelude::*;
 use zeroize::Zeroizing;
@@ -208,6 +210,7 @@ fn empty_snapshot(owner: UiIdentityId) -> IdentitySnapshot {
         conversations: Vec::new(),
         requests: Vec::new(),
         invitations: Vec::new(),
+        blocked: Vec::new(),
         service: Service::Stopped,
         request_mode: RequestMode::Closed,
     }
@@ -296,6 +299,13 @@ struct Invitation {
     label: Option<String>,
 }
 
+/// Someone an identity blocked: the runtime keeps their key only.
+#[derive(Clone, Debug)]
+struct Blocked {
+    id: UiBlockedId,
+    person: u8,
+}
+
 #[derive(Clone, Debug)]
 struct Identity {
     id: UiIdentityId,
@@ -303,6 +313,7 @@ struct Identity {
     records: Vec<Record>,
     requests: Vec<Request>,
     invitations: Vec<Invitation>,
+    blocked: Vec<Blocked>,
     service: Service,
     mode: RequestMode,
 }
@@ -352,9 +363,22 @@ impl Identity {
                     label: invitation.label.clone(),
                 })
                 .collect(),
+            blocked: self
+                .blocked
+                .iter()
+                .map(|blocked| BlockedView {
+                    id: blocked.id,
+                    fingerprint: fingerprint(blocked.person),
+                    full_fingerprint: format!("{} 2222 3333", fingerprint(blocked.person)),
+                })
+                .collect(),
             service: self.service,
             request_mode: self.mode,
         }
+    }
+
+    fn blocks(&self, person: u8) -> bool {
+        self.blocked.iter().any(|held| held.person == person)
     }
 
     fn record(&self, contact: UiContactId) -> Option<&Record> {
@@ -369,6 +393,7 @@ struct Part {
     conversations: Vec<ConversationView>,
     requests: Vec<RequestView>,
     invitations: Vec<InvitationView>,
+    blocked: Vec<BlockedView>,
     mode: RequestMode,
 }
 
@@ -379,6 +404,7 @@ impl Part {
             conversations: snapshot.conversations.clone(),
             requests: snapshot.requests.clone(),
             invitations: snapshot.invitations.clone(),
+            blocked: snapshot.blocked.clone(),
             mode: snapshot.request_mode,
         }
     }
@@ -389,6 +415,7 @@ impl Part {
             conversations: slice.conversations.clone(),
             requests: slice.requests.clone(),
             invitations: slice.invitations.clone(),
+            blocked: slice.blocked.clone(),
             mode: slice.request_mode?,
         })
     }
@@ -540,6 +567,7 @@ struct Env {
     contacts_ever: Vec<UiContactId>,
     requests_ever: Vec<UiRequestId>,
     invitations_ever: Vec<UiInvitationId>,
+    blocked_ever: Vec<UiBlockedId>,
     messages_ever: Vec<UiMessageId>,
     /// Identities a command of the user made.
     made: BTreeSet<UiIdentityId>,
@@ -556,9 +584,10 @@ struct Env {
 
 impl Env {
     /// Alice and Bob. Alice has Carol, with a conversation, Dan, and Erin
-    /// who has not accepted yet, an invitation and a request through it.
-    /// Bob has Frank, the same person as Carol, with a conversation, an
-    /// ended conversation, an invitation and a request.
+    /// who has not accepted yet, an invitation and a request through it,
+    /// and has blocked someone. Bob has Frank, the same person as Carol,
+    /// with a conversation, an ended conversation, an invitation and a
+    /// request.
     fn new() -> Self {
         let mut env = Self {
             identities: Vec::new(),
@@ -575,6 +604,7 @@ impl Env {
             contacts_ever: Vec::new(),
             requests_ever: Vec::new(),
             invitations_ever: Vec::new(),
+            blocked_ever: Vec::new(),
             messages_ever: Vec::new(),
             made: BTreeSet::new(),
             opened: BTreeSet::new(),
@@ -599,6 +629,7 @@ impl Env {
         env.add_record(alice, 2, false, Some("Erin".to_owned()));
         let invitation = env.add_invitation(alice, Some("Friends".to_owned()));
         env.add_request(alice, 3, Some(invitation));
+        env.block(alice, 4);
         let bob = env.add_identity(
             Some("Bob".to_owned()),
             Service::Publishing,
@@ -660,6 +691,7 @@ impl Env {
             records: Vec::new(),
             requests: Vec::new(),
             invitations: Vec::new(),
+            blocked: Vec::new(),
             service,
             mode,
         });
@@ -735,6 +767,22 @@ impl Env {
             .push(Invitation { id, label });
         self.invitations_ever.push(id);
         id
+    }
+
+    /// `owner` blocks `person`: a request of theirs goes, and nothing of
+    /// theirs is taken from then on.
+    fn block(&mut self, owner: UiIdentityId, person: u8) {
+        let id = UiBlockedId::new(owner, self.next_handle);
+        let Some(found) = self.find_mut(owner) else {
+            return;
+        };
+        found.requests.retain(|request| request.person != person);
+        if found.blocks(person) {
+            return;
+        }
+        found.blocked.push(Blocked { id, person });
+        self.next_handle += 1;
+        self.blocked_ever.push(id);
     }
 
     fn take_request(&mut self, request: UiRequestId) -> Option<Request> {
@@ -842,7 +890,19 @@ impl Env {
             Command::SetVerified { contact, verified } => {
                 self.change_contact(*contact, |found| found.verified = *verified)
             }
-            Command::BlockContact(contact) | Command::RemoveContact(contact) => {
+            Command::BlockContact(contact) => {
+                let person = self
+                    .find(contact.identity())
+                    .and_then(|found| found.record(*contact))
+                    .filter(|held| held.current)
+                    .map(|held| held.person);
+                let outcome = self.change_contact(*contact, |found| found.current = false);
+                if let (Outcome::Done, Some(person)) = (&outcome, person) {
+                    self.block(contact.identity(), person);
+                }
+                outcome
+            }
+            Command::RemoveContact(contact) => {
                 self.change_contact(*contact, |found| found.current = false)
             }
             Command::DeleteConversation(contact) => match self.record_mut(*contact) {
@@ -877,13 +937,32 @@ impl Env {
                 }
                 None => Outcome::Failed(Failure::NoSuchRequest),
             },
-            Command::DeclineRequest(request) | Command::BlockRequest(request) => {
+            Command::DeclineRequest(request) => {
                 if self.take_request(*request).is_some() {
                     Outcome::Done
                 } else {
                     Outcome::Failed(Failure::NoSuchRequest)
                 }
             }
+            Command::BlockRequest(request) => match self.take_request(*request) {
+                Some(taken) => {
+                    self.block(request.identity(), taken.person);
+                    Outcome::Done
+                }
+                None => Outcome::Failed(Failure::NoSuchRequest),
+            },
+            Command::Unblock(blocked) => match self.find_mut(blocked.identity()) {
+                Some(found) => {
+                    let before = found.blocked.len();
+                    found.blocked.retain(|held| held.id != *blocked);
+                    if found.blocked.len() < before {
+                        Outcome::Done
+                    } else {
+                        Outcome::Failed(Failure::NotBlocked)
+                    }
+                }
+                None => Outcome::Failed(Failure::NoSuchIdentity),
+            },
             Command::CreateInvitation {
                 identity: owner,
                 label,
@@ -950,6 +1029,9 @@ impl Env {
         let Some(person) = person_of(text) else {
             return Outcome::Failed(Failure::InvalidCard);
         };
+        if found.blocks(person) {
+            return Outcome::Failed(Failure::Blocked);
+        }
         if found
             .records
             .iter()
@@ -1073,6 +1155,11 @@ impl Env {
                     snapshot.invitations.push(InvitationView {
                         id: UiInvitationId::new(foreign.identity(), 901),
                         label: Some("forged".to_owned()),
+                    });
+                    snapshot.blocked.push(BlockedView {
+                        id: UiBlockedId::new(foreign.identity(), 903),
+                        fingerprint: fingerprint(9),
+                        full_fingerprint: String::new(),
                     });
                     (Outcome::Identity(snapshot), tells)
                 }
@@ -1340,6 +1427,7 @@ impl Env {
                     .iter()
                     .any(|held| held.current && held.person == person)
                     || found.requests.iter().any(|held| held.person == person)
+                    || found.blocks(person)
                 {
                     return None;
                 }
@@ -1538,6 +1626,10 @@ enum Step {
         pick: u8,
         verified: bool,
     },
+    Unblock {
+        local: bool,
+        pick: u8,
+    },
     Mode {
         local: bool,
         pick: u8,
@@ -1642,6 +1734,7 @@ fn step() -> impl Strategy<Value = Step> {
             .prop_map(|(local, pick, block)| Step::Answer { local, pick, block }),
         3 => (local(), pick(), any::<bool>())
             .prop_map(|(local, pick, verified)| Step::Verify { local, pick, verified }),
+        3 => (local(), pick()).prop_map(|(local, pick)| Step::Unblock { local, pick }),
         3 => (local(), pick(), pick())
             .prop_map(|(local, pick, mode)| Step::Mode { local, pick, mode }),
         3 => Just(Step::CheckTor),
@@ -1669,6 +1762,7 @@ enum Target {
     Contact(UiContactId),
     Request(UiRequestId),
     Invitation(UiInvitationId),
+    Blocked(UiBlockedId),
 }
 
 /// A command of the user, by name, with what it acts on.
@@ -1715,6 +1809,7 @@ fn write_of(command: &Command) -> Option<Write> {
         Command::RevokeInvitation { invitation, .. } => {
             ("RevokeInvitation", Target::Invitation(*invitation))
         }
+        Command::Unblock(blocked) => ("Unblock", Target::Blocked(*blocked)),
     };
     Some(Write {
         command: name,
@@ -1929,6 +2024,7 @@ fn check_slice(env: &Env, track: &mut Track, round: &Round, owner: UiIdentityId,
                 .invitations
                 .iter()
                 .all(|view| view.id.identity() == owner)
+            && slice.blocked.iter().all(|view| view.id.identity() == owner)
             && slice
                 .threads
                 .keys()
@@ -1959,7 +2055,10 @@ fn check_slice(env: &Env, track: &mut Track, round: &Round, owner: UiIdentityId,
         );
     } else {
         assert!(
-            known.is_empty() && slice.requests.is_empty() && slice.invitations.is_empty(),
+            known.is_empty()
+                && slice.requests.is_empty()
+                && slice.invitations.is_empty()
+                && slice.blocked.is_empty(),
             "{owner:?} shows something before it was read"
         );
     }
@@ -2304,6 +2403,20 @@ impl World {
         choose(&pool, pick).unwrap()
     }
 
+    fn pick_blocked(&self, local: bool, pick: u8) -> UiBlockedId {
+        if local {
+            if let Some(slice) = self.model.current_slice() {
+                let ids: Vec<UiBlockedId> = slice.blocked.iter().map(|view| view.id).collect();
+                if let Some(blocked) = choose(&ids, pick) {
+                    return blocked;
+                }
+            }
+        }
+        let mut pool = self.env.blocked_ever.clone();
+        pool.push(UiBlockedId::new(identity(1), 999));
+        choose(&pool, pick).unwrap()
+    }
+
     fn dialog(&self, kind: DialogKind, local: bool, pick: u8) -> Dialog {
         let (busy, error) = (None, None);
         match kind {
@@ -2497,6 +2610,14 @@ impl World {
                     target: Target::Contact(contact),
                 });
                 self.model.set_verified(contact, verified);
+            }
+            Step::Unblock { local, pick } => {
+                let blocked = self.pick_blocked(local, pick);
+                round.allowed.push(Write {
+                    command: "Unblock",
+                    target: Target::Blocked(blocked),
+                });
+                self.model.unblock(blocked);
             }
             Step::Mode { local, pick, mode } => {
                 let owner = self.pick_identity(local, pick);

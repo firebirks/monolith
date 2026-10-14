@@ -195,6 +195,7 @@ pub(crate) fn command_error(error: CommandError) -> Failure {
         CommandError::ShuttingDown => Failure::ShuttingDown,
         CommandError::UnknownRequest => Failure::NoSuchRequest,
         CommandError::UnknownInvitation => Failure::NoSuchInvitation,
+        CommandError::NotBlocked => Failure::NotBlocked,
         _ => Failure::Unexpected,
     }
 }

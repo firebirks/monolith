@@ -590,14 +590,14 @@ to images by `monolith-ui-snapshot`.
 
 | Id | What | Where |
 | --- | --- | --- |
-| T-UI-1 | Stale instances: a late event of one identity, a contact made again, a confirmation after the selection moved, a replaced request, an invitation of another identity, a Delivered of another conversation, an answer to no command in flight | `monolith-ui-model/tests/model.rs` |
+| T-UI-1 | Stale instances: a late event of one identity, a contact made again, a confirmation after the selection moved, a replaced request, an invitation of another identity, a Delivered of another conversation, an answer to no command in flight, an unblock of someone not listed or answered while another identity is shown | `monolith-ui-model/tests/model.rs` |
 | T-UI-2 | Reconstruction: missed events read everything again; a burst of events makes one read; a deleted identity takes its state with it | `monolith-ui-model/tests/model.rs` |
 | T-UI-3 | Model: random sequences of actions, events and late answers against a separate model of the runtime keep the invariants of S59 and S60 | `monolith-ui-model/tests/properties.rs`, fuzz target `ui_model_sequence` |
 | T-UI-4 | Presentation: rendering limits, visible marks for invisible characters, previews, names | `present.rs` tests, fuzz target `ui_present` |
 | T-UI-5 | Components: buttons, text fields (the secret field keeps no history), bubbles and their status, modals, rows, the identity switcher, driven by pointer and keyboard | `monolith-ui-kit/tests/` |
 | T-UI-6 | Contrast of every text on what it is drawn on, both themes | `monolith-ui-kit/tests/contrast.rs` |
-| T-UI-7 | Screens: no stock widget, no style of their own, no run of spaces in a text; the smallest window scrolls to everything; a settled window asks for no frame; the keyboard shortcuts; a request's name is quoted, never a title; a message's mark is the runtime's status | `monolith-ui/tests/`, `requests::tests`, `conversation::tests` |
-| T-UI-8 | Bridge: every command against the runtime on the in-memory Tor, a number of one identity naming nothing of another, paging of long conversations, the runtime stopping with the window | `monolith-desktop/tests/bridge.rs` |
+| T-UI-7 | Screens: no stock widget, no style of their own, no run of spaces in a text; the smallest window scrolls to everything; a settled window asks for no frame; the keyboard shortcuts; a request's name is quoted, never a title; a message's mark is the runtime's status; the people an identity blocked are listed and unblocked without a question | `monolith-ui/tests/`, `requests::tests`, `conversation::tests` |
+| T-UI-8 | Bridge: every command against the runtime on the in-memory Tor, a number of one identity naming nothing of another, a number of someone unblocked naming nothing, also once they are blocked again, paging of long conversations, the runtime stopping with the window | `monolith-desktop/tests/bridge.rs` |
 | T-UI-9 | Boundary: the UI crates reach no Monolith crate, the desktop reaches the core only through the runtime | `monolith-desktop/tests/boundary.rs` |
 | T-UI-10 | Files and places: the settings file (a value cannot add a line, what is written is read back), Tor settings without a cookie path refused, a card never replaces a file, a card file is a small regular file, Tails places, fallback fonts that do not read are left out | `monolith-desktop` unit tests |
 | T-UI-11 | No URL leaves a frame | `window::tests` |

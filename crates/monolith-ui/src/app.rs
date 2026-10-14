@@ -600,6 +600,7 @@ mod tests {
                         },
                         requests: Vec::new(),
                         invitations: Vec::new(),
+                        blocked: Vec::new(),
                         service: Service::Available,
                         request_mode: RequestMode::Invitation,
                     })),

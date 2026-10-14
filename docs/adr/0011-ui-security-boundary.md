@@ -38,19 +38,21 @@ piece of that state would be shown, or acted on, as if it were true.
 ### Handles
 
 The UI model names everything by handles of its own: `UiIdentityId`,
-`UiContactId`, `UiMessageId`, `UiRequestId`, `UiInvitationId`. They are
-presentation handles, not authority: holding one allows nothing; a
-command that carries one is checked by the runtime like any other.
+`UiContactId`, `UiMessageId`, `UiRequestId`, `UiInvitationId`,
+`UiBlockedId`. They are presentation handles, not authority: holding one
+allows nothing; a command that carries one is checked by the runtime like
+any other.
 
 - An identity handle holds the durable `IdentityId`; a contact handle
   holds the identity handle and the durable `ContactId`; a message handle
   holds the contact handle and the place of the message in its
   conversation. A record made again, or an identity restored, has new
   identifiers, so a handle of the old one never names the new one.
-- Requests and invitations have identifiers in the core that are local to
-  one instance of an identity and not kept across restarts. The bridge
-  gives each one it reports a new `u64` handle, never reused in the
-  process, together with the identity handle, and keeps the mapping.
+- Requests, invitations and blocked people have identifiers in the core
+  that are local to one instance of an identity and not kept across
+  restarts. The bridge gives each one it reports a new `u64` handle, never
+  reused in the process, together with the identity handle, and keeps the
+  mapping.
 - No handle is derived from a list position, a display name or the order
   of a loop. egui widget ids are derived from handles.
 

@@ -2,7 +2,8 @@
 //! of the Phase 6 brief (section 42), and the rules of
 //! `docs/adr/0011-ui-security-boundary.md`: nothing late, stale or of
 //! another identity changes what is shown of another, a dialog acts on
-//! what it captured, and a draft goes only once the runtime queued it.
+//! what it captured, a draft goes only once the runtime queued it, and an
+//! unblock names someone listed.
 
 // Test code builds its own inputs.
 #![allow(
@@ -13,11 +14,12 @@
     clippy::arithmetic_side_effects
 )]
 
+use monolith_ui_model::model::UNBLOCKED;
 use monolith_ui_model::{
-    Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure, IdentitySnapshot,
-    IdentityView, InvitationView, MessageView, Model, Outcome, Phase, ProfileOnDisk, RequestMode,
-    RequestView, RuntimeEvent, Selection, Service, Status, UiContactId, UiIdentityId,
-    UiInvitationId, UiMessageId, UiRequestId, Update,
+    BlockedView, Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure,
+    IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase,
+    ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Status, UiBlockedId,
+    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -66,8 +68,17 @@ fn snapshot(identity: UiIdentityId, contacts: Vec<ContactView>) -> IdentitySnaps
         conversations: Vec::new(),
         requests: Vec::new(),
         invitations: Vec::new(),
+        blocked: Vec::new(),
         service: Service::Available,
         request_mode: RequestMode::Invitation,
+    }
+}
+
+fn blocked_view(id: UiBlockedId, fingerprint: &str) -> BlockedView {
+    BlockedView {
+        id,
+        fingerprint: fingerprint.to_owned(),
+        full_fingerprint: String::new(),
     }
 }
 
@@ -833,6 +844,7 @@ fn a_snapshot_shows_only_what_belongs_to_its_identity() {
                 id: UiInvitationId::new(identity(2), 5),
                 label: None,
             }];
+            snap.blocked = vec![blocked_view(UiBlockedId::new(identity(2), 6), "GGGG 1111")];
             Some(Outcome::Identity(Box::new(snap)))
         }
         _ => None,
@@ -848,6 +860,7 @@ fn a_snapshot_shows_only_what_belongs_to_its_identity() {
     assert!(slice.conversations.is_empty());
     assert!(slice.requests.is_empty());
     assert!(slice.invitations.is_empty());
+    assert!(slice.blocked.is_empty());
 }
 
 #[test]
@@ -1386,4 +1399,132 @@ fn a_contact_says_whether_its_card_was_an_invitation() {
     });
     assert!(model.contact(invited).unwrap().invitation);
     assert!(!model.contact(carded).unwrap().invitation);
+}
+
+/// The model with identity 1 shown and, blocked by it, the people `list`.
+fn with_blocked(list: Vec<BlockedView>) -> Model {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let mut snap = snapshot(identity(1), Vec::new());
+            snap.blocked = list.clone();
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        Command::LoadIdentity(id) => Some(Outcome::Identity(Box::new(snapshot(*id, Vec::new())))),
+        Command::LoadIdentities => Some(Outcome::Identities(vec![
+            identity_view(1, "Alice"),
+            identity_view(2, "Work"),
+        ])),
+        _ => None,
+    });
+    model.take_notices();
+    model
+}
+
+#[test]
+fn an_unblock_names_someone_listed_once_and_says_what_it_did() {
+    let first = UiBlockedId::new(identity(1), 1);
+    let second = UiBlockedId::new(identity(1), 2);
+    let mut model = with_blocked(vec![
+        blocked_view(first, "GGGG 1111"),
+        blocked_view(second, "HHHH 2222"),
+    ]);
+    assert_eq!(model.slice(identity(1)).unwrap().blocked.len(), 2);
+    // Someone not listed, of this identity or of another, is not asked
+    // for.
+    model.unblock(UiBlockedId::new(identity(1), 9));
+    model.unblock(UiBlockedId::new(identity(2), 1));
+    assert!(model.take_commands().is_empty());
+
+    model.unblock(first);
+    assert!(model.unblocking(first));
+    assert!(!model.unblocking(second));
+    // Asked once while it is under way.
+    model.unblock(first);
+    let commands = model.take_commands();
+    let asked: Vec<&Command> = commands.iter().map(|(_, command)| command).collect();
+    assert_eq!(asked, [&Command::Unblock(first)]);
+    model.apply(Update::Done {
+        command: commands[0].0,
+        outcome: Outcome::Done,
+    });
+    assert!(!model.unblocking(first));
+    let notices = model.take_notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, NoticeKind::Success);
+    assert_eq!(notices[0].text, UNBLOCKED);
+    // Who is blocked is read again; until then the list stays as it was
+    // said.
+    assert_eq!(model.slice(identity(1)).unwrap().blocked.len(), 2);
+    let reads = model.take_commands();
+    assert_eq!(reads.len(), 1);
+    assert_eq!(reads[0].1, Command::LoadIdentity(identity(1)));
+    let mut snap = snapshot(identity(1), Vec::new());
+    snap.blocked = vec![blocked_view(second, "HHHH 2222")];
+    model.apply(Update::Done {
+        command: reads[0].0,
+        outcome: Outcome::Identity(Box::new(snap)),
+    });
+    let listed: Vec<UiBlockedId> = model
+        .slice(identity(1))
+        .unwrap()
+        .blocked
+        .iter()
+        .map(|view| view.id)
+        .collect();
+    assert_eq!(listed, [second]);
+    // No longer listed: not asked for again.
+    model.unblock(first);
+    assert!(model.take_commands().is_empty());
+
+    // Refused: the reason is told, and the list is read again.
+    model.unblock(second);
+    let (id, _) = model.take_commands().remove(0);
+    model.apply(Update::Done {
+        command: id,
+        outcome: Outcome::Failed(Failure::NotBlocked),
+    });
+    let notices = model.take_notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, NoticeKind::Error);
+    assert_eq!(notices[0].text, Failure::NotBlocked.message());
+    assert!(
+        model
+            .take_commands()
+            .iter()
+            .any(|(_, command)| *command == Command::LoadIdentity(identity(1)))
+    );
+}
+
+#[test]
+fn an_unblock_answered_while_another_identity_is_shown_changes_only_its_own() {
+    let blocked = UiBlockedId::new(identity(1), 1);
+    let mut model = with_blocked(vec![blocked_view(blocked, "GGGG 1111")]);
+    model.unblock(blocked);
+    let (id, _) = model.take_commands().remove(0);
+    // Work is shown when the answer comes.
+    model.select_identity(identity(2));
+    let before = model.sidebar();
+    model.apply(Update::Done {
+        command: id,
+        outcome: Outcome::Done,
+    });
+    assert_eq!(model.current(), Some(identity(2)));
+    assert_eq!(model.sidebar(), before);
+    let reads: Vec<Command> = model
+        .take_commands()
+        .into_iter()
+        .map(|(_, command)| command)
+        .collect();
+    assert_eq!(reads, [Command::LoadIdentity(identity(1))]);
+    // An answer to the unblock, late again, changes nothing.
+    let before = format!("{model:?}");
+    model.apply(Update::Done {
+        command: id,
+        outcome: Outcome::Done,
+    });
+    assert_eq!(format!("{model:?}"), before);
+    assert_eq!(model.take_notices().len(), 1);
 }

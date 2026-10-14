@@ -14,9 +14,10 @@ use std::path::Path;
 
 pub use monolith_core::api;
 use monolith_core::api::{
-    AddedContact, CommandError, ContactId, ContactSummary, ConversationSummary, Event, IdentityId,
-    IdentitySummary, InvitationRef, InvitationSummary, MessageRef, MessageView, RequestMode,
-    RequestRef, RequestSummary, SendError, ServiceState, TorCheck,
+    AddedContact, BlockedRef, BlockedSummary, CommandError, ContactId, ContactSummary,
+    ConversationSummary, Event, IdentityId, IdentitySummary, InvitationRef, InvitationSummary,
+    MessageRef, MessageView, RequestMode, RequestRef, RequestSummary, SendError, ServiceState,
+    TorCheck,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, InstallationError};
@@ -374,6 +375,17 @@ impl<B: TorBackend + 'static> Messenger<B> {
         self.runtime
             .revoke_invitation(invitation, discard_requests)
             .await
+    }
+
+    /// The identities an identity blocked.
+    pub fn blocked(&self, identity: &IdentityId) -> Result<Vec<BlockedSummary>, CommandError> {
+        self.runtime.blocked(identity)
+    }
+
+    /// Unblocks an identity: it is not a contact again, and its requests
+    /// are considered as the request mode says.
+    pub async fn unblock(&self, blocked: &BlockedRef) -> Result<(), CommandError> {
+        self.runtime.unblock(blocked).await
     }
 
     /// Which requests from strangers an identity considers.
