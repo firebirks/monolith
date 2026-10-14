@@ -41,11 +41,15 @@ Buttons, icon buttons, text fields, the composer, the search field,
 avatars, rows, bubbles, message status, badges, pills, toasts, modals,
 menus, the sidebar and the top bar, section headers, empty states, inline
 errors, the Tor status, the identity switcher, invitation rows, request
-cards, settings rows, dividers, tooltips and the scroll treatment are
-widgets of `monolith-ui-kit`, built from egui's painter, responses and
-layouts. Each defines its normal, hovered, pressed, focused, selected,
-disabled and error states from the theme, keeps keyboard focus visible
-with a focus ring, and reports its role and label to AccessKit.
+cards, settings rows, fingerprints, dividers, tooltips and the scroll
+treatment are widgets of `monolith-ui-kit`, built from egui's painter,
+responses and layouts. Each defines its normal, hovered, pressed, focused,
+selected, disabled and error states from the theme, and reports its role,
+label and whether it is enabled to AccessKit. The focus ring shows when
+the focus was moved from the keyboard (Tab, Shift+Tab, or a screen
+reader), not after a click; a text field also marks its focus with its
+border. A control that takes no input gives no hover, no press and no
+pointing hand.
 
 egui's own style is set from the theme as well (selection, scroll bars,
 text cursor, tooltips, popups), so that what egui still draws inside a

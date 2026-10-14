@@ -93,7 +93,14 @@ command that carries one is checked by the runtime like any other.
 - The vault passphrase is the only secret the GUI handles. It is kept in
   a buffer that is wiped when it is handed to the bridge or the dialog
   closes; the text field that edits it keeps no undo history in egui's
-  memory, and its state is removed when the dialog closes.
+  memory, and its state is removed when the dialog closes. While it has
+  the focus the window turns the input method of the system off, so that
+  the passphrase is not composed through it; it takes at most 1024
+  characters. egui still copies the text of a field while it draws it;
+  those copies are not wiped.
+- The composer keeps no undo history either: a sent or deleted message
+  cannot come back with Ctrl+Z, and message text stays out of egui's
+  memory.
 - Nothing secret, and no message or peer text, goes into egui's memory,
   widget ids, debug output, logs or the settings file.
 - Errors of the runtime are mapped to fixed messages for the user; no
