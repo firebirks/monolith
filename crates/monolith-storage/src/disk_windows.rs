@@ -4,8 +4,8 @@
 //! on Windows and no code of Monolith's own outside it:
 //!
 //! - the directory is held open for the life of the value, without the
-//!   share mode that would let it be renamed or deleted, so that the path
-//!   checked at open keeps naming it;
+//!   share mode that would let it be renamed or deleted (but see the
+//!   limits below);
 //! - nothing that is a reparse point (a symbolic link or a junction) is
 //!   followed: every file is opened as itself and refused if it is one;
 //! - the single-instance lock is a file opened with no sharing at all,
@@ -14,10 +14,12 @@
 //! - a file is created only if it does not exist, and flushed with
 //!   `FlushFileBuffers`; the names of the directory are flushed with
 //!   `FlushFileBuffers` on the handle of the directory;
-//! - a rename is that of the standard library, which replaces its target
-//!   in one step (`FileRenameInfoEx` with POSIX semantics, or
-//!   `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` on a file system
-//!   without them), and a second name is a hard link.
+//! - a rename is that of the standard library, which replaces its target:
+//!   `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` and without
+//!   `MOVEFILE_WRITE_THROUGH`, and only if that is refused with
+//!   `ERROR_ACCESS_DENIED`, `SetFileInformationByHandle` with
+//!   `FileRenameInfoEx` and POSIX semantics (as in the source of Rust
+//!   1.95); a second name is a hard link.
 //!
 //! What Unix checks and this does not: who owns the directory and who
 //! else may read it. Windows keeps that in access control lists, which
@@ -25,6 +27,13 @@
 //! the user's profile, whose list gives access to the user, SYSTEM and
 //! the administrators only; a directory elsewhere has the list its parent
 //! gives it.
+//!
+//! Two limits besides. Microsoft does not document that `FlushFileBuffers`
+//! on a handle of a directory makes a rename in it durable, as `fsync` of
+//! a directory does on Unix; it is the nearest call Windows has. And only
+//! the last component of the directory is held open: every operation
+//! names its file by the path of the directory joined with the file name,
+//! which Windows resolves again each time.
 
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};

@@ -299,9 +299,10 @@ fn a_draft_goes_only_once_the_runtime_queued_it() {
     messages_of(&mut model, c, Vec::new());
     model.draft_mut(c).unwrap().push_str("hello");
     model.send(c);
-    // While it is queued the draft stays and cannot be edited.
-    assert!(model.draft_mut(c).is_none());
+    // While it is queued the draft stays, and what is typed meanwhile is
+    // kept; the text sent is the one taken when Send was pressed.
     assert_eq!(model.thread(c).unwrap().draft, "hello");
+    model.draft_mut(c).unwrap().push_str(" again");
     answer_all(&mut model, |command| match command {
         Command::Send { contact, text } => {
             assert_eq!((*contact, text.as_str()), (c, "hello"));
@@ -310,11 +311,24 @@ fn a_draft_goes_only_once_the_runtime_queued_it() {
         _ => None,
     });
     let thread = model.thread(c).unwrap();
-    assert_eq!(thread.draft, "hello");
+    assert_eq!(thread.draft, "hello again");
     assert_eq!(thread.send_error, Some(Failure::QueueFull));
     model.send(c);
+    // Typed while it is queued: kept, not cleared with the text sent.
+    model.draft_mut(c).unwrap().push('!');
     answer_all(&mut model, |command| match command {
-        Command::Send { .. } => Some(Outcome::MessageQueued(UiMessageId::new(c, 1))),
+        Command::Send { text, .. } => {
+            assert_eq!(text, "hello again");
+            Some(Outcome::MessageQueued(UiMessageId::new(c, 1)))
+        }
+        _ => None,
+    });
+    assert_eq!(model.thread(c).unwrap().draft, "hello again!");
+    model.draft_mut(c).unwrap().clear();
+    model.draft_mut(c).unwrap().push_str("next");
+    model.send(c);
+    answer_all(&mut model, |command| match command {
+        Command::Send { .. } => Some(Outcome::MessageQueued(UiMessageId::new(c, 2))),
         _ => None,
     });
     assert_eq!(model.thread(c).unwrap().draft, "");
@@ -700,7 +714,7 @@ fn no_secret_or_text_is_printed_by_debug() {
         },
         Command::AddContact {
             identity: identity(1),
-            card: "MONOLITH secret card".to_owned(),
+            card: Zeroizing::new("MONOLITH secret card".to_owned()),
             name: Some("secret name".to_owned()),
         },
         Command::SetContactName {
@@ -735,6 +749,221 @@ fn no_secret_or_text_is_printed_by_debug() {
         let text = format!("{outcome:?} {outcome:#?}");
         assert!(!text.contains("secret"), "{text}");
     }
+
+    // The state of the model holds names, cards, drafts and texts in
+    // flight; none of them is printed either.
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let mut snap = snapshot(
+                identity(1),
+                vec![contact_view(c, "secret contact", "CCCC 1111")],
+            );
+            snap.requests = vec![RequestView {
+                id: UiRequestId::new(identity(1), 1),
+                fingerprint: "FFFF 0000".to_owned(),
+                full_fingerprint: String::new(),
+                display_name: "secret sender".to_owned(),
+                introduction: "secret introduction".to_owned(),
+                invitation: None,
+            }];
+            snap.invitations = vec![InvitationView {
+                id: UiInvitationId::new(identity(1), 2),
+                label: Some("secret label".to_owned()),
+            }];
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        _ => None,
+    });
+    model.select_conversation(c);
+    messages_of(
+        &mut model,
+        c,
+        vec![message(c, 1, Status::Received, "secret message")],
+    );
+    model.draft_mut(c).unwrap().push_str("secret draft");
+    model.send(c);
+    model.draft_mut(c).unwrap().push_str(" and more secret");
+    model.apply(Update::Event(RuntimeEvent::ContactAccepted(c)));
+    model.open(Dialog::AddContact {
+        identity: identity(1),
+        card: "MONOLITH secret card".to_owned(),
+        name: "secret name".to_owned(),
+        busy: None,
+        error: None,
+    });
+    let text = format!(
+        "{model:?} {model:#?} {:?} {:?} {:?} {:?}",
+        model.dialog(),
+        model.slice(identity(1)),
+        model.thread(c),
+        model.sidebar(),
+    );
+    assert!(!text.contains("secret"), "{text}");
+    let notices = model.take_notices();
+    let text = format!("{notices:?}");
+    assert!(!text.contains("secret"), "{text}");
+    model.close();
+    let mut model = ready();
+    model.open(Dialog::NewInvitation {
+        identity: identity(1),
+        label: "secret label".to_owned(),
+        created: Some((
+            UiInvitationId::new(identity(1), 3),
+            Zeroizing::new("MONOLITH secret card".to_owned()),
+        )),
+        busy: None,
+        error: None,
+    });
+    let text = format!("{model:?} {:?}", model.dialog());
+    assert!(!text.contains("secret"), "{text}");
+}
+
+#[test]
+fn a_dialog_opened_again_is_another_instance() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let add = || Dialog::AddContact {
+        identity: identity(1),
+        card: String::new(),
+        name: String::new(),
+        busy: None,
+        error: None,
+    };
+    assert_eq!(model.dialog_instance(), None);
+    model.open(add());
+    let first = model.dialog_instance().unwrap();
+    model.close();
+    assert_eq!(model.dialog_instance(), None);
+    // The same dialog of the same identity, opened again, is not the one
+    // that was closed.
+    model.open(add());
+    let second = model.dialog_instance().unwrap();
+    assert_ne!(first, second);
+    // Confirming it keeps it the same instance until it closes.
+    if let Some(Dialog::AddContact { card, .. }) = model.dialog_mut() {
+        card.push_str("MONOLITH card");
+    }
+    model.confirm();
+    assert_eq!(model.dialog_instance(), Some(second));
+    let commands = answer_all(&mut model, |command| match command {
+        Command::AddContact { card, .. } => {
+            assert_eq!(card.as_str(), "MONOLITH card");
+            Some(Outcome::ContactAdded(contact(1, 12)))
+        }
+        _ => None,
+    });
+    assert!(
+        commands
+            .iter()
+            .any(|command| matches!(command, Command::AddContact { .. }))
+    );
+    assert_eq!(model.dialog_instance(), None);
+}
+
+#[test]
+fn an_unlock_that_fails_stays_on_the_unlock_screen() {
+    let mut model = Model::new();
+    model.apply(Update::Started {
+        profile: ProfileOnDisk::Exists,
+        location: "/home/user/.local/share/monolith".to_owned(),
+    });
+    // A passphrase too long for the vault cannot open it; the profile
+    // exists, so the screen to create one is never shown.
+    for failure in [
+        Failure::UnusablePassphrase,
+        Failure::WrongPassphrase,
+        Failure::Disk,
+    ] {
+        model.unlock(Zeroizing::new("a".repeat(2_000)));
+        assert_eq!(model.phase(), Phase::Opening);
+        answer_all(&mut model, |command| match command {
+            Command::OpenProfile { .. } => Some(Outcome::Failed(failure)),
+            _ => None,
+        });
+        assert_eq!(model.phase(), Phase::Locked);
+        assert_eq!(model.profile_error(), Some(failure));
+    }
+    // A session that saves nothing, started from there and refused, goes
+    // back there too.
+    model.start_without_saving();
+    answer_all(&mut model, |_| Some(Outcome::Failed(Failure::Unexpected)));
+    assert_eq!(model.phase(), Phase::Locked);
+
+    // A profile that cannot be created leaves the first start shown.
+    let mut model = Model::new();
+    model.apply(Update::Started {
+        profile: ProfileOnDisk::Absent,
+        location: "/home/user/.local/share/monolith".to_owned(),
+    });
+    model.create_profile(Zeroizing::new("a".repeat(2_000)));
+    answer_all(&mut model, |command| match command {
+        Command::CreateProfile { .. } => Some(Outcome::Failed(Failure::UnusablePassphrase)),
+        _ => None,
+    });
+    assert_eq!(model.phase(), Phase::Welcome);
+    assert_eq!(model.profile_error(), Some(Failure::UnusablePassphrase));
+}
+
+#[test]
+fn a_failed_store_raises_no_notice_of_its_own() {
+    let mut model = ready();
+    model.take_notices();
+    model.apply(Update::Event(RuntimeEvent::StorageFailed));
+    model.apply(Update::Event(RuntimeEvent::StorageFailed));
+    // The screens say it once, for as long as it lasts.
+    assert!(model.storage_failed());
+    assert!(model.take_notices().is_empty());
+}
+
+#[test]
+fn a_declined_request_and_a_blocked_sender_are_told_apart() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let first = UiRequestId::new(identity(1), 1);
+    let second = UiRequestId::new(identity(1), 2);
+    let request = |id: UiRequestId| RequestView {
+        id,
+        fingerprint: "FFFF 0000".to_owned(),
+        full_fingerprint: String::new(),
+        display_name: String::new(),
+        introduction: String::new(),
+        invitation: None,
+    };
+    model.apply(Update::Event(RuntimeEvent::RequestReceived {
+        identity: identity(1),
+        queued: true,
+    }));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(_) => {
+            let mut snap = snapshot(identity(1), Vec::new());
+            snap.requests = vec![request(first), request(second)];
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        _ => None,
+    });
+    model.take_notices();
+    model.decline(first);
+    model.block_sender(second);
+    assert!(model.answering(first));
+    assert!(model.answering(second));
+    // Answered in the other order: each answer says what it did.
+    let commands = model.take_commands();
+    for (id, _) in commands.into_iter().rev() {
+        model.apply(Update::Done {
+            command: id,
+            outcome: Outcome::Done,
+        });
+    }
+    let texts: Vec<String> = model
+        .take_notices()
+        .into_iter()
+        .map(|notice| notice.text)
+        .collect();
+    assert_eq!(texts, ["Sender blocked.", "Request declined."]);
 }
 
 #[test]

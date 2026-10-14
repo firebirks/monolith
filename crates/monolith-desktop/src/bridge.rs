@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+use core::future::Future;
 use core::hash::Hash;
 use core::time::Duration;
 
@@ -35,7 +36,7 @@ use monolith_ui_model::{
     UiInvitationId, UiRequestId, Update,
 };
 use tokio::sync::mpsc;
-use tokio::task::{JoinSet, LocalSet};
+use tokio::task::{self, JoinSet, LocalSet};
 use zeroize::Zeroizing;
 
 use crate::convert;
@@ -66,6 +67,8 @@ pub struct Bridge {
     commands: Option<mpsc::Sender<(CommandId, Command)>>,
     backlog: VecDeque<(CommandId, Command)>,
     updates: mpsc::Receiver<Update>,
+    /// The window was told that the runtime stopped.
+    stopped: bool,
     thread: Option<JoinHandle<()>>,
     close_wait: Duration,
 }
@@ -108,6 +111,7 @@ impl Bridge {
             commands: Some(command_sender),
             backlog: VecDeque::new(),
             updates: update_receiver,
+            stopped: false,
             thread: Some(thread),
             close_wait,
         })
@@ -147,9 +151,19 @@ impl Bridge {
         !self.backlog.is_empty()
     }
 
-    /// The next update, if one is ready.
+    /// The next update, if one is ready. A runtime thread that ended
+    /// without a word (it panicked) is said to have stopped, once.
     pub fn try_update(&mut self) -> Option<Update> {
-        self.updates.try_recv().ok()
+        match self.updates.try_recv() {
+            Ok(update) => {
+                self.stopped |= update == Update::Stopped;
+                Some(update)
+            }
+            Err(mpsc::error::TryRecvError::Empty) => None,
+            Err(mpsc::error::TryRecvError::Disconnected) => {
+                (!core::mem::replace(&mut self.stopped, true)).then_some(Update::Stopped)
+            }
+        }
     }
 }
 
@@ -374,6 +388,47 @@ enum Finished {
     Invitation(Result<(InvitationRef, Zeroizing<String>), Failure>),
 }
 
+/// The commands that run as tasks of their own. The command a task
+/// answers is kept outside it, so that a task that panicked is answered
+/// all the same.
+#[derive(Default)]
+struct Tasks {
+    set: JoinSet<Finished>,
+    commands: HashMap<task::Id, CommandId>,
+}
+
+impl Tasks {
+    /// Runs `task` for `command`.
+    fn spawn(&mut self, command: CommandId, task: impl Future<Output = Finished> + 'static) {
+        let handle = self.set.spawn_local(task);
+        self.commands.insert(handle.id(), command);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
+
+    /// The next command whose task ended, with what it ended with; none
+    /// if it panicked.
+    async fn next(&mut self) -> Option<(CommandId, Option<Finished>)> {
+        loop {
+            let (id, finished) = match self.set.join_next_with_id().await? {
+                Ok((id, finished)) => (id, Some(finished)),
+                Err(error) => (error.id(), None),
+            };
+            // Every task was spawned with its command.
+            if let Some(command) = self.commands.remove(&id) {
+                return Some((command, finished));
+            }
+        }
+    }
+
+    async fn shutdown(&mut self) {
+        self.set.shutdown().await;
+        self.commands.clear();
+    }
+}
+
 struct Running<B: TorBackend + 'static> {
     messenger: Rc<Messenger<B>>,
     out: Out,
@@ -389,7 +444,7 @@ impl<B: TorBackend + 'static> Running<B> {
         mut commands: mpsc::Receiver<(CommandId, Command)>,
         mut events: monolith_runtime::Events,
     ) {
-        let mut tasks: JoinSet<(CommandId, Finished)> = JoinSet::new();
+        let mut tasks = Tasks::default();
         loop {
             let going = tokio::select! {
                 received = commands.recv() => match received {
@@ -410,15 +465,16 @@ impl<B: TorBackend + 'static> Running<B> {
                     }
                     Err(Missed::Closed) => false,
                 },
-                Some(joined) = tasks.join_next(), if !tasks.is_empty() => match joined {
-                    Ok((command, finished)) => {
-                        let outcome = self.finished(finished);
-                        self.out.done(command, outcome).await
-                    }
-                    // A task does not panic; if one did, its command is
-                    // never answered and the window shows it as running.
-                    Err(_) => true,
-                },
+                Some((command, finished)) = tasks.next(), if !tasks.is_empty() => {
+                    let outcome = match finished {
+                        Some(finished) => self.finished(finished),
+                        // A task does not panic; if one did, its command
+                        // is answered all the same, and the window does
+                        // not show it as running for ever.
+                        None => Outcome::Failed(Failure::Unexpected),
+                    };
+                    self.out.done(command, outcome).await
+                }
             };
             if !going {
                 break;
@@ -443,12 +499,7 @@ impl<B: TorBackend + 'static> Running<B> {
 
     /// Runs a command: a query here and now, anything else as a task.
     /// False once the window is gone.
-    async fn command(
-        &mut self,
-        command: CommandId,
-        what: Command,
-        tasks: &mut JoinSet<(CommandId, Finished)>,
-    ) -> bool {
+    async fn command(&mut self, command: CommandId, what: Command, tasks: &mut Tasks) -> bool {
         let outcome = match what {
             Command::LoadIdentities => Outcome::Identities(
                 self.messenger
@@ -498,7 +549,7 @@ impl<B: TorBackend + 'static> Running<B> {
             | Command::Shutdown => Outcome::Failed(Failure::Unexpected),
             what => match self.task(what) {
                 Ok(task) => {
-                    tasks.spawn_local(async move { (command, task.await) });
+                    tasks.spawn(command, task);
                     return true;
                 }
                 Err(failure) => Outcome::Failed(failure),
@@ -557,8 +608,8 @@ impl<B: TorBackend + 'static> Running<B> {
                 card,
                 name,
             } => {
-                // The card can carry an invitation of the other side.
-                let card = Zeroizing::new(card);
+                // The card can carry an invitation of the other side; it
+                // is wiped when the task drops it.
                 let identity = convert::identity_id(identity)?;
                 Box::pin(async move {
                     match messenger.add_contact(&identity, &card).await {
@@ -825,7 +876,7 @@ impl<B: TorBackend + 'static> Running<B> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unwrap_used, clippy::panic)]
 
     use super::*;
 
@@ -840,6 +891,38 @@ mod tests {
 
     fn id(byte: u8) -> IdentityId {
         IdentityId::from_bytes([byte; 16]).unwrap()
+    }
+
+    #[test]
+    fn a_task_that_panicked_is_answered_for_its_command() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let ended = LocalSet::new().block_on(&runtime, async {
+            let mut tasks = Tasks::default();
+            tasks.spawn(CommandId::new(7), async {
+                if true {
+                    panic!("a task that panics");
+                }
+                Finished::Outcome(Outcome::Done)
+            });
+            tasks.spawn(CommandId::new(8), async {
+                Finished::Outcome(Outcome::Done)
+            });
+            let mut ended = Vec::new();
+            while let Some((command, finished)) = tasks.next().await {
+                ended.push((
+                    command,
+                    matches!(finished, Some(Finished::Outcome(Outcome::Done))),
+                ));
+            }
+            ended.sort_by_key(|(command, _)| *command);
+            ended
+        });
+        assert_eq!(
+            ended,
+            [(CommandId::new(7), false), (CommandId::new(8), true)]
+        );
     }
 
     #[test]

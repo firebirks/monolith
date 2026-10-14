@@ -5,9 +5,12 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Instant;
+
+use core::time::Duration;
 
 use monolith_ui::EffectResult;
-use monolith_ui_model::Failure;
+use monolith_ui_model::{Failure, UiIdentityId};
 use zeroize::Zeroizing;
 
 use crate::bridge::Wake;
@@ -18,6 +21,9 @@ pub const MAX_CARD_FILE: u64 = 64 * 1024;
 
 /// How many jobs wait at most.
 const QUEUE: usize = 16;
+
+/// How long the window waits, when it closes, for the jobs asked for.
+const CLOSE_WAIT: Duration = Duration::from_secs(3);
 
 /// Something to do on the disk.
 pub enum Job {
@@ -30,8 +36,15 @@ pub enum Job {
         /// The card.
         contents: Zeroizing<String>,
     },
-    /// Read a card file.
-    ReadCard(PathBuf),
+    /// Read a card file for the "Add contact" dialog that asked.
+    ReadCard {
+        /// The file.
+        path: PathBuf,
+        /// The identity of the dialog.
+        identity: UiIdentityId,
+        /// The dialog.
+        dialog: u64,
+    },
     /// Write the settings file.
     Config(PathBuf, Box<Config>),
 }
@@ -41,6 +54,7 @@ pub struct Disk {
     jobs: Option<mpsc::SyncSender<Job>>,
     results: mpsc::Receiver<EffectResult>,
     thread: Option<std::thread::JoinHandle<()>>,
+    close_wait: Duration,
 }
 
 impl core::fmt::Debug for Disk {
@@ -52,6 +66,15 @@ impl core::fmt::Debug for Disk {
 impl Disk {
     /// Starts the thread.
     pub fn start(wake: Wake) -> std::io::Result<Self> {
+        Self::start_with(wake, CLOSE_WAIT, run)
+    }
+
+    /// Starts the thread, doing each job with `run`.
+    fn start_with(
+        wake: Wake,
+        close_wait: Duration,
+        run: fn(Job) -> Option<EffectResult>,
+    ) -> std::io::Result<Self> {
         let (jobs, queue) = mpsc::sync_channel::<Job>(QUEUE);
         let (sender, results) = mpsc::channel();
         let thread = std::thread::Builder::new()
@@ -70,6 +93,7 @@ impl Disk {
             jobs: Some(jobs),
             results,
             thread: Some(thread),
+            close_wait,
         })
     }
 
@@ -91,10 +115,19 @@ impl Disk {
 }
 
 impl Drop for Disk {
-    /// Lets the jobs asked for finish: the last settings are written.
+    /// Lets the jobs asked for finish, so that the last settings are
+    /// written, and waits for them a while at most: a job that hangs does
+    /// not hold the exit.
     fn drop(&mut self) {
         self.jobs = None;
-        if let Some(thread) = self.thread.take() {
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        let deadline = Instant::now().checked_add(self.close_wait);
+        while !thread.is_finished() && deadline.is_some_and(|deadline| Instant::now() < deadline) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if thread.is_finished() {
             let _ = thread.join();
         }
     }
@@ -115,8 +148,16 @@ fn run(job: Job) -> Option<EffectResult> {
             },
             None => EffectResult::Failed(Failure::File),
         }),
-        Job::ReadCard(path) => Some(match read_card(&path) {
-            Ok(text) => EffectResult::CardRead { text },
+        Job::ReadCard {
+            path,
+            identity,
+            dialog,
+        } => Some(match read_card(&path) {
+            Ok(text) => EffectResult::CardRead {
+                identity,
+                dialog,
+                text,
+            },
             Err(failure) => EffectResult::Failed(failure),
         }),
         Job::Config(path, config) => match config::write(&path, &config) {
@@ -182,29 +223,79 @@ pub fn save_card(dir: &Path, name: &str, contents: &[u8]) -> std::io::Result<Pat
 
 /// Reads a card file: a regular file of at most [`MAX_CARD_FILE`] bytes of
 /// UTF-8. What it says is checked like pasted text.
-pub fn read_card(path: &Path) -> Result<String, Failure> {
-    // A device or a pipe could block or never end; only files are read.
-    let metadata = std::fs::metadata(path).map_err(|_| Failure::File)?;
+pub fn read_card(path: &Path) -> Result<Zeroizing<String>, Failure> {
+    if !local(path) {
+        return Err(Failure::File);
+    }
+    // Opened first, then checked: what is checked is what is read, even
+    // if the name is given to something else in between. A device or a
+    // pipe could block or never end; only files are read.
+    let file = open(path).map_err(|_| Failure::File)?;
+    let metadata = file.metadata().map_err(|_| Failure::File)?;
     if !metadata.is_file() {
         return Err(Failure::File);
     }
     if metadata.len() > MAX_CARD_FILE {
         return Err(Failure::FileTooLarge);
     }
-    let file = std::fs::File::open(path).map_err(|_| Failure::File)?;
-    let mut bytes = Vec::new();
+    // Room for one byte more than allowed, so that the card is not copied
+    // around as it is read and a file that grew is still refused.
+    let room = usize::try_from(MAX_CARD_FILE.saturating_add(1)).map_err(|_| Failure::File)?;
+    let mut bytes = Zeroizing::new(Vec::with_capacity(room));
     file.take(MAX_CARD_FILE.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|_| Failure::File)?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_CARD_FILE {
         return Err(Failure::FileTooLarge);
     }
-    String::from_utf8(bytes).map_err(|_| Failure::InvalidCard)
+    let text = core::str::from_utf8(&bytes).map_err(|_| Failure::InvalidCard)?;
+    Ok(Zeroizing::new(text.to_owned()))
+}
+
+/// Whether `path` names a file of this computer. On Windows that is an
+/// absolute path on a drive (`C:\...`): a path that starts with two
+/// separators (`\\server\share`, `//server/share`, `\\?\`, `\\.\`), an NT
+/// path or a path relative to a current directory, which can itself be a
+/// share, could make Windows reach another computer over SMB, outside
+/// Tor, or open a device.
+#[cfg(windows)]
+fn local(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    let on_a_drive = matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::Disk(_))
+    );
+    on_a_drive && path.is_absolute()
+}
+
+#[cfg(not(windows))]
+fn local(_: &Path) -> bool {
+    true
+}
+
+/// Opens `path` to read it. On Unix it is opened without waiting, so that
+/// a pipe without a writer does not block the thread.
+#[cfg(unix)]
+fn open(path: &Path) -> std::io::Result<std::fs::File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
+    Ok(std::fs::File::from(rustix::fs::open(
+        path,
+        flags,
+        Mode::empty(),
+    )?))
+}
+
+#[cfg(not(unix))]
+fn open(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(path)
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
+
+    use std::sync::Arc;
 
     use super::*;
 
@@ -248,7 +339,7 @@ mod tests {
         let dir = scratch("read");
         let card = dir.join("card.txt");
         std::fs::write(&card, "MONOLITH card").unwrap();
-        assert_eq!(read_card(&card).unwrap(), "MONOLITH card");
+        assert_eq!(read_card(&card).unwrap().as_str(), "MONOLITH card");
         let large = dir.join("large.txt");
         std::fs::write(&large, vec![b'a'; 64 * 1024 + 1]).unwrap();
         assert_eq!(read_card(&large), Err(Failure::FileTooLarge));
@@ -257,6 +348,75 @@ mod tests {
         assert_eq!(read_card(&binary), Err(Failure::InvalidCard));
         assert_eq!(read_card(&dir), Err(Failure::File));
         assert_eq!(read_card(&dir.join("missing")), Err(Failure::File));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_path_of_another_computer_or_of_a_device_is_never_opened() {
+        let dir = scratch("paths");
+        let card = dir.join("card.txt");
+        std::fs::write(&card, "MONOLITH card").unwrap();
+        assert_eq!(read_card(&card).unwrap().as_str(), "MONOLITH card");
+        // The same file named another way is refused before it is opened,
+        // and so is anything Windows would look for on the network.
+        let verbatim = PathBuf::from(format!(r"\\?\{}", card.display()));
+        let forward = PathBuf::from(format!("//?/{}", card.display()));
+        assert_eq!(read_card(&verbatim), Err(Failure::File));
+        assert_eq!(read_card(&forward), Err(Failure::File));
+        for path in [
+            r"\\monolith.invalid\share\card.txt",
+            "//monolith.invalid/share/card.txt",
+            r"\/monolith.invalid\share\card.txt",
+            r"\\.\NUL",
+            r"\\.\pipe\monolith",
+            r"\??\UNC\monolith.invalid\share\card.txt",
+            r"\monolith\card.txt",
+            "card.txt",
+            "C:card.txt",
+        ] {
+            assert_eq!(read_card(Path::new(path)), Err(Failure::File), "{path}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn closing_waits_a_while_only_for_a_job_that_hangs() {
+        fn hang(_: Job) -> Option<EffectResult> {
+            std::thread::sleep(Duration::from_secs(30));
+            None
+        }
+        let disk = Disk::start_with(Arc::new(|| {}), Duration::from_millis(200), hang).unwrap();
+        let job = Job::SaveCard {
+            dir: None,
+            name: String::new(),
+            contents: Zeroizing::new(String::new()),
+        };
+        assert!(disk.ask(job).is_none());
+        let started = Instant::now();
+        drop(disk);
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_pipe_is_opened_without_waiting_and_refused() {
+        use rustix::fs::{CWD, Mode};
+        let dir = scratch("pipe");
+        let fifo = dir.join("card.txt");
+        rustix::fs::mkfifoat(CWD, &fifo, Mode::RUSR | Mode::WUSR).unwrap();
+        // Nobody writes to it: an open that waited for a writer would
+        // never return, and the thread would hold the exit.
+        let (sender, receiver) = mpsc::channel();
+        let path = fifo.clone();
+        std::thread::spawn(move || {
+            let opened = open(&path).is_ok();
+            let read = read_card(&path);
+            let _ = sender.send((opened, read));
+        });
+        let (opened, read) = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(opened);
+        assert_eq!(read, Err(Failure::File));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

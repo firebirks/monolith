@@ -9,8 +9,10 @@ use monolith_ui_kit::qr::QrMatrix;
 use monolith_ui_kit::request_card::RequestAction;
 use monolith_ui_kit::toast::{Kind, Toasts};
 use monolith_ui_model::present::{Calendar, UtcCalendar};
-use monolith_ui_model::{Failure, Model, NoticeKind, UiContactId, UiRequestId};
-use zeroize::Zeroizing;
+use monolith_ui_model::{
+    Dialog, Failure, Model, NoticeKind, UiContactId, UiIdentityId, UiRequestId,
+};
+use zeroize::{Zeroize, Zeroizing};
 
 /// How the window looks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,10 +73,15 @@ pub enum Effect {
         contents: Zeroizing<String>,
     },
     /// Read a card file the user named or dropped on the window, for the
-    /// open "Add contact" dialog.
+    /// "Add contact" dialog that asked; its result is taken by that dialog
+    /// only, if it is still open.
     ReadCard {
         /// The path.
         path: PathBuf,
+        /// The identity of the dialog.
+        identity: UiIdentityId,
+        /// The dialog, as [`Model::dialog_instance`] numbers it.
+        dialog: u64,
     },
     /// Keep and apply these preferences.
     Preferences(Preferences),
@@ -98,10 +105,15 @@ pub enum EffectResult {
         /// Where.
         path: String,
     },
-    /// A card file was read.
+    /// A card file was read, for the dialog of [`Effect::ReadCard`].
     CardRead {
-        /// Its text.
-        text: String,
+        /// The identity of the dialog that asked.
+        identity: UiIdentityId,
+        /// The dialog that asked.
+        dialog: u64,
+        /// Its text. It can carry an invitation, so it is wiped when
+        /// dropped.
+        text: Zeroizing<String>,
     },
     /// It failed.
     Failed(Failure),
@@ -306,12 +318,28 @@ impl App {
             EffectResult::CardSaved { path } => {
                 self.toasts.push(Kind::Success, format!("Saved to {path}"));
             }
-            EffectResult::CardRead { text } => {
-                if let Some(monolith_ui_model::Dialog::AddContact { card, error, .. }) =
-                    self.model.dialog_mut()
+            EffectResult::CardRead {
+                identity,
+                dialog,
+                text,
+            } => {
+                // Only the dialog that asked takes it: not one opened since,
+                // of the same identity or another.
+                if self.model.dialog_instance() != Some(dialog) {
+                    return;
+                }
+                if let Some(Dialog::AddContact {
+                    identity: owner,
+                    card,
+                    error,
+                    ..
+                }) = self.model.dialog_mut()
                 {
-                    *card = text;
-                    *error = None;
+                    if *owner == identity {
+                        card.zeroize();
+                        card.push_str(&text);
+                        *error = None;
+                    }
                 }
             }
             EffectResult::Failed(failure) => {
@@ -335,5 +363,94 @@ impl App {
     /// Drops the QR code shown, and with it the card it encodes.
     pub(crate) fn drop_qr(&mut self) {
         self.qr = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::panic)]
+
+    use monolith_ui_kit::theme::{self, Theme};
+
+    use super::*;
+
+    fn identity(n: u8) -> UiIdentityId {
+        UiIdentityId::from_bytes([n; 16])
+    }
+
+    fn add_contact(identity: UiIdentityId) -> Dialog {
+        Dialog::AddContact {
+            identity,
+            card: String::new(),
+            name: String::new(),
+            busy: None,
+            error: Some(Failure::InvalidCard),
+        }
+    }
+
+    fn read(identity: UiIdentityId, dialog: u64, text: &str) -> EffectResult {
+        EffectResult::CardRead {
+            identity,
+            dialog,
+            text: Zeroizing::new(text.to_owned()),
+        }
+    }
+
+    /// The card and the error of the open "Add contact" dialog.
+    fn shown(app: &App) -> (String, Option<Failure>) {
+        match app.model.dialog() {
+            Some(Dialog::AddContact { card, error, .. }) => (card.clone(), *error),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_dropped_card_file_is_read_for_the_dialog_it_was_dropped_on() {
+        let ctx = egui::Context::default();
+        monolith_ui_kit::fonts::install(&ctx, &[]);
+        theme::install(&ctx, Theme::light().with_reduced_motion(true));
+        let mut app = App::for_tests(Model::new(), 0);
+        app.model.open(add_contact(identity(1)));
+        let input = egui::RawInput {
+            dropped_files: vec![egui::DroppedFile {
+                path: Some(PathBuf::from("card.txt")),
+                ..egui::DroppedFile::default()
+            }],
+            ..egui::RawInput::default()
+        };
+        let _ = ctx.run(input, |ctx| crate::show(ctx, &mut app));
+        let effects = app.take_effects();
+        assert_eq!(
+            effects,
+            [Effect::ReadCard {
+                path: PathBuf::from("card.txt"),
+                identity: identity(1),
+                dialog: app.model.dialog_instance().unwrap(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_card_file_read_is_taken_only_by_the_dialog_that_asked() {
+        let mut app = App::for_tests(Model::new(), 0);
+        app.model.open(add_contact(identity(1)));
+        let asked = app.model.dialog_instance().unwrap();
+        // The dialog of A is cancelled and one of B opened before the file
+        // is read: B's field stays as it is.
+        app.model.close();
+        app.model.open(add_contact(identity(2)));
+        app.effect_done(read(identity(1), asked, "MONOLITH card of A"));
+        assert_eq!(shown(&app), (String::new(), Some(Failure::InvalidCard)));
+        // A's dialog opened again is not the one that asked either.
+        app.model.close();
+        app.model.open(add_contact(identity(1)));
+        app.effect_done(read(identity(1), asked, "MONOLITH card of A"));
+        assert_eq!(shown(&app), (String::new(), Some(Failure::InvalidCard)));
+        // The dialog that asked takes it, for its own identity only.
+        let now = app.model.dialog_instance().unwrap();
+        app.effect_done(read(identity(2), now, "MONOLITH card of B"));
+        assert_eq!(shown(&app), (String::new(), Some(Failure::InvalidCard)));
+        app.effect_done(read(identity(1), now, "MONOLITH card"));
+        assert_eq!(shown(&app), ("MONOLITH card".to_owned(), None));
     }
 }

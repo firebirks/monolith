@@ -28,6 +28,11 @@ monolith-ui-model = { path = "../monolith-ui-model" }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 zeroize = { workspace = true, features = ["alloc"] }
 
+# A card file is opened without waiting on Unix (src/files.rs), so that a
+# pipe put in its place cannot block the disk thread.
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
 [features]
 # A window that photographs itself two seconds after it opens and closes,
 # to check a build by eye where the screen cannot be captured: set

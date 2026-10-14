@@ -406,8 +406,8 @@ formats, the order of writes and the recovery of section 3.5 are those of
 Unix; what differs is how the operations are made:
 
 - The directory is held open for as long as the vault is, without the
-  sharing that would let another process rename or delete it, so that the
-  path checked when it was opened keeps naming the same directory.
+  sharing that would let another process rename or delete it (see the
+  limitations below for what this does not cover).
 - Nothing that is a reparse point (a symbolic link or a junction) is
   followed: each file is opened as itself and refused if it is one, as
   Unix refuses a symbolic link.
@@ -417,10 +417,12 @@ Unix; what differs is how the operations are made:
 - A file is created only if it does not exist and flushed with
   `FlushFileBuffers` before it is renamed; the directory's names are
   flushed through a handle of the directory opened for writing. A rename
-  is that of the standard library, which replaces its target in one step
-  (`FileRenameInfoEx` with POSIX semantics, or `MoveFileExW` with
-  `MOVEFILE_REPLACE_EXISTING` on a file system without them), and a
-  second name is a hard link.
+  is that of the standard library, which replaces its target. As the
+  source of Rust 1.95 shows, it calls `MoveFileExW` with
+  `MOVEFILE_REPLACE_EXISTING` and without `MOVEFILE_WRITE_THROUGH`; only
+  if that is refused with `ERROR_ACCESS_DENIED` does it rename through
+  `SetFileInformationByHandle` with `FileRenameInfoEx` and POSIX
+  semantics. A second name is a hard link.
 
 What Unix checks and Windows does not: who owns the directory and who else
 may read it. Windows keeps that in access control lists, which the
@@ -430,6 +432,16 @@ the user's profile, whose list gives access to the user, SYSTEM and the
 administrators; a directory elsewhere has the list its parent gives it.
 This is a documented limitation of the Windows build, not a check skipped
 on Unix.
+
+Two more limitations of the Windows build:
+
+- Microsoft does not document that `FlushFileBuffers` on a handle of a
+  directory makes a rename in that directory durable, as `fsync` of the
+  directory does on Unix. It is the nearest call Windows offers, not a
+  documented guarantee that a rename survives a crash.
+- Only the last component of the directory is held open. Every operation
+  names its file by the path of the directory joined with the file name,
+  and Windows resolves that path again on each operation.
 
 ## 4. Temporary files
 

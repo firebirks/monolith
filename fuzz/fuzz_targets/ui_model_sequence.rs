@@ -11,8 +11,11 @@
 //! the commands before it, and uses only handles of the pools below; and
 //! the commands and notices of the whole sequence stay within a constant
 //! times the number of steps. An answer to a number that was never issued,
-//! or already answered, changes nothing: the whole state, written out,
-//! is the same before and after, and no command or notice follows.
+//! or already answered, changes nothing: everything the public accessors
+//! of the model show (phase, identities, and per identity its contacts,
+//! conversations, requests, invitations, threads with their messages and
+//! drafts, selection, the open dialog) is the same before and after, and
+//! no command or notice follows.
 //!
 //! Every step is five bytes: the action (modulo 24), then four bytes of
 //! arguments. Handles come from small pools: two identities, three
@@ -32,9 +35,9 @@ use libfuzzer_sys::fuzz_target;
 use monolith_ui_model::data::{Deferral, Service, Status, TorCheck};
 use monolith_ui_model::{
     Command, CommandId, ContactView, ConversationView, Dialog, Failure, IdentitySnapshot,
-    IdentityView, InvitationView, MessageView, Model, Outcome, ProfileOnDisk, RequestMode,
-    RequestView, RuntimeEvent, Selection, UiContactId, UiIdentityId, UiInvitationId, UiMessageId,
-    UiRequestId, Update,
+    IdentityView, InvitationView, MessageView, Model, Outcome, Phase, ProfileOnDisk, RequestMode,
+    RequestView, RuntimeEvent, Selection, SidebarRow, TorIndicator, UiContactId, UiIdentityId,
+    UiInvitationId, UiMessageId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -383,6 +386,159 @@ fn identities_of(command: &Command) -> Vec<UiIdentityId> {
     }
 }
 
+/// What a thread shows: its messages with their ids, statuses and texts,
+/// its draft and the state of its reads and sends.
+type ObservedThread = (
+    UiContactId,
+    Vec<MessageView>,
+    bool,
+    bool,
+    String,
+    Option<CommandId>,
+    Option<Failure>,
+    Vec<UiMessageId>,
+    bool,
+);
+
+/// What is shown of one identity.
+#[derive(Debug, PartialEq)]
+struct ObservedSlice {
+    identity: UiIdentityId,
+    loaded: bool,
+    contacts: Vec<ContactView>,
+    conversations: Vec<ConversationView>,
+    requests: Vec<RequestView>,
+    invitations: Vec<InvitationView>,
+    service: Option<Service>,
+    request_mode: Option<RequestMode>,
+    selection: Option<Selection>,
+    threads: Vec<ObservedThread>,
+    unread: Vec<(UiContactId, u32)>,
+    deferrals: Vec<(UiContactId, Deferral)>,
+}
+
+/// What is shown of the open dialog: its kind, the identity it belongs
+/// to, the command it waits for, its error, and whether it holds a card.
+type ObservedDialog = (
+    core::mem::Discriminant<Dialog>,
+    Option<UiIdentityId>,
+    Option<CommandId>,
+    Option<Failure>,
+    bool,
+    Option<u64>,
+);
+
+/// Everything the public accessors of the model show, for the identities
+/// and requests of the pools.
+#[derive(Debug, PartialEq)]
+struct Observed {
+    phase: Phase,
+    location: String,
+    ephemeral: bool,
+    message_store_missing: bool,
+    profile_error: Option<Failure>,
+    storage_failed: bool,
+    identities: Vec<IdentityView>,
+    identities_loaded: bool,
+    current: Option<UiIdentityId>,
+    selection: Option<Selection>,
+    slices: Vec<ObservedSlice>,
+    sidebar: Vec<SidebarRow>,
+    tor: Option<TorCheck>,
+    tor_checking: bool,
+    tor_indicator: TorIndicator,
+    dialog: Option<ObservedDialog>,
+    answering: Vec<bool>,
+}
+
+fn observe_dialog(model: &Model) -> Option<ObservedDialog> {
+    let dialog = model.dialog()?;
+    let (error, card) = match dialog {
+        Dialog::OwnCard { card, error, .. } | Dialog::ShowInvitation { card, error, .. } => {
+            (*error, card.is_some())
+        }
+        Dialog::NewInvitation { created, error, .. } => (*error, created.is_some()),
+        Dialog::AddContact { card, error, .. } => (*error, !card.is_empty()),
+        Dialog::NewIdentity { error, .. }
+        | Dialog::RevokeInvitation { error, .. }
+        | Dialog::ContactDetails { error, .. }
+        | Dialog::BlockContact { error, .. }
+        | Dialog::RemoveContact { error, .. }
+        | Dialog::DeleteConversation { error, .. }
+        | Dialog::AcceptRequest { error, .. }
+        | Dialog::DeleteIdentity { error, .. } => (*error, false),
+        Dialog::TorDetails => (None, false),
+    };
+    Some((
+        core::mem::discriminant(dialog),
+        dialog.identity(),
+        dialog.busy(),
+        error,
+        card,
+        model.dialog_instance(),
+    ))
+}
+
+fn observe(model: &Model) -> Observed {
+    let slices = (0..2_u8)
+        .filter_map(|n| {
+            let slice = model.slice(identity(n))?;
+            Some(ObservedSlice {
+                identity: identity(n),
+                loaded: slice.loaded,
+                contacts: slice.contacts.clone(),
+                conversations: slice.conversations.clone(),
+                requests: slice.requests.clone(),
+                invitations: slice.invitations.clone(),
+                service: slice.service,
+                request_mode: slice.request_mode,
+                selection: slice.selection,
+                threads: slice
+                    .threads
+                    .iter()
+                    .map(|(contact, thread)| {
+                        (
+                            *contact,
+                            thread.messages.clone(),
+                            thread.complete,
+                            thread.loading,
+                            thread.draft.clone(),
+                            thread.sending,
+                            thread.send_error,
+                            thread.expanded.iter().copied().collect(),
+                            thread.refused,
+                        )
+                    })
+                    .collect(),
+                unread: slice.unread.iter().map(|(k, v)| (*k, *v)).collect(),
+                deferrals: slice.deferrals.iter().map(|(k, v)| (*k, *v)).collect(),
+            })
+        })
+        .collect();
+    Observed {
+        phase: model.phase(),
+        location: model.location().to_owned(),
+        ephemeral: model.ephemeral(),
+        message_store_missing: model.message_store_missing(),
+        profile_error: model.profile_error(),
+        storage_failed: model.storage_failed(),
+        identities: model.identities().to_vec(),
+        identities_loaded: model.identities_loaded(),
+        current: model.current(),
+        selection: model.selection(),
+        slices,
+        sidebar: model.sidebar(),
+        tor: model.tor_check().cloned(),
+        tor_checking: model.tor_checking(),
+        tor_indicator: model.tor_indicator(),
+        dialog: observe_dialog(model),
+        answering: (0..2_u8)
+            .flat_map(|i| (0..3_u8).map(move |h| request(i, h)))
+            .map(|id| model.answering(id))
+            .collect(),
+    }
+}
+
 /// What must hold after any step.
 fn check(model: &Model) {
     if let Some(current) = model.current() {
@@ -487,12 +643,12 @@ fuzz_target!(|data: &[u8]| {
                     Some(old) if c & 1 != 0 => *old,
                     _ => fresh,
                 };
-                let before = format!("{model:?}");
+                let before = observe(&model);
                 model.apply(Update::Done {
                     command,
                     outcome: outcome(b, c >> 1, d),
                 });
-                assert_eq!(before, format!("{model:?}"), "a stale answer changed the state");
+                assert!(before == observe(&model), "a stale answer changed the state");
                 assert!(model.take_commands().is_empty());
                 assert!(model.take_notices().is_empty());
             }

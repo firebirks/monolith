@@ -86,8 +86,9 @@ pub enum Command {
     AddContact {
         /// The identity.
         identity: UiIdentityId,
-        /// The card, in text form.
-        card: String,
+        /// The card, in text form. It can carry an invitation of the other
+        /// side, so it is wiped when dropped.
+        card: Zeroizing<String>,
         /// The local name for the contact.
         name: Option<String>,
     },

@@ -17,7 +17,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use zeroize::Zeroizing;
+use core::fmt;
+
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::data::{
     ContactView, ConversationView, IdentityView, InvitationView, MessageView, RequestMode,
@@ -78,12 +80,21 @@ pub enum NoticeKind {
 }
 
 /// A short notice for the user.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Notice {
     /// What it is about.
     pub kind: NoticeKind,
     /// The sentence.
     pub text: String,
+}
+
+impl fmt::Debug for Notice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The sentence can name a contact.
+        f.debug_struct("Notice")
+            .field("kind", &self.kind)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a sidebar row is.
@@ -98,7 +109,7 @@ pub enum RowState {
 }
 
 /// A row of the sidebar: a contact, a conversation, or both.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SidebarRow {
     /// The record.
     pub contact: UiContactId,
@@ -118,6 +129,19 @@ pub struct SidebarRow {
     pub queued: usize,
 }
 
+impl fmt::Debug for SidebarRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SidebarRow")
+            .field("contact", &self.contact)
+            .field("state", &self.state)
+            .field("verified", &self.verified)
+            .field("latest", &self.latest)
+            .field("unread", &self.unread)
+            .field("queued", &self.queued)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What the main pane of an identity shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Selection {
@@ -128,7 +152,7 @@ pub enum Selection {
 }
 
 /// The messages of one conversation that were read, and the draft.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Thread {
     /// Messages, oldest first.
     pub messages: Vec<MessageView>,
@@ -150,8 +174,24 @@ pub struct Thread {
     pub refused: bool,
 }
 
+impl fmt::Debug for Thread {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Counts, never the texts or the draft.
+        f.debug_struct("Thread")
+            .field("messages", &self.messages.len())
+            .field("complete", &self.complete)
+            .field("loading", &self.loading)
+            .field("stale", &self.stale)
+            .field("sending", &self.sending)
+            .field("send_error", &self.send_error)
+            .field("expanded", &self.expanded.len())
+            .field("refused", &self.refused)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What is known of one identity.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Slice {
     /// Read at least once.
     pub loaded: bool,
@@ -179,9 +219,29 @@ pub struct Slice {
     loading: bool,
 }
 
+impl fmt::Debug for Slice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Counts and handles, never names, labels or introductions.
+        f.debug_struct("Slice")
+            .field("loaded", &self.loaded)
+            .field("contacts", &self.contacts.len())
+            .field("conversations", &self.conversations.len())
+            .field("requests", &self.requests.len())
+            .field("invitations", &self.invitations.len())
+            .field("service", &self.service)
+            .field("request_mode", &self.request_mode)
+            .field("selection", &self.selection)
+            .field("threads", &self.threads)
+            .field("unread", &self.unread)
+            .field("deferrals", &self.deferrals)
+            .field("stale", &self.stale)
+            .field("loading", &self.loading)
+            .finish()
+    }
+}
+
 /// A dialog. Each holds the handles it acts on from the moment it opens;
 /// `busy` is the command its action started, while it runs.
-#[derive(Debug)]
 pub enum Dialog {
     /// Make a local identity.
     NewIdentity {
@@ -372,12 +432,106 @@ impl Dialog {
             Self::TorDetails => {}
         }
     }
+
+    /// Why the last attempt failed, if it did.
+    fn error(&self) -> Option<Failure> {
+        match self {
+            Self::NewIdentity { error, .. }
+            | Self::AddContact { error, .. }
+            | Self::OwnCard { error, .. }
+            | Self::NewInvitation { error, .. }
+            | Self::ShowInvitation { error, .. }
+            | Self::RevokeInvitation { error, .. }
+            | Self::ContactDetails { error, .. }
+            | Self::BlockContact { error, .. }
+            | Self::RemoveContact { error, .. }
+            | Self::DeleteConversation { error, .. }
+            | Self::AcceptRequest { error, .. }
+            | Self::DeleteIdentity { error, .. } => *error,
+            Self::TorDetails => None,
+        }
+    }
+}
+
+impl Drop for Dialog {
+    /// The card typed, pasted or read into "Add contact" can carry an
+    /// invitation: it is wiped when the dialog goes, whether it was
+    /// closed or its contact was added.
+    fn drop(&mut self) {
+        if let Self::AddContact { card, .. } = self {
+            card.zeroize();
+        }
+    }
+}
+
+impl fmt::Debug for Dialog {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Handles and states, never a name, a label or a card.
+        let (kind, handle): (&str, Option<&dyn fmt::Debug>) = match self {
+            Self::NewIdentity { .. } => ("NewIdentity", None),
+            Self::AddContact { identity, .. } => ("AddContact", Some(identity)),
+            Self::OwnCard { identity, .. } => ("OwnCard", Some(identity)),
+            Self::NewInvitation { identity, .. } => ("NewInvitation", Some(identity)),
+            Self::ShowInvitation { invitation, .. } => ("ShowInvitation", Some(invitation)),
+            Self::RevokeInvitation { invitation, .. } => ("RevokeInvitation", Some(invitation)),
+            Self::ContactDetails { contact, .. } => ("ContactDetails", Some(contact)),
+            Self::BlockContact { contact, .. } => ("BlockContact", Some(contact)),
+            Self::RemoveContact { contact, .. } => ("RemoveContact", Some(contact)),
+            Self::DeleteConversation { contact, .. } => ("DeleteConversation", Some(contact)),
+            Self::AcceptRequest { request, .. } => ("AcceptRequest", Some(request)),
+            Self::DeleteIdentity { identity, .. } => ("DeleteIdentity", Some(identity)),
+            Self::TorDetails => ("TorDetails", None),
+        };
+        let mut out = f.debug_struct(kind);
+        if let Some(handle) = handle {
+            out.field("on", handle);
+        }
+        match self {
+            Self::OwnCard { card, .. } | Self::ShowInvitation { card, .. } => {
+                out.field("card_read", &card.is_some());
+            }
+            Self::NewInvitation { created, .. } => {
+                out.field(
+                    "created",
+                    &created.as_ref().map(|(invitation, _)| invitation),
+                );
+            }
+            Self::RevokeInvitation {
+                discard_requests, ..
+            } => {
+                out.field("discard_requests", discard_requests);
+            }
+            _ => {}
+        }
+        out.field("busy", &self.busy())
+            .field("error", &self.error())
+            .finish_non_exhaustive()
+    }
+}
+
+/// How a request is answered without a dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Answer {
+    Decline,
+    Block,
+}
+
+impl Answer {
+    /// What the user is told once it is done.
+    const fn done(self) -> &'static str {
+        match self {
+            Self::Decline => "Request declined.",
+            Self::Block => "Sender blocked.",
+        }
+    }
 }
 
 /// What a command in flight was for, with the handles it named.
-#[derive(Clone, Debug, PartialEq, Eq)]
 enum Pending {
-    Profile,
+    /// A profile being opened, created or started without saving; if it
+    /// fails, the client goes back to this phase: the unlock screen for a
+    /// profile that exists, the first start for one being created.
+    Profile(Phase),
     Identities,
     Identity(UiIdentityId),
     Messages(UiContactId),
@@ -389,14 +543,33 @@ enum Pending {
         contact: UiContactId,
         text: String,
     },
-    Answer(UiRequestId),
+    Answer(UiRequestId, Answer),
     RequestMode(UiIdentityId),
     Verified(UiContactId),
     Shutdown,
 }
 
+impl fmt::Debug for Pending {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Profile(back) => write!(f, "Profile({back:?})"),
+            Self::Identities => f.write_str("Identities"),
+            Self::Identity(identity) => write!(f, "Identity({identity:?})"),
+            Self::Messages(contact) => write!(f, "Messages({contact:?})"),
+            Self::Earlier(contact) => write!(f, "Earlier({contact:?})"),
+            Self::Tor => f.write_str("Tor"),
+            Self::Dialog => f.write_str("Dialog"),
+            // The text sent is never printed.
+            Self::Send { contact, .. } => write!(f, "Send({contact:?})"),
+            Self::Answer(request, answer) => write!(f, "Answer({request:?}, {answer:?})"),
+            Self::RequestMode(identity) => write!(f, "RequestMode({identity:?})"),
+            Self::Verified(contact) => write!(f, "Verified({contact:?})"),
+            Self::Shutdown => f.write_str("Shutdown"),
+        }
+    }
+}
+
 /// The state of the client. See the module documentation.
-#[derive(Debug)]
 pub struct Model {
     phase: Phase,
     location: String,
@@ -418,10 +591,43 @@ pub struct Model {
     outbox: Vec<(CommandId, Command)>,
     notices: Vec<Notice>,
     dialog: Option<Dialog>,
+    /// How many dialogs were opened: the number of the open one.
+    dialogs_opened: u64,
     /// An identity just made, shown once it is listed.
     pending_select: Option<UiIdentityId>,
     /// A contact just added or accepted, shown once its identity is read.
     pending_open: Option<UiContactId>,
+}
+
+impl fmt::Debug for Model {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Handles, counts and states: no name, card, draft, text or
+        // notice, and not the data directory.
+        f.debug_struct("Model")
+            .field("phase", &self.phase)
+            .field("ephemeral", &self.ephemeral)
+            .field("message_store_missing", &self.message_store_missing)
+            .field("profile_error", &self.profile_error)
+            .field("identities", &self.identities)
+            .field("identities_loaded", &self.identities_loaded)
+            .field("identities_stale", &self.identities_stale)
+            .field("identities_loading", &self.identities_loading)
+            .field("slices", &self.slices)
+            .field("current", &self.current)
+            .field("tor", &self.tor)
+            .field("tor_checking", &self.tor_checking)
+            .field("tor_wanted", &self.tor_wanted)
+            .field("storage_failed", &self.storage_failed)
+            .field("pending", &self.pending)
+            .field("next", &self.next)
+            .field("outbox", &self.outbox)
+            .field("notices", &self.notices.len())
+            .field("dialog", &self.dialog)
+            .field("dialogs_opened", &self.dialogs_opened)
+            .field("pending_select", &self.pending_select)
+            .field("pending_open", &self.pending_open)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for Model {
@@ -454,6 +660,7 @@ impl Model {
             outbox: Vec::new(),
             notices: Vec::new(),
             dialog: None,
+            dialogs_opened: 0,
             pending_select: None,
             pending_open: None,
         }
@@ -586,6 +793,14 @@ impl Model {
     /// The open dialog, to edit its fields.
     pub fn dialog_mut(&mut self) -> Option<&mut Dialog> {
         self.dialog.as_mut()
+    }
+
+    /// The number of the open dialog. Every dialog opened gets a new one,
+    /// so that what one dialog asked for (a card file read, say) is never
+    /// taken by another that opened later, even of the same kind and
+    /// identity.
+    pub fn dialog_instance(&self) -> Option<u64> {
+        self.dialog.as_ref().map(|_| self.dialogs_opened)
     }
 
     /// The last check of Tor.
@@ -775,7 +990,10 @@ impl Model {
         }
         self.phase = Phase::Opening;
         self.profile_error = None;
-        self.issue(Command::OpenProfile { passphrase }, Pending::Profile);
+        self.issue(
+            Command::OpenProfile { passphrase },
+            Pending::Profile(Phase::Locked),
+        );
     }
 
     /// Creates a profile under `passphrase`.
@@ -789,7 +1007,10 @@ impl Model {
         }
         self.phase = Phase::Opening;
         self.profile_error = None;
-        self.issue(Command::CreateProfile { passphrase }, Pending::Profile);
+        self.issue(
+            Command::CreateProfile { passphrase },
+            Pending::Profile(Phase::Welcome),
+        );
     }
 
     /// Starts a session that keeps nothing.
@@ -797,9 +1018,10 @@ impl Model {
         if !matches!(self.phase, Phase::Welcome | Phase::Locked) {
             return;
         }
+        let back = self.phase;
         self.phase = Phase::Opening;
         self.profile_error = None;
-        self.issue(Command::StartWithoutSaving, Pending::Profile);
+        self.issue(Command::StartWithoutSaving, Pending::Profile(back));
     }
 
     /// Shows the identity `identity`, if it is one of the identities. Its
@@ -858,13 +1080,12 @@ impl Model {
         }
     }
 
-    /// The draft of the conversation of `contact`, to edit.
+    /// The draft of the conversation of `contact`, to edit, also while a
+    /// message is being queued: what is queued is the text taken when it
+    /// was sent, and the draft is cleared afterwards only if it is still
+    /// that text.
     pub fn draft_mut(&mut self, contact: UiContactId) -> Option<&mut String> {
         let thread = self.thread_mut(contact)?;
-        if thread.sending.is_some() {
-            // The draft is being queued: it stays as it is until then.
-            return None;
-        }
         thread.send_error = None;
         Some(&mut thread.draft)
     }
@@ -959,6 +1180,8 @@ impl Model {
             _ => None,
         };
         self.dialog = Some(dialog);
+        // A u64 counted up by one per dialog opened is never exhausted.
+        self.dialogs_opened = self.dialogs_opened.saturating_add(1);
         if let Some(command) = needs {
             let id = self.issue(command, Pending::Dialog);
             if let Some(Dialog::OwnCard { busy, .. } | Dialog::ShowInvitation { busy, .. }) =
@@ -998,7 +1221,7 @@ impl Model {
                 ..
             } => Some(Command::AddContact {
                 identity: *identity,
-                card: card.trim().to_owned(),
+                card: Zeroizing::new(card.trim().to_owned()),
                 name: optional(name),
             }),
             Dialog::NewInvitation {
@@ -1062,28 +1285,30 @@ impl Model {
         self.dialog = Some(dialog);
     }
 
-    /// Declines the request `request` at once (no dialog: nothing is sent,
-    /// and the sender can ask again only if not blocked).
+    /// Declines the request `request` at once (no dialog). Nothing is
+    /// sent; the sender goes on the declined list of the identity, and
+    /// later requests from them are dropped (`docs/PROTOCOL.md`).
     pub fn decline(&mut self, request: UiRequestId) {
-        self.answer(request, Command::DeclineRequest(request));
+        self.answer(request, Answer::Decline);
     }
 
     /// Blocks the sender of the request `request`.
     pub fn block_sender(&mut self, request: UiRequestId) {
-        self.answer(request, Command::BlockRequest(request));
+        self.answer(request, Answer::Block);
     }
 
-    fn answer(&mut self, request: UiRequestId, command: Command) {
+    fn answer(&mut self, request: UiRequestId, answer: Answer) {
         let waiting = self
             .slices
             .get(&request.identity())
             .is_some_and(|slice| slice.requests.iter().any(|view| view.id == request));
-        let answering = self
-            .pending
-            .values()
-            .any(|pending| *pending == Pending::Answer(request));
+        let answering = self.answering(request);
         if waiting && !answering {
-            self.issue(command, Pending::Answer(request));
+            let command = match answer {
+                Answer::Decline => Command::DeclineRequest(request),
+                Answer::Block => Command::BlockRequest(request),
+            };
+            self.issue(command, Pending::Answer(request, answer));
         }
     }
 
@@ -1091,7 +1316,7 @@ impl Model {
     pub fn answering(&self, request: UiRequestId) -> bool {
         self.pending
             .values()
-            .any(|pending| *pending == Pending::Answer(request))
+            .any(|pending| matches!(pending, Pending::Answer(asked, _) if *asked == request))
     }
 
     /// Sets the request mode of `identity`.
@@ -1151,7 +1376,7 @@ impl Model {
             return;
         };
         match pending {
-            Pending::Profile => self.profile_done(outcome),
+            Pending::Profile(back) => self.profile_done(back, outcome),
             Pending::Identities => {
                 self.identities_loading = false;
                 if let Outcome::Identities(list) = outcome {
@@ -1210,11 +1435,11 @@ impl Model {
             }
             Pending::Dialog => self.dialog_done(command, outcome),
             Pending::Send { contact, text } => self.send_done(command, contact, &text, outcome),
-            Pending::Answer(request) => {
+            Pending::Answer(request, answer) => {
                 self.mark_identity(request.identity());
                 match outcome {
                     Outcome::Failed(failure) => self.notice(NoticeKind::Error, failure.message()),
-                    _ => self.notice(NoticeKind::Info, "Request answered."),
+                    _ => self.notice(NoticeKind::Info, answer.done()),
                 }
             }
             Pending::RequestMode(identity) => {
@@ -1233,7 +1458,7 @@ impl Model {
         }
     }
 
-    fn profile_done(&mut self, outcome: Outcome) {
+    fn profile_done(&mut self, back: Phase, outcome: Outcome) {
         match outcome {
             Outcome::ProfileOpen {
                 ephemeral,
@@ -1246,12 +1471,11 @@ impl Model {
                 self.tor_wanted = true;
             }
             Outcome::Failed(failure) => {
+                // Back to where it was asked, with the reason: an open
+                // that fails, even for a passphrase too long to be one,
+                // stays on the unlock screen of the profile that exists.
                 self.profile_error = Some(failure);
-                self.phase = if self.location.is_empty() || failure == Failure::UnusablePassphrase {
-                    Phase::Welcome
-                } else {
-                    Phase::Locked
-                };
+                self.phase = back;
             }
             _ => {}
         }
@@ -1581,12 +1805,9 @@ impl Model {
                 }
             }
             RuntimeEvent::IdentityClosed(_) => self.identities_stale = true,
-            RuntimeEvent::StorageFailed => {
-                if !self.storage_failed {
-                    self.storage_failed = true;
-                    self.notice(NoticeKind::Error, Failure::Storage.message());
-                }
-            }
+            // The screens say it, once and for as long as it lasts; a
+            // notice would say it again.
+            RuntimeEvent::StorageFailed => self.storage_failed = true,
             RuntimeEvent::Missed => self.mark_everything(),
         }
     }

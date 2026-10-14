@@ -642,7 +642,14 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
     };
     if let Some(path) = path {
         app.card_path = path.display().to_string();
-        app.effect(Effect::ReadCard { path });
+        // The result is for this dialog, and for no other opened later.
+        if let Some(dialog) = app.model.dialog_instance() {
+            app.effect(Effect::ReadCard {
+                path,
+                identity,
+                dialog,
+            });
+        }
     }
     if requested {
         // The field is emptied so that the card of the file is told from

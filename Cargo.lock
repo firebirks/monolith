@@ -1936,6 +1936,7 @@ dependencies = [
  "monolith-ui-kit",
  "monolith-ui-model",
  "monolith-ui-snapshot",
+ "rustix 1.1.5",
  "tokio",
  "zeroize",
 ]

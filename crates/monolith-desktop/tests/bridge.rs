@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use monolith_desktop::bridge::{Bridge, Setup};
-use monolith_tor::MockNetwork;
+use monolith_tor::{MockNetwork, MockTorBackend};
 use monolith_ui_model::{
     Command, CommandId, Failure, Outcome, ProfileOnDisk, RequestMode, RuntimeEvent, UiIdentityId,
     UiInvitationId, UiRequestId, Update,
@@ -211,7 +211,7 @@ fn a_session_is_answered_command_by_command() {
     assert_eq!(
         driver.ask(Command::AddContact {
             identity: personal,
-            card: own.to_string(),
+            card: own.clone(),
             name: None,
         }),
         Outcome::Failed(Failure::OwnCard)
@@ -275,7 +275,7 @@ fn a_handle_of_one_identity_names_nothing_of_another() {
     let (bob_invitation, card) = driver.invitation(bob);
     let at_alice = match driver.ask(Command::AddContact {
         identity: alice,
-        card: card.to_string(),
+        card: card.clone(),
         name: Some("Bob".to_owned()),
     }) {
         Outcome::ContactAdded(contact) => contact,
@@ -406,6 +406,41 @@ fn closing_the_window_stops_the_runtime() {
 }
 
 #[test]
+fn a_runtime_thread_that_panics_is_said_to_have_stopped() {
+    // The backend is made when a profile starts; this one cannot be, and
+    // the thread of the runtime unwinds without a word.
+    let mut bridge = Bridge::start(
+        Setup {
+            data_dir: None,
+            backend: Box::new(|| -> MockTorBackend { panic!("no backend") }),
+            shutdown_deadline: Duration::from_secs(2),
+            close_wait: Duration::from_secs(10),
+        },
+        Arc::new(|| {}),
+    )
+    .unwrap();
+    bridge.send(CommandId::new(1), Command::StartWithoutSaving);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut updates = Vec::new();
+    while !updates.contains(&Update::Stopped) {
+        match bridge.try_update() {
+            Some(update) => updates.push(update),
+            None => {
+                assert!(Instant::now() < deadline, "silence after {updates:?}");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+    assert!(matches!(updates.first(), Some(Update::Started { .. })));
+    assert_eq!(updates.last(), Some(&Update::Stopped));
+    assert_eq!(updates.len(), 2, "{updates:?}");
+    // It is said once.
+    for _ in 0..10 {
+        assert_eq!(bridge.try_update(), None);
+    }
+}
+
+#[test]
 fn messages_are_read_in_pages_up_to_the_limit() {
     let network = MockNetwork::new();
     let mut driver = Driver::start(&network, None);
@@ -415,7 +450,7 @@ fn messages_are_read_in_pages_up_to_the_limit() {
     let (_, card) = driver.invitation(bob);
     let contact = match driver.ask(Command::AddContact {
         identity: alice,
-        card: card.to_string(),
+        card: card.clone(),
         name: None,
     }) {
         Outcome::ContactAdded(contact) => contact,
