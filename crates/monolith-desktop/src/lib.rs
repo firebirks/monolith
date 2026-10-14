@@ -103,7 +103,14 @@ pub fn run(options: Options) -> ExitCode {
             control: String::new(),
             cookie_file: String::new(),
         });
-    let config_path = options.config.or_else(places::config_file);
+    // On Tails a file is kept only in the Persistent Storage; a place named
+    // on the command line elsewhere is refused, not replaced by another.
+    let tails = places::is_tails();
+    let kept = |path: PathBuf| (!tails || places::in_tails_persistent(&path)).then_some(path);
+    let config_path = match options.config {
+        Some(path) => kept(path),
+        None => places::config_file(),
+    };
     let defaults = Config::defaults(default_tor.clone());
     let mut config = match &config_path {
         Some(path) => config::read(path, defaults),
@@ -118,7 +125,10 @@ pub fn run(options: Options) -> ExitCode {
     let Some(tor) = backend_config(&config.preferences.tor) else {
         return ExitCode::FAILURE;
     };
-    let data_dir = options.data_dir.or_else(places::data_dir);
+    let data_dir = match options.data_dir {
+        Some(path) => kept(path),
+        None => places::data_dir(),
+    };
 
     let window = &config.window;
     let sizes = monolith_ui_kit::theme::Theme::light().size;

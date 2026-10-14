@@ -36,6 +36,8 @@ pub const NAMES: &[&str] = &[
     "settings-tor",
     "settings-data",
     "storage-failed",
+    "no-profile-folder",
+    "ephemeral",
 ];
 
 fn identity(n: u8) -> UiIdentityId {
@@ -150,12 +152,14 @@ fn alice_messages(queued_tail: bool) -> Vec<MessageView> {
 
 struct Builder {
     model: Model,
+    ephemeral: bool,
 }
 
 impl Builder {
     fn new() -> Self {
         Self {
             model: Model::new(),
+            ephemeral: false,
         }
     }
 
@@ -185,15 +189,22 @@ impl Builder {
     }
 
     fn ready(mut self, tor: TorCheck, service: Service, queued_tail: bool) -> Self {
-        self.model
-            .unlock(Zeroizing::new("correct horse".to_owned()));
+        if self.ephemeral {
+            self.model.start_without_saving();
+        } else {
+            self.model
+                .unlock(Zeroizing::new("correct horse".to_owned()));
+        }
         let personal = identity(1);
         let work = identity(2);
+        let ephemeral = self.ephemeral;
         self.answer(|command| match command {
-            Command::OpenProfile { .. } => Some(Outcome::ProfileOpen {
-                ephemeral: false,
-                message_store_missing: false,
-            }),
+            Command::OpenProfile { .. } | Command::StartWithoutSaving => {
+                Some(Outcome::ProfileOpen {
+                    ephemeral,
+                    message_store_missing: false,
+                })
+            }
             Command::LoadIdentities => Some(Outcome::Identities(vec![
                 IdentityView {
                     id: personal,
@@ -442,6 +453,22 @@ pub fn fixture(name: &str) -> Option<App> {
         "settings-identities" => settings(standard().app(), SettingsPage::Identities),
         "settings-tor" => settings(standard().app(), SettingsPage::Tor),
         "settings-data" => settings(standard().app(), SettingsPage::Data),
+        "no-profile-folder" => {
+            let mut builder = Builder::new();
+            builder.model.apply(Update::Started {
+                profile: ProfileOnDisk::Absent,
+                location: String::new(),
+            });
+            builder.app()
+        }
+        "ephemeral" => {
+            let mut builder = Builder::new().started(false);
+            builder.ephemeral = true;
+            builder
+                .ready(ready_tor(), Service::Available, false)
+                .open(contact(1, 10), false)
+                .app()
+        }
         "storage-failed" => {
             let mut app = standard().open(contact(1, 10), false).app();
             app.model.apply(Update::Event(RuntimeEvent::StorageFailed));

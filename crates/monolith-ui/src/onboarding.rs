@@ -2,7 +2,7 @@
 //! the progress of opening, and a stopped runtime.
 
 use egui::{Align, Context, Frame, Id, Layout, Sense, Ui, UiBuilder, Vec2};
-use monolith_ui_kit::banner::InlineError;
+use monolith_ui_kit::banner::{Banner, InlineError, Tone};
 use monolith_ui_kit::button::Size;
 use monolith_ui_kit::chrome;
 use monolith_ui_kit::spinner;
@@ -209,7 +209,63 @@ fn stopped(ui: &mut Ui) {
     });
 }
 
+/// The first start where there is no folder to keep a profile in: on
+/// Tails before the Persistent Storage is unlocked
+/// (`docs/PLATFORM_TAILS.md` section 5), or with no home folder. Only a
+/// session that keeps nothing can start.
+fn no_place(ui: &mut Ui, app: &mut App) {
+    let ctx = ui.ctx().clone();
+    let theme = theme::current(&ctx);
+    wordmark(ui, &theme);
+    let mut start = false;
+    card(ui, &theme, |ui| {
+        text(
+            ui,
+            "Welcome to Monolith",
+            &theme.text.title,
+            theme.color.text,
+        );
+        text(
+            ui,
+            "Monolith sends private messages over Tor. There are no servers and no accounts: \
+             your identity is a key kept on this device, and only the people you add can write to you.",
+            &theme.text.body,
+            theme.color.text_secondary,
+        );
+        ui.add_space(theme.space.md);
+        Banner::new(
+            "no-profile-folder",
+            Tone::Info,
+            "There is no folder here where a profile would last. On Tails, unlock the \
+             Persistent Storage when Tails starts, then start Monolith again.",
+        )
+        .show(ui);
+        ui.add_space(theme.space.sm);
+        start = ui
+            .add(
+                Button::primary("Start without saving")
+                    .size(Size::Large)
+                    .full_width(true),
+            )
+            .clicked();
+        text(
+            ui,
+            "Identities, contacts and messages of this session are gone when you close Monolith.",
+            &theme.text.caption,
+            theme.color.text_tertiary,
+        );
+    });
+    if start {
+        forget_all(&ctx, app);
+        app.model.start_without_saving();
+    }
+}
+
 fn welcome(ui: &mut Ui, app: &mut App) {
+    if app.model.location().is_empty() {
+        no_place(ui, app);
+        return;
+    }
     let ctx = ui.ctx().clone();
     let theme = theme::current(&ctx);
     let key = Id::new("monolith-welcome-differ");

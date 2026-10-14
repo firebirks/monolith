@@ -6,6 +6,7 @@ use egui::{
     WidgetType,
 };
 use monolith_ui_kit::badge::Badge;
+use monolith_ui_kit::badge::{Pill, Tone as PillTone};
 use monolith_ui_kit::button::{Button, Size};
 use monolith_ui_kit::chrome::{self, scroll_area};
 use monolith_ui_kit::empty_state::EmptyState;
@@ -52,6 +53,15 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, narrow: bool) {
     }
     ui.add_space(pad);
     inset(ui, pad, |ui| switcher(ui, app));
+    if app.model.ephemeral() {
+        // Said for the whole session (docs/PLATFORM_TAILS.md section 5).
+        ui.add_space(theme::current(ui.ctx()).space.sm);
+        inset(ui, pad, |ui| {
+            ui.add(
+                Pill::new(PillTone::Warning, "This session saves nothing").icon(icons::CLOUD_OFF),
+            );
+        });
+    }
     ui.add_space(pad);
     inset(ui, pad, |ui| {
         SearchField::new("sidebar-search", &mut app.search)
