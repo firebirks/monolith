@@ -122,6 +122,38 @@ fn nothing_behind_a_modal_can_be_clicked() {
     assert_eq!(clicks, 0);
 }
 
+#[test]
+fn the_keyboard_reaches_nothing_behind_a_modal() {
+    let mut requested = false;
+    let mut frame = |ctx: &Context, clicks: &mut u32, modal: bool| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if ui.add(Button::primary("Behind")).clicked() {
+                *clicks += 1;
+            }
+        });
+        if modal {
+            show(ctx, true, &mut requested);
+        }
+    };
+    // Without a modal, Tab reaches the button and Enter presses it.
+    let mut rig = Rig::new();
+    let mut clicks = 0;
+    rig.settle(3, |ctx| frame(ctx, &mut clicks, false));
+    rig.key(Key::Tab, |ctx| frame(ctx, &mut clicks, false));
+    rig.key(Key::Enter, |ctx| frame(ctx, &mut clicks, false));
+    assert_eq!(clicks, 1);
+    // With one, no number of Tabs gives it the focus.
+    let mut rig = Rig::new();
+    let mut clicks = 0;
+    rig.settle(3, |ctx| frame(ctx, &mut clicks, true));
+    for _ in 0..4 {
+        rig.key(Key::Tab, |ctx| frame(ctx, &mut clicks, true));
+        rig.key(Key::Enter, |ctx| frame(ctx, &mut clicks, true));
+        rig.key(Key::Space, |ctx| frame(ctx, &mut clicks, true));
+    }
+    assert_eq!(clicks, 0);
+}
+
 fn confirm(ctx: &Context, busy: bool, decision: &mut Option<Decision>) {
     if let Some(answer) = Modal::new("confirm", "Delete").confirm(
         ctx,
