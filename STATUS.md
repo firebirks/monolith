@@ -62,21 +62,68 @@ runner and the private Tor network test run on Linux only.
 
 Not the final verification yet. On the way:
 
-- Phase 6 mutation list, on `7e48ce2`: UI1 to UI12 and UI14 to UI26
-  caught; UI13 survived, a test was written for it (`1b2971a`); UI13 and
-  UI27 to UI34 run again on `21b3df0`.
+- Phase 6 mutation list: on `7e48ce2`, UI1 to UI12 and UI14 to UI26
+  caught, UI13 survived; on `21b3df0`, UI13 (with the test of `1b2971a`)
+  and UI27 to UI32 and UI34 caught, UI33 survived. UI33 removed the scrim's
+  interaction and the modal layer together, but the scrim's own widget
+  still shields the pointer; it is now the modal layer alone (the keyboard
+  reaching behind a modal), with a test that catches it (`557863d`). Not
+  yet run in its new form.
 - Workflows A to G passed against the runtime on the in-memory Tor.
+- Every test of the workspace passes on Windows (941, on `b2b20e1`) and,
+  earlier, on Linux.
 - The release binary on Windows: 0 ms of CPU over 10 s idle, 117 MB.
 
-## 5. What is left, in order
+## 5. Reviews
 
-1. The four independent reviews (visual, UX, security and architecture,
-   egui), then: reproduce each finding, a regression test before the fix,
-   a mutation fault where useful, a review of sibling patterns.
-2. The property tests of the UI model (`tests/properties.rs`).
-3. The final verification on one frozen commit: fmt, clippy, every test on
+Four independent reviews were started on `21b3df0`: A visual, B UX, C
+security and architecture, D egui. B has reported; A, C and D had not when
+this was written. B's findings, to reproduce, test and fix:
+
+1. A plain card (not an invitation) shared one way fails silently under the
+   default request mode "invitations only": the request is dropped, nobody
+   is told, the sender waits for ever. The client never says whether an
+   added text was a card or an invitation. (Blocker.)
+2. Making an identity needs Tor; its failure says nothing about what to do.
+   The Windows cookie path of Tor Browser misses a Desktop under OneDrive.
+3. Block cannot be undone in the client, is one click on a request card and
+   first in its focus order; the failure "Unblock them first" names an
+   action that does not exist.
+4. "An invitation always works, whatever you choose" is false for "Nobody".
+5. Invitations are described as for one person; they admit requests until
+   revoked.
+6. The request the other side sees carries no name or message; the texts
+   suggest otherwise.
+7. An offline contact and Tor being down are hard to tell apart; the top
+   bar's Tor pill reads as the contact's presence; a contact waiting for
+   acceptance gets "waiting for them to come online".
+8. Nothing says Monolith has to stay open on both sides for delivery;
+   closing never warns, also when a session that saves nothing would lose
+   everything.
+9. Messages and requests of another identity leave no trace on screen.
+10. One's own card is reachable only from the settings.
+11. "Delete messages" does not say that undelivered messages will not be
+    sent.
+12. The text of a new identity promises unlinkability the design rules out.
+13. Settings > Identities is clipped at 820 and 760 points wide.
+14. Minor: Tor state not shown in the narrow list; fingerprints never say
+    where the other person finds theirs; Decline and Block toasts; the
+    Remove and Delete identity texts; statuses only as icons to sighted
+    users; Tor settings restart; error sentences without a next step;
+    requests and unread marks lost on restart; toasts over the composer;
+    wording nits; the contact dialog mixes instant and saved changes.
+
+## 6. What is left, in order
+
+1. The reports of reviews A, C and D; then for every finding of the four:
+   reproduce it, a regression test before the fix, a mutation fault where
+   useful, a review of sibling patterns.
+2. The property tests of the UI model (`tests/properties.rs`), under way.
+3. Pictures of the workflows taken again after the fixes.
+4. The final verification on one frozen commit: fmt, clippy, every test on
    both toolchains and on Windows, deny, audit, every fuzz target, the
-   mutation lists of Phases 1 to 6, the fail-closed and private Tor tests,
-   the workflows, the packages, the measurements, a visual review.
-4. The final report (36 items), ending in `PHASE 6 COMPLETE` or
+   mutation lists of Phases 1 to 6, the fail-closed and private Tor tests
+   (in Docker), the workflows, the packages, the measurements, a visual
+   review.
+5. The final report (36 items), ending in `PHASE 6 COMPLETE` or
    `PHASE 6 NOT COMPLETE`.
