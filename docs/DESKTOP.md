@@ -87,9 +87,14 @@ messages and their status, requests, invitations, the people blocked, the
 state of Tor) is what a query of the runtime answered, kept per identity.
 The model never changes it on its own. Events are notifications: one makes
 the model read again the part of the state it names, for the identity it
-names; many events about one part make one read. Transient state belongs to the window:
-the selection (a handle), the open dialog (with the handles it captured when
-it opened), drafts, the filter, focus.
+names; many events about one part make one read. Two events carry a value
+of the runtime that the model keeps as it came: the state of an identity's
+Onion Service, which the next read of the identity returns too, and a
+deferred delivery, whose reason and time of the next attempt no query
+returns. After missed events everything is read again and Tor is checked
+again. Transient
+state belongs to the window: the selection (a handle), the open dialog
+(with the handles it captured when it opened), drafts, the filter, focus.
 
 ### Queued and Delivered
 

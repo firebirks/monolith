@@ -674,11 +674,14 @@ fn missed_events_make_the_model_read_everything_again() {
     let mut identities = 0;
     let mut slices = Vec::new();
     let mut threads = Vec::new();
+    let mut tor = 0;
     for (_, command) in commands {
         match command {
             Command::LoadIdentities => identities += 1,
             Command::LoadIdentity(id) => slices.push(id),
             Command::LoadMessages { contact, .. } => threads.push(contact),
+            // The state of Tor may have changed in what was missed too.
+            Command::CheckTor => tor += 1,
             _ => {}
         }
     }
@@ -686,6 +689,7 @@ fn missed_events_make_the_model_read_everything_again() {
     slices.sort();
     assert_eq!(slices, vec![identity(1), identity(2)]);
     assert_eq!(threads, vec![contact(1, 10)]);
+    assert_eq!(tor, 1);
 }
 
 #[test]

@@ -1131,6 +1131,8 @@ impl Model {
 
     fn mark_everything(&mut self) {
         self.identities_stale = true;
+        // What Tor did in the events missed is not known either.
+        self.tor_wanted = true;
         for slice in self.slices.values_mut() {
             slice.stale = true;
             for thread in slice.threads.values_mut() {
