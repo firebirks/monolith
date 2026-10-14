@@ -774,3 +774,113 @@ fn an_answer_to_no_command_in_flight_changes_nothing() {
     assert_eq!(messages[0].text, "real");
     assert_eq!(messages[0].status, Status::Queued);
 }
+
+#[test]
+fn a_dialog_takes_no_answer_that_names_another_identity() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let shown = contact(1, 10);
+    model.select_conversation(shown);
+    messages_of(&mut model, shown, Vec::new());
+    model.take_notices();
+    // An invitation made for A is answered with one of B: it is not shown
+    // as A's.
+    model.open(Dialog::NewInvitation {
+        identity: identity(1),
+        label: String::new(),
+        created: None,
+        busy: None,
+        error: None,
+    });
+    model.confirm();
+    answer_all(&mut model, |command| match command {
+        Command::CreateInvitation { .. } => Some(Outcome::InvitationCreated {
+            invitation: UiInvitationId::new(identity(2), 7),
+            card: Zeroizing::new("MONOLITH card".to_owned()),
+        }),
+        _ => None,
+    });
+    assert!(model.dialog().is_none());
+    // A contact added to B, or a request of B accepted, is answered with a
+    // contact of A, the identity shown: once A is read again, it does not
+    // open that contact.
+    let dialogs = [
+        Dialog::AddContact {
+            identity: identity(2),
+            card: "card".to_owned(),
+            name: String::new(),
+            busy: None,
+            error: None,
+        },
+        Dialog::AcceptRequest {
+            request: UiRequestId::new(identity(2), 3),
+            name: String::new(),
+            busy: None,
+            error: None,
+        },
+    ];
+    for dialog in dialogs {
+        load(&mut model);
+        model.open(dialog);
+        model.confirm();
+        answer_all(&mut model, |command| match command {
+            Command::AddContact { .. } => Some(Outcome::ContactAdded(contact(1, 11))),
+            Command::AcceptRequest { .. } => Some(Outcome::RequestAccepted(contact(1, 11))),
+            _ => None,
+        });
+        assert!(model.dialog().is_none());
+        model.apply(Update::Event(RuntimeEvent::Missed));
+        load(&mut model);
+        assert_eq!(model.selection(), Some(Selection::Conversation(shown)));
+    }
+    // None of these answers was told as a success.
+    assert!(
+        model
+            .take_notices()
+            .iter()
+            .all(|notice| notice.kind != monolith_ui_model::NoticeKind::Success)
+    );
+}
+
+#[test]
+fn deleting_the_messages_of_the_conversation_shown_keeps_it_shown_and_read() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    messages_of(&mut model, c, vec![message(c, 1, Status::Received, "hi")]);
+    model.draft_mut(c).unwrap().push_str("unsent");
+    model.open(Dialog::DeleteConversation {
+        contact: c,
+        busy: None,
+        error: None,
+    });
+    model.confirm();
+    answer_all(&mut model, |command| match command {
+        Command::DeleteConversation(asked) => {
+            assert_eq!(*asked, c);
+            Some(Outcome::Done)
+        }
+        _ => None,
+    });
+    // The conversation stays shown, without its messages and with its
+    // draft, and can take a message.
+    assert_eq!(model.selection(), Some(Selection::Conversation(c)));
+    let thread = model.thread(c).unwrap();
+    assert!(thread.messages.is_empty());
+    assert_eq!(thread.draft, "unsent");
+    assert!(model.can_send(c));
+    assert!(model.draft_mut(c).is_some());
+    // It is read again, and a message that arrives afterwards is shown.
+    model.apply(Update::Event(RuntimeEvent::MessageReceived(
+        UiMessageId::new(c, 2),
+    )));
+    messages_of(
+        &mut model,
+        c,
+        vec![message(c, 2, Status::Received, "again")],
+    );
+    let messages = &model.thread(c).unwrap().messages;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].text, "again");
+}

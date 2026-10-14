@@ -1432,6 +1432,9 @@ impl Model {
         let mut close = true;
         let mut affected: Option<UiIdentityId> = dialog.identity();
         let mut message: Option<&'static str> = None;
+        // What an answer names is taken only if it belongs to the identity
+        // the dialog acts on; anything else closes the dialog, and that
+        // identity is read again.
         match (dialog, outcome) {
             (Dialog::OwnCard { card, busy, .. }, Outcome::Card(text))
             | (Dialog::ShowInvitation { card, busy, .. }, Outcome::Card(text)) => {
@@ -1440,9 +1443,14 @@ impl Model {
                 close = false;
             }
             (
-                Dialog::NewInvitation { created, busy, .. },
+                Dialog::NewInvitation {
+                    identity,
+                    created,
+                    busy,
+                    ..
+                },
                 Outcome::InvitationCreated { invitation, card },
-            ) => {
+            ) if invitation.identity() == *identity => {
                 *created = Some((invitation, card));
                 *busy = None;
                 close = false;
@@ -1454,7 +1462,9 @@ impl Model {
                 self.pending_select = Some(identity);
                 message = Some("Identity created.");
             }
-            (Dialog::AddContact { .. }, Outcome::ContactAdded(contact)) => {
+            (Dialog::AddContact { identity, .. }, Outcome::ContactAdded(contact))
+                if contact.identity() == *identity =>
+            {
                 affected = Some(contact.identity());
                 message = Some("Contact added.");
                 self.pending_open = Some(contact);
@@ -1468,12 +1478,22 @@ impl Model {
             (Dialog::RemoveContact { .. }, Outcome::Done) => message = Some("Contact removed."),
             (Dialog::DeleteConversation { contact, .. }, Outcome::Done) => {
                 let contact = *contact;
-                if let Some(slice) = self.slices.get_mut(&contact.identity()) {
-                    slice.threads.remove(&contact);
+                // What was read goes; the conversation stays, with its
+                // draft, and is read again.
+                if let Some(thread) = self
+                    .slices
+                    .get_mut(&contact.identity())
+                    .and_then(|slice| slice.threads.get_mut(&contact))
+                {
+                    thread.messages.clear();
+                    thread.expanded.clear();
+                    thread.stale = true;
                 }
                 message = Some("Messages deleted.");
             }
-            (Dialog::AcceptRequest { .. }, Outcome::RequestAccepted(contact)) => {
+            (Dialog::AcceptRequest { request, .. }, Outcome::RequestAccepted(contact))
+                if contact.identity() == request.identity() =>
+            {
                 affected = Some(contact.identity());
                 message = Some("Request accepted.");
                 self.pending_open = Some(contact);
