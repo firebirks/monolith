@@ -94,6 +94,7 @@ impl Window {
                     .collect(),
             };
             let _ = picture.save_png(path);
+            self.app.allow_close();
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
@@ -211,13 +212,15 @@ impl Window {
 
 impl eframe::App for Window {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        hide_when_closing(ctx);
+        // A delay in what the bridge says counts from now.
+        self.app.model.set_time(self.app.now());
         while let Some(update) = self.bridge.try_update() {
             self.app.model.apply(update);
         }
         while let Some(result) = self.disk.try_result() {
             self.app.effect_done(result);
         }
+        close_or_ask(ctx, &mut self.app);
         self.apply_theme(ctx);
         self.track_window(ctx);
 
@@ -267,9 +270,28 @@ pub fn strip_urls(ctx: &Context) {
     });
 }
 
-/// Takes the window off the screen as soon as it is asked to close. The
-/// runtime then takes a few seconds to stop, while the window, no longer
-/// drawn, would stay on screen frozen.
+/// What the window does when it is asked to close, by its close button,
+/// Alt+F4, the system, or Close Monolith in the question: it closes if
+/// that costs nothing the person has not agreed to; otherwise it stays,
+/// back from the taskbar if it was minimized, and the screens ask.
+pub fn close_or_ask(ctx: &Context, app: &mut App) {
+    if !ctx.input(|input| input.viewport().close_requested()) {
+        return;
+    }
+    if app.close_requested() {
+        hide_when_closing(ctx);
+        return;
+    }
+    ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+    if ctx.input(|input| input.viewport().minimized == Some(true)) {
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(ViewportCommand::Focus);
+    }
+}
+
+/// Takes the window off the screen as soon as it closes. The runtime then
+/// takes a few seconds to stop, while the window, no longer drawn, would
+/// stay on screen frozen.
 pub fn hide_when_closing(ctx: &Context) {
     if ctx.input(|input| input.viewport().close_requested()) {
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
@@ -639,6 +661,222 @@ mod tests {
         };
         assert!(!commands(false).contains(&ViewportCommand::Visible(false)));
         assert!(commands(true).contains(&ViewportCommand::Visible(false)));
+    }
+
+    /// A model with a profile open, kept on disk or not, with one identity
+    /// whose one conversation has `queued` messages waiting.
+    fn open_model(ephemeral: bool, queued: usize) -> Model {
+        use monolith_ui_model::{
+            ConversationView, IdentitySnapshot, IdentityView, RequestMode, Service, UiContactId,
+            UiIdentityId,
+        };
+        let identity = UiIdentityId::from_bytes([1; 16]);
+        let mut model = Model::new();
+        model.apply(Update::Started {
+            profile: ProfileOnDisk::Absent,
+            location: String::new(),
+        });
+        model.start_without_saving();
+        for _ in 0..3 {
+            for (id, command) in model.take_commands() {
+                let outcome = match command {
+                    Command::StartWithoutSaving => Outcome::ProfileOpen {
+                        ephemeral,
+                        message_store_missing: false,
+                    },
+                    Command::LoadIdentities => Outcome::Identities(vec![IdentityView {
+                        id: identity,
+                        name: None,
+                        fingerprint: String::new(),
+                        full_fingerprint: String::new(),
+                    }]),
+                    Command::LoadIdentity(asked) => Outcome::Identity(Box::new(IdentitySnapshot {
+                        identity: asked,
+                        contacts: Vec::new(),
+                        conversations: vec![ConversationView {
+                            contact: UiContactId::new(asked, [9; 16]),
+                            fingerprint: String::new(),
+                            active: true,
+                            messages: queued,
+                            queued,
+                            latest: None,
+                        }],
+                        requests: Vec::new(),
+                        invitations: Vec::new(),
+                        service: Service::Available,
+                        request_mode: RequestMode::Invitation,
+                    })),
+                    _ => continue,
+                };
+                model.apply(Update::Done {
+                    command: id,
+                    outcome,
+                });
+            }
+        }
+        model
+    }
+
+    /// A window without a system: frames of `close_or_ask` and the screens.
+    struct Closing {
+        ctx: Context,
+        app: App,
+        time: f64,
+        /// The texts of the last frame, where they were drawn.
+        texts: Vec<(String, egui::Rect)>,
+    }
+
+    impl Closing {
+        fn new(model: Model) -> Self {
+            let ctx = Context::default();
+            monolith_ui_kit::fonts::install(&ctx, &[]);
+            theme::install(&ctx, Theme::light().with_reduced_motion(true));
+            Self {
+                ctx,
+                app: monolith_ui::App::for_tests(model, 0),
+                time: 0.0,
+                texts: Vec::new(),
+            }
+        }
+
+        /// A frame, asked to close by the system if `close`, minimized if
+        /// `minimized`; what it asked of the window.
+        fn frame(
+            &mut self,
+            close: bool,
+            minimized: bool,
+            events: Vec<egui::Event>,
+        ) -> Vec<ViewportCommand> {
+            self.time += 0.1;
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Theme::light().size.window_default,
+                )),
+                time: Some(self.time),
+                focused: true,
+                events,
+                ..egui::RawInput::default()
+            };
+            let viewport = input.viewports.entry(egui::ViewportId::ROOT).or_default();
+            if close {
+                viewport.events.push(egui::ViewportEvent::Close);
+            }
+            if minimized {
+                viewport.minimized = Some(true);
+            }
+            let app = &mut self.app;
+            let output = self.ctx.run(input, |ctx| {
+                close_or_ask(ctx, app);
+                monolith_ui::show(ctx, app);
+            });
+            self.texts.clear();
+            for clipped in &output.shapes {
+                collect_texts(&clipped.shape, &mut self.texts);
+            }
+            output
+                .viewport_output
+                .get(&egui::ViewportId::ROOT)
+                .map(|viewport| viewport.commands.clone())
+                .unwrap_or_default()
+        }
+
+        /// Clicks the text `text`; what the frames asked of the window.
+        fn click(&mut self, text: &str) -> Vec<ViewportCommand> {
+            let at = self
+                .texts
+                .iter()
+                .find(|(shown, _)| shown == text)
+                .map(|(_, rect)| rect.center())
+                .unwrap();
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            let mut commands = self.frame(false, false, vec![egui::Event::PointerMoved(at)]);
+            commands.extend(self.frame(false, false, vec![button(true)]));
+            commands.extend(self.frame(false, false, vec![button(false)]));
+            commands
+        }
+
+        fn shows(&self, text: &str) -> bool {
+            self.texts.iter().any(|(shown, _)| shown == text)
+        }
+    }
+
+    fn collect_texts(shape: &egui::Shape, into: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_texts(shape, into);
+                }
+            }
+            egui::Shape::Text(text) => into.push((
+                text.galley.text().to_owned(),
+                text.galley.rect.translate(text.pos.to_vec2()),
+            )),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn closing_what_saves_nothing_asks_first_and_hides_the_window_once_agreed() {
+        let mut window = Closing::new(open_model(true, 0));
+        for _ in 0..3 {
+            window.frame(false, false, Vec::new());
+        }
+        // Its close button, Alt+F4 or the system: the window stays, shown,
+        // and asks; asked again, it still does not close.
+        for _ in 0..3 {
+            let commands = window.frame(true, false, Vec::new());
+            assert!(commands.contains(&ViewportCommand::CancelClose));
+            assert!(!commands.contains(&ViewportCommand::Visible(false)));
+            assert!(window.app.asking_to_close());
+        }
+        assert!(window.shows("Close Monolith?"));
+        // Asked from the taskbar while minimized: back on the screen.
+        let commands = window.frame(true, true, Vec::new());
+        assert!(commands.contains(&ViewportCommand::CancelClose));
+        assert!(commands.contains(&ViewportCommand::Minimized(false)));
+        window.frame(false, false, Vec::new());
+        // Close Monolith asks the window to close; it is hidden only when
+        // that request comes back, and nothing cancels it.
+        let commands = window.click("Close Monolith");
+        assert!(commands.contains(&ViewportCommand::Close));
+        assert!(!commands.contains(&ViewportCommand::Visible(false)));
+        let commands = window.frame(true, false, Vec::new());
+        assert!(commands.contains(&ViewportCommand::Visible(false)));
+        assert!(!commands.contains(&ViewportCommand::CancelClose));
+    }
+
+    #[test]
+    fn closing_with_messages_not_delivered_asks_and_cancel_keeps_the_window() {
+        let mut window = Closing::new(open_model(false, 2));
+        window.frame(false, false, Vec::new());
+        let commands = window.frame(true, false, Vec::new());
+        assert!(commands.contains(&ViewportCommand::CancelClose));
+        window.frame(false, false, Vec::new());
+        let commands = window.click("Cancel");
+        assert!(!commands.contains(&ViewportCommand::Close));
+        assert!(!window.app.asking_to_close());
+        window.frame(false, false, Vec::new());
+        assert!(!window.shows("Close Monolith?"));
+        // Asked again, it asks again.
+        let commands = window.frame(true, false, Vec::new());
+        assert!(commands.contains(&ViewportCommand::CancelClose));
+        assert!(!commands.contains(&ViewportCommand::Visible(false)));
+    }
+
+    #[test]
+    fn closing_that_costs_nothing_hides_the_window_at_once() {
+        let mut window = Closing::new(open_model(false, 0));
+        window.frame(false, false, Vec::new());
+        let commands = window.frame(true, false, Vec::new());
+        assert!(commands.contains(&ViewportCommand::Visible(false)));
+        assert!(!commands.contains(&ViewportCommand::CancelClose));
+        assert!(!window.app.asking_to_close());
     }
 
     #[test]

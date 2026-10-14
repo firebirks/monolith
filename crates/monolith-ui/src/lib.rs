@@ -22,6 +22,7 @@ mod shell;
 mod sidebar;
 
 pub use app::{
-    App, Effect, EffectResult, Preferences, SettingsPage, ThemeChoice, TorPreset, TorSettings, View,
+    App, CloseWarning, Effect, EffectResult, Preferences, SettingsPage, ThemeChoice, TorPreset,
+    TorSettings, View, close_warning,
 };
 pub use shell::show;

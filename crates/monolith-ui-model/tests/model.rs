@@ -14,7 +14,7 @@
 )]
 
 use monolith_ui_model::{
-    Command, CommandId, ContactView, ConversationView, Dialog, Failure, IdentitySnapshot,
+    Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure, IdentitySnapshot,
     IdentityView, InvitationView, MessageView, Model, Outcome, Phase, ProfileOnDisk, RequestMode,
     RequestView, RuntimeEvent, Selection, Service, Status, UiContactId, UiIdentityId,
     UiInvitationId, UiMessageId, UiRequestId, Update,
@@ -315,7 +315,7 @@ fn a_draft_goes_only_once_the_runtime_queued_it() {
     assert_eq!(thread.draft, "hello again");
     assert_eq!(thread.send_error, Some(Failure::QueueFull));
     model.send(c);
-    // Typed while it is queued: kept, not cleared with the text sent.
+    // Typed while it is queued: kept; only the text sent goes.
     model.draft_mut(c).unwrap().push('!');
     answer_all(&mut model, |command| match command {
         Command::Send { text, .. } => {
@@ -324,7 +324,7 @@ fn a_draft_goes_only_once_the_runtime_queued_it() {
         }
         _ => None,
     });
-    assert_eq!(model.thread(c).unwrap().draft, "hello again!");
+    assert_eq!(model.thread(c).unwrap().draft, "!");
     model.draft_mut(c).unwrap().clear();
     model.draft_mut(c).unwrap().push_str("next");
     model.send(c);
@@ -349,6 +349,156 @@ fn a_queued_answer_for_another_conversation_clears_nothing() {
         _ => None,
     });
     assert_eq!(model.thread(c).unwrap().draft, "keep me");
+}
+
+#[test]
+fn typing_while_a_message_is_queued_stays_once_it_is_queued() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    messages_of(&mut model, c, Vec::new());
+    model.draft_mut(c).unwrap().push_str("See you at eight.");
+    model.send(c);
+    // A new line typed while the runtime queues it.
+    model.draft_mut(c).unwrap().push_str("\nBring the map");
+    answer_all(&mut model, |command| match command {
+        Command::Send { text, .. } => {
+            assert_eq!(text, "See you at eight.");
+            Some(Outcome::MessageQueued(UiMessageId::new(c, 1)))
+        }
+        _ => None,
+    });
+    let thread = model.thread(c).unwrap();
+    assert_eq!(thread.draft, "Bring the map");
+    assert_eq!(thread.sending, None);
+    // A draft changed within the text sent stays whole: nothing that may
+    // not have been sent is taken from it.
+    model.send(c);
+    model.draft_mut(c).unwrap().insert_str(10, "big ");
+    answer_all(&mut model, |command| match command {
+        Command::Send { text, .. } => {
+            assert_eq!(text, "Bring the map");
+            Some(Outcome::MessageQueued(UiMessageId::new(c, 2)))
+        }
+        _ => None,
+    });
+    assert_eq!(model.thread(c).unwrap().draft, "Bring the big map");
+}
+
+#[test]
+fn a_refused_send_keeps_the_text_sent_and_what_was_typed_after_it() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    messages_of(&mut model, c, Vec::new());
+    model.draft_mut(c).unwrap().push_str("See you at eight.");
+    model.send(c);
+    model.draft_mut(c).unwrap().push_str(" Bring the map.");
+    answer_all(&mut model, |command| match command {
+        Command::Send { .. } => Some(Outcome::Failed(Failure::StoreFull)),
+        _ => None,
+    });
+    // The draft is the text sent with the typing after it, the reason is
+    // shown, and all of it can be sent again.
+    let thread = model.thread(c).unwrap();
+    assert_eq!(thread.draft, "See you at eight. Bring the map.");
+    assert_eq!(thread.send_error, Some(Failure::StoreFull));
+    assert_eq!(thread.sending, None);
+    assert!(model.can_send(c));
+    model.send(c);
+    let sent: Vec<String> = model
+        .take_commands()
+        .into_iter()
+        .filter_map(|(_, command)| match command {
+            Command::Send { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent, ["See you at eight. Bring the map."]);
+}
+
+#[test]
+fn the_next_try_counts_from_when_the_attempt_failed_and_goes_with_the_queue() {
+    let mut model = ready();
+    let c = contact(1, 10);
+    let e = contact(2, 20);
+    let queued = |identity: UiIdentityId, contacts: Vec<ContactView>, waiting: usize| {
+        let mut snap = snapshot(identity, contacts);
+        snap.conversations = snap
+            .contacts
+            .iter()
+            .map(|view| ConversationView {
+                contact: view.id,
+                fingerprint: view.fingerprint.clone(),
+                active: true,
+                messages: waiting,
+                queued: waiting,
+                latest: None,
+            })
+            .collect();
+        Some(Outcome::Identity(Box::new(snap)))
+    };
+    model.set_time(1_000);
+    for (contact, retry_in) in [(c, 300), (e, 20)] {
+        model.apply(Update::Event(RuntimeEvent::DeliveryDeferred {
+            contact,
+            reason: Deferral::Unreachable,
+            retry_in,
+        }));
+    }
+    assert_eq!(model.slice(identity(1)).unwrap().retries[&c], 1_300);
+    assert_eq!(model.slice(identity(2)).unwrap().retries[&e], 1_020);
+    assert!(!model.slice(identity(1)).unwrap().retries.contains_key(&e));
+    // A read that still finds messages queued keeps it.
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            queued(identity(1), vec![contact_view(c, "Carol", "CCCC 1111")], 2)
+        }
+        Command::LoadIdentity(id) if *id == identity(2) => {
+            queued(identity(2), vec![contact_view(e, "Erin", "EEEE 3333")], 0)
+        }
+        _ => None,
+    });
+    assert_eq!(model.slice(identity(1)).unwrap().retries[&c], 1_300);
+    // Nothing queued is tried no more.
+    assert!(model.slice(identity(2)).unwrap().retries.is_empty());
+    assert_eq!(model.undelivered(), 2);
+}
+
+#[test]
+fn undelivered_messages_are_counted_over_every_identity_but_not_ended_ones() {
+    let mut model = ready();
+    assert_eq!(model.undelivered(), 0);
+    let conversation = |contact: UiContactId, active: bool, queued: usize| ConversationView {
+        contact,
+        fingerprint: String::new(),
+        active,
+        messages: queued,
+        queued,
+        latest: None,
+    };
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let mut snap = snapshot(identity(1), Vec::new());
+            snap.conversations = vec![
+                conversation(contact(1, 10), true, 2),
+                // Blocked or removed: never sent.
+                conversation(contact(1, 13), false, 5),
+            ];
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        Command::LoadIdentity(id) if *id == identity(2) => {
+            let mut snap = snapshot(identity(2), Vec::new());
+            snap.conversations = vec![conversation(contact(2, 20), true, 1)];
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        _ => None,
+    });
+    assert_eq!(model.undelivered(), 3);
 }
 
 #[test]

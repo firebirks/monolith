@@ -44,11 +44,12 @@ fn repaint_after_settling(name: &str, theme: Theme, frames: u32) -> Duration {
 
 #[test]
 fn a_settled_window_asks_for_no_frame() {
-    // A spinner turns while a profile opens, and the Tor state pulses while
-    // Tor connects.
+    // A spinner turns while a profile opens, the Tor state pulses while
+    // Tor connects, and the time to the next delivery attempt is said again
+    // when it changes.
     for name in NAMES
         .iter()
-        .filter(|name| !["opening", "tor-connecting"].contains(*name))
+        .filter(|name| !["opening", "tor-connecting", "conversation-deferred"].contains(*name))
     {
         for (theme, reduced) in [(Theme::light(), false), (Theme::dark(), true)] {
             let delay = repaint_after_settling(name, theme.with_reduced_motion(reduced), 30);
@@ -58,6 +59,23 @@ fn a_settled_window_asks_for_no_frame() {
                 "{name} (reduced motion {reduced}) asks for a frame in {delay:?}"
             );
         }
+    }
+}
+
+#[test]
+fn the_time_to_the_next_attempt_asks_for_a_frame_only_when_its_words_change() {
+    // Four minutes to go, said until three and a half: 31 seconds, less
+    // the frame egui expects to take.
+    for (theme, reduced) in [(Theme::light(), false), (Theme::dark(), true)] {
+        let delay = repaint_after_settling(
+            "conversation-deferred",
+            theme.with_reduced_motion(reduced),
+            30,
+        );
+        assert!(
+            (Duration::from_secs(30)..=Duration::from_secs(31)).contains(&delay),
+            "reduced motion {reduced}: {delay:?}"
+        );
     }
 }
 

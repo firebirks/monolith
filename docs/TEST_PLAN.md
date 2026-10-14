@@ -88,7 +88,7 @@ scan, the smallest window, an idle window, the keyboard), its bridge
 against the runtime on the in-memory Tor, its crate boundary, its files;
 two more fuzz targets (`ui_present`, `ui_model_sequence`); the Phase 6
 mutation list (UI1 and on); the workflows of the brief run by script
-against the runtime; frame measurements. Covered now: T-UI-1 to 13.
+against the runtime; frame measurements. Covered now: T-UI-1 to 15.
 
 The rest need file transfer, and are not written yet.
 
@@ -603,6 +603,8 @@ to images by `monolith-ui-snapshot`.
 | T-UI-11 | No URL leaves a frame | `window::tests` |
 | T-UI-12 | Workflows A to G of the brief, with pictures: two clients with profiles on disk, the real bridge and runtime on the in-memory Tor, in real time | `monolith-desktop/examples/scenarios.rs` (run by hand) |
 | T-UI-13 | A card or an invitation (P6-20): adding one says which it was, and the contact keeps saying it, also after a restart; a plain card's request is dropped in invitation mode until the card of its sender is added too; the model keeps "Add contact" open after a plain card, unless the contact had accepted; the dialog, the conversation and the own card say what each case waits for | `monolith-core/tests/front_end.rs`, `monolith-desktop/tests/bridge.rs`, `monolith-ui-model/tests/model.rs`, `monolith-ui/tests/views.rs` |
+| T-UI-14 | Closing: a session that saves nothing, or messages not delivered (not those of an ended conversation), make a close by the system ask first; the close is cancelled and the window stays shown, also when asked again, until Close Monolith; Cancel, Escape and Enter keep it; the words count the messages; with nothing to lose the window is hidden at once | `window::tests`, `app::tests`, `dialogs::tests`, `monolith-ui/tests/views.rs`, `monolith-ui-model/tests/model.rs` |
+| T-UI-15 | Delivery: a waiting delivery says once that both sides must be open, and when the next attempt is due, counted from when the attempt failed, said again when the words change and not at all while Tor is down; typing while a message is being queued stays in the draft once it is queued, and a refused send keeps all of it | `monolith-ui-model/tests/model.rs`, `conversation::tests`, `monolith-ui/tests/views.rs`, `idle.rs` |
 
 ## 4. Property tests
 

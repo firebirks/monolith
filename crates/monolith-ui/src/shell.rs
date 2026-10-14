@@ -85,13 +85,13 @@ fn content(ui: &mut egui::Ui, app: &mut App) {
     }
 }
 
-/// The keyboard shortcuts of the main window, while no dialog is open:
-/// Ctrl+F (Cmd+F on macOS) for the filter of the list, Alt+Up and Alt+Down
-/// for the conversation before or after the one shown, Escape to leave
-/// the settings. Enter sends, Shift+Enter starts a new line, and Escape
+/// The keyboard shortcuts of the main window, while no dialog is open and
+/// closing is not asked about: Ctrl+F (Cmd+F on macOS) for the filter of
+/// the list, Alt+Up and Alt+Down for the conversation before or after the
+/// one shown, Escape to leave the settings. Enter sends, Shift+Enter starts a new line, and Escape
 /// closes a dialog or a menu, in their components.
 fn shortcuts(ctx: &Context, app: &mut App) {
-    if app.model.dialog().is_some() {
+    if app.model.dialog().is_some() || app.asking_to_close() {
         return;
     }
     let find = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);

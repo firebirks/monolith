@@ -3,9 +3,10 @@
 //! `fixtures` feature, which the binary does not enable.
 
 use monolith_ui_model::{
-    Command, ContactView, ConversationView, Dialog, IdentitySnapshot, IdentityView, InvitationView,
-    MessageView, Model, Outcome, ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Service,
-    Status, TorCheck, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    Command, ContactView, ConversationView, Deferral, Dialog, IdentitySnapshot, IdentityView,
+    InvitationView, MessageView, Model, Outcome, ProfileOnDisk, RequestMode, RequestView,
+    RuntimeEvent, Service, Status, TorCheck, UiContactId, UiIdentityId, UiInvitationId,
+    UiMessageId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -24,6 +25,7 @@ pub const NAMES: &[&str] = &[
     "empty-identity",
     "conversation",
     "conversation-queued",
+    "conversation-deferred",
     "narrow-conversation",
     "waiting",
     "waiting-card",
@@ -48,6 +50,8 @@ pub const NAMES: &[&str] = &[
     "storage-failed",
     "no-profile-folder",
     "ephemeral",
+    "close-ephemeral",
+    "close-queued",
     "long-names",
     "long-names-requests",
 ];
@@ -536,6 +540,19 @@ pub fn fixture(name: &str) -> Option<App> {
         }
         "conversation" => standard().open(contact(1, 10)).app(),
         "conversation-queued" => queued().open(contact(1, 10)).app(),
+        "conversation-deferred" => {
+            // The last attempt failed a minute ago; the next is due in four.
+            let mut builder = queued().open(contact(1, 10));
+            builder.model.set_time(NOW.saturating_sub(60));
+            builder
+                .model
+                .apply(Update::Event(RuntimeEvent::DeliveryDeferred {
+                    contact: contact(1, 10),
+                    reason: Deferral::Unreachable,
+                    retry_in: 300,
+                }));
+            builder.app()
+        }
         "narrow-conversation" => {
             let mut app = queued().open(contact(1, 10)).app();
             app.narrow_conversation = true;
@@ -688,6 +705,18 @@ pub fn fixture(name: &str) -> Option<App> {
             let mut builder = Builder::new().started(false);
             builder.ephemeral = true;
             builder.ready().open(contact(1, 10)).app()
+        }
+        "close-ephemeral" => {
+            let mut builder = Builder::new().started(false);
+            builder.ephemeral = true;
+            let mut app = builder.ready().open(contact(1, 10)).app();
+            app.close_requested();
+            app
+        }
+        "close-queued" => {
+            let mut app = queued().open(contact(1, 10)).app();
+            app.close_requested();
+            app
         }
         "storage-failed" => {
             let mut app = standard().open(contact(1, 10)).app();

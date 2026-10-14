@@ -94,8 +94,11 @@ A message is shown with exactly the status the runtime gives it: Queued
 only from the runtime's answer for that message, which follows an
 acknowledgement made durable by the contact (`adr/0007-delivery-semantics.md`).
 Pressing Send, the command returning, or a session existing is never shown
-as delivery. A draft is cleared only once the runtime says the message is
-durably queued; a refused send keeps the draft and says why.
+as delivery. The draft stays editable while the message is being queued,
+and loses the text sent only once the runtime says the message is durably
+queued: what was typed after it stays, and a draft changed within the text
+sent stays whole. A refused send keeps the draft, with what was typed
+meanwhile, and says why.
 
 ### Late and stale events
 
@@ -141,10 +144,16 @@ why, from the runtime's last deferral: the contact could not be reached,
 Tor is down, the contact has no address yet, the receipt was not confirmed,
 or Monolith limits connections. A deferral that Tor reports while Tor is
 known to work is said as "could not be reached": an offline contact looks
-like that. A failed store is said once, by a banner across the top of
-every view that asks for a restart; nothing can be sent after it. A contact
-that was removed or blocked ends its conversation, which stays readable and
-takes no message.
+like that. The same notice says, once, that messages are delivered only
+while Monolith is open on both sides (the runtime dials only while it runs,
+P5-8), and, from the delay of the last deferral, when the next attempt is
+due ("Next try in about 4 minutes", "in less than a minute"; nothing once
+it is due, and nothing while Tor is down). The model keeps that delay as
+the time it ends, counted from when the window took the event, and drops it
+once nothing is queued. A failed store is said once, by a banner across the
+top of every view that asks for a restart; nothing can be sent after it. A
+contact that was removed or blocked ends its conversation, which stays
+readable and takes no message.
 
 The window's title counts what waits over all identities (messages not
 read and requests not answered), as "Monolith (7)", and the window asks
@@ -186,6 +195,19 @@ identity switcher gives each identity its own counts.
 - Destructive actions (block, remove a contact, delete messages on this
   device, revoke, delete an identity) each have a confirmation that names
   what happens, and are shown done only when the runtime says so.
+- Closing: the window's close button, Alt+F4 and a close by the system take
+  one path (`window::close_or_ask`; the client has no Quit shortcut of its
+  own). When closing costs nothing the window is hidden at once and the
+  runtime stops behind it. Otherwise the close is cancelled, the window
+  stays (brought back if it was minimized) and asks first: in a session
+  that saves nothing, that closing deletes every identity, contact and
+  message for good, with a danger button; and how many messages are not
+  delivered yet, which a profile on disk tries again when it next opens
+  and a session that saves nothing never delivers. Close Monolith closes
+  the window, hidden only then; Cancel, Escape, Enter (Cancel has the
+  focus) or a click beside the question keep it, and the next close asks
+  again. The question takes the place of an open dialog, which is back if
+  the window stays.
 
 ## 7. Design system
 
@@ -287,8 +309,9 @@ Measured on the development machine (Windows 11, release build):
 
 - idle: no frame at all when nothing happens (a test checks every screen,
   `crates/monolith-ui/tests/idle.rs`); the text cursor blinks twice a
-  second while a field has the focus; 0 ms of CPU over 10 seconds on the
-  first-start screen;
+  second while a field has the focus; a conversation that says when
+  delivery is tried next draws again when those words change, at most once
+  a minute; 0 ms of CPU over 10 seconds on the first-start screen;
 - memory: 117 MB working set with the fallback fonts of Windows loaded
   once (84 MB without them); the GL driver takes most of the rest;
 - start: about 0.2 s of CPU to the first frame;

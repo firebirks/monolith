@@ -1940,6 +1940,10 @@ fn check_slice(env: &Env, track: &mut Track, round: &Round, owner: UiIdentityId,
             && slice
                 .deferrals
                 .keys()
+                .all(|contact| contact.identity() == owner)
+            && slice
+                .retries
+                .keys()
                 .all(|contact| contact.identity() == owner),
         "{owner:?} holds something of another identity"
     );

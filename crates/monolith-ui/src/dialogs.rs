@@ -13,7 +13,7 @@ use egui::epaint::CornerRadiusF32;
 use egui::epaint::tessellator::path;
 use egui::{
     Align, Context, CornerRadius, Direction, Frame, Id, Layout, Sense, Shape, Stroke, Ui,
-    UiBuilder, Vec2, WidgetType,
+    UiBuilder, Vec2, ViewportCommand, WidgetType,
 };
 use monolith_ui_kit::avatar::{Avatar, AvatarSize};
 use monolith_ui_kit::badge::{Pill, Tone as PillTone};
@@ -39,7 +39,7 @@ use monolith_ui_model::{
 };
 use zeroize::Zeroizing;
 
-use crate::app::{App, CardFile, Effect, SettingsPage, ShownQr, View};
+use crate::app::{App, CardFile, CloseWarning, Effect, SettingsPage, ShownQr, View, close_warning};
 use crate::common;
 
 /// The longest name, in characters.
@@ -105,6 +105,10 @@ const CHECK_CONTACT: &str = "Ask the person to read you the fingerprint under th
 const BLOCK_REQUEST: &str = "They will not be able to send you a request or a message. You can \
                              unblock them later in Settings > Identities.";
 
+/// What closing a session that saves nothing does.
+const SAVES_NOTHING: &str = "This session saves nothing. Closing Monolith deletes your \
+                             identities, contacts and messages for good.";
+
 /// Draws the open dialog, if any.
 pub(crate) fn show(ctx: &Context, app: &mut App) {
     let add_contact = matches!(
@@ -125,6 +129,11 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
     if app.model.dialog().is_some() {
         // A dialog of the model replaces the question of a block.
         app.block_request = None;
+    }
+    if app.closing.is_some() {
+        // In place of any other dialog, which is back if the window stays.
+        close_question(ctx, app);
+        return;
     }
     match app.model.dialog() {
         None => block_request(ctx, app),
@@ -274,6 +283,36 @@ fn delete_messages_text(app: &App, contact: UiContactId) -> String {
     format!(
         "All messages with {name} are deleted from this device{undelivered}. Their copies are not affected. Deleted data may stay on the disk until it is overwritten."
     )
+}
+
+/// What closing costs, a paragraph for each part. Queued messages are sent
+/// only while Monolith runs; a profile on disk tries them again when it
+/// opens (`DESIGN_QUESTIONS.md` P5-8), a session that saves nothing loses
+/// them.
+fn close_text(warning: CloseWarning) -> Vec<String> {
+    let mut paragraphs = Vec::new();
+    if warning.loses_everything {
+        paragraphs.push(SAVES_NOTHING.to_owned());
+    }
+    let count = warning.undelivered;
+    let undelivered = match (count, warning.loses_everything) {
+        (0, _) => None,
+        (1, true) => Some("1 message has not been delivered yet and never will be.".to_owned()),
+        (_, true) => Some(format!(
+            "{count} messages have not been delivered yet and never will be."
+        )),
+        (1, false) => Some(
+            "1 message has not been delivered yet. Monolith tries to send it again the next \
+             time it is open."
+                .to_owned(),
+        ),
+        (_, false) => Some(format!(
+            "{count} messages have not been delivered yet. Monolith tries to send them again \
+             the next time it is open."
+        )),
+    };
+    paragraphs.extend(undelivered);
+    paragraphs
 }
 
 /// A fingerprint in two rows of groups, the first holding the odd one:
@@ -1069,6 +1108,50 @@ fn block_request(ctx: &Context, app: &mut App) {
         }
         Some(Decision::Cancel) => app.block_request = None,
         None => {}
+    }
+}
+
+/// Asks before the window closes, while closing would lose a session that
+/// saves nothing or leave messages undelivered. Close Monolith closes the
+/// window, which asks no more; Cancel, Escape or a click beside the
+/// question keeps it open.
+fn close_question(ctx: &Context, app: &mut App) {
+    let Some(asked) = app.closing else {
+        return;
+    };
+    // What closing costs now; what it cost when asked, if nothing now.
+    let warning = close_warning(&app.model).unwrap_or(asked);
+    app.closing = Some(warning);
+    let theme = theme::current(ctx);
+    let focus = nothing_focused(ctx);
+    let (mut confirmed, mut cancelled) = (false, false);
+    let out = Modal::new("close-monolith", "Close Monolith?").show(
+        ctx,
+        |ui| {
+            for text in close_text(warning) {
+                paragraph(ui, &theme, &text);
+            }
+        },
+        |ui| {
+            let close = if warning.loses_everything {
+                Button::danger("Close Monolith")
+            } else {
+                Button::primary("Close Monolith")
+            };
+            confirmed = ui.add(close.min_width(theme.size.control_lg)).clicked();
+            let cancel = ui.add(Button::secondary("Cancel"));
+            if focus {
+                // Enter must not close.
+                cancel.request_focus();
+            }
+            cancelled = cancel.clicked();
+        },
+    );
+    if confirmed {
+        app.allow_close();
+        ctx.send_viewport_cmd(ViewportCommand::Close);
+    } else if cancelled || out.close_requested {
+        app.closing = None;
     }
 }
 
@@ -1922,6 +2005,36 @@ mod tests {
         let bob = delete_messages_text(&app, contact(11));
         assert!(!bob.contains("not yet delivered"), "{bob}");
         assert!(bob.starts_with("All messages with Bob at work are deleted"));
+    }
+
+    #[test]
+    fn the_question_before_closing_says_what_goes_and_what_waits() {
+        let warning = |loses_everything, undelivered| CloseWarning {
+            loses_everything,
+            undelivered,
+        };
+        assert_eq!(close_text(warning(true, 0)), [SAVES_NOTHING]);
+        assert_eq!(
+            close_text(warning(true, 3)),
+            [
+                SAVES_NOTHING,
+                "3 messages have not been delivered yet and never will be."
+            ]
+        );
+        assert_eq!(
+            close_text(warning(false, 1)),
+            [
+                "1 message has not been delivered yet. Monolith tries to send it again the next \
+                 time it is open."
+            ]
+        );
+        assert_eq!(
+            close_text(warning(false, 2)),
+            [
+                "2 messages have not been delivered yet. Monolith tries to send them again the \
+                 next time it is open."
+            ]
+        );
     }
 
     #[test]

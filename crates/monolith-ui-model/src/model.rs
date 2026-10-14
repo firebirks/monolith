@@ -215,6 +215,9 @@ pub struct Slice {
     pub unread: BTreeMap<UiContactId, u32>,
     /// Why delivery waits, per conversation, as the last attempt said.
     pub deferrals: BTreeMap<UiContactId, crate::data::Deferral>,
+    /// When delivery is tried next, per conversation that has messages
+    /// queued, in seconds since the epoch, as the last attempt said.
+    pub retries: BTreeMap<UiContactId, u64>,
     stale: bool,
     loading: bool,
 }
@@ -234,6 +237,7 @@ impl fmt::Debug for Slice {
             .field("threads", &self.threads)
             .field("unread", &self.unread)
             .field("deferrals", &self.deferrals)
+            .field("retries", &self.retries)
             .field("stale", &self.stale)
             .field("loading", &self.loading)
             .finish()
@@ -604,6 +608,8 @@ pub struct Model {
     pending_select: Option<UiIdentityId>,
     /// A contact just added or accepted, shown once its identity is read.
     pending_open: Option<UiContactId>,
+    /// The time now as the window last said, in seconds since the epoch.
+    now: u64,
 }
 
 impl fmt::Debug for Model {
@@ -633,6 +639,7 @@ impl fmt::Debug for Model {
             .field("dialogs_opened", &self.dialogs_opened)
             .field("pending_select", &self.pending_select)
             .field("pending_open", &self.pending_open)
+            .field("now", &self.now)
             .finish_non_exhaustive()
     }
 }
@@ -670,6 +677,7 @@ impl Model {
             dialogs_opened: 0,
             pending_select: None,
             pending_open: None,
+            now: 0,
         }
     }
 
@@ -904,6 +912,19 @@ impl Model {
         rows
     }
 
+    /// How many messages wait to be delivered, over every identity. Those
+    /// of an ended conversation are not counted: they are never sent
+    /// (`DESIGN_QUESTIONS.md` P5-9).
+    pub fn undelivered(&self) -> usize {
+        self.slices
+            .values()
+            .flat_map(|slice| slice.conversations.iter())
+            .filter(|conversation| conversation.active)
+            .fold(0_usize, |sum, conversation| {
+                sum.saturating_add(conversation.queued)
+            })
+    }
+
     /// Takes the notices raised since the last call.
     pub fn take_notices(&mut self) -> Vec<Notice> {
         core::mem::take(&mut self.notices)
@@ -1089,8 +1110,7 @@ impl Model {
 
     /// The draft of the conversation of `contact`, to edit, also while a
     /// message is being queued: what is queued is the text taken when it
-    /// was sent, and the draft is cleared afterwards only if it is still
-    /// that text.
+    /// was sent, and once it is queued only that text leaves the draft.
     pub fn draft_mut(&mut self, contact: UiContactId) -> Option<&mut String> {
         let thread = self.thread_mut(contact)?;
         thread.send_error = None;
@@ -1108,8 +1128,9 @@ impl Model {
     }
 
     /// Queues the draft of `contact`. The draft stays until the runtime
-    /// says the message is durably queued; if it refuses, the draft stays
-    /// and the reason is shown.
+    /// says the message is durably queued, and then loses the text sent,
+    /// keeping what was typed after it; if the runtime refuses, the draft
+    /// stays as it is, typing included, and the reason is shown.
     pub fn send(&mut self, contact: UiContactId) {
         if !self.can_send(contact) {
             return;
@@ -1357,6 +1378,13 @@ impl Model {
 
     // ---- What the bridge says ----
 
+    /// Sets the time now, in seconds since the epoch, before what the
+    /// bridge said is applied: a delay the runtime gives is kept as the
+    /// time it ends.
+    pub fn set_time(&mut self, now: u64) {
+        self.now = now;
+    }
+
     /// Applies what the bridge said.
     pub fn apply(&mut self, update: Update) {
         match update {
@@ -1558,6 +1586,12 @@ impl Model {
             .map(|view| view.id)
             .chain(conversations.iter().map(|view| view.contact))
             .collect();
+        // Only a conversation with something to send is tried again.
+        let queued: BTreeSet<UiContactId> = conversations
+            .iter()
+            .filter(|view| view.active && view.queued > 0)
+            .map(|view| view.contact)
+            .collect();
         slice.contacts = contacts;
         slice.conversations = conversations;
         slice.requests = requests;
@@ -1570,6 +1604,7 @@ impl Model {
         slice.threads.retain(|contact, _| known.contains(contact));
         slice.unread.retain(|contact, _| known.contains(contact));
         slice.deferrals.retain(|contact, _| known.contains(contact));
+        slice.retries.retain(|contact, _| queued.contains(contact));
         if let Some(Selection::Conversation(contact)) = slice.selection {
             if !known.contains(&contact) {
                 slice.selection = None;
@@ -1636,9 +1671,13 @@ impl Model {
             }
             if queued {
                 // Cleared only now that the runtime holds the message, and
-                // only if it is still the text that was sent.
-                if thread.draft == text {
-                    thread.draft.clear();
+                // only of the text that was sent: what was typed after it
+                // while it was queued stays. A draft edited within that
+                // text stays as it is.
+                if let Some(typed) = thread.draft.strip_prefix(text) {
+                    let kept = typed.trim_start().len();
+                    let sent = thread.draft.len().saturating_sub(kept);
+                    thread.draft.drain(..sent);
                 }
                 thread.stale = true;
             } else if let Outcome::Failed(failure) = outcome {
@@ -1815,10 +1854,14 @@ impl Model {
                 }
             }
             RuntimeEvent::DeliveryDeferred {
-                contact, reason, ..
+                contact,
+                reason,
+                retry_in,
             } => {
+                let next = self.now.saturating_add(retry_in);
                 if let Some(slice) = self.slices.get_mut(&contact.identity()) {
                     slice.deferrals.insert(contact, reason);
+                    slice.retries.insert(contact, next);
                 }
                 if reason == crate::data::Deferral::Tor {
                     self.tor_wanted = true;

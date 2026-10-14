@@ -2,8 +2,9 @@
 //! settings of a narrow window, Escape out of the settings, a failed store
 //! on every view, the state of Tor in a narrow window, the counts of the
 //! identity switcher, empty states, the Tor settings once saved, the first
-//! screens, and what a contact added by a card or by an invitation waits
-//! for.
+//! screens, what a contact added by a card or by an invitation waits for,
+//! the question before closing, what a conversation says of delivery, and
+//! the composer while a message is being queued.
 
 #![cfg(feature = "fixtures")]
 #![allow(
@@ -15,11 +16,17 @@
 )]
 
 use egui::epaint::Shape;
-use egui::{Context, Event, FullOutput, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
-use monolith_ui::fixtures::fixture;
+use egui::{
+    Context, Event, FullOutput, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2,
+    ViewportCommand, ViewportId,
+};
+use monolith_ui::fixtures::{NOW, fixture};
 use monolith_ui::{App, Effect};
 use monolith_ui_kit::{Theme, fonts, icons, theme};
-use monolith_ui_model::{Command, Dialog, Outcome, RuntimeEvent, Update};
+use monolith_ui_model::{
+    Command, Deferral, Dialog, Outcome, RuntimeEvent, UiContactId, UiIdentityId, UiMessageId,
+    Update,
+};
 use zeroize::Zeroizing;
 
 /// The sizes of the reviews.
@@ -29,6 +36,11 @@ const SMALLEST: Vec2 = Vec2::new(760.0, 520.0);
 
 const STORAGE: &str = "Monolith can no longer save. Restart Monolith to continue.";
 
+const SAVES_NOTHING: &str = "This session saves nothing. Closing Monolith deletes your identities, \
+                             contacts and messages for good.";
+
+const BOTH_OPEN: &str = "Messages can be delivered only while Monolith is open on both sides.";
+
 struct Window {
     ctx: Context,
     app: App,
@@ -36,6 +48,8 @@ struct Window {
     time: f64,
     /// The texts of the last frame, where they were drawn.
     texts: Vec<(String, Rect)>,
+    /// What the frames since the last look asked of the window.
+    commands: Vec<ViewportCommand>,
 }
 
 impl Window {
@@ -53,6 +67,7 @@ impl Window {
             size,
             time: 0.0,
             texts: Vec::new(),
+            commands: Vec::new(),
         };
         window.settle();
         window
@@ -70,6 +85,19 @@ impl Window {
         let app = &mut self.app;
         let output = self.ctx.run(input, |ctx| monolith_ui::show(ctx, app));
         self.texts = texts(&output);
+        if let Some(viewport) = output.viewport_output.get(&ViewportId::ROOT) {
+            self.commands.extend(viewport.commands.iter().cloned());
+        }
+    }
+
+    /// Takes what the window was asked since the last call.
+    fn take_commands(&mut self) -> Vec<ViewportCommand> {
+        core::mem::take(&mut self.commands)
+    }
+
+    /// Whether a text drawn holds `part`.
+    fn shows_part(&self, part: &str) -> bool {
+        self.texts.iter().any(|(shown, _)| shown.contains(part))
     }
 
     /// Frames without input, so that layout settles.
@@ -477,4 +505,172 @@ fn the_own_card_says_what_a_card_alone_can_do_under_each_request_mode() {
             assert_eq!(window.shows(text), text == said, "{name}: {text}");
         }
     }
+}
+
+fn alice() -> UiContactId {
+    UiContactId::new(UiIdentityId::from_bytes([1; 16]), [10; 16])
+}
+
+#[test]
+fn closing_a_session_that_saves_nothing_says_everything_goes() {
+    for size in [WIDE, NARROW, SMALLEST] {
+        let window = Window::new("close-ephemeral", size);
+        assert!(window.shows("Close Monolith?"), "{:#?}", window.shown());
+        assert!(window.shows(SAVES_NOTHING));
+        // Carol's request waits to leave, and never will.
+        assert!(window.shows("1 message has not been delivered yet and never will be."));
+        assert!(window.shows("Close Monolith"));
+        assert!(window.shows("Cancel"));
+    }
+}
+
+#[test]
+fn closing_with_messages_not_delivered_says_when_they_are_tried_again() {
+    for size in [WIDE, NARROW, SMALLEST] {
+        let window = Window::new("close-queued", size);
+        assert!(window.shows("Close Monolith?"));
+        assert!(window.shows(
+            "2 messages have not been delivered yet. Monolith tries to send them again the next \
+             time it is open."
+        ));
+        assert!(!window.shows(SAVES_NOTHING));
+    }
+}
+
+#[test]
+fn the_question_before_closing_keeps_the_window_unless_close_is_chosen() {
+    let mut window = Window::new("close-queued", WIDE);
+    let _ = window.take_commands();
+    // Cancel has the focus: Enter keeps the window.
+    window.press(Key::Enter);
+    assert!(!window.app.asking_to_close());
+    assert!(!window.shows("Close Monolith?"));
+    assert!(!window.take_commands().contains(&ViewportCommand::Close));
+    // So do Escape and Cancel.
+    assert!(!window.app.close_requested());
+    window.settle();
+    window.press(Key::Escape);
+    assert!(!window.app.asking_to_close());
+    assert!(!window.app.close_requested());
+    window.settle();
+    window.click("Cancel");
+    assert!(!window.app.asking_to_close());
+    assert!(!window.take_commands().contains(&ViewportCommand::Close));
+    // Close Monolith closes it, and the window then closes without asking.
+    assert!(!window.app.close_requested());
+    window.settle();
+    window.click("Close Monolith");
+    assert!(window.take_commands().contains(&ViewportCommand::Close));
+    assert!(!window.app.asking_to_close());
+    assert!(window.app.close_requested());
+    assert!(!window.app.asking_to_close());
+}
+
+#[test]
+fn the_question_before_closing_puts_another_dialog_aside() {
+    let mut app = fixture("contact-details").unwrap();
+    assert!(!app.close_requested());
+    let mut window = Window::with(app, WIDE);
+    assert!(window.shows("Close Monolith?"));
+    assert!(!window.shows("Contact"));
+    // Escape answers the question, not the dialog behind it.
+    window.press(Key::Escape);
+    assert!(!window.app.asking_to_close());
+    assert!(matches!(
+        window.app.model.dialog(),
+        Some(Dialog::ContactDetails { .. })
+    ));
+    assert!(window.shows("Contact"));
+}
+
+#[test]
+fn escape_answers_the_question_before_closing_and_leaves_the_settings_open() {
+    let mut app = fixture("settings-tor").unwrap();
+    assert!(!app.close_requested());
+    let mut window = Window::with(app, WIDE);
+    assert!(window.shows("Close Monolith?"));
+    window.press(Key::Escape);
+    assert!(!window.app.asking_to_close());
+    assert!(window.shows("SOCKS endpoint"));
+}
+
+#[test]
+fn a_waiting_delivery_says_both_sides_must_be_open_once_and_when_it_is_tried_next() {
+    let window = Window::new("conversation-deferred", WIDE);
+    let banner = "Alice Martin cannot be reached right now. Their Monolith may be closed, or \
+                  they may not have accepted you yet. Monolith tries again from time to time; \
+                  your messages stay queued on this device. Messages can be delivered only \
+                  while Monolith is open on both sides. Next try in about 4 minutes.";
+    assert!(window.shows(banner), "{:#?}", window.shown());
+    assert_eq!(
+        window
+            .texts
+            .iter()
+            .filter(|(shown, _)| shown.contains(BOTH_OPEN))
+            .count(),
+        1
+    );
+    // Later, by the clock of the window.
+    for (later, said) in [
+        (200, Some("Next try in less than a minute.")),
+        (240, None),
+        (900, None),
+    ] {
+        let mut app = fixture("conversation-deferred").unwrap();
+        let model = core::mem::take(&mut app.model);
+        let window = Window::with(App::for_tests(model, NOW + later), WIDE);
+        assert!(window.shows_part(BOTH_OPEN));
+        assert_eq!(window.shows_part("Next try"), said.is_some(), "{later}");
+        if let Some(said) = said {
+            assert!(window.shows_part(said), "{later}");
+        }
+    }
+}
+
+#[test]
+fn no_next_try_is_said_without_a_deferral_or_while_tor_is_down() {
+    let window = Window::new("conversation-queued", WIDE);
+    assert!(!window.shows_part("Next try"));
+    let mut app = fixture("tor-unavailable").unwrap();
+    app.model.set_time(NOW);
+    app.model
+        .apply(Update::Event(RuntimeEvent::DeliveryDeferred {
+            contact: alice(),
+            reason: Deferral::Tor,
+            retry_in: 300,
+        }));
+    let window = Window::with(app, WIDE);
+    assert!(window.shows_part("Tor is not available"));
+    assert!(window.shows_part(BOTH_OPEN));
+    assert!(!window.shows_part("Next try"));
+}
+
+#[test]
+fn what_is_typed_while_a_message_is_queued_stays_in_the_composer() {
+    let mut window = Window::new("conversation", WIDE);
+    let _ = window.app.model.take_commands();
+    window.frame(vec![Event::Text("See you at eight.".to_owned())]);
+    window.press(Key::Enter);
+    let sent: Vec<_> = window
+        .app
+        .model
+        .take_commands()
+        .into_iter()
+        .filter(|(_, command)| matches!(command, Command::Send { .. }))
+        .collect();
+    assert_eq!(sent.len(), 1);
+    // Typed on while the runtime queues it.
+    window.frame(vec![Event::Text(" Bring the map.".to_owned())]);
+    window.settle();
+    assert!(window.shows("See you at eight. Bring the map."));
+    window.app.model.apply(Update::Done {
+        command: sent[0].0,
+        outcome: Outcome::MessageQueued(UiMessageId::new(alice(), 20)),
+    });
+    window.settle();
+    assert_eq!(
+        window.app.model.thread(alice()).unwrap().draft,
+        "Bring the map."
+    );
+    assert!(window.shows("Bring the map."));
 }

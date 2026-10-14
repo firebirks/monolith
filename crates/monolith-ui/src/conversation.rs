@@ -1,5 +1,7 @@
 //! A conversation: its header, its messages and the composer.
 
+use core::time::Duration;
+
 use egui::{Align, Layout, Margin, Sense, TopBottomPanel, Ui, UiBuilder, Vec2};
 use monolith_ui_kit::avatar::{Avatar, AvatarSize};
 use monolith_ui_kit::banner::{Banner, InlineError, Tone};
@@ -284,6 +286,26 @@ fn deferral_text(
     Some(format!("{text} {BOTH_OPEN}"))
 }
 
+/// When delivery is tried next, `seconds` from now, said roughly, with the
+/// seconds until that changes; `None` once it is due.
+fn next_try(seconds: u64) -> Option<(String, u64)> {
+    if seconds == 0 {
+        return None;
+    }
+    if seconds < 60 {
+        return Some(("Next try in less than a minute.".to_owned(), seconds));
+    }
+    // To the nearest minute, said until it rounds to one less.
+    let minutes = seconds.saturating_add(30) / 60;
+    let text = if minutes == 1 {
+        "Next try in about a minute.".to_owned()
+    } else {
+        format!("Next try in about {minutes} minutes.")
+    };
+    let lowest = minutes.saturating_mul(60).saturating_sub(30).max(60);
+    Some((text, seconds.saturating_sub(lowest).saturating_add(1)))
+}
+
 /// The notices under the bar. Returns true if the card of the identity was
 /// asked for.
 fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
@@ -302,6 +324,11 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
         .current_slice()
         .and_then(|slice| slice.deferrals.get(&contact))
         .copied();
+    let retry = app
+        .model
+        .current_slice()
+        .and_then(|slice| slice.retries.get(&contact))
+        .map(|at| at.saturating_sub(app.now()));
     let refused = app
         .model
         .thread(contact)
@@ -340,7 +367,12 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
     }
     if queued && !ended {
         let tor_down = app.model.tor_indicator() == TorIndicator::Unavailable;
-        if let Some(text) = deferral_text(deferral, &name, tor_down, waiting) {
+        if let Some(mut text) = deferral_text(deferral, &name, tor_down, waiting) {
+            // Not while Tor is down: the next try waits for Tor.
+            if let Some((next, change)) = retry.filter(|_| !tor_down).and_then(next_try) {
+                text = format!("{text} {next}");
+                ui.ctx().request_repaint_after(Duration::from_secs(change));
+            }
             notices.push(("deferral", Tone::Info, text, None));
         }
     }
@@ -585,25 +617,19 @@ fn composer(ui: &mut Ui, app: &mut App, contact: UiContactId) {
     let sendable = app.model.can_send(contact);
     let focus =
         !ended && !storage && (app.focus_composer || app.last_conversation != Some(contact));
-    let fallback = app
-        .model
-        .thread(contact)
-        .map(|thread| thread.draft.clone())
-        .unwrap_or_default();
     if let Some(failure) = failure {
         ui.add(InlineError::new(failure.message()));
         ui.add_space(theme.space.sm);
     }
     let (send, changed) = {
+        // The draft is edited in the model, also while a message is being
+        // queued; without a thread read there is none.
+        let mut none = String::new();
         let output = match app.model.draft_mut(contact) {
             Some(draft) => {
                 make_composer(draft, contact, (sendable, reason), sending, focus).show(ui)
             }
-            None => {
-                // Being queued: the draft stays as it is.
-                let mut shown = fallback;
-                make_composer(&mut shown, contact, (sendable, reason), sending, focus).show(ui)
-            }
+            None => make_composer(&mut none, contact, (sendable, reason), sending, focus).show(ui),
         };
         (output.send_requested, output.changed)
     };
@@ -729,6 +755,28 @@ mod tests {
             let text = deferral_text(Some(reason), "Alice", false, false).unwrap_or_default();
             assert!(text.starts_with("Alice cannot be reached"), "{text}");
             assert!(text.ends_with(BOTH_OPEN), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_next_try_is_said_roughly_and_said_again_when_the_words_change() {
+        let said = |text: &str, change: u64| Some((text.to_owned(), change));
+        assert_eq!(next_try(0), None);
+        assert_eq!(next_try(1), said("Next try in less than a minute.", 1));
+        assert_eq!(next_try(59), said("Next try in less than a minute.", 59));
+        assert_eq!(next_try(60), said("Next try in about a minute.", 1));
+        assert_eq!(next_try(89), said("Next try in about a minute.", 30));
+        assert_eq!(next_try(90), said("Next try in about 2 minutes.", 1));
+        assert_eq!(next_try(240), said("Next try in about 4 minutes.", 31));
+        assert_eq!(next_try(2_700), said("Next try in about 45 minutes.", 31));
+        // The words hold until the change, and not past it.
+        for seconds in 1..3_000 {
+            let (text, change) = next_try(seconds).unwrap_or_default();
+            assert!((1..=seconds).contains(&change), "{seconds}");
+            let held = seconds.saturating_sub(change).saturating_add(1);
+            assert_eq!(next_try(held).map(|said| said.0), Some(text.clone()));
+            let changed = next_try(seconds.saturating_sub(change)).map(|said| said.0);
+            assert_ne!(changed, Some(text), "{seconds}");
         }
     }
 

@@ -11,7 +11,7 @@ use monolith_ui_kit::request_card::RequestAction;
 use monolith_ui_kit::toast::{Kind, Toasts};
 use monolith_ui_model::present::{Calendar, UtcCalendar};
 use monolith_ui_model::{
-    Dialog, Failure, Model, NoticeKind, UiContactId, UiIdentityId, UiRequestId,
+    Dialog, Failure, Model, NoticeKind, Phase, UiContactId, UiIdentityId, UiRequestId,
 };
 use zeroize::{Zeroize, Zeroizing};
 
@@ -154,6 +154,31 @@ pub enum View {
     Settings(SettingsPage),
 }
 
+/// What closing the window now would cost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloseWarning {
+    /// The session saves nothing: its identities, contacts and messages
+    /// go with it.
+    pub loses_everything: bool,
+    /// Messages not delivered yet, over every identity. The runtime sends
+    /// only while it runs: they wait until Monolith is open again, or, in
+    /// a session that saves nothing, are never delivered.
+    pub undelivered: usize,
+}
+
+/// What closing the window now would cost, `None` for nothing: only an
+/// open profile has anything to lose or to send.
+pub fn close_warning(model: &Model) -> Option<CloseWarning> {
+    if model.phase() != Phase::Ready {
+        return None;
+    }
+    let warning = CloseWarning {
+        loses_everything: model.ephemeral() && !model.identities().is_empty(),
+        undelivered: model.undelivered(),
+    };
+    (warning.loses_everything || warning.undelivered > 0).then_some(warning)
+}
+
 /// A QR code shown, with the text it encodes. Held only while the dialog
 /// that shows it is open; never in egui's memory.
 pub(crate) struct ShownQr {
@@ -212,6 +237,11 @@ pub struct App {
     /// The request whose sender the user is asked to block, captured when
     /// the question opened.
     pub(crate) block_request: Option<UiRequestId>,
+    /// The question asked before the window closes, while it is open, with
+    /// what closing would cost.
+    pub(crate) closing: Option<CloseWarning>,
+    /// The window closes without asking: the person agreed.
+    close_allowed: bool,
     /// The answer given to each request while it is under way, so that its
     /// card shows progress on the right button.
     pub(crate) request_answers: BTreeMap<UiRequestId, RequestAction>,
@@ -257,6 +287,8 @@ impl App {
             card_path: String::new(),
             card_file: None,
             block_request: None,
+            closing: None,
+            close_allowed: false,
             request_answers: BTreeMap::new(),
             focus_composer: false,
             focus_search: false,
@@ -316,6 +348,37 @@ impl App {
     pub fn set_preferences(&mut self, preferences: Preferences) {
         self.draft_preferences = preferences.clone();
         self.preferences = preferences;
+    }
+
+    /// The time now, in seconds since the epoch, as the calendar says.
+    pub fn now(&self) -> u64 {
+        self.calendar.now()
+    }
+
+    /// The window was asked to close: by its close button, Alt+F4, the
+    /// system, or the person's confirmation. True if it may close now:
+    /// closing costs nothing, or the person agreed. Otherwise the question
+    /// opens, or stays open, and the window stays.
+    pub fn close_requested(&mut self) -> bool {
+        if self.close_allowed {
+            return true;
+        }
+        let Some(warning) = close_warning(&self.model) else {
+            return true;
+        };
+        self.closing = Some(warning);
+        false
+    }
+
+    /// Whether the question before closing is open.
+    pub fn asking_to_close(&self) -> bool {
+        self.closing.is_some()
+    }
+
+    /// Lets the window close without asking, as when the person agreed.
+    pub fn allow_close(&mut self) {
+        self.close_allowed = true;
+        self.closing = None;
     }
 
     pub(crate) fn effect(&mut self, effect: Effect) {
@@ -388,6 +451,10 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::panic)]
 
     use monolith_ui_kit::theme::{self, Theme};
+    use monolith_ui_model::{
+        Command, ConversationView, IdentitySnapshot, IdentityView, Outcome, ProfileOnDisk,
+        RequestMode, Service, Update,
+    };
 
     use super::*;
 
@@ -483,5 +550,122 @@ mod tests {
         let now = app.model.dialog_instance().unwrap();
         app.effect_done(read(identity(1), now, "MONOLITH card"));
         assert_eq!(shown(&app), (String::new(), Some(Failure::InvalidCard)));
+    }
+
+    /// A model with a profile open, kept on disk or not, with `identities`
+    /// identities; the first has a conversation with `queued` messages
+    /// waiting and an ended one with `ended` messages it will never send.
+    fn open_profile(ephemeral: bool, identities: u8, queued: usize, ended: usize) -> Model {
+        let mut model = Model::new();
+        model.apply(Update::Started {
+            profile: ProfileOnDisk::Absent,
+            location: String::new(),
+        });
+        model.start_without_saving();
+        let conversation = |record: u8, active: bool, queued: usize| ConversationView {
+            contact: UiContactId::new(identity(1), [record; 16]),
+            fingerprint: String::new(),
+            active,
+            messages: queued,
+            queued,
+            latest: None,
+        };
+        for _ in 0..3 {
+            for (id, command) in model.take_commands() {
+                let outcome = match command {
+                    Command::StartWithoutSaving => Outcome::ProfileOpen {
+                        ephemeral,
+                        message_store_missing: false,
+                    },
+                    Command::LoadIdentities => Outcome::Identities(
+                        (1..=identities)
+                            .map(|n| IdentityView {
+                                id: identity(n),
+                                name: None,
+                                fingerprint: String::new(),
+                                full_fingerprint: String::new(),
+                            })
+                            .collect(),
+                    ),
+                    Command::LoadIdentity(asked) => Outcome::Identity(Box::new(IdentitySnapshot {
+                        identity: asked,
+                        contacts: Vec::new(),
+                        conversations: if asked == identity(1) {
+                            vec![
+                                conversation(10, true, queued),
+                                conversation(11, false, ended),
+                            ]
+                        } else {
+                            Vec::new()
+                        },
+                        requests: Vec::new(),
+                        invitations: Vec::new(),
+                        service: Service::Available,
+                        request_mode: RequestMode::Invitation,
+                    })),
+                    _ => continue,
+                };
+                model.apply(Update::Done {
+                    command: id,
+                    outcome,
+                });
+            }
+        }
+        assert_eq!(model.phase(), Phase::Ready);
+        model
+    }
+
+    #[test]
+    fn closing_costs_nothing_without_an_open_profile_or_anything_to_lose() {
+        assert_eq!(close_warning(&Model::new()), None);
+        // Kept on disk, with nothing waiting but what will never be sent.
+        assert_eq!(close_warning(&open_profile(false, 1, 0, 4)), None);
+        // Saving nothing, but nothing made yet.
+        assert_eq!(close_warning(&open_profile(true, 0, 0, 0)), None);
+    }
+
+    #[test]
+    fn closing_warns_of_a_session_that_saves_nothing_and_of_messages_not_delivered() {
+        assert_eq!(
+            close_warning(&open_profile(true, 2, 0, 0)),
+            Some(CloseWarning {
+                loses_everything: true,
+                undelivered: 0
+            })
+        );
+        assert_eq!(
+            close_warning(&open_profile(false, 1, 2, 3)),
+            Some(CloseWarning {
+                loses_everything: false,
+                undelivered: 2
+            })
+        );
+        assert_eq!(
+            close_warning(&open_profile(true, 1, 1, 0)),
+            Some(CloseWarning {
+                loses_everything: true,
+                undelivered: 1
+            })
+        );
+    }
+
+    #[test]
+    fn the_window_asks_before_it_closes_until_the_person_agrees() {
+        let mut app = App::for_tests(open_profile(false, 1, 2, 0), 0);
+        assert!(!app.asking_to_close());
+        // Asked again while the question is open: still not without an
+        // answer.
+        for _ in 0..2 {
+            assert!(!app.close_requested());
+            assert!(app.asking_to_close());
+        }
+        app.allow_close();
+        assert!(!app.asking_to_close());
+        assert!(app.close_requested());
+        assert!(!app.asking_to_close());
+        // Nothing to lose: it closes at once, without a question.
+        let mut app = App::for_tests(open_profile(false, 1, 0, 0), 0);
+        assert!(app.close_requested());
+        assert!(!app.asking_to_close());
     }
 }
