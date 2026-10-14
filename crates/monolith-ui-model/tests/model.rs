@@ -736,3 +736,41 @@ fn no_secret_or_text_is_printed_by_debug() {
         assert!(!text.contains("secret"), "{text}");
     }
 }
+
+#[test]
+fn an_answer_to_no_command_in_flight_changes_nothing() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    // The read of the conversation is in flight.
+    let read = model
+        .take_commands()
+        .into_iter()
+        .find(|(_, command)| matches!(command, Command::LoadMessages { .. }))
+        .map(|(id, _)| id)
+        .unwrap();
+    // An answer that names no command in flight is not taken for it.
+    model.apply(Update::Done {
+        command: CommandId::new(u64::MAX),
+        outcome: Outcome::Messages {
+            contact: c,
+            messages: vec![message(c, 1, Status::Delivered, "forged")],
+            complete: true,
+        },
+    });
+    assert!(model.thread(c).unwrap().messages.is_empty());
+    // The read is still in flight, and its own answer is taken.
+    model.apply(Update::Done {
+        command: read,
+        outcome: Outcome::Messages {
+            contact: c,
+            messages: vec![message(c, 1, Status::Queued, "real")],
+            complete: true,
+        },
+    });
+    let messages = &model.thread(c).unwrap().messages;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].text, "real");
+    assert_eq!(messages[0].status, Status::Queued);
+}
