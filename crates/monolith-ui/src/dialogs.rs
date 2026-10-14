@@ -81,7 +81,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("block", contact),
                     title: "Block contact?",
                     message: format!(
-                        "{name} will not be able to reach you. Messages waiting to be sent to them will not be sent."
+                        "{name} will not be able to reach you. Messages waiting to be sent to them will not be sent. Your conversation stays on this device, under their fingerprint, until you delete it."
                     ),
                     action: "Block",
                     checkbox: false,
@@ -98,7 +98,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("remove", contact),
                     title: "Remove contact?",
                     message: format!(
-                        "{name} is removed from your contacts. Your conversation stays on this device until you delete it. To talk again, add their card again."
+                        "{name} is removed from your contacts. Your conversation stays on this device, under their fingerprint, until you delete it. To talk again, add their card again."
                     ),
                     action: "Remove",
                     checkbox: false,
