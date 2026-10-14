@@ -97,14 +97,16 @@ fn the_desktop_reaches_the_core_only_through_the_runtime() {
         .map(String::as_str)
         .filter(|name| name.starts_with("monolith"))
         .collect();
-    // monolith-tor is a dev-dependency, for the mock network of the tests;
-    // the manifest is checked for that below.
+    // monolith-tor is a dev-dependency, for the mock network of the tests,
+    // as the manifest is checked for below; monolith-ui-snapshot serves the
+    // screenshot feature of development builds only.
     let expected: BTreeSet<&str> = [
         "monolith-runtime",
         "monolith-tor",
         "monolith-ui",
         "monolith-ui-kit",
         "monolith-ui-model",
+        "monolith-ui-snapshot",
     ]
     .into_iter()
     .collect();

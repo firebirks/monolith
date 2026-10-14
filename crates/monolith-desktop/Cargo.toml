@@ -22,10 +22,17 @@ egui = { version = "=0.32.3", default-features = false }
 jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 monolith-runtime.workspace = true
 monolith-ui = { path = "../monolith-ui" }
+monolith-ui-snapshot = { path = "../monolith-ui-snapshot", optional = true }
 monolith-ui-kit = { path = "../monolith-ui-kit" }
 monolith-ui-model = { path = "../monolith-ui-model" }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 zeroize = { workspace = true, features = ["alloc"] }
+
+[features]
+# A window that photographs itself two seconds after it opens and closes,
+# to check a build by eye where the screen cannot be captured: set
+# MONOLITH_SCREENSHOT to the PNG file to write. Never part of a release.
+screenshot = ["dep:monolith-ui-snapshot"]
 
 [dev-dependencies]
 monolith-tor = { workspace = true }

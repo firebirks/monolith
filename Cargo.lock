@@ -1935,6 +1935,7 @@ dependencies = [
  "monolith-ui",
  "monolith-ui-kit",
  "monolith-ui-model",
+ "monolith-ui-snapshot",
  "tokio",
  "zeroize",
 ]

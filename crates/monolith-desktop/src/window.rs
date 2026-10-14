@@ -2,6 +2,8 @@
 //! the screens, and hands on what they asked for.
 
 use std::path::PathBuf;
+#[cfg(feature = "screenshot")]
+use std::sync::Arc;
 
 use core::time::Duration;
 
@@ -26,6 +28,9 @@ pub struct Window {
     installed: Option<(Mode, bool)>,
     /// The colour behind the panels.
     clear: Color32,
+    /// Where the window photographs itself to, and whether it asked.
+    #[cfg(feature = "screenshot")]
+    shot: Option<(PathBuf, bool)>,
 }
 
 impl core::fmt::Debug for Window {
@@ -51,7 +56,43 @@ impl Window {
             config_path,
             installed: None,
             clear: Color32::BLACK,
+            #[cfg(feature = "screenshot")]
+            shot: std::env::var_os("MONOLITH_SCREENSHOT").map(|path| (PathBuf::from(path), false)),
         }
+    }
+
+    /// Two seconds after the window opened, asks for a picture of it;
+    /// once it is there, writes it and closes the window.
+    #[cfg(feature = "screenshot")]
+    fn shoot(&mut self, ctx: &Context) {
+        let Some((path, asked)) = &mut self.shot else {
+            return;
+        };
+        let taken = ctx.input(|input| {
+            input.raw.events.iter().find_map(|event| match event {
+                egui::Event::Screenshot { image, .. } => Some(Arc::clone(image)),
+                _ => None,
+            })
+        });
+        if let Some(image) = taken {
+            let picture = monolith_ui_snapshot::Image {
+                width: image.width(),
+                height: image.height(),
+                rgba: image
+                    .pixels
+                    .iter()
+                    .flat_map(|pixel| pixel.to_srgba_unmultiplied())
+                    .collect(),
+            };
+            let _ = picture.save_png(path);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        if !*asked && ctx.input(|input| input.time) > 2.0 {
+            *asked = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+        }
+        ctx.request_repaint();
     }
 
     /// Installs the theme the preferences and the system ask for, if it
@@ -160,6 +201,8 @@ impl eframe::App for Window {
             self.effect(effect);
         }
         strip_urls(ctx);
+        #[cfg(feature = "screenshot")]
+        self.shoot(ctx);
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
