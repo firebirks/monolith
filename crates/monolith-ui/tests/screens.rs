@@ -274,3 +274,88 @@ use egui::Window;
     );
     assert_eq!(imports, ["Align", "Label", "Window"]);
 }
+
+/// The string literals of `source` as written, with each line continuation
+/// (a backslash, the line break and the indentation after it) taken out, as
+/// the compiler takes it out.
+fn literals(source: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut chars = source.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '/' if chars.peek() == Some(&'/') => {
+                for c in chars.by_ref() {
+                    if c == '\n' {
+                        break;
+                    }
+                }
+            }
+            '\'' => {
+                // Skip a character literal, so that '"' starts no string.
+                let rest: String = chars.clone().take(3).collect();
+                if rest.starts_with('\\') || rest.chars().nth(1) == Some('\'') {
+                    let mut escaped = false;
+                    for c in chars.by_ref() {
+                        if escaped {
+                            escaped = false;
+                        } else if c == '\\' {
+                            escaped = true;
+                        } else if c == '\'' {
+                            break;
+                        }
+                    }
+                }
+            }
+            '"' => {
+                let mut literal = String::new();
+                while let Some(c) = chars.next() {
+                    match c {
+                        '\\' if chars.peek() == Some(&'\n') => {
+                            while chars.peek().is_some_and(|c| c.is_whitespace()) {
+                                chars.next();
+                            }
+                        }
+                        '\\' => {
+                            literal.push(c);
+                            if let Some(next) = chars.next() {
+                                literal.push(next);
+                            }
+                        }
+                        '"' => break,
+                        _ => literal.push(c),
+                    }
+                }
+                found.push(literal);
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+#[test]
+fn no_text_of_a_screen_has_a_run_of_spaces_or_a_raw_line_break() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|ext| ext != "rs") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        for literal in literals(&source) {
+            if literal.contains("   ") || literal.contains('\n') {
+                found.push(format!("{}: {literal:?}", path.display()));
+            }
+        }
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn a_line_continuation_is_not_text() {
+    let source = "let a = \"one \\\n             two\"; let b = '\"'; let c = \"x  y\";";
+    assert_eq!(literals(source), ["one two", "x  y"]);
+    let broken = "let a = \"one              two\";";
+    assert!(literals(broken)[0].contains("   "));
+}
