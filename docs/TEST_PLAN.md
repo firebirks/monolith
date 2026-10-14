@@ -64,7 +64,7 @@ both import the other's card, one session makes both accepted), T-ID-2
 and 3, T-CONFIRM-1, T-ORACLE-6, the later
 sessions of T-ORACLE-7, T-INJ for the text the vault stores, and T-BLOCK.
 
-What Phase 5 added, which waits for its final verification: in
+What Phase 5 added, verified on `91bf22c`: in
 `monolith-storage`, the message store file (`messages.rs`: a crash at
 every step of a write and of a creation, a changed byte anywhere, the
 largest payload) and its records (`message_records.rs`), and the

@@ -72,8 +72,8 @@ stays the same fault.
 
 ## Expected results
 
-With Phase 4; the final verification on `970316f` gave exactly this,
-with exit code 0 for each list:
+With Phase 5; the final verification on `91bf22c` gave exactly this,
+every fault with the outcome its entry expects:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
@@ -81,14 +81,22 @@ with exit code 0 for each list:
 | Phase 2 | 99 | 95 | S15, S24, CAP2, CAP3 |
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
 | Phase 4 | 123 | 123 | none |
+| Phase 5 | 57 | 57 | none |
 
-338 faults, 329 to be caught, 9 expected to survive.
+395 faults, 386 to be caught, 9 expected to survive. The first four
+lists gave the same on `970316f`, the verification of Phase 4.
 
-Phase 4 was closed on 2026-10-11. From then on the faults CS1 to CS123
-and the regression tests of Phase 4 are a baseline to preserve.
+Phase 4 was closed on 2026-10-11 and Phase 5 on 2026-10-14. From then on
+the faults and the regression tests of Phases 1 to 4, and MR1 to MR57,
+are a baseline to preserve: none is weakened without an explicit design
+decision.
 
-Phase 5 adds the list MR1 to MR57, all expected to be caught; the table
-gets its row from the run of the final verification of Phase 5.
+In that run CS29 was caught by the timeout alone: under it the wait for
+publication of `Peer::start` in `tests/runtime.rs`, which runs first,
+lasts hours, so its four supervisor tests were not reached (they fail
+when run on their own). Bounding that wait, so that CS29 is killed
+quickly and by name, is left for later (`docs/DESIGN_QUESTIONS.md`
+12.8).
 
 The Phase 5 list, MR1 to MR57, covers the messaging runtime
 (`docs/adr/0007-delivery-semantics.md` to `0009-session-manager.md`):

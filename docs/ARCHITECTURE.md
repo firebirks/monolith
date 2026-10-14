@@ -1,15 +1,13 @@
 # Architecture
 
-Status: Phase 4 complete (tag `phase-4-complete`); Phase 5, the
-messaging runtime, implemented on `phase-5-messaging-runtime` and not
-complete before its final verification. The protocol core, the session
-layer, the integration with a Tor the system runs, the contact store, the
-vault and the publication supervisor are implemented and verified; Phase 5
-adds the message store, the session manager, the reconnect scheduler and
-the runtime with its command and event interface (`STATUS.md`). The user
-interface is still design. `DESIGN_QUESTIONS.md` section 11.6 records the
-final verification of Phase 4. This document describes the structure the
-phases build.
+Status: Phase 5 complete (tag `phase-5-complete`). The protocol core,
+the session layer, the integration with a Tor the system runs, the
+contact store, the vault, the publication supervisor and, since Phase 5,
+the message store, the session manager, the reconnect scheduler and the
+runtime with its command and event interface are implemented and
+verified. The user interface is still design. `DESIGN_QUESTIONS.md`
+sections 11.6 and 12.8 record the final verifications of Phases 4 and 5.
+This document describes the structure the phases build.
 
 ## 1. Shape
 

@@ -2052,3 +2052,75 @@ dials again at once. With time paused the runtime is then never idle,
 time does not move, and the tests that wait for the session to end wait
 for ever; a bound in time inside a test would never fire either. This is
 the case of CS30 in Phase 4.
+
+### 12.8 Final verification and completion
+
+The final verification ran on `91bf22cd60930e52f53229bde389e8f115927e64`
+from 2026-10-12 16:41 to 2026-10-14 17:37, with no file of that commit
+changed while it ran: the container stage (Debian 12, Rust 1.95.0,
+1.85.1 and 1.99.0, Tor 0.4.9.13, Chutney `ae3a33c`) on an export of the
+commit checked file by file, the WSL stage (Debian 13.4) and the mutation
+lists, two workers, in a clone at the commit. The outputs are on the
+branch `verification-91bf22c`, not on `main`. The final report is
+section 6 of the status file of Phase 5 (`STATUS.md`, removed when Phase
+5 was merged), kept in the history at `78881c1`. Results:
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo test --workspace --locked`, Rust 1.95.0, 1.85.1 and stable 1.99.0, Linux | 39 test binaries, 782 passed, 0 failed, 2 ignored (the KDF measurement, and the test that the private network test runs), on each |
+| Rust 1.85.1: `check --all-targets` | clean |
+| `cargo deny check` | advisories, bans, licenses and sources ok |
+| `cargo audit` | no advisory for the 83 crates |
+| `cargo tree -d` | one pair: `rand_core` 0.9.5 (tests only, through proptest) and 0.10.1 |
+| Known-answer vectors of `PROTOCOL.md` 16.1 | unchanged, pass |
+| Fuzz, 18 targets, 25 seconds each | no failure |
+| Fuzz, 600 seconds each: `message_store`, `message_sequence`, `vault_payload`, `contact_store` | no failure, no artifact |
+| Mutation suite, 395 faults | 386 caught, the nine expected survivors (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29), none unexpected, none invalid; the 57 faults of Phase 5, MR1 to MR57, and the 123 of Phase 4, CS1 to CS123, all caught |
+| `tests/network/fail-closed.sh` (T-NET-1), syscall observation via strace | pass |
+| `tests/tor-network/two-node.sh`, Tor 0.4.9.13, Chutney `ae3a33c`, `RESTART_CYCLES=15` | pass, all 20 steps, in 2085 seconds; 15 of 15 restarts of Tor B recovered with one attempt |
+| Identities of `phase-4-complete..91bf22c` | 21 commits, all with `firebirks <336470935+firebirks@users.noreply.github.com>` as author and committer, no trailers |
+
+The mutation run was interrupted twice at the owner's request and once by
+a restart of the machine, each time resumed on the same commit from the
+faults that had not ended. Seven faults reached the runner's timeout:
+CS30, MR25 and MR26, which turn a loop into one that never waits (section
+12.7); MR9, Q1 and T6, which run again alone also made named tests fail;
+and CS29, whose four supervisor tests were not reached because the wait
+for publication in `Peer::start` of `tests/runtime.rs` lasts hours under
+that fault. Run on their own with CS29 applied, those four tests fail as
+on `970316f`.
+
+A first final verification, of `75ccf7c`, had stopped at the Phase 5 list
+when MR28 survived (R5-30); `07d6335` added its test and `91bf22c` was
+frozen after it.
+
+The owner accepted the report and its verdict on 2026-10-14 and declared
+Phase 5 complete on `91bf22c`. The commits after it, up to the tag
+`phase-5-complete`, change documents and comments only and do not change
+the verified runtime: the report (`78881c1`); a correction from the
+check of the report against the code (`65f1db5`): an event that reports
+stored state follows its durability, while the events of the runtime,
+`IdentityClosed` among them, report state that is not stored, and
+`RefusedReason::Storage` is reserved and not raised; this record; and the
+removal of the status file. From then on the mutation faults and the
+regression tests of Phases 1 to 4, and MR1 to MR57, are a baseline to
+preserve: none is weakened without an explicit design decision.
+
+Left for later, besides section 12.3:
+
+- Mutation tooling: a quick and deterministic kill of CS29, by bounding
+  the wait for publication of `Peer::start` (and `until`) in
+  `tests/runtime.rs` to minutes of test time.
+- ADR 0009 names a card confirmed for dialing among the conditions of a
+  scheduler; the runtime starts one without it, and a record without a
+  dialable card is reported `DeliveryDeferred` with `NoEndpoint`, with
+  the growing delays, and never dialed.
+- `cargo doc` with warnings denied finds three intra-doc links in the
+  module documentation of `persist.rs`, `messages.rs` and `sessions.rs`
+  that do not resolve or name private items. Documentation is not built
+  by the verification.
+- Rust issue rust-lang/rust#164250 (unsound, no fix yet): Monolith has no
+  type whose `Drop` relies on a `'static` bound of its parameter, the
+  pattern it needs; building and testing again with the stable compiler
+  that fixes it, once released, is a check to make.

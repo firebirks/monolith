@@ -16,14 +16,14 @@ over Tor streams with their budgets and deadlines. Phase 4, complete and
 verified (tag `phase-4-complete`), adds the contact store of each local
 identity, the encrypted vault that keeps it, invitations, several local
 identities, the publication supervisor and the rotation of a transport
-key, with a development node in the command-line binary. Phase 5, on the
-branch `phase-5-messaging-runtime` and not yet verified, adds the
-messaging runtime without a user interface: an encrypted message store,
-delivery acknowledged only once the receiver stored a message, the
-session manager, reconnecting, and commands and events for a later
-interface (`STATUS.md`). The user interface and the Tails and Whonix
-integration are designs and are not implemented. `docs/DESIGN_QUESTIONS.md`
-sections 10.4 and 11.6 record the final verifications of Phases 3 and 4.
+key, with a development node in the command-line binary. Phase 5,
+complete and verified (tag `phase-5-complete`), adds the messaging
+runtime without a user interface: an encrypted message store, delivery
+acknowledged only once the receiver stored a message, the session
+manager, reconnecting, and commands and events for a later interface.
+The user interface and the Tails and Whonix integration are designs and
+are not implemented. `docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6 and
+12.8 record the final verifications of Phases 3, 4 and 5.
 Nothing here has been audited. Do not rely on it for anything.
 
 ## What it is

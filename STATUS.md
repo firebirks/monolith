@@ -113,15 +113,21 @@ section 6.
 
 ## 5. What is left, in order
 
-1. The owner's review of the final report (section 6).
-2. On the owner's instruction only: whether the outputs of the
-   verification go on a branch of their own, as for Phase 4; the push,
-   the merge into `main` and the tag. Then this file is removed.
-3. The follow-up work of section 6, item 29, in a later phase, or before
-   the merge if the owner wants it there. A change before the merge needs
-   a new frozen commit and the stages of the verification it affects.
+The owner accepted the final report and its verdict on 2026-10-14 and
+declared Phase 5 complete on `91bf22c`, the verified implementation. On
+the owner's instruction: the corrections of the documents that item 20
+names (`65f1db5`), the record of the completion
+(`docs/DESIGN_QUESTIONS.md` 12.8), the outputs of the verification on
+the branch `verification-91bf22c`, not on `main`; then the push, the
+merge into `main`, the removal of this file there, and the tag
+`phase-5-complete`, whose message names `91bf22c` as the verified
+commit. The follow-up work of item 29 is not done before the merge.
 
 ## 6. Final report
+
+Accepted by the owner on 2026-10-14. The code that went through the final
+verification is `91bf22c`; the commits after it change documents and
+comments only.
 
 Written on 2026-10-14, after the final verification of `91bf22c`. No
 result here is inferred: each comes from an output of that verification,

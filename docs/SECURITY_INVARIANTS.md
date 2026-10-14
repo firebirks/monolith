@@ -21,9 +21,9 @@ contact store, the message 3 gate of S51, the deadlines and single end of
 S52, and the parts of S42, S43, S45 and S46 named in their entries.
 Since Phase 4, the contact store and the vault: S7, S28 and S31 for the
 vault, S36 and S48 to S51 through the store, S38 and S39 to S46, and S17
-for the new users of the random source. Since Phase 5, which waits for
-its final verification, the messaging runtime: S53 to S57, and the parts
-of S12, S18 and S32 named in their entries. Everything that involves a
+for the new users of the random source. Since Phase 5, the messaging
+runtime: S53 to S57, and the parts of S12, S18 and S32 named in their
+entries. Everything that involves a
 user interface or file transfer is still a planned mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check

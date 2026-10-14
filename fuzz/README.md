@@ -92,9 +92,14 @@ To check that the targets compile without running them:
 
 ## Status
 
-All sixteen targets build (`fuzz_targets/session_fixtures.rs` holds
+All eighteen targets build (`fuzz_targets/session_fixtures.rs` holds
 fixtures they share and is not one); Phase 4 added `vault_payload` and
-`contact_store` and extended `credential_sequence`. During Phase 4 the
+`contact_store` and extended `credential_sequence`, and Phase 5 added
+`message_store` and `message_sequence`. In the final verification of
+Phase 5 (on `91bf22c`) each of the eighteen ran for 25 seconds, and
+`message_store`, `message_sequence`, `vault_payload` and
+`contact_store` for 600 seconds each, without a failure
+(`docs/DESIGN_QUESTIONS.md` 12.8). During Phase 4 the
 three ran for 60 seconds each from their seeds; `contact_store` found a
 confirmation for a blocked identity that was reported as the wrong card
 instead of not found, fixed in `1897a71`. In the final verification of
