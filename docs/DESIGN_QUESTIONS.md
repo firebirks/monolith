@@ -2210,6 +2210,58 @@ P6-12 Settings: the theme (system, light or dark), reduced motion, the Tor
     endpoints, the request mode of each identity; the location of the data
     directory is shown. Window geometry is remembered. Nothing else.
 
+P6-13 Windows (asked by the owner during the phase: the client must work
+    on Windows too). The whole stack builds and its tests pass there:
+    runtime, storage (`STORAGE.md` section 3.8, std only, no check of
+    access control lists), Tor and the client. Tor is that of Tor Browser
+    (SOCKS 9150, control 9151, its cookie file) or of the Tor Expert
+    Bundle (9050, 9051, the cookie in its data folder); Monolith never
+    bundles one. The data directory is `%LOCALAPPDATA%\Monolith\Profile`,
+    the settings `%LOCALAPPDATA%\Monolith\desktop.conf`. The mutation
+    runner and the private Tor network of the end-to-end tests stay on
+    Linux. A Tor setting is accepted only with an absolute cookie path:
+    no setting turns control authentication off.
+
+P6-14 A contact that is blocked or removed loses the name the user gave
+    it: the contact store keeps no record of it (Phase 4), and adding one
+    would change the vault for a label. Its conversation stays, read only,
+    as "Former contact" and the first group of the fingerprint; the
+    confirmation of a block or a removal says the conversation stays.
+
+P6-15 A card or an invitation card is saved, on an explicit action, as a
+    new file in the user's Downloads folder (the home folder if there is
+    none), 0600 on Unix, never replacing a file; the toast names the file.
+    There is no file chooser: a native one would bring GTK or a portal
+    client into the binary (ADR 0010). A card is read from a path the user
+    types or a file dropped on the window, at most 64 KiB, a regular file
+    only.
+
+P6-16 Tails (`PLATFORM_TAILS.md` section 5): the client keeps a profile and
+    its settings only in the Persistent Storage, at
+    `/home/amnesia/Persistent/monolith` and
+    `/home/amnesia/Persistent/monolith-desktop.conf`, while it is mounted;
+    a path given on the command line elsewhere is refused. Without it the
+    first start offers only a session that keeps nothing, and the window
+    says "This session saves nothing" for as long as it runs, as every
+    session that saves nothing does.
+
+P6-17 Fonts the bundled ones lack come from fixed system paths: DejaVu
+    Sans and Noto Sans CJK on Linux, Segoe UI, Microsoft YaHei and Malgun
+    Gothic on Windows, at most 32 MiB each. Each is checked to be readable
+    before use (egui stops the process on a font it cannot read) and kept
+    once for the life of the process: given to egui to own, it would be
+    copied again.
+
+P6-18 Keyboard: besides Tab, Enter, Shift+Enter and Escape, Ctrl+F (Cmd+F)
+    reaches the filter and Alt+Up and Alt+Down show the conversation
+    before or after, with the focus in its composer. No shortcut of the
+    system is taken.
+
+P6-19 Contrast: main text at least 7 to 1 and every other text, hints and
+    times included, at least 4.5 to 1 on what it is drawn on, in both
+    themes (WCAG 2.1, a test computes it). Meeting it darkened the hints
+    and times of the light theme and the accent of the dark one.
+
 ### 13.2 Not part of Phase 6
 
 The brief's exclusions: the Double Ratchet, groups, attachments, voice,

@@ -64,19 +64,25 @@ Fonts and icons are compiled into the binary:
 Each comes with its licence in `crates/monolith-ui-kit/assets/`, with its
 source and checksum. For scripts none of these covers (CJK, Arabic,
 Hebrew and others), the desktop adds fonts the system already has, from a
-fixed list of paths of Debian packages (DejaVu Sans, Noto Sans CJK), when
-they exist and are not larger than 32 MiB. A glyph that no font has is
-drawn as a box, so that it is visible.
+fixed list of paths: those of Debian packages on Linux (DejaVu Sans, Noto
+Sans CJK), and Segoe UI, Microsoft YaHei and Malgun Gothic on Windows
+(P6-17), when they exist, are not larger than 32 MiB and can be read. A
+glyph that no font has is drawn as a box, so that it is visible.
 
 ### Enforcement
 
-- `monolith-ui` contains no stock egui widget call (`ui.button`,
-  `ui.checkbox`, `ui.text_edit_singleline`, `egui::Window` and the like)
-  and no colour, size or font literal: a source scan in its tests fails on
-  either.
+- `monolith-ui` contains no stock egui widget (`ui.button`, `ui.label`,
+  `ui.checkbox`, `ui.text_edit_singleline`, `egui::Window`, `RichText` and
+  the like) and no colour, size or font of its own; every line of text is
+  the kit's `Text` or a component. A source scan in its tests
+  (`tests/screens.rs`) fails on any of these, and on a text with a run of
+  spaces.
+- Text meets the contrast of P6-19 in both themes
+  (`monolith-ui-kit/tests/contrast.rs`).
 - Components are rendered to images by a software renderer
   (`monolith-ui-snapshot`), so that every state can be looked at and
-  compared without a GPU; the screens are rendered the same way.
+  compared without a GPU; the screens are rendered the same way, in every
+  state of `monolith-ui`'s fixtures, light and dark.
 
 ## Consequences
 

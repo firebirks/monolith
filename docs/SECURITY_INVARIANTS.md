@@ -23,8 +23,9 @@ Since Phase 4, the contact store and the vault: S7, S28 and S31 for the
 vault, S36 and S48 to S51 through the store, S38 and S39 to S46, and S17
 for the new users of the random source. Since Phase 5, the messaging
 runtime: S53 to S57, and the parts of S12, S18 and S32 named in their
-entries. Everything that involves a
-user interface or file transfer is still a planned mechanism.
+entries. Since Phase 6, the desktop client: S58 to S62, and the parts of
+S15, S16, S25 and S29 named in their entries. File transfer is still
+a planned mechanism.
 
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single
@@ -707,6 +708,73 @@ The messaging runtime of Phase 5 (`adr/0007-delivery-semantics.md`,
   faults MR6, MR9, MR15, MR16, MR18, MR26, MR31, MR32, MR39 to MR42, MR45,
   MR46, MR49, MR54 and MR55.
 
+## Desktop client
+
+Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
+
+### S58. The desktop window holds no object of the core
+
+- Mechanism: the crates of the window (`monolith-ui-model`,
+  `monolith-ui-kit`, `monolith-ui`) depend on no other Monolith crate, so
+  they cannot name a local identity, a link, a session, a key, a
+  capability or the vault. `monolith-desktop` uses `Messenger` and the
+  plain values of `monolith_runtime::api` only, and turns them into
+  handles of the UI model; the `Messenger` stays on the bridge's thread.
+- Tests: `crates/monolith-desktop/tests/boundary.rs` (every path of the
+  dependency graph of the UI crates; the desktop reaches the core only
+  through the runtime).
+
+### S59. A late or stale answer or event never acts on another identity, contact record, request or invitation
+
+- Mechanism: everything is named by opaque handles that hold the durable
+  identifiers of the runtime, or, for requests and invitations, a number
+  the bridge gives once and checks against the identity on every use. A
+  command carries the handles it acts on; an answer is applied only to the
+  command in flight that it names; a dialog acts on the handles it
+  captured when it opened. Events only make the model read again.
+- Tests: `crates/monolith-ui-model/tests/model.rs` (the scenarios of the
+  brief's section 42), `tests/properties.rs` (random sequences against a
+  model of the runtime), `crates/monolith-desktop/tests/bridge.rs` (a
+  number of one identity names nothing of another, against the runtime),
+  fuzz target `ui_model_sequence`, mutation faults UI1, UI2, UI4, UI7 to
+  UI13 and UI17 to UI20.
+
+### S60. Delivered is shown only for what the runtime reports delivered
+
+- Mechanism: a message is drawn with the status of the runtime's answer for
+  that message handle and nothing else; an event of delivery makes the
+  model read the conversation again, it does not mark a message. A draft
+  is cleared only when the runtime reports the message durably queued.
+- Tests: `tests/model.rs`
+  (`a_delivered_status_comes_only_from_the_runtime_and_never_from_a_position`,
+  `a_draft_goes_only_once_the_runtime_queued_it`), the scenarios of
+  `crates/monolith-desktop/examples/scenarios.rs` (offline, Tor down),
+  mutation faults UI3, UI5 and UI6.
+
+### S61. The desktop client adds no network path and opens no URL
+
+- Mechanism: the client reaches peers only through the runtime (S2). It
+  has no HTTP client, no update check, no telemetry and no link preview.
+  eframe compiles a URL opener; the window removes every request to open
+  a URL from each frame before eframe sees it. The sockets the window
+  library opens are those of the local display server and accessibility
+  bus.
+- Tests: `window::tests::no_url_leaves_a_frame`, ban list in `deny.toml`,
+  mutation fault UI16.
+
+### S62. The client shows and keeps no runtime error text, secret or message outside its screens
+
+- Mechanism: every error of the runtime is mapped to a fixed sentence
+  (`Failure`); `Debug` of commands, outcomes and views prints no
+  passphrase, card, name or text. The passphrase lives in a buffer that is
+  wiped, in a field that keeps no undo history. The client writes no log;
+  its settings file holds the window size, the theme, reduced motion and
+  the Tor endpoints, one validated line each.
+- Tests: `tests/model.rs` (`no_secret_or_text_is_printed_by_debug`,
+  `a_failure_is_told_in_its_sentence_never_in_its_debug_form`), the text
+  field tests of `monolith-ui-kit`, `config::tests`, mutation faults UI14,
+  UI15, UI22 and UI31.
+
 ## Protocol and parsing
 
 ### S10. Every network read has a strict upper bound before allocation
@@ -831,20 +899,30 @@ The messaging runtime of Phase 5 (`adr/0007-delivery-semantics.md`,
 - Mechanism: text fields are validated UTF-8 with control characters
   rejected at the protocol layer. Front ends render them with plain-text
   widgets; no markup parser is linked. The CLI escapes control and
-  non-printing characters before writing to a terminal.
-- Tests: T-TEXT-*, T-INJ-*.
+  non-printing characters before writing to a terminal. Since Phase 6 the
+  desktop client draws peer text as plain text after
+  `monolith_ui_model::present::prepare`, which bounds it (RESOURCE_LIMITS
+  section 10) and draws direction controls and other invisible format
+  characters as visible marks; a request's name and introduction are
+  quoted as the sender's words, never made a title.
+- Tests: T-TEXT-*, T-INJ-*; `present.rs` tests, fuzz target `ui_present`,
+  `requests::tests`, mutation fault UI29.
 
 ### S16. No received URL, file or resource is opened automatically
 
 - Mechanism: no Monolith crate depends on an HTTP client, an image decoder,
   a URL opener or a file-type sniffer. Front ends offer "copy" for links.
-- Tests: ban list in `deny.toml`, T-NET-1.
+  Since Phase 6 the desktop links eframe's URL opener and never lets it
+  act (S61); a card file is read only when the user names it or drops it.
+- Tests: ban list in `deny.toml`, T-NET-1, mutation fault UI16.
 
 ### S29. Displaying a message causes no network or filesystem access
 
 - Mechanism: follows from S15 and S16; rendering is a pure function of the
-  validated text.
-- Tests: T-NET-1 while rendering hostile messages.
+  validated text. In the desktop client, drawing is egui's layout of that
+  text with fonts loaded at start.
+- Tests: T-NET-1 while rendering hostile messages; fuzz target
+  `ui_present`.
 
 ### S28. Unvalidated network input is never persisted as configuration
 
@@ -970,8 +1048,13 @@ The messaging runtime of Phase 5 (`adr/0007-delivery-semantics.md`,
 - Mechanism: on Tails the default state mode is `Ephemeral`. A persistent
   vault is created only by a user command that names a location, and only
   inside the Persistent Storage mount. Monolith writes nothing to disk in
-  ephemeral mode.
-- Tests: T-PLAT-TAILS (filesystem diff after an ephemeral session).
+  ephemeral mode. The desktop client (P6-16) offers a profile only at
+  `/home/amnesia/Persistent/monolith`, shown before it is created, while
+  the Persistent Storage is mounted, refuses any other path, keeps its
+  settings there or nowhere, and says for the whole of a session that
+  saves nothing that it saves nothing.
+- Tests: T-PLAT-TAILS (filesystem diff after an ephemeral session);
+  `places::tests` in the desktop.
 
 ### S31. Critical state changes are atomic
 

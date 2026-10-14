@@ -15,10 +15,11 @@ Monolith is one process. A front end (CLI or desktop) talks to a core. The
 core talks to peers through a Tor backend and to the disk through a storage
 layer.
 
-    monolith-desktop   monolith-cli
-            |             |
-            v             |
-    monolith-runtime      |
+    monolith-desktop --> monolith-ui --> monolith-ui-kit
+            |                 |
+            |                 +--------> monolith-ui-model
+            v
+    monolith-runtime      monolith-cli
             \             /
              v           v
             monolith-core
@@ -32,7 +33,8 @@ layer.
             v
          identity
 
-Dependencies point downwards only. Since Phase 3 `monolith-core` puts the
+Dependencies point downwards only, and to the right for the crates of the
+desktop window, which reach no other Monolith crate. Since Phase 3 `monolith-core` puts the
 streams of the Tor backend under the sessions of `monolith-session`
 (`link`) and holds the connection budgets (`budget`). Since Phase 4 it
 holds the contact store of each local identity (`contacts`, `identity`),
@@ -46,7 +48,11 @@ of every identity and their durability (`messages`), the session manager
 (`runtime`) and the plain values of its commands and events (`api`);
 `monolith-storage` holds the message store file and its records
 (`messages`, `message_records`); `monolith-runtime` is the boundary a front
-end depends on.
+end depends on. Since Phase 6 the desktop client is four crates: the
+state of its window (`monolith-ui-model`), its design system
+(`monolith-ui-kit`) and its screens (`monolith-ui`) depend on no other
+Monolith crate, and `monolith-desktop` joins them to the runtime
+(`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
 
 | Crate | Owns | Must not |
 | --- | --- | --- |
@@ -58,7 +64,10 @@ end depends on.
 | `monolith-core` | contacts, sessions, queues, policy, budgets, the command and event interface | contain UI code, socket code or file formats |
 | `monolith-runtime` | what a front end may use: the commands, queries and events of the core as plain values | hand out a local identity, an installation, a link, a session, a key or a capability |
 | `monolith-cli` | argument parsing, terminal output | contain protocol logic |
-| `monolith-desktop` | windows and widgets | contain protocol logic |
+| `monolith-ui-model` | the state of the desktop window: what the runtime answered, per identity, by handles of its own; drafts, selection, dialogs | depend on egui or on any Monolith crate; change what it shows of the runtime's state without an answer of the runtime |
+| `monolith-ui-kit` | the design system: theme, fonts, icons, components | know Monolith's state |
+| `monolith-ui` | the screens and the shell of the window | open a file, a socket or a process; use a stock egui widget or a style of its own |
+| `monolith-desktop` | the window, the bridge between the screens and the runtime, the client's files | hold an object of the core; contain protocol logic |
 
 Three boundaries are enforced by dependencies, not by convention:
 
@@ -70,10 +79,14 @@ Three boundaries are enforced by dependencies, not by convention:
 - Only `monolith-session` links the Noise library and the crates behind
   it. Contact logic, storage and front ends see plaintext messages on one
   side and opaque bytes for the stream on the other.
-- Only `monolith-storage` writes files. Reads outside it are limited to a
-  fixed list: configuration files, `/etc/os-release` and the Whonix marker
-  files for platform detection, Tor's cookie file where cookie
-  authentication is used, and the swap state for `monolith doctor`.
+- Only `monolith-storage` writes files, besides the desktop client's
+  settings file and the cards a user saves on purpose (`DESKTOP.md`
+  section 10). Reads outside it are limited to a fixed list:
+  configuration files, `/etc/os-release` and the Whonix and Tails marker
+  files for platform detection, the mount table for the Persistent Storage
+  of Tails, Tor's cookie file where cookie authentication is used, the
+  swap state for `monolith doctor`, and in the desktop client the card
+  files a user names and the fallback fonts of `adr/0012-design-system.md`.
 - Only front ends write to the terminal or screen.
 
 Tor transport does not define identity; the GUI does not define protocol
@@ -519,9 +532,10 @@ the platform's packaging.
 | 10 | Audit candidate: protocol freeze. |
 
 A phase starts after the previous one has been reviewed. The brief of
-Phase 5 names the GUI on the runtime as Phase 6; the rows after 5 are the
-earlier plan, and the owner's next brief sets their order
-(`DESIGN_QUESTIONS.md` section 12, open points). File transfer, which was
+Phase 5 names the GUI on the runtime as Phase 6, and the owner's brief of
+Phase 6 made it so: the desktop client, for Linux and Windows
+(`DESIGN_QUESTIONS.md` section 13). The rows after 5 are the earlier plan;
+the owner's next brief sets the order of what remains. File transfer, which was
 Phase 5 in the earlier plan, is not part of the messaging runtime.
 
 Preconditions beyond review:

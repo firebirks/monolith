@@ -80,8 +80,17 @@ for a front end; two more fuzz targets (`message_store`,
 state machine); the Phase 5 mutation list (MR1 to MR57); and the private
 Tor network test extended to the runtime. Covered now: T-MSG-1 to 13.
 
-The rest need file transfer or a user interface, and are not written
-yet.
+What Phase 6 added: the desktop client's tests (section 3c): its UI model
+against the stale-instance scenarios of the brief and in property tests
+against a separate model of the runtime, the components of its design
+system driven by input, the contrast of its palette, the screens (a source
+scan, the smallest window, an idle window, the keyboard), its bridge
+against the runtime on the in-memory Tor, its crate boundary, its files;
+two more fuzz targets (`ui_present`, `ui_model_sequence`); the Phase 6
+mutation list (UI1 and on); the workflows of the brief run by script
+against the runtime; frame measurements. Covered now: T-UI-1 to 12.
+
+The rest need file transfer, and are not written yet.
 
 ## 1. Principles
 
@@ -572,6 +581,27 @@ time.
 | T-MSG-11 | Model: any sequence of queueing, receiving, acknowledging, deleting, removing an identity and restarting leaves the state a separate model holds; any sequence of sending from either side, crashes and restarts of either side, Tor going and coming back, closed sessions, time passing and a block leaves the runtime delivering, in order and once, what a model of the sent texts says | `tests/message_model.rs`, `tests/runtime_model.rs` (property tests), fuzz target `message_sequence` |
 | T-MSG-12 | Diagnostics: no message text in `Debug` output | `messages::tests`, `api::tests`, `message_records.rs` |
 | T-MSG-13 | Structure: a message is delivered only by an acknowledgement a link received, acknowledged only once `take_in` returned, sent only once durable; the boundary of a front end hands out no authority | `tests/structure.rs` |
+
+## 3c. Desktop client (T-UI)
+
+The client of `DESKTOP.md`. The UI model and the components are tested
+without a window: egui runs headless, and what it draws can be rendered
+to images by `monolith-ui-snapshot`.
+
+| Id | What | Where |
+| --- | --- | --- |
+| T-UI-1 | Stale instances: a late event of one identity, a contact made again, a confirmation after the selection moved, a replaced request, an invitation of another identity, a Delivered of another conversation, an answer to no command in flight | `monolith-ui-model/tests/model.rs` |
+| T-UI-2 | Reconstruction: missed events read everything again; a burst of events makes one read; a deleted identity takes its state with it | `monolith-ui-model/tests/model.rs` |
+| T-UI-3 | Model: random sequences of actions, events and late answers against a separate model of the runtime keep the invariants of S59 and S60 | `monolith-ui-model/tests/properties.rs`, fuzz target `ui_model_sequence` |
+| T-UI-4 | Presentation: rendering limits, visible marks for invisible characters, previews, names | `present.rs` tests, fuzz target `ui_present` |
+| T-UI-5 | Components: buttons, text fields (the secret field keeps no history), bubbles and their status, modals, rows, the identity switcher, driven by pointer and keyboard | `monolith-ui-kit/tests/` |
+| T-UI-6 | Contrast of every text on what it is drawn on, both themes | `monolith-ui-kit/tests/contrast.rs` |
+| T-UI-7 | Screens: no stock widget, no style of their own, no run of spaces in a text; the smallest window scrolls to everything; a settled window asks for no frame; the keyboard shortcuts; a request's name is quoted, never a title; a message's mark is the runtime's status | `monolith-ui/tests/`, `requests::tests`, `conversation::tests` |
+| T-UI-8 | Bridge: every command against the runtime on the in-memory Tor, a number of one identity naming nothing of another, paging of long conversations, the runtime stopping with the window | `monolith-desktop/tests/bridge.rs` |
+| T-UI-9 | Boundary: the UI crates reach no Monolith crate, the desktop reaches the core only through the runtime | `monolith-desktop/tests/boundary.rs` |
+| T-UI-10 | Files and places: the settings file (a value cannot add a line, what is written is read back), Tor settings without a cookie path refused, a card never replaces a file, a card file is a small regular file, Tails places, fallback fonts that do not read are left out | `monolith-desktop` unit tests |
+| T-UI-11 | No URL leaves a frame | `window::tests` |
+| T-UI-12 | Workflows A to G of the brief, with pictures: two clients with profiles on disk, the real bridge and runtime on the in-memory Tor, in real time | `monolith-desktop/examples/scenarios.rs` (run by hand) |
 
 ## 4. Property tests
 

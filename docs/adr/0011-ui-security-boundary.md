@@ -108,13 +108,17 @@ command that carries one is checked by the runtime like any other.
 - The clipboard is written only on an explicit action: a public card, an
   invitation card, a fingerprint, or text the user selected. It is never
   read except on an explicit paste.
-- Files: a card or an invitation is saved only where the user says, as a
-  new file with permissions 0600; nothing else is exported. A card is
-  read from a file the user names or drops on the window, at most 64 KiB,
+- Files: a card or an invitation is saved only when the user asks, as a
+  new file in the Downloads folder that never replaces one, with
+  permissions 0600 (P6-15); nothing else is exported. A card is read from
+  a regular file the user names or drops on the window, at most 64 KiB,
   and goes through the same checks as pasted text.
-- The settings file (`$XDG_CONFIG_HOME/monolith/desktop.conf`, 0600)
-  holds the window geometry, the theme choice and the Tor endpoints;
-  nothing else.
+- The settings file (`$XDG_CONFIG_HOME/monolith/desktop.conf`, 0600; on
+  Windows `%LOCALAPPDATA%\Monolith\desktop.conf`; on Tails only in the
+  Persistent Storage, P6-16) holds the window size, the theme choice,
+  reduced motion and the Tor endpoints; nothing else. A value is one line
+  without control characters; a line that does not parse leaves the
+  default.
 
 ## Consequences
 

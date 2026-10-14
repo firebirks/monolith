@@ -456,6 +456,23 @@ placeholder. A run without a break opportunity is broken by the renderer.
 A message with more lines than the limit is collapsed behind an explicit
 "show more" action.
 
+### 10.1 The desktop client
+
+Since Phase 6 (`DESKTOP.md`). Local limits of the client; none changes what
+the runtime accepts.
+
+| Limit | Value | Where |
+| --- | --- | --- |
+| Commands and updates waiting between the window and the bridge | 256 each way | `bridge.rs`; a command that does not fit waits in the window's queue, an update in the bridge |
+| Jobs waiting for the disk thread | 16 | `files.rs`; one more fails at once |
+| A card file read | 64 KiB, a regular file | `files.rs` |
+| The settings file read | 64 KiB; a value 4096 bytes, one line | `config.rs` |
+| A fallback font | 32 MiB | `system_fonts.rs` |
+| Messages read at a time | 100; at most 2000 in a window | `monolith-ui-model` (`PAGE`, `MAX_WINDOW`) |
+| A preview in the list | 120 characters laid out | `sidebar.rs` |
+| Notices shown at once | 3, each 5 seconds unless it is an error | `toast.rs` |
+| A QR code | a card of at most 1200 bytes | `qr.rs`; a longer one is shown as text only |
+
 ## 11. Worst-case budget
 
 Memory that a peer can influence, with every budget full:

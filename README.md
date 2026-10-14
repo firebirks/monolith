@@ -21,8 +21,10 @@ complete and verified (tag `phase-5-complete`), adds the messaging
 runtime without a user interface: an encrypted message store, delivery
 acknowledged only once the receiver stored a message, the session
 manager, reconnecting, and commands and events for a later interface.
-The user interface and the Tails and Whonix integration are designs and
-are not implemented. `docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6 and
+Phase 6, in progress, adds the desktop client for Linux and Windows
+(`docs/DESKTOP.md`): one window over that runtime, with a design system of
+its own. The Tails and Whonix integrations (control port filters, the
+firewall rule) are drafts. `docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6 and
 12.8 record the final verifications of Phases 3, 4 and 5.
 Nothing here has been audited. Do not rely on it for anything.
 
@@ -71,6 +73,8 @@ The full list of limits is in `docs/THREAT_MODEL.md`, section 6.
 | `docs/TEST_PLAN.md` | Tests, fuzzing, platform matrices |
 | `docs/DESIGN_QUESTIONS.md` | Answers to the design questions, changes to the initial proposals, open questions |
 | `docs/DEPENDENCIES.md` | Third-party crates in use and what was checked |
+| `docs/DESKTOP.md` | The desktop client: boundary, screens, keyboard, accessibility, limits |
+| `packaging/README.md` | Building and packaging the desktop client |
 | `docs/adr/` | Decision records |
 
 ## Building
@@ -81,6 +85,10 @@ supported.
 
     cargo build --workspace --locked
     cargo test --workspace --locked
+
+The desktop client:
+
+    cargo run --release -p monolith-desktop
 
 Checks run in CI:
 
@@ -106,12 +114,21 @@ Checks run in CI:
     crates/monolith-runtime    what a front end may use of the runtime
     crates/monolith-cli        the monolith binary: Tor status, doctor,
                                development chat and development nodes
-    crates/monolith-desktop    desktop front end (placeholder)
+    crates/monolith-ui-model   the state of the desktop client (no egui)
+    crates/monolith-ui-kit     its design system: theme, fonts, icons,
+                               components (egui)
+    crates/monolith-ui         its screens
+    crates/monolith-ui-snapshot  a software renderer of egui, for tests
+                               and pictures of the screens
+    crates/monolith-desktop    the monolith-desktop binary: the window,
+                               the bridge to the runtime, its files
+    packaging/                 Linux and Windows archives of the client
     integrations/tails         Tails control port profile (draft)
     integrations/whonix        Whonix profile and firewall rule (draft)
     fuzz/                      fuzz targets for the protocol core, the
                                session layer, the Tor replies, the vault,
-                               the contact store and the messages
+                               the contact store, the messages and the
+                               state of the desktop client
     tests/network              fail-closed network test (Linux)
     tests/tor-network          two-node test over a private Tor network
     docs/                      specifications and decision records
