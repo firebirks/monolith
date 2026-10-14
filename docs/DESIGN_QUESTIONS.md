@@ -2124,3 +2124,97 @@ Left for later, besides section 12.3:
   type whose `Drop` relies on a `'static` bound of its parameter, the
   pattern it needs; building and testing again with the stable compiler
   that fixes it, once released, is a check to make.
+
+## 13. Phase 6: the desktop client
+
+Phase 6 began on 2026-10-14 from `phase-5-complete` (`3be1254`; the
+verified commit of Phase 5 is `91bf22c`), on the branch
+`phase-6-desktop-client`. Its brief: a desktop client in Rust with egui
+and eframe that a person who does not know the CLI can install and use:
+make or choose a local identity, see whether Tor is available, add
+contacts, answer requests, make and revoke invitations, read and send
+messages that show `Queued` and `Delivered` as the runtime says, use the
+client while a peer or Tor is away, block and remove contacts, switch
+between identities, and start again where they left off. The runtime of
+Phase 5 stays the authority; the GUI holds none of its objects. It must
+not look like a stock egui application. No wire change, no change of the
+delivery semantics.
+
+### 13.1 Decisions
+
+P6-1 Toolkit (`adr/0010-gui-toolkit-egui.md`): egui and eframe 0.32.3,
+    the newest release that builds with Rust 1.85.1; the `glow` renderer,
+    X11, Wayland and AccessKit. eframe brings an URL opener that Monolith
+    never lets act: every `OpenUrl` is removed from egui's output each
+    frame.
+
+P6-2 Crates and boundary (`adr/0011-ui-security-boundary.md`):
+    `monolith-ui-model` (state, no egui), `monolith-ui-kit` (the design
+    system), `monolith-ui` (screens) depend on no Monolith crate;
+    `monolith-desktop`, the binary, is the only one that uses
+    `monolith-runtime`, through `Messenger` and its plain values, and
+    turns them into handles of the UI model.
+
+P6-3 Design system (`adr/0012-design-system.md`): one theme of tokens, a
+    light and a dark palette, Inter, JetBrains Mono, a Lucide icon font cut
+    to what is used, and components with every interaction state; no stock
+    egui widget on a screen.
+
+P6-4 What the runtime adds for a front end, wrapping what the core already
+    does: contact requests (list, accept, decline, block the sender),
+    invitations (create, list, show the card again, revoke, revoke and
+    discard their requests), the local name of a contact (a new operation
+    of the contact store, durable before it returns), marking a contact
+    verified, the request mode of an identity, the state of the Onion
+    Service of each identity as a query, and a check of the Tor endpoints.
+    Requests and invitations keep the identifiers of the core, which are
+    local to one instance of an identity. Nothing changes on the wire or in
+    delivery.
+
+P6-5 Names. A contact is shown by the name the user gave it; without one,
+    as "Contact" with the first group of its fingerprint. A request shows
+    the display name and introduction the sender chose, as the sender's
+    own words, with its fingerprint; the user names the contact on
+    accepting, starting from that name. Monolith sends its own requests
+    with an empty name and introduction (Phase 5), and that is kept.
+
+P6-6 How two people become contacts is unchanged: each imports the other's
+    card and the first session makes them contacts; or one imports an
+    invitation card of the other, whose identity then sees a request. A
+    request leaves with the first message, because the runtime dials only
+    when something is queued (P5-8); the client says so where a contact
+    waits.
+
+P6-7 First start: a profile kept on disk, in the data directory of
+    `STORAGE.md` section 1 under a passphrase, or a session that keeps
+    nothing. Later starts ask for the passphrase.
+
+P6-8 The composer sends with Enter; Shift+Enter makes a new line. A text
+    that breaks a rule of `ChatText` or exceeds `MAX_CHAT_TEXT_LEN` cannot
+    be sent and says why; the draft stays until the runtime has queued the
+    message.
+
+P6-9 A conversation is read in pages of 100 messages, newest first, at most
+    2000 in memory; the view stays where the reader is unless they are at
+    the newest message.
+
+P6-10 Text: drawn as plain, selectable text. The rendering limits of
+    `RESOURCE_LIMITS.md` section 10 apply; bidirectional controls and other
+    invisible format characters are drawn as visible marks; text that looks
+    like a URL is text.
+
+P6-11 QR codes are shown, generated locally (`qrcodegen`); none is scanned,
+    and there is no camera.
+
+P6-12 Settings: the theme (system, light or dark), reduced motion, the Tor
+    endpoints, the request mode of each identity; the location of the data
+    directory is shown. Window geometry is remembered. Nothing else.
+
+### 13.2 Not part of Phase 6
+
+The brief's exclusions: the Double Ratchet, groups, attachments, voice,
+video, reactions, read receipts, typing indicators, presence, push
+notifications, cloud sync, a mobile client, a server, telemetry,
+analytics, plugins, themes to download, scripting and remote updates.
+Also not here: message search (only contacts and conversations can be
+filtered), scanning QR codes, the platform adapters of Tails and Whonix.
