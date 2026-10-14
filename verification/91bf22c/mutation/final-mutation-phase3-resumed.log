@@ -1,0 +1,22 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64, 20 faults, 2 workers, unmodified run 606s, timeout 2424s
+CR19  caught    528s  a contact refused for the budget does not report that its link ended
+CR20  caught    725s  a presented card displaces the pending card the user imported
+CR21  caught    762s  a card at the epoch of the successor that says otherwise is taken
+CR22  caught    568s  the write of message 3 ignores the withdrawal
+CR23  caught    732s  the identity predicate uses the stale-card shortcut
+CR24  caught    746s  an older card of the active key is stale
+CR25  caught    560s  every byte of a frame restarts its deadline
+CR26  caught    567s  UNKNOWN_FIRST_MESSAGE_TIMEOUT is not applied
+CR27  caught    621s  UNKNOWN_SESSION_TIMEOUT is not applied
+CR28  caught    662s  the age limit waits for a complete frame
+CR29  caught    580s  a deadline ends the session and keeps the slot
+CR30  caught    529s  a read error leaves the session usable
+CR32  caught    600s  a Close the session decided waits for the caller
+CR31  caught    614s  bytes of an incomplete frame move the idle limit
+CR34  caught    457s  a withdrawal does not end a pending send
+CR33  caught    624s  a message that ends the session leaves the link open
+CR39  caught    521s  a link that ended waits for its stream again
+CR35  caught    744s  a proven key older than the announced successor is held pending
+CR40  caught    545s  a dial refused before message 3 loses its admission
+Q32   caught    506s  a listener error ends the accept loop
+done: {'caught': 20}; written to <home>/mrun/mutation/results-phase3-91bf22c.json

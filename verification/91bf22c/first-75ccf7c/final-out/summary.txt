@@ -1,0 +1,6 @@
+deny exit 0 (6 s)
+audit exit 0 (23 s)
+identity exit 0 (0 s)
+fuzz-check exit 0 (22 s)
+fuzz-build exit 0 (44 s)
+done

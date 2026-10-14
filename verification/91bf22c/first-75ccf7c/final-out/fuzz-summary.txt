@@ -1,0 +1,23 @@
+smoke base32 exit=0 Done 8788643 runs in 26 second(s) crash_lines=0
+smoke contact_card exit=0 Done 510042 runs in 26 second(s) crash_lines=0
+smoke contact_card_text exit=0 Done 1539355 runs in 26 second(s) crash_lines=0
+smoke message_body exit=0 Done 672728 runs in 26 second(s) crash_lines=0
+smoke frame_plaintext exit=0 Done 593336 runs in 26 second(s) crash_lines=0
+smoke frame_stream exit=0 Done 58246 runs in 26 second(s) crash_lines=0
+smoke text_fields exit=0 Done 1427153 runs in 26 second(s) crash_lines=0
+smoke session_sequence exit=0 Done 387941 runs in 26 second(s) crash_lines=0
+smoke credential_sequence exit=0 Done 113806 runs in 26 second(s) crash_lines=0
+smoke handshake_responder exit=0 Done 9529 runs in 26 second(s) crash_lines=0
+smoke handshake_initiator exit=0 Done 7275 runs in 26 second(s) crash_lines=0
+smoke session_frames exit=0 Done 3067 runs in 26 second(s) crash_lines=0
+smoke tor_control_reply exit=0 Done 544528 runs in 26 second(s) crash_lines=0
+smoke socks_reply exit=0 Done 11096729 runs in 26 second(s) crash_lines=0
+smoke vault_payload exit=0 Done 175046 runs in 26 second(s) crash_lines=0
+smoke contact_store exit=0 Done 13078 runs in 26 second(s) crash_lines=0
+smoke message_store exit=0 Done 616234 runs in 26 second(s) crash_lines=0
+smoke message_sequence exit=0 Done 6614 runs in 26 second(s) crash_lines=0
+long message_store exit=0 Done 8672429 runs in 601 second(s) crash_lines=0
+long message_sequence exit=0 Done 93628 runs in 601 second(s) crash_lines=0
+long vault_payload exit=0 Done 2720968 runs in 601 second(s) crash_lines=0
+long contact_store exit=0 Done 265095 runs in 601 second(s) crash_lines=0
+done

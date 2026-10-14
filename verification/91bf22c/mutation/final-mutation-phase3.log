@@ -1,0 +1,52 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64, 71 faults, 2 workers, unmodified run 619s, timeout 2476s
+N1    caught    794s  a ServiceID with a wrong checksum or version is accepted
+N2    caught    806s  an upper-case or out-of-alphabet ServiceID is accepted
+Q2    caught    543s  another host name than the onion name is requested
+Q3    caught    396s  a TCP endpoint that is not loopback is accepted
+Q4    caught    390s  the listener binds every interface
+Q5    caught    393s  the greeting offers no authentication
+Q6    caught    396s  a proxy that skips authentication is accepted
+Q1    caught   2476s  the stream to the SOCKS endpoint is used without SOCKS (timeout)
+Q7    caught    411s  every group sends the same isolation token
+Q8    caught    476s  the SAFECOOKIE server hash is not checked
+Q9    caught    532s  SAFECOOKIE is tried when the server does not offer it
+Q10   caught    486s  a control line is not bounded while it is read
+Q11   caught    505s  a control reply is not bounded in size
+Q12   caught    505s  a control reply is not bounded in lines
+Q13   caught    521s  asynchronous events are taken as replies
+Q14   survived  517s  bytes after a reply are accepted
+Q15   caught    527s  another GETINFO key is sent
+Q16   caught    508s  ADD_ONION asks for a detached service
+Q17   caught    532s  non-anonymous mode is reported as an ordinary failure
+Q18   survived  531s  a returned key of the wrong length is used
+Q19   caught    540s  a returned key without padding is accepted
+Q20   caught    538s  a service published from a key need not be that key's
+Q21   caught    521s  a Tor below the baseline may publish
+Q22   caught    489s  a lost control connection still counts as published
+Q23   caught    534s  a control connection with data or at its end counts as alive
+Q24   caught    520s  close does not send DEL_ONION
+Q25   caught    523s  the inbound handshake budget of an identity is larger
+Q26   caught    519s  an inbound handshake waits longer than HANDSHAKE_TIMEOUT
+Q27   caught    539s  an endpoint naming another cookie file is used
+Q28   caught    531s  a cookie file others can write is read
+Q29   survived  528s  the connection code does not check the endpoint again
+Q30   caught    520s  a stranger is answered without an unknown-session slot
+Q31   caught    556s  a dial takes no dial slot
+CR1   caught    743s  a newer key without continuity takes over at once
+CR2   caught    768s  a pending successor gets the standing of the record
+CR3   caught    693s  an EndpointUpdate from a session of another key authorizes
+CR4   caught    724s  a promotion keeps the old key active
+CR5   caught    683s  a promotion does not record the retired key
+CR6   caught    693s  a card with the retired key is not refused
+CR7   caught    890s  a session of another key still stands for the contact
+CR8   caught    787s  a pending successor other than the one shown is confirmed
+CR9   caught    684s  an import for an accepted contact replaces the key
+CR10  caught    760s  a withdrawn session keeps its standing and stays open
+CR11  caught    756s  the duplicate rule does not look at credentials
+CR12  caught    565s  a withdrawn link delivers what is in its buffer
+CR13  caught    531s  a withdrawn link still sends
+CR14  caught    672s  a withdrawal does not wake a waiting link
+CR15  caught    618s  a withdrawn session sends no Close
+CR16  caught    551s  a link that is over waits for the peer on a later call
+CR17  caught    532s  a dropped link does not report that it ended
+CR18  caught    600s  message 3 is made for a peer that may not learn the local identity

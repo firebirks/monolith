@@ -1,0 +1,25 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64, 57 faults, 2 workers, unmodified run 745s, timeout 2980s
+MR2   caught    417s  a message is recorded delivered when it is queued, before any acknowledgement
+MR1   caught    503s  a received message is acknowledged before it is durable
+MR3   caught    403s  a message received again is stored again
+MR4   caught    469s  an acknowledgement delivers a message of another conversation
+MR5   caught    490s  an acknowledgement delivers a message of another local identity
+MR6   caught    470s  queued messages are not written to the message store
+MR7   caught    489s  a contact made again gets the identifier of its earlier record
+MR8   caught    513s  the scheduler of a record takes no notice of the record ending
+MR10  caught    475s  a newer session of the same side keeps the older one open
+MR11  caught    532s  the session of the side with the larger key is preferred
+MR12  caught    530s  a conversation grows past its bound in bytes
+MR13  caught    529s  the queue of a contact holds one message more
+MR14  caught    572s  the queue of an identity holds one message more
+MR9   caught   2980s  a failed attempt is followed by the next at once (timeout)
+MR16  caught    520s  a delivered message is written as queued
+MR15  caught    744s  a queued message is reported before it is durable
+MR17  caught    565s  what arrives on a session that no longer stands counts for its record
+MR18  caught    612s  the header of the message store is not authenticated
+MR19  caught    628s  the text of a message is shown in Debug output
+MR20  caught    543s  a received message the user deleted is taken in again
+MR22  caught    585s  a conversation of a record of another remote identity is accepted
+MR21  caught    595s  the messages of a deleted identity stay in the store
+MR23  caught    568s  a vault of version 1 is not written with the identifiers it got
+MR24  caught    619s  an identity restored from its keys gets the identifier of the deleted one

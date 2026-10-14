@@ -1,0 +1,38 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64, 99 faults, 2 workers, unmodified run 575s, timeout 2300s
+T1    caught    750s  the field prime itself counts as canonical
+T2    caught    777s  points of small order accepted
+T4    caught    502s  canonical check compares from the least significant byte
+T3    caught    738s  non-canonical encodings accepted
+T5    caught    770s  p - 1 missing from the small-order list
+T7    caught    887s  Montgomery form never detected
+K1    caught    652s  32 zero bytes accepted as a transport secret key
+T6    caught   2300s  Montgomery form comparison inverted (timeout)
+K2    caught    223s  local card signed by another identity than the local one
+K3    caught    352s  local card states a transport key the party does not hold
+K4    caught    501s  a card from outside can be adopted as the local card
+C1    caught    760s  transport key may be the identity key in Montgomery form
+C2    caught    743s  transport key may be an endpoint key in Montgomery form
+C3    caught    721s  decoder skips the transport key separation check
+C4    caught    725s  signer skips the transport key separation check
+C5    caught    752s  decoder accepts an endpoint that is the identity key
+C6    caught    751s  evaluate_card ignores the identity
+C7    caught    742s  a lower epoch counts as newer
+C8    caught    684s  same epoch with another transport key is unchanged
+C9    caught    735s  same epoch with another endpoint set is unchanged
+C10   caught    761s  a stale card is unchanged
+C11   caught    738s  a conflicting card is unchanged
+C12   caught    727s  signature does not cover the transport key
+CAP1  caught    745s  zeroize leaves the capability bytes
+CAP2  survived  725s  a dropped capability is not erased
+CAP3  survived  721s  capabilities compared with an early exit
+P1    caught    715s  a conflicting card keeps the recorded standing
+P2    caught    764s  a stale card keeps the recorded standing
+P3    caught    722s  a record of another identity is accepted
+P4    caught    748s  the local identity is accepted as the peer
+P5    caught    768s  an outbound session accepts an identity that was not dialed
+P6    caught    858s  an inbound handshake card may carry an invitation
+P7    caught    877s  cards inside messages are not checked against the peer
+P8    caught    824s  a card of another identity passes inside a message
+P9    caught    822s  an inbound request may carry another card of the peer
+P10   caught    764s  an outbound request may state another transport key
+P11   caught    768s  a second request on a session is taken

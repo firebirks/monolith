@@ -1,0 +1,48 @@
+   Compiling monolith-core v0.0.0 (<home>/mono/crates/monolith-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.02s
+     Running tests/supervisor.rs (target/debug/deps/supervisor-4744ded9b45f48af)
+
+running 9 tests
+test a_publication_under_way_ends_when_the_identity_is_deleted ... ok
+test a_service_published_for_a_deleted_identity_is_never_reported_available ... ok
+test an_identity_without_a_key_is_not_published ... ok
+test a_deleted_identity_is_taken_down_and_not_published_again ... FAILED
+test a_lost_service_is_published_again_under_the_same_name ... FAILED
+test closing_the_installation_takes_its_services_down ... FAILED
+test while_tor_cannot_publish_the_attempts_slow_down ... ok
+test shutdown_stops_the_supervisor_while_it_waits_or_serves ... ok
+test the_supervisors_of_two_identities_do_not_touch_each_other ... FAILED
+
+failures:
+
+---- a_deleted_identity_is_taken_down_and_not_published_again stdout ----
+
+thread 'a_deleted_identity_is_taken_down_and_not_published_again' (671634) panicked at crates/monolith-core/tests/supervisor.rs:319:9:
+assertion failed: reach(&network, &alice, &bob).await
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_lost_service_is_published_again_under_the_same_name stdout ----
+
+thread 'a_lost_service_is_published_again_under_the_same_name' (671635) panicked at crates/monolith-core/tests/supervisor.rs:157:9:
+assertion failed: network.is_published(&bob.endpoint())
+
+---- closing_the_installation_takes_its_services_down stdout ----
+
+thread 'closing_the_installation_takes_its_services_down' (671639) panicked at crates/monolith-core/tests/supervisor.rs:564:9:
+assertion failed: network.is_published(&bob.endpoint())
+
+---- the_supervisors_of_two_identities_do_not_touch_each_other stdout ----
+
+thread 'the_supervisors_of_two_identities_do_not_touch_each_other' (671641) panicked at crates/monolith-core/tests/supervisor.rs:116:6:
+called `Result::unwrap()` on an `Err` value: Elapsed(())
+
+
+failures:
+    a_deleted_identity_is_taken_down_and_not_published_again
+    a_lost_service_is_published_again_under_the_same_name
+    closing_the_installation_takes_its_services_down
+    the_supervisors_of_two_identities_do_not_touch_each_other
+
+test result: FAILED. 5 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+error: test failed, to rerun pass `-p monolith-core --test supervisor`

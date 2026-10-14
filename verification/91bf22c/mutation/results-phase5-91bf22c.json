@@ -1,0 +1,460 @@
+{
+ "commit": "91bf22cd60930e52f53229bde389e8f115927e64",
+ "unmodified_seconds": 687,
+ "timeout": 2748,
+ "results": [
+  {
+   "id": "MR25",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an idle session never ends",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)"
+   ],
+   "seconds": 2748
+  },
+  {
+   "id": "MR26",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a message whose acknowledgement does not come keeps its session waiting",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)"
+   ],
+   "seconds": 2748
+  },
+  {
+   "id": "MR27",
+   "path": "crates/monolith-core/src/sessions.rs",
+   "what": "a probe that was answered leaves the newer session open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order"
+   ],
+   "seconds": 582
+  },
+  {
+   "id": "MR28",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session sends its message in flight again and waits for it from the last send",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_in_flight_is_sent_once_and_waited_for_from_then"
+   ],
+   "seconds": 551
+  },
+  {
+   "id": "MR29",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a message is recorded delivered when it is handed to a session to send",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_delivered_message_stays_delivered_after_a_restart",
+    "a_failed_message_store_ends_every_session_and_attempt",
+    "a_lost_acknowledgement_is_followed_by_a_retry_the_receiver_drops",
+    "a_message_in_flight_is_sent_once_and_waited_for_from_then",
+    "a_message_is_delivered_only_by_an_acknowledgement_a_link_received",
+    "a_message_is_stored_once_and_delivered_by_its_acknowledgement",
+    "a_message_queued_while_the_peer_is_away_is_delivered_once_it_is_back",
+    "a_peer_that_dials_in_and_never_acknowledges_does_not_reset_the_delays",
+    "a_peer_that_never_acknowledges_is_dialed_with_growing_delays",
+    "a_receiver_that_crashes_after_storing_and_before_acknowledging_drops_the_retry",
+    "a_receiver_that_crashes_before_the_message_is_durable_stores_nothing_and_acknowledges_nothing",
+    "a_restarted_sender_delivers_what_it_had_queued",
+    "a_sender_that_crashes_before_the_delivery_is_durable_sends_again",
+    "a_sender_that_wrote_and_got_no_acknowledgement_sends_again_after_a_restart",
+    "a_session_that_ends_with_a_message_in_flight_reports_nothing_delivered",
+    "concurrent_copies_of_one_message_are_stored_once",
+    "delivery_resumes_through_tor_once_it_is_back",
+    "no_acknowledgement_in_time_closes_the_session_and_tries_again_later",
+    "the_runtime_delivers_what_the_model_says"
+   ],
+   "seconds": 584
+  },
+  {
+   "id": "MR30",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a message in flight when its session ends is reported delivered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_that_ends_with_a_message_in_flight_reports_nothing_delivered"
+   ],
+   "seconds": 536
+  },
+  {
+   "id": "MR31",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a queued message is offered for sending before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_deleted_while_it_waits_to_be_sent_is_not_offered",
+    "a_message_leaves_only_once_it_is_durable",
+    "a_queued_message_is_offered_for_sending_only_once_it_is_durable"
+   ],
+   "seconds": 569
+  },
+  {
+   "id": "MR32",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session sends a queued message before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_leaves_only_once_it_is_durable"
+   ],
+   "seconds": 568
+  },
+  {
+   "id": "MR33",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session goes on after the message store failed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_message_store_ends_every_session_and_attempt"
+   ],
+   "seconds": 596
+  },
+  {
+   "id": "MR34",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a scheduler goes on after the message store failed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_message_store_ends_every_session_and_attempt",
+    "a_failed_vault_ends_every_attempt"
+   ],
+   "seconds": 594
+  },
+  {
+   "id": "MR35",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a dial in progress goes on after its record ended",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "blocking_or_deleting_a_contact_ends_the_attempt_in_progress"
+   ],
+   "seconds": 560
+  },
+  {
+   "id": "MR36",
+   "path": "crates/monolith-core/src/sessions.rs",
+   "what": "closing the sessions of a record wakes no scheduler",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "blocking_or_deleting_a_contact_ends_the_attempt_in_progress"
+   ],
+   "seconds": 593
+  },
+  {
+   "id": "MR37",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a message deleted while it waits to be sent is sent",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_deleted_while_it_waits_to_be_sent_is_not_offered"
+   ],
+   "seconds": 577
+  },
+  {
+   "id": "MR38",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session task that is aborted stays registered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_that_ends_with_its_service_leaves_no_registration_behind"
+   ],
+   "seconds": 536
+  },
+  {
+   "id": "MR39",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session that ended for want of an acknowledgement starts the delays again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_peer_that_never_acknowledges_is_dialed_with_growing_delays"
+   ],
+   "seconds": 591
+  },
+  {
+   "id": "MR40",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a missing message store beside a vault with identities is made again without saying so",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_vault_with_identities_and_no_message_store_opens_and_says_so"
+   ],
+   "seconds": 563
+  },
+  {
+   "id": "MR41",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a vault of version 1 beside a store with messages is taken",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_vault_of_phase_4_beside_a_store_with_messages_is_refused"
+   ],
+   "seconds": 573
+  },
+  {
+   "id": "MR42",
+   "path": "crates/monolith-storage/src/messages.rs",
+   "what": "what an interrupted creation of the message store left stops the store from being made",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_crash_while_the_message_store_is_made_leaves_an_installation_that_opens"
+   ],
+   "seconds": 522
+  },
+  {
+   "id": "MR43",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a runtime dropped without a shutdown runs on",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_runtime_dropped_without_a_shutdown_stops"
+   ],
+   "seconds": 573
+  },
+  {
+   "id": "MR44",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a scheduler goes on after the vault failed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_vault_ends_every_attempt"
+   ],
+   "seconds": 539
+  },
+  {
+   "id": "MR45",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "the state takes the messages of one identity more than a payload holds",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "messages::tests::the_state_holds_the_messages_of_as_many_identities_as_a_payload_can"
+   ],
+   "seconds": 572
+  },
+  {
+   "id": "MR46",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "a conversation whose sequences ran out takes more",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "messages::tests::a_conversation_whose_sequences_ran_out_takes_nothing_more"
+   ],
+   "seconds": 542
+  },
+  {
+   "id": "MR47",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "a change that changes nothing wakes every session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "messages::tests::only_a_change_wakes_the_tasks_that_follow_the_messages"
+   ],
+   "seconds": 557
+  },
+  {
+   "id": "MR48",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a message queued as its identity is deleted is added after the deletion",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "identity::tests::a_message_queued_as_its_identity_is_deleted_leaves_nothing_of_it"
+   ],
+   "seconds": 586
+  },
+  {
+   "id": "MR49",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a send its caller stops waiting for is left half done",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_its_caller_stops_waiting_for_completes",
+    "a_shutdown_waits_for_a_command_under_way"
+   ],
+   "seconds": 606
+  },
+  {
+   "id": "MR50",
+   "path": "crates/monolith-core/src/persist.rs",
+   "what": "a wait marks the outcome seen after it looked at the state and sleeps through it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "persist::tests::an_outcome_published_between_the_check_and_the_sleep_ends_the_wait"
+   ],
+   "seconds": 593
+  },
+  {
+   "id": "MR51",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a send to an installation whose vault failed is refused as an identity that is gone",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_vault_is_reported_at_once_and_refuses_a_send"
+   ],
+   "seconds": 587
+  },
+  {
+   "id": "MR52",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "an identity deleted while a send waits for the vault is reported as a failed store",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_identity_deleted_while_a_send_waits_for_the_vault_fails_nothing"
+   ],
+   "seconds": 580
+  },
+  {
+   "id": "MR53",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a failed store is reported only by whatever runs into it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_vault_is_reported_at_once_and_refuses_a_send"
+   ],
+   "seconds": 614
+  },
+  {
+   "id": "MR54",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an inbound session that ended for want of an acknowledgement starts the delays again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_peer_that_dials_in_and_never_acknowledges_does_not_reset_the_delays"
+   ],
+   "seconds": 636
+  },
+  {
+   "id": "MR55",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a command runs outside the tasks a shutdown waits for",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_shutdown_waits_for_a_command_under_way",
+    "promoting_a_successor_is_atomic"
+   ],
+   "seconds": 730
+  },
+  {
+   "id": "MR56",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session is reported available or unavailable again without a change",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_record_with_two_sessions_is_reported_available_once",
+    "beginning_a_rotation_is_atomic"
+   ],
+   "seconds": 770
+  },
+  {
+   "id": "MR57",
+   "path": "crates/monolith-core/src/sessions.rs",
+   "what": "ending a session that was not registered wakes every scheduler",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "sessions::tests::ending_a_session_that_was_not_registered_wakes_nobody"
+   ],
+   "seconds": 736
+  }
+ ]
+}

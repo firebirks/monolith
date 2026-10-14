@@ -1,0 +1,21 @@
+{
+ "commit": "91bf22cd60930e52f53229bde389e8f115927e64",
+ "unmodified_seconds": 467,
+ "timeout": 1200,
+ "results": [
+  {
+   "id": "MR9",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a failed attempt is followed by the next at once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)",
+    "a_failed_attempt_is_not_repeated_at_once"
+   ],
+   "seconds": 1200
+  }
+ ]
+}

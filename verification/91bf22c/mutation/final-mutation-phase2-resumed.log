@@ -1,0 +1,64 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64, 62 faults, 2 workers, unmodified run 511s, timeout 2044s
+P13   caught    614s  requests from known non-contacts are considered
+P12   caught    615s  a contact with a stale card takes the contact path
+P14   caught    606s  ContactAccept may be sent to a non-contact
+P15   caught    606s  ContactRequest may be sent to a non-contact
+R1    caught    462s  DH skips the public key validity check
+P16   caught    593s  ContactRequest may be sent on a confirmed session
+R2    caught    410s  DH hands out an all-zero result
+R3    caught    440s  resolver serves any DH
+R4    caught    427s  resolver serves any hash
+R5    caught    425s  resolver serves any cipher
+R6    caught    420s  nonce counter in big-endian order
+R7    caught    421s  nonce counter at the front
+R8    caught    416s  a message that fails authentication is opened
+R9    caught    422s  a rejected message is left in the output
+R10   caught    408s  a failed encryption leaves the plaintext
+R11   caught    343s  DH takes the key from the end of the buffer
+R12   caught    371s  a private key of the wrong length keeps the old key
+R13   caught    422s  a failed generation keeps the old key
+R14   caught    407s  the operating system source is replaced by fixed bytes
+H1    caught    410s  prologue without the responder identity
+H2    caught    419s  initiator binds its own identity in the prologue
+H3    caught    388s  a card of the local identity may be dialed
+H4    caught    421s  initiator expects its own transport key
+H5    caught    394s  a second message that fails is ignored
+H6    caught    440s  a first message that fails is ignored
+H7    caught    440s  the card need not state the authenticated transport key
+H8    caught    427s  an initiator may present the responder's own card
+H9    caught    423s  a third message that fails is ignored
+H10   caught    397s  no handshake timeout
+H11   caught    429s  the timeout fires at exactly the limit
+H12   caught    431s  the third message is not checked against the deadline
+H13   caught    411s  outbound request carries no invitation
+H14   caught    409s  inbound request carries no invitation
+H15   caught    475s  OutboundPeer::admit ignores its record
+H17   caught    395s  MessageBuffer takes more than its size
+S1    caught    357s  no grace after the age limit on receive
+S2    caught    353s  a frame at exactly the end of the grace is taken
+H16   caught   1533s  outbound admission uses what was held when the dial began
+S3    caught    419s  no age limit on receive
+S4    caught    432s  no frame limit on receive
+S5    caught    435s  no byte limit on receive
+S6    caught    424s  a frame that fails authentication is decoded
+S7    caught    424s  a transfer extends an expired session
+S8    caught    412s  the transfer lifetime never applies
+S9    caught    433s  send ignores the age limit
+S10   caught    417s  send ignores the frame and byte limits
+S11   caught    416s  no room kept for a Close
+S12   caught    414s  the frame limit is off by one
+S13   caught    424s  application messages before the local ContactAccept
+S14   caught    411s  more than one ContactRequest on a session
+S15   survived  430s  may_send ignores a failed or closed session
+S16   caught    418s  a request may carry another invitation
+S17   caught    412s  a request may carry another card
+S18   caught    434s  an EndpointUpdate may carry another identity's card
+S19   caught    419s  send skips the local-side check
+S20   caught    426s  keys kept after a violation
+S21   caught    434s  keys kept after the peer's Close
+S22   caught    425s  keys kept after the local Close
+S23   caught    426s  keys kept after the stream closed
+S24   survived  401s  keys kept after an internal failure of seal
+S26   caught    333s  a failed session keeps receiving
+S25   caught    934s  end() keeps the keys
+done: {'caught': 60, 'survived': 2}; written to <home>/mrun/mutation/results-phase2-91bf22c.json

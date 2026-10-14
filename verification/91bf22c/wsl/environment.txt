@@ -1,0 +1,7 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64
+rustc 1.95.0 (59807616e 2026-04-14)
+rustc 1.101.0-nightly (6f5da406b 2026-10-10)
+cargo-deny 0.20.2
+cargo-audit-audit 0.22.2
+cargo-fuzz 0.13.2
+Linux 6.18.33.2-microsoft-standard-WSL2

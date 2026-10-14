@@ -1,0 +1,9 @@
+mirror of 91bf22cd60930e52f53229bde389e8f115927e64, 2026-10-14T17:36:42+02:00
+exit 101 (5 s)
+test a_deleted_identity_is_taken_down_and_not_published_again ... FAILED
+test a_lost_service_is_published_again_under_the_same_name ... FAILED
+test closing_the_installation_takes_its_services_down ... FAILED
+test the_supervisors_of_two_identities_do_not_touch_each_other ... FAILED
+test result: FAILED. 5 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+restored crates/monolith-core/src/supervisor.rs
+done

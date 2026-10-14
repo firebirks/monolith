@@ -1,0 +1,3 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64, 1 faults, 1 workers, unmodified run 467s, timeout 1200s
+MR9   caught   1200s  a failed attempt is followed by the next at once (timeout)
+done: {'caught': 1}; written to <home>/mrun/mutation/results-phase5-91bf22c.json

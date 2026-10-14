@@ -1,0 +1,3 @@
+commit 91bf22cd60930e52f53229bde389e8f115927e64, 1 faults, 1 workers, unmodified run 433s, timeout 1200s
+Q1    caught   1200s  the stream to the SOCKS endpoint is used without SOCKS (timeout)
+done: {'caught': 1}; written to <home>/mrun/mutation/results-phase3-91bf22c.json

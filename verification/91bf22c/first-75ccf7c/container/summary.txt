@@ -1,0 +1,10 @@
+fmt exit 0 (0 s)
+clippy exit 0 (19 s)
+test-1.95.0 exit 0 (630 s)
+check-1.85.1 exit 0 (20 s)
+test-1.85.1 exit 0 (668 s)
+test-stable exit 0 (615 s)
+tree-d exit 0 (0 s)
+fail-closed exit 0 (20 s)
+two-node exit 0 (2048 s)
+done
