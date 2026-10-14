@@ -1,6 +1,7 @@
 //! A window that nothing happens to does not draw itself again and again:
 //! once its layout and animations settle, a frame with no input asks for no
-//! other frame. Only a spinner keeps drawing, while it turns.
+//! other frame. Only a spinner keeps drawing, while it turns, and the Tor
+//! state, four times a second while Tor connects.
 //!
 //! The text cursor blinks (twice a second, a frame each time) while a
 //! field has the focus; that is switched off here, so that what remains is
@@ -64,4 +65,20 @@ fn a_settled_window_asks_for_no_frame() {
 fn a_spinner_draws_while_it_turns() {
     let delay = repaint_after_settling("opening", Theme::light(), 30);
     assert!(delay < Duration::from_millis(100), "{delay:?}");
+}
+
+#[test]
+fn the_tor_state_pulses_four_times_a_second_while_tor_connects_and_not_with_reduced_motion() {
+    // egui takes the time of one frame off the delay asked for.
+    let delay = repaint_after_settling("tor-connecting", Theme::light(), 30);
+    assert!(
+        delay >= Duration::from_millis(200) && delay <= Duration::from_millis(250),
+        "{delay:?}"
+    );
+    let still = repaint_after_settling(
+        "tor-connecting",
+        Theme::dark().with_reduced_motion(true),
+        30,
+    );
+    assert_eq!(still, Duration::MAX);
 }
