@@ -57,6 +57,7 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, narrow: bool) {
         SearchField::new("sidebar-search", &mut app.search)
             .hint("Search")
             .compact(true)
+            .request_focus(core::mem::take(&mut app.focus_search))
             .show(ui);
     });
     ui.add_space(theme.space.xs);
@@ -263,11 +264,7 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
         no_contacts(ui, app);
         return;
     }
-    let filter = app.search.trim().to_lowercase();
-    let rows: Vec<SidebarRow> = all
-        .into_iter()
-        .filter(|row| filter.is_empty() || row.name.to_lowercase().contains(&filter))
-        .collect();
+    let rows = filtered(all, &app.search);
     if rows.is_empty() {
         no_match(ui);
         return;
@@ -332,6 +329,38 @@ fn no_contacts(ui: &mut Ui, app: &mut App) {
     }
     if output.secondary {
         open_invitation(app, identity);
+    }
+}
+
+/// The rows whose name holds the filter, in the order of the list.
+fn filtered(rows: Vec<SidebarRow>, search: &str) -> Vec<SidebarRow> {
+    let filter = search.trim().to_lowercase();
+    rows.into_iter()
+        .filter(|row| filter.is_empty() || row.name.to_lowercase().contains(&filter))
+        .collect()
+}
+
+/// Shows the conversation after (`forward`) or before the one shown, among
+/// those the list shows, and gives its composer the focus. With none
+/// shown, the first or the last.
+pub(crate) fn step(app: &mut App, forward: bool) {
+    let rows = filtered(app.model.sidebar(), &app.search);
+    let current = match app.model.selection() {
+        Some(Selection::Conversation(contact)) => {
+            rows.iter().position(|row| row.contact == contact)
+        }
+        _ => None,
+    };
+    let target = match (current, forward) {
+        (Some(index), true) => index.checked_add(1),
+        (Some(index), false) => index.checked_sub(1),
+        (None, true) => Some(0),
+        (None, false) => rows.len().checked_sub(1),
+    };
+    if let Some(row) = target.and_then(|index| rows.get(index)) {
+        app.model.select_conversation(row.contact);
+        app.narrow_conversation = true;
+        app.focus_composer = true;
     }
 }
 

@@ -175,6 +175,8 @@ pub struct App {
     pub(crate) card_path: String,
     /// The composer should take focus.
     pub(crate) focus_composer: bool,
+    /// The filter of the sidebar should take focus.
+    pub(crate) focus_search: bool,
     /// The conversation shown last, to keep its scroll position apart.
     pub(crate) last_conversation: Option<UiContactId>,
     /// The Tor settings offered on the Tor page, the default first.
@@ -208,6 +210,7 @@ impl App {
             qr: None,
             card_path: String::new(),
             focus_composer: false,
+            focus_search: false,
             last_conversation: None,
             tor_presets: Vec::new(),
             effects: Vec::new(),

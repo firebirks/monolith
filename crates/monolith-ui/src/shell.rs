@@ -2,7 +2,7 @@
 //! (sidebar and content, or one of them in a narrow window), the global
 //! notices, the dialogs and the toasts.
 
-use egui::Context;
+use egui::{Context, Key, KeyboardShortcut, Modifiers};
 use monolith_ui_kit::chrome::{ContentPanel, SidebarPanel};
 use monolith_ui_kit::theme;
 use monolith_ui_model::{Phase, Selection};
@@ -24,6 +24,7 @@ pub fn show(ctx: &Context, app: &mut App) {
 }
 
 fn main(ctx: &Context, app: &mut App) {
+    shortcuts(ctx, app);
     if let View::Settings(page) = app.view {
         settings::show(ctx, app, page);
         return;
@@ -50,5 +51,34 @@ fn content(ui: &mut egui::Ui, app: &mut App) {
         Some(Selection::Conversation(contact)) => conversation::show(ui, app, contact),
         Some(Selection::Requests) => requests::show(ui, app),
         None => conversation::show_nothing_selected(ui, app),
+    }
+}
+
+/// The keyboard shortcuts of the main window, while no dialog is open:
+/// Ctrl+F (Cmd+F on macOS) for the filter of the list, Alt+Up and Alt+Down
+/// for the conversation before or after the one shown. Enter sends,
+/// Shift+Enter starts a new line, and Escape closes a dialog, in their
+/// components.
+fn shortcuts(ctx: &Context, app: &mut App) {
+    if app.model.dialog().is_some() {
+        return;
+    }
+    let find = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
+    let previous = KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp);
+    let next = KeyboardShortcut::new(Modifiers::ALT, Key::ArrowDown);
+    let (find, previous, next) = ctx.input_mut(|input| {
+        (
+            input.consume_shortcut(&find),
+            input.consume_shortcut(&previous),
+            input.consume_shortcut(&next),
+        )
+    });
+    if find {
+        app.view = View::Main;
+        app.narrow_conversation = false;
+        app.focus_search = true;
+    }
+    if (previous || next) && app.view == View::Main {
+        sidebar::step(app, next);
     }
 }
