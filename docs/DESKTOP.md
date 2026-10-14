@@ -121,10 +121,13 @@ runs arbitrary ones.
 
 ## 5. Tor, and being offline
 
-The top bar shows one of four states (`TorIndicator`): starting, Connecting
-(Tor answers but builds a circuit, or the service of the identity is being
-published), Connected through Tor (the service of the identity shown is
-published), Tor unavailable. The Tor details dialog says what the last
+The top bar shows one of four states (`TorIndicator`): Checking Tor (at
+start), Connecting to Tor (Tor answers but builds a circuit, or the service
+of the identity is being published), Tor connected (the service of the
+identity shown is published), Tor unavailable. The narrow layout, which has
+no top bar while the list is shown, shows the same state beside the
+identity switcher. The labels name Tor, not the contact: whether a contact
+is online is never known. The Tor details dialog says what the last
 check found in plain words (not running, SOCKS or control not working,
 authentication refused, too old, outdated) and offers a check and the
 settings. Nothing in the client offers to connect without Tor. Outside
@@ -138,9 +141,15 @@ why, from the runtime's last deferral: the contact could not be reached,
 Tor is down, the contact has no address yet, the receipt was not confirmed,
 or Monolith limits connections. A deferral that Tor reports while Tor is
 known to work is said as "could not be reached": an offline contact looks
-like that. A failed store is said once, as an error that needs a restart;
-a contact that was removed or blocked ends its conversation, which stays
-readable and takes no message.
+like that. A failed store is said once, by a banner across the top of
+every view that asks for a restart; nothing can be sent after it. A contact
+that was removed or blocked ends its conversation, which stays readable and
+takes no message.
+
+The window's title counts what waits over all identities (messages not
+read and requests not answered), as "Monolith (7)", and the window asks
+for attention when that count grows while it is in the background; the
+identity switcher gives each identity its own counts.
 
 ## 6. Workflows
 
@@ -188,8 +197,8 @@ every fixture state, light and dark:
   or Space activates a focused button.
 - Enter sends, Shift+Enter starts a new line; Enter submits a dialog's
   field.
-- Escape closes a dialog that is not waiting for its action, and clears the
-  filter.
+- Escape closes a dialog that is not waiting for its action, clears the
+  filter, and leaves the settings when no dialog or menu is open.
 - Ctrl+F (Cmd+F) moves to the filter of the list; Alt+Up and Alt+Down show
   the conversation before or after, with the focus in its composer.
 - Ctrl+Plus and Ctrl+Minus scale the window (egui's zoom); the scale is not
@@ -230,13 +239,24 @@ card (Copy card), a fingerprint (Copy fingerprint), a message (Copy text in
 its menu), or text the user selected (cards and fingerprints are
 selectable). The clipboard is read only by a paste into a field. The client
 keeps no copy of what it copied; what stays on the system clipboard stays
-until something else replaces it, as with any program.
+until something else replaces it, as with any program. On Windows, when
+the clipboard history is turned on (Windows+V), the system keeps copied
+cards and invitation cards in that history, and synchronises it to the
+user's other devices if that is turned on too; the client cannot keep a
+copy out of it.
 
 Files: the vault and the message store (the runtime's, `STORAGE.md`); the
 settings file (window size, theme, reduced motion, Tor endpoints; 0600 on
 Unix); a card saved on request, as a new file in the Downloads folder
 (0600 on Unix, never replacing a file); fonts read from fixed system paths.
 Nothing else: no log, no cache, no crash report, no eframe persistence.
+
+A card file is read only when the user names it or drops it on the window,
+only if it is a regular file, and at most 64 KiB of it. On Windows its path
+must be an absolute path on a drive (`C:\...`): a share (`\\server\...`),
+a device path (`\\?\`, `\\.\`) or a relative path is refused, so that
+reading a card never makes Windows reach another computer over SMB, outside
+Tor.
 
 ## 11. No network in the client
 
