@@ -456,3 +456,52 @@ fn settings(mut app: App, page: SettingsPage) -> App {
     app.view = View::Settings(page);
     app
 }
+
+/// The conversation with Alice open and holding `count` messages, three
+/// minutes apart and of varied length, for measuring long histories. The
+/// window of a conversation holds at most
+/// [`monolith_ui_model::model::MAX_WINDOW`] of them.
+pub fn long_conversation(count: usize) -> App {
+    const TEXTS: [&str; 4] = [
+        "Yes.",
+        "I will be there at seven, with the papers.",
+        "We went through the list again this morning and agreed on the order: the \
+         schedule first, then the budget, and the supplier last.",
+        "Can you send me the address again? I lost the message.",
+    ];
+    let alice = contact(1, 10);
+    let messages: Vec<MessageView> = (0..count)
+        .map(|index| {
+            let sequence = u64::try_from(index).unwrap_or(u64::MAX).saturating_add(1);
+            let status = match index.checked_rem(3).unwrap_or(0) {
+                0 => Status::Received,
+                1 => Status::Delivered,
+                _ => Status::Queued,
+            };
+            let ago = u64::try_from(count.saturating_sub(index))
+                .unwrap_or(0)
+                .saturating_mul(3);
+            let text = index
+                .checked_rem(TEXTS.len())
+                .and_then(|slot| TEXTS.get(slot))
+                .copied()
+                .unwrap_or_default();
+            message(alice, sequence, status, ago, text)
+        })
+        .collect();
+    let mut builder = Builder::new()
+        .started(true)
+        .ready(ready_tor(), Service::Available, false);
+    builder.model.select_conversation(alice);
+    builder.answer(|command| match command {
+        Command::LoadMessages { contact: asked, .. } if *asked == alice => {
+            Some(Outcome::Messages {
+                contact: alice,
+                messages: messages.clone(),
+                complete: false,
+            })
+        }
+        _ => None,
+    });
+    builder.app()
+}
