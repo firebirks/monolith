@@ -2,3 +2,4 @@
 *.png binary
 *.bin binary
 /fuzz/seeds/** binary
+*.ttf binary

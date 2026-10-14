@@ -3,6 +3,10 @@ allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
 
+# The geometry of egui (f32 points, vectors and rectangles) does not
+# overflow or panic; integer arithmetic stays under the lint.
+arithmetic-side-effects-allowed = ["egui::Pos2", "egui::Vec2", "egui::Rect", "egui::Rangef"]
+
 # Ed25519 verification is always strict (docs/CRYPTOGRAPHY.md section 10).
 # The lenient method of the signature trait is not called.
 # Nothing is resolved locally: Tor receives onion names itself, and every
