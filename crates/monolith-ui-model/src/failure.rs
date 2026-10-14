@@ -69,15 +69,23 @@ impl Failure {
     pub const fn message(self) -> &'static str {
         match self {
             Self::WrongPassphrase => "That passphrase does not open this profile.",
-            Self::UnusablePassphrase => "Choose a passphrase that is not empty.",
+            Self::UnusablePassphrase => "Choose a passphrase that is not empty and not too long.",
             Self::InUse => "Monolith is already open with this profile.",
             Self::UnsafePermissions => {
-                "The profile folder can be read by other users. Monolith will not open it."
+                "The profile folder can be read by other users. Monolith will not open it. \
+                 Make the folder readable only by you, then start Monolith again."
             }
             Self::RecoveryNeeded => {
-                "A save was interrupted. The profile needs to be repaired before it can open."
+                "A save was interrupted, and Monolith cannot tell which copy of the profile to \
+                 keep. Nothing was changed, and Monolith does not repair it. Keep the profile \
+                 folder; to start a new profile, move the folder elsewhere and start Monolith \
+                 again."
             }
-            Self::Damaged => "The profile is damaged and cannot be opened.",
+            Self::Damaged => {
+                "The profile is damaged and cannot be opened. Nothing was changed, and Monolith \
+                 does not repair it. Keep the profile folder; to start a new profile, move the \
+                 folder elsewhere and start Monolith again."
+            }
             Self::MessageStoreMismatch => {
                 "The saved messages belong to a different profile. Nothing was changed."
             }
@@ -91,12 +99,24 @@ impl Failure {
             Self::NotAContact => "Messages cannot be sent to this contact.",
             Self::InvalidCard => "This is not a valid Monolith card.",
             Self::OwnCard => "This is the card of one of your own identities.",
-            Self::Blocked => "You blocked this person. Unblock them first.",
-            Self::Full => "The limit is reached.",
-            Self::QueueFull => "Too many messages are waiting to be delivered.",
-            Self::StoreFull => "There is no more room for messages.",
+            Self::Blocked => {
+                "You blocked this person. Unblock them in Settings > Identities first."
+            }
+            Self::Full => {
+                "A limit is reached (for example 16 active invitations). Remove one first."
+            }
+            Self::QueueFull => {
+                "Too many messages are waiting to be delivered to this contact. Wait until some \
+                 are delivered."
+            }
+            Self::StoreFull => {
+                "There is no more room for messages. Delete older conversations to make room."
+            }
             Self::Storage => "Monolith could not save. Restart Monolith to continue.",
-            Self::Tor => "Tor did not respond as expected.",
+            Self::Tor => {
+                "Monolith could not reach Tor. Open Tor Browser and keep it open, or start the \
+                 Tor service, then try again."
+            }
             Self::ShuttingDown => "Monolith is closing.",
             Self::File => "The file could not be read or written.",
             Self::FileTooLarge => "This file is too large to be a Monolith card.",

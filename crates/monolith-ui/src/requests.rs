@@ -1,6 +1,6 @@
 //! The contact requests waiting for an answer.
 
-use egui::{Align, Id, Layout, Rect, Sense, Ui, UiBuilder};
+use egui::{Align, Layout, Rect, Sense, Ui, UiBuilder};
 use monolith_ui_kit::chrome::{TopBar, scroll_area};
 use monolith_ui_kit::empty_state::EmptyState;
 use monolith_ui_kit::icon_button::IconButton;
@@ -11,7 +11,21 @@ use monolith_ui_kit::{icons, theme};
 use monolith_ui_model::{Dialog, RequestView, UiRequestId, present};
 
 use crate::app::App;
-use crate::common;
+use crate::{common, dialogs};
+
+/// What a request without a name or an introduction says: Monolith sends
+/// none (`DESIGN_QUESTIONS.md` P6-5).
+const NOTHING_SENT: &str = "No name or message comes with a request. Check the fingerprint with \
+                            the person before you accept.";
+
+/// How to check who sent a request.
+const CHECK: &str = "Before you accept, ask the person to read you the fingerprint under their \
+                     identity in Monolith (Settings > Identities), on a call or in person. It \
+                     must match the one on the request.";
+
+/// The queue of requests is in memory (`DESIGN_QUESTIONS.md` P4-12).
+const KEPT: &str = "Requests are kept only while Monolith is open. One you have not answered \
+                    comes back when the sender's Monolith tries again.";
 
 /// What a card shows, made ready to draw: the sender's words have their
 /// invisible characters made visible.
@@ -30,33 +44,44 @@ fn entry(request: &RequestView, label: Option<Option<&str>>) -> Entry {
     // as what they say, never made the title.
     let name = present::prepare(&request.display_name, false).text;
     let title = "Someone wants to connect".to_owned();
-    let said = (!name.trim().is_empty()).then(|| format!("Calls themselves \"{name}\""));
-    let through = match label {
-        Some(Some(label)) if !label.trim().is_empty() => Some(format!(
-            "Through your invitation {}",
+    let introduction = present::prepare(&request.introduction, false).text;
+    let mut sentences = Vec::new();
+    if !name.trim().is_empty() {
+        sentences.push(format!("Calls themselves \"{name}\"."));
+    }
+    match label {
+        Some(Some(label)) if !label.trim().is_empty() => sentences.push(format!(
+            "Through your invitation \"{}\".",
             present::prepare(label, false).text
         )),
-        Some(_) => Some("Through one of your invitations".to_owned()),
-        None => None,
-    };
-    let caption = said
-        .into_iter()
-        .chain(through)
-        .collect::<Vec<_>>()
-        .join(". ");
+        Some(_) => sentences.push("Through one of your invitations.".to_owned()),
+        None => {}
+    }
+    if name.trim().is_empty() && introduction.trim().is_empty() {
+        sentences.push(NOTHING_SENT.to_owned());
+    }
     Entry {
         id: request.id,
         title,
         name,
-        introduction: present::prepare(&request.introduction, false).text,
-        fingerprint: request.full_fingerprint.clone(),
+        introduction,
+        fingerprint: dialogs::fingerprint_rows(&request.full_fingerprint).join("\n"),
         seed: request.fingerprint.clone(),
-        caption,
+        caption: sentences.join(" "),
     }
+}
+
+/// Forgets the answers that are no longer under way: answered, refused,
+/// or of a request that is gone.
+pub(crate) fn forget_answers(app: &mut App) {
+    let model = &app.model;
+    app.request_answers
+        .retain(|request, _| model.answering(*request));
 }
 
 /// Draws the requests of the identity shown.
 pub(crate) fn show(ui: &mut Ui, app: &mut App) {
+    forget_answers(app);
     let theme = theme::current(ui.ctx());
     let narrow = ui.ctx().screen_rect().width() < theme.size.narrow_below;
     let (tor, tor_label) = common::tor_state(&app.model);
@@ -102,7 +127,9 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
         None => Vec::new(),
     };
     if entries.is_empty() {
-        EmptyState::new("requests-empty", icons::INBOX, "No requests waiting.").show(ui);
+        EmptyState::new("requests-empty", icons::INBOX, "No requests waiting.")
+            .body(KEPT)
+            .show(ui);
         return;
     }
     let mut accept = None;
@@ -125,9 +152,9 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
         column.spacing_mut().item_spacing.y = theme.space.md;
         for item in &entries {
             let busy = app.model.answering(item.id).then(|| {
-                column
-                    .ctx()
-                    .data(|data| data.get_temp::<RequestAction>(busy_id(item.id)))
+                app.request_answers
+                    .get(&item.id)
+                    .copied()
                     .unwrap_or(RequestAction::Decline)
             });
             let output = RequestCard::new(item.id, &item.title, "Accept", "Decline", "Block")
@@ -148,9 +175,9 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
             }
         }
         column.add_space(theme.space.xs);
-        column.add(
-            Text::new("Compare the fingerprint with the person through another channel before you accept. Accepting adds them to your contacts.", &theme.text.caption, theme.color.text_tertiary),
-        );
+        for text in [CHECK, KEPT] {
+            column.add(Text::new(text, &theme.text.caption, theme.color.text_tertiary).wrap());
+        }
         let used = column.min_rect();
         ui.allocate_rect(
             Rect::from_min_max(
@@ -169,24 +196,14 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
         });
     }
     if let Some(request) = decline {
-        remember(ui, request, RequestAction::Decline);
+        app.request_answers.insert(request, RequestAction::Decline);
         app.model.decline(request);
     }
     if let Some(request) = block {
-        remember(ui, request, RequestAction::Block);
-        app.model.block_sender(request);
+        // Asked first: the dialog holds this request, whatever the list
+        // shows when it is answered.
+        app.block_request = Some(request);
     }
-}
-
-/// The key of the answer last given to a request, so that the card shows
-/// progress on the right button.
-fn busy_id(request: UiRequestId) -> Id {
-    Id::new(("request-answer", request))
-}
-
-fn remember(ui: &Ui, request: UiRequestId, action: RequestAction) {
-    ui.ctx()
-        .data_mut(|data| data.insert_temp(busy_id(request), action));
 }
 
 #[cfg(test)]
@@ -195,20 +212,67 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn the_name_a_sender_chose_is_quoted_never_made_the_title() {
+    fn request(display_name: &str, introduction: &str) -> RequestView {
         let identity = UiIdentityId::from_bytes([1; 16]);
-        let request = RequestView {
+        RequestView {
             id: UiRequestId::new(identity, 1),
             fingerprint: "F6QW 8NRT".to_owned(),
             full_fingerprint: "F6QW 8NRT 3MKZ".to_owned(),
-            display_name: "Your Bank".to_owned(),
-            introduction: String::new(),
+            display_name: display_name.to_owned(),
+            introduction: introduction.to_owned(),
             invitation: Some(UiInvitationId::new(identity, 2)),
-        };
-        let shown = entry(&request, Some(Some("Climbing gym")));
+        }
+    }
+
+    #[test]
+    fn the_name_a_sender_chose_is_quoted_never_made_the_title() {
+        let shown = entry(&request("Your Bank", ""), Some(Some("Climbing gym")));
         assert!(!shown.title.contains("Your Bank"), "{}", shown.title);
         assert!(shown.caption.contains("\"Your Bank\""), "{}", shown.caption);
-        assert!(shown.caption.contains("Climbing gym"), "{}", shown.caption);
+        assert!(
+            shown.caption.contains("\"Climbing gym\""),
+            "{}",
+            shown.caption
+        );
+    }
+
+    #[test]
+    fn a_request_without_a_name_says_that_none_comes_with_it() {
+        let shown = entry(&request("", ""), Some(None));
+        assert!(shown.caption.contains(NOTHING_SENT), "{}", shown.caption);
+        let named = entry(&request("Frank", ""), Some(None));
+        assert!(!named.caption.contains(NOTHING_SENT), "{}", named.caption);
+    }
+}
+
+#[cfg(all(test, feature = "fixtures"))]
+#[allow(clippy::expect_used)]
+mod answers {
+    use monolith_ui_model::{Outcome, UiIdentityId, Update};
+
+    use super::*;
+    use crate::fixtures::fixture;
+
+    #[test]
+    fn the_answer_given_to_a_request_is_forgotten_once_it_is_done() {
+        let mut app = fixture("requests").expect("fixture");
+        let request = UiRequestId::new(UiIdentityId::from_bytes([1; 16]), 1);
+        let gone = UiRequestId::new(UiIdentityId::from_bytes([1; 16]), 7);
+        app.request_answers.insert(request, RequestAction::Decline);
+        app.request_answers.insert(gone, RequestAction::Block);
+        app.model.decline(request);
+        forget_answers(&mut app);
+        assert_eq!(
+            app.request_answers.keys().copied().collect::<Vec<_>>(),
+            [request]
+        );
+        for (command, _) in app.model.take_commands() {
+            app.model.apply(Update::Done {
+                command,
+                outcome: Outcome::Done,
+            });
+        }
+        forget_answers(&mut app);
+        assert!(app.request_answers.is_empty());
     }
 }

@@ -2,12 +2,14 @@
 //! (notices on screen, the QR code shown, the passphrase being typed, the
 //! filter of the sidebar, which settings page is open).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use monolith_ui_kit::qr::QrMatrix;
+use monolith_ui_kit::request_card::RequestAction;
 use monolith_ui_kit::toast::{Kind, Toasts};
 use monolith_ui_model::present::{Calendar, UtcCalendar};
-use monolith_ui_model::{Failure, Model, NoticeKind, UiContactId};
+use monolith_ui_model::{Failure, Model, NoticeKind, UiContactId, UiRequestId};
 use zeroize::Zeroizing;
 
 /// How the window looks.
@@ -146,6 +148,15 @@ pub(crate) struct ShownQr {
     pub(crate) matrix: QrMatrix,
 }
 
+/// A card file asked for in "Add contact".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CardFile {
+    /// Its name, ready to draw.
+    pub(crate) name: String,
+    /// The card in the field is the one read from it.
+    pub(crate) read: bool,
+}
+
 /// The state of the window.
 pub struct App {
     /// The UI model.
@@ -173,6 +184,14 @@ pub struct App {
     pub(crate) qr: Option<ShownQr>,
     /// A path the user typed to read a card from.
     pub(crate) card_path: String,
+    /// The card file last asked for in "Add contact", while it is open.
+    pub(crate) card_file: Option<CardFile>,
+    /// The request whose sender the user is asked to block, captured when
+    /// the question opened.
+    pub(crate) block_request: Option<UiRequestId>,
+    /// The answer given to each request while it is under way, so that its
+    /// card shows progress on the right button.
+    pub(crate) request_answers: BTreeMap<UiRequestId, RequestAction>,
     /// The composer should take focus.
     pub(crate) focus_composer: bool,
     /// The filter of the sidebar should take focus.
@@ -209,6 +228,9 @@ impl App {
             passphrase_again: Zeroizing::new(String::with_capacity(256)),
             qr: None,
             card_path: String::new(),
+            card_file: None,
+            block_request: None,
+            request_answers: BTreeMap::new(),
             focus_composer: false,
             focus_search: false,
             last_conversation: None,

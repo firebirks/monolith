@@ -233,33 +233,44 @@ fn header(ui: &mut Ui, app: &mut App, contact: UiContactId, narrow: bool) {
     }
 }
 
-/// The sentence for a delivery that waits. Tor not opening a stream to
-/// the contact is what an offline contact looks like too; it is said to be
-/// Tor's doing only while Tor is known not to work.
-fn deferral_text(reason: Deferral, name: &str, tor_down: bool) -> String {
-    match reason {
-        Deferral::Tor if tor_down => {
-            "Waiting for Tor. Your messages will be delivered when Tor is available again."
+/// What every notice of queued messages ends with: the runtime dials only
+/// while it runs (`DESIGN_QUESTIONS.md` P5-8).
+const BOTH_OPEN: &str = "Messages can be delivered only while Monolith is open on both sides.";
+
+/// The sentence for a delivery that waits, `None` for nothing to say.
+/// While Tor is known not to work nothing can be sent, whatever the last
+/// attempt said. Otherwise Tor not opening a stream to the contact is what
+/// an offline contact looks like, and is said as such. While the contact
+/// has not accepted, the notice of the request says enough.
+fn deferral_text(
+    reason: Option<Deferral>,
+    name: &str,
+    tor_down: bool,
+    waiting: bool,
+) -> Option<String> {
+    let text = match reason {
+        _ if tor_down => {
+            "Tor is not available, so nothing can be sent. Monolith tries again when Tor is back."
                 .to_owned()
         }
-        Deferral::Tor => format!(
-            "{name} could not be reached through Tor. Monolith will try again; messages stay \
-             queued until then."
+        _ if waiting => return None,
+        None => return None,
+        Some(Deferral::Tor | Deferral::Unreachable) => format!(
+            "{name} cannot be reached right now. Their Monolith may be closed, or they may not \
+             have accepted you yet. Monolith tries again from time to time; your messages stay \
+             queued on this device."
         ),
-        Deferral::Unreachable => {
-            format!("Waiting for {name} to come online. Messages stay queued until then.")
-        }
-        Deferral::NoAddress => format!(
+        Some(Deferral::NoAddress) => format!(
             "There is no address to send to {name} yet. Messages stay queued until there is."
         ),
-        Deferral::NoAcknowledgement => {
+        Some(Deferral::NoAcknowledgement) => {
             format!("{name} has not confirmed receipt yet. Monolith will send the messages again.")
         }
-        Deferral::Busy => {
-            "Monolith is busy with other conversations. Your messages will be sent shortly."
-                .to_owned()
+        Some(Deferral::Busy) => {
+            "Monolith is busy with other conversations and tries this one again soon.".to_owned()
         }
-    }
+    };
+    Some(format!("{text} {BOTH_OPEN}"))
 }
 
 /// The notices under the bar.
@@ -282,14 +293,8 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) {
         .model
         .thread(contact)
         .is_some_and(|thread| thread.refused);
+    // A failed store is said once, for the whole window, not here.
     let mut notices: Vec<(&str, Tone, String)> = Vec::new();
-    if app.model.storage_failed() {
-        notices.push((
-            "storage",
-            Tone::Danger,
-            "Monolith can no longer save. Restart Monolith to continue.".to_owned(),
-        ));
-    }
     if ended {
         notices.push((
             "ended",
@@ -302,23 +307,24 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) {
         notices.push((
             "waiting",
             Tone::Info,
-            "Your request is sent with your first message. They also need to add your card, or have given you an invitation."
-                .to_owned(),
+            format!(
+                "Your request leaves with your first message. {name} sees only that someone wants to connect, with your fingerprint, and can read your messages after accepting. Tell them it is you."
+            ),
         ));
     }
-    if let (true, Some(reason)) = (queued && !ended, deferral) {
+    if queued && !ended {
         let tor_down = app.model.tor_indicator() == TorIndicator::Unavailable;
-        notices.push((
-            "deferral",
-            Tone::Info,
-            deferral_text(reason, &name, tor_down),
-        ));
+        if let Some(text) = deferral_text(deferral, &name, tor_down, waiting) {
+            notices.push(("deferral", Tone::Info, text));
+        }
     }
     if refused {
         notices.push((
             "refused",
             Tone::Warning,
-            format!("A message from {name} could not be saved on this device."),
+            format!(
+                "A message from {name} could not be saved on this device. Their Monolith will send it again."
+            ),
         ));
     }
     if notices.is_empty() {
@@ -484,7 +490,9 @@ fn empty_note(ui: &mut Ui, waiting: bool, name: &str) {
             theme.color.text_secondary,
         ));
         if waiting {
-            let text = format!("Write a message to send your request to {name}.");
+            let text = format!(
+                "Your first message sends your request. {name} can read it only after accepting."
+            );
             ui.add(Text::new(
                 &text,
                 &theme.text.caption,
@@ -529,14 +537,10 @@ fn composer(ui: &mut Ui, app: &mut App, contact: UiContactId) {
         .thread(contact)
         .is_some_and(|thread| thread.sending.is_some());
     let ended = app.model.contact(contact).is_none();
+    // After a failed store nothing can be sent; the composer gives no
+    // reason of its own, as the window says it once.
     let storage = app.model.storage_failed();
-    let reason = if storage {
-        Some("Monolith can no longer save. Restart Monolith to continue.")
-    } else if ended {
-        Some("This contact was removed or blocked.")
-    } else {
-        None
-    };
+    let reason = (ended && !storage).then_some("This contact was removed or blocked.");
     let sendable = app.model.can_send(contact);
     let focus =
         !ended && !storage && (app.focus_composer || app.last_conversation != Some(contact));
@@ -670,5 +674,28 @@ mod tests {
             Some((MarkStatus::Delivered, "Delivered"))
         ));
         assert!(mark(Status::Received).is_none());
+    }
+
+    #[test]
+    fn while_tor_is_down_the_wait_is_put_on_tor_not_on_the_contact() {
+        for reason in [None, Some(Deferral::Tor), Some(Deferral::Unreachable)] {
+            let text = deferral_text(reason, "Alice", true, false).unwrap_or_default();
+            assert!(text.starts_with("Tor is not available"), "{text}");
+            assert!(!text.contains("Alice"), "{text}");
+        }
+        for reason in [Deferral::Tor, Deferral::Unreachable] {
+            let text = deferral_text(Some(reason), "Alice", false, false).unwrap_or_default();
+            assert!(text.starts_with("Alice cannot be reached"), "{text}");
+            assert!(text.ends_with(BOTH_OPEN), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_contact_that_has_not_accepted_has_no_notice_of_delivery() {
+        assert_eq!(
+            deferral_text(Some(Deferral::Unreachable), "Carol", false, true),
+            None
+        );
+        assert_eq!(deferral_text(None, "Carol", false, false), None);
     }
 }

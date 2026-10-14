@@ -3,19 +3,29 @@
 //! Every dialog is drawn from the state of the open [`Dialog`] and acts
 //! through the model on the handles that dialog holds, never on whatever is
 //! selected. Cards can carry an invitation: they stay in the dialog and in
-//! the QR code of the app, and nowhere in egui's memory.
+//! the QR code of the app, and nowhere in egui's memory. The question asked
+//! before blocking the sender of a request is the window's own: it holds
+//! the request in [`App`] from the moment it opens.
 
 use std::hash::Hash;
 
-use egui::{Align, Context, CornerRadius, Frame, Id, Layout, Sense, Stroke, Ui, Vec2};
+use egui::epaint::CornerRadiusF32;
+use egui::epaint::tessellator::path;
+use egui::{
+    Align, Context, CornerRadius, Direction, Frame, Id, Layout, Sense, Shape, Stroke, Ui,
+    UiBuilder, Vec2, WidgetType,
+};
 use monolith_ui_kit::avatar::{Avatar, AvatarSize};
-use monolith_ui_kit::banner::InlineError;
+use monolith_ui_kit::badge::{Pill, Tone as PillTone};
+use monolith_ui_kit::banner::{Banner, InlineError, Tone};
 use monolith_ui_kit::button::{Button, Size};
 use monolith_ui_kit::checkbox::Checkbox;
 use monolith_ui_kit::divider::Divider;
 use monolith_ui_kit::icons;
-use monolith_ui_kit::modal::Modal;
+use monolith_ui_kit::interact;
+use monolith_ui_kit::modal::{Decision, Modal};
 use monolith_ui_kit::qr::{self, QrCode, QrMatrix};
+use monolith_ui_kit::request_card::RequestAction;
 use monolith_ui_kit::spinner;
 use monolith_ui_kit::text::Text;
 use monolith_ui_kit::text_field::{self, TextField};
@@ -23,19 +33,73 @@ use monolith_ui_kit::theme::{self, Theme};
 use monolith_ui_kit::toast::Kind;
 use monolith_ui_kit::toggle::Toggle;
 use monolith_ui_kit::tor_status::TorStatus;
-use monolith_ui_model::{Dialog, Failure, TorCheck, UiContactId, UiIdentityId, present};
+use monolith_ui_model::{
+    Dialog, Failure, TorCheck, TorIndicator, UiContactId, UiIdentityId, UiInvitationId, present,
+};
 use zeroize::Zeroizing;
 
-use crate::app::{App, Effect, SettingsPage, ShownQr, View};
+use crate::app::{App, CardFile, Effect, SettingsPage, ShownQr, View};
 use crate::common;
 
 /// The longest name, in characters.
 const NAME_LIMIT: usize = 64;
 
+/// The longest name of a card file shown, in characters.
+const FILE_NAME_LIMIT: usize = 40;
+
+/// Failures that belong to a name field.
+const NAME_ERRORS: &[Failure] = &[Failure::InvalidText];
+
+/// Failures that belong to the card field of "Add contact".
+const CARD_ERRORS: &[Failure] = &[Failure::InvalidCard, Failure::OwnCard, Failure::Blocked];
+
+/// What the card field of "Add contact" says under it. Written as two
+/// sentences, so that each can stand alone once the field tells a card
+/// from an invitation.
+const CARD_HELP: &str = "With their invitation, your request reaches them. With their card only, \
+                         they must add your card too.";
+
+/// What sharing an own card does, under the default request mode
+/// (`PROTOCOL.md` section 12).
+const OWN_CARD: &str = "Share this card with people you want to talk to. It contains no secret. \
+                        Someone who has only your card can reach you once you have added their \
+                        card too. To let someone reach you first, give them an invitation \
+                        instead.";
+
+/// A QR code is shown, never scanned (`DESIGN_QUESTIONS.md` P6-11).
+const NO_SCAN: &str = "Monolith cannot scan QR codes; send the text.";
+
+/// What identities share and what they do not.
+const IDENTITIES: &str = "Each identity has its own contacts, card and address, and is never \
+                          mentioned to the contacts of another. Identities in the same Monolith \
+                          are online at the same times, so someone who talks to two of them \
+                          could guess they are the same person.";
+
+/// An invitation admits requests until it is revoked (P4-12).
+const INVITATION: &str = "Anyone who has this invitation can send you a request until you revoke \
+                          it. Make one for each person, and revoke it once they are your contact.";
+
+/// How to check a fingerprint before accepting.
+const CHECK_BEFORE_ACCEPT: &str = "Before you accept, ask the person to read you the fingerprint \
+                                   under their identity in Monolith (Settings > Identities), on a \
+                                   call or in person. It must match this one.";
+
+/// How to check the fingerprint of a contact.
+const CHECK_CONTACT: &str = "Ask the person to read you the fingerprint under their identity in \
+                             Monolith (Settings > Identities), on a call or in person. If it \
+                             matches this one, mark them verified.";
+
+/// What blocking the sender of a request does.
+const BLOCK_REQUEST: &str = "They will not be able to send you a request or a message. You can \
+                             unblock them later in Settings > Identities.";
+
 /// Draws the open dialog, if any.
 pub(crate) fn show(ctx: &Context, app: &mut App) {
     let add_contact = matches!(app.model.dialog(), Some(Dialog::AddContact { .. }));
     track_card_field(ctx, app, add_contact);
+    if !add_contact {
+        app.card_file = None;
+    }
     if !matches!(
         app.model.dialog(),
         Some(Dialog::OwnCard { .. } | Dialog::ShowInvitation { .. } | Dialog::NewInvitation { .. })
@@ -43,8 +107,12 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
         // A card is shown only while its dialog is open.
         app.drop_qr();
     }
+    if app.model.dialog().is_some() {
+        // A dialog of the model replaces the question of a block.
+        app.block_request = None;
+    }
     match app.model.dialog() {
-        None => {}
+        None => block_request(ctx, app),
         Some(Dialog::NewIdentity { .. }) => new_identity(ctx, app),
         Some(Dialog::AddContact { .. }) => add_contact_dialog(ctx, app),
         Some(Dialog::OwnCard { .. }) => card_dialog(ctx, app, "Your card"),
@@ -57,14 +125,15 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
             }
         }
         Some(Dialog::RevokeInvitation { invitation, .. }) => {
-            let salt = ("revoke-invitation", *invitation);
+            let invitation = *invitation;
+            let message = revoke_text(app, invitation);
             danger(
                 ctx,
                 app,
                 &Danger {
-                    salt,
+                    salt: ("revoke-invitation", invitation),
                     title: "Revoke invitation?",
-                    message: "Revoke this invitation? People who have it can no longer send you requests with it. Contacts you already accepted are not affected.".to_owned(),
+                    message,
                     action: "Revoke",
                     checkbox: true,
                 },
@@ -81,7 +150,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("block", contact),
                     title: "Block contact?",
                     message: format!(
-                        "{name} will not be able to reach you. Messages waiting to be sent to them will not be sent. Your conversation stays on this device, under their fingerprint, until you delete it."
+                        "{name} will not be able to reach you. Messages waiting to be sent to them will not be sent. Your conversation stays on this device, under their fingerprint, until you delete it. You can unblock them later in Settings > Identities."
                     ),
                     action: "Block",
                     checkbox: false,
@@ -98,7 +167,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("remove", contact),
                     title: "Remove contact?",
                     message: format!(
-                        "{name} is removed from your contacts. Your conversation stays on this device, under their fingerprint, until you delete it. To talk again, add their card again."
+                        "{name} is removed from your contacts. Messages not yet delivered to them will not be sent. The conversation stays on this device as Former contact and their fingerprint until you delete it. To talk again, add their card again; ask them for it if you no longer have it."
                     ),
                     action: "Remove",
                     checkbox: false,
@@ -107,16 +176,14 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
         }
         Some(Dialog::DeleteConversation { contact, .. }) => {
             let contact = *contact;
-            let name = app.model.contact_name(contact);
+            let message = delete_messages_text(app, contact);
             danger(
                 ctx,
                 app,
                 &Danger {
                     salt: ("delete-messages", contact),
                     title: "Delete messages?",
-                    message: format!(
-                        "All messages with {name} are deleted from this device. Their copies are not affected. Deleted data may stay on the disk until it is overwritten."
-                    ),
+                    message,
                     action: "Delete",
                     checkbox: false,
                 },
@@ -137,7 +204,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("delete-identity", identity),
                     title: "Delete identity?",
                     message: format!(
-                        "{name}, its contacts and its messages are deleted from this device, and its address stops working. This cannot be undone."
+                        "{name}, its contacts and its messages are deleted from this device, and its address stops working. Your contacts are not told; what they send to it will never arrive. Deleted data may stay on the disk until it is overwritten. This cannot be undone."
                     ),
                     action: "Delete identity",
                     checkbox: false,
@@ -146,6 +213,65 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
         }
         Some(Dialog::AcceptRequest { .. }) => accept_request(ctx, app),
         Some(Dialog::TorDetails) => tor_details(ctx, app),
+    }
+}
+
+// ---- What the dialogs say ----
+
+/// What revoking `invitation` does, naming it by its label.
+fn revoke_text(app: &App, invitation: UiInvitationId) -> String {
+    let label = app
+        .model
+        .slice(invitation.identity())
+        .and_then(|slice| slice.invitations.iter().find(|view| view.id == invitation))
+        .and_then(|view| view.label.as_deref())
+        .map(|label| present::prepare(label, false).text)
+        .filter(|label| !label.trim().is_empty());
+    let named = match label {
+        Some(label) => format!("the invitation \"{label}\""),
+        None => "this invitation".to_owned(),
+    };
+    format!(
+        "People who have {named} can no longer send you requests with it. Contacts you already accepted are not affected."
+    )
+}
+
+/// What deleting the messages of `contact` does, counting those that were
+/// never delivered: they go too, and are never sent.
+fn delete_messages_text(app: &App, contact: UiContactId) -> String {
+    let name = app.model.contact_name(contact);
+    let queued = app
+        .model
+        .conversation(contact)
+        .map_or(0, |conversation| conversation.queued);
+    let undelivered = if queued == 0 {
+        String::new()
+    } else {
+        format!(", including {queued} not yet delivered, which will not be sent")
+    };
+    format!(
+        "All messages with {name} are deleted from this device{undelivered}. Their copies are not affected. Deleted data may stay on the disk until it is overwritten."
+    )
+}
+
+/// A fingerprint in two rows of groups, the first holding the odd one:
+/// the 13 groups of a full fingerprint make rows of 7 and 6.
+pub(crate) fn fingerprint_rows(fingerprint: &str) -> Vec<String> {
+    let groups: Vec<&str> = fingerprint.split_whitespace().collect();
+    let first = groups.len().div_ceil(2).max(1);
+    groups.chunks(first).map(|row| row.join(" ")).collect()
+}
+
+/// The error of a dialog, split: the sentence of a failure that belongs to
+/// the field of `field`, drawn under that field, and any other failure,
+/// drawn as a line under the form.
+fn split_error(
+    error: Option<Failure>,
+    field: &[Failure],
+) -> (Option<&'static str>, Option<Failure>) {
+    match error {
+        Some(failure) if field.contains(&failure) => (Some(failure.message()), None),
+        other => (None, other),
     }
 }
 
@@ -167,8 +293,8 @@ fn field_label(ui: &mut Ui, theme: &Theme, text: &str) {
     ));
 }
 
-/// Mono text, wrapped and selectable, in a sunken box.
-fn mono_box(ui: &mut Ui, theme: &Theme, text: &str) {
+/// A sunken box across the width, with `add` inside.
+fn sunken(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
     let width = ui.available_width();
     let margin = theme.space.md;
     Frame::new()
@@ -181,12 +307,29 @@ fn mono_box(ui: &mut Ui, theme: &Theme, text: &str) {
         .inner_margin(margin)
         .show(ui, |ui| {
             ui.set_width(width - margin * 2.0);
-            ui.add(
-                Text::new(text, &theme.text.mono, theme.color.text)
-                    .selectable(true)
-                    .wrap(),
-            );
+            add(ui);
         });
+}
+
+/// Mono text, wrapped and selectable, in a sunken box.
+fn mono_box(ui: &mut Ui, theme: &Theme, text: &str) {
+    sunken(ui, theme, |ui| {
+        ui.add(
+            Text::new(text, &theme.text.mono, theme.color.text)
+                .selectable(true)
+                .wrap(),
+        );
+    });
+}
+
+/// A fingerprint in two rows, mono and selectable, in a sunken box.
+fn fingerprint_box(ui: &mut Ui, theme: &Theme, fingerprint: &str) {
+    sunken(ui, theme, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for row in fingerprint_rows(fingerprint) {
+            ui.add(Text::new(&row, &theme.text.mono, theme.color.text).selectable(true));
+        }
+    });
 }
 
 /// A progress mark with a line beside it.
@@ -203,13 +346,15 @@ fn loading(ui: &mut Ui, theme: &Theme, text: &str) {
     });
 }
 
+/// A failure that belongs to no field, as a line under the form.
 fn error_line(ui: &mut Ui, error: Option<Failure>) {
     if let Some(failure) = error {
         ui.add(InlineError::new(failure.message()));
     }
 }
 
-/// The main action and a cancel in the footer; what was clicked.
+/// The main action and a cancel in the footer, the main action at the
+/// right; what was clicked.
 fn actions(ui: &mut Ui, main: Button<'_>, cancel: &str, busy: bool) -> (bool, bool) {
     let main = ui.add(main).clicked();
     let cancel = ui.add(Button::secondary(cancel).enabled(!busy)).clicked();
@@ -272,17 +417,79 @@ fn track_card_field(ctx: &Context, app: &mut App, open: bool) {
     }
 }
 
+/// Where a card file can be dropped: a dashed frame that lights up while a
+/// file is dragged over the window. Once a card was read from a file, the
+/// frame holds the name of that file.
+fn drop_zone(ui: &mut Ui, theme: &Theme, hovering: bool, read: Option<&str>) {
+    const WORDS: &str = "Drop a card file here";
+    let size = Vec2::new(ui.available_width(), theme.size.control_lg);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    let read = read.filter(|_| !hovering);
+    let label = read.map_or_else(|| WORDS.to_owned(), |name| format!("Card read from {name}"));
+    interact::describe(&response, WidgetType::Label, &label);
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let c = &theme.color;
+    let (fill, edge, ink) = if hovering {
+        (c.accent_subtle, c.accent, c.accent_text)
+    } else {
+        (c.bg_sunken, c.border_strong, c.text_secondary)
+    };
+    let radius = CornerRadius::same(theme.radius.md);
+    let painter = ui.painter().clone();
+    painter.rect_filled(rect, radius, fill);
+    let mut outline = Vec::new();
+    path::rounded_rectangle(
+        &mut outline,
+        rect.shrink(theme.stroke.hairline / 2.0),
+        CornerRadiusF32::from(radius),
+    );
+    if let Some(first) = outline.first().copied() {
+        outline.push(first);
+    }
+    painter.extend(Shape::dashed_line(
+        &outline,
+        Stroke::new(theme.stroke.hairline, edge),
+        theme.space.sm,
+        theme.space.xs,
+    ));
+    if let Some(name) = read {
+        let mut inside = ui.new_child(
+            UiBuilder::new()
+                .max_rect(rect)
+                .layout(Layout::centered_and_justified(Direction::LeftToRight)),
+        );
+        inside.add(Pill::new(PillTone::Success, name).icon(icons::CIRCLE_CHECK));
+        return;
+    }
+    let galley = painter.layout_no_wrap(WORDS.to_owned(), theme.text.body.font_id(), ink);
+    let icon = theme.size.icon;
+    let gap = theme.space.sm;
+    let left = rect.center().x - (icon + gap + galley.size().x) / 2.0;
+    icons::FILE_TEXT.paint(
+        &painter,
+        egui::pos2(left + icon / 2.0, rect.center().y),
+        icon,
+        ink,
+    );
+    let top = rect.center().y - galley.size().y / 2.0;
+    painter.galley(egui::pos2(left + icon + gap, top), galley, ink);
+}
+
 // ---- Dialogs ----
 
 fn new_identity(ctx: &Context, app: &mut App) {
     let theme = theme::current(ctx);
     let focus = nothing_focused(ctx);
+    // Making an identity publishes its service, which takes Tor.
+    let no_tor = app.model.tor_indicator() == TorIndicator::Unavailable;
     let Some(Dialog::NewIdentity { name, busy, error }) = app.model.dialog_mut() else {
         return;
     };
     let busy = busy.is_some();
-    let error = *error;
-    let (mut main, mut cancel, mut submitted) = (false, false, false);
+    let (name_error, error) = split_error(*error, NAME_ERRORS);
+    let (mut main, mut cancel, mut submitted, mut tor) = (false, false, false, false);
     let out = Modal::new("new-identity", "New identity")
         .dismissable(!busy)
         .show(
@@ -292,22 +499,33 @@ fn new_identity(ctx: &Context, app: &mut App) {
                     .label("Name (only you see it)")
                     .char_limit(NAME_LIMIT)
                     .enabled(!busy)
+                    .error(name_error)
                     .request_focus(focus)
                     .show(ui);
                 submitted = output.submitted;
                 ui.add_space(theme.space.xs);
-                paragraph(
-                    ui,
-                    &theme,
-                    "Each identity has its own contacts, card and address. People you talk to with one identity cannot see your others.",
-                );
+                paragraph(ui, &theme, IDENTITIES);
+                if no_tor && !busy {
+                    ui.add_space(theme.space.xs);
+                    tor = Banner::new(
+                        "new-identity-tor",
+                        Tone::Warning,
+                        "Monolith needs Tor to make an identity, and Tor is not available now.",
+                    )
+                    .action("Tor details")
+                    .show(ui)
+                    .action;
+                }
                 error_line(ui, error);
             },
             |ui| {
-                (main, cancel) = actions(ui, Button::primary("Create").busy(busy), "Cancel", busy);
+                let create = Button::primary("Create").enabled(!no_tor).busy(busy);
+                (main, cancel) = actions(ui, create, "Cancel", busy);
             },
         );
-    if (main || submitted) && !busy {
+    if tor {
+        app.model.open(Dialog::TorDetails);
+    } else if (main || submitted) && !busy && !no_tor {
         app.model.confirm();
     } else if cancel || out.close_requested {
         close(app);
@@ -329,8 +547,12 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
             open_path = Some(path);
         }
     }
+    let hovering = !busy && ctx.input(|input| !input.raw.hovered_files.is_empty());
     let App {
-        model, card_path, ..
+        model,
+        card_path,
+        card_file,
+        ..
     } = app;
     let Some(Dialog::AddContact {
         card, name, error, ..
@@ -338,9 +560,21 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
     else {
         return;
     };
-    let error = *error;
+    // The card asked for has arrived: the field was emptied when it was.
+    if let Some(file) = card_file.as_mut() {
+        if !file.read && !card.trim().is_empty() {
+            file.read = true;
+        }
+    }
+    let read = card_file
+        .as_ref()
+        .filter(|file| file.read)
+        .map(|file| file.name.clone());
+    let (card_error, error) = split_error(*error, CARD_ERRORS);
+    let (name_error, error) = split_error(error, NAME_ERRORS);
     let has_card = !card.trim().is_empty();
     let (mut main, mut cancel, mut submitted, mut open_clicked) = (false, false, false, false);
+    let mut typed = false;
     let out = Modal::new(("add-contact", identity), "Add contact")
         .dismissable(!busy)
         .show(
@@ -348,13 +582,16 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
             |ui| {
                 let output = TextField::new(("add-contact-card", identity), card)
                     .label("Card")
-                    .hint("Paste their Monolith card")
+                    .hint("Paste their card or invitation")
+                    .help(Some(CARD_HELP))
+                    .error(card_error)
                     .enabled(!busy)
                     .request_focus(focus)
                     .show(ui);
                 submitted |= output.submitted && has_card;
+                typed = output.changed;
                 ui.add_space(theme.space.xs);
-                field_label(ui, &theme, "Card file");
+                drop_zone(ui, &theme, hovering, read.as_deref());
                 ui.allocate_ui_with_layout(
                     Vec2::new(ui.available_width(), theme.size.control),
                     Layout::right_to_left(Align::Center),
@@ -365,7 +602,7 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
                             .clicked();
                         let width = ui.available_width();
                         let output = TextField::new(("add-contact-path", identity), card_path)
-                            .hint("Path to a card file")
+                            .hint("or type its path")
                             .enabled(!busy)
                             .width(width)
                             .show(ui);
@@ -374,33 +611,30 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
                         }
                     },
                 );
-                caption(ui, &theme, "or drop the file on this window");
                 ui.add_space(theme.space.xs);
                 let output = TextField::new(("add-contact-name", identity), name)
                     .label("Name (only you see it)")
                     .char_limit(NAME_LIMIT)
+                    .error(name_error)
                     .enabled(!busy)
                     .show(ui);
                 submitted |= output.submitted && has_card;
-                ui.add_space(theme.space.xs);
-                paragraph(
-                    ui,
-                    &theme,
-                    "If they gave you an invitation, they will see your request when you send your first message. Otherwise they also need to add your card.",
-                );
                 error_line(ui, error);
             },
             |ui| {
                 (main, cancel) = actions(
                     ui,
-                    Button::primary("Add contact")
-                        .enabled(has_card)
-                        .busy(busy),
+                    Button::primary("Add contact").enabled(has_card).busy(busy),
                     "Cancel",
                     busy,
                 );
             },
         );
+    if typed {
+        // The card in the field is no longer the one of the file.
+        app.card_file = None;
+    }
+    let requested = open_clicked || open_path.is_some();
     let path = if open_clicked {
         Some(std::path::PathBuf::from(app.card_path.trim()))
     } else {
@@ -409,6 +643,19 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
     if let Some(path) = path {
         app.card_path = path.display().to_string();
         app.effect(Effect::ReadCard { path });
+    }
+    if requested {
+        // The field is emptied so that the card of the file is told from
+        // what was there; the file's name is shown once it has arrived.
+        if let Some(Dialog::AddContact { card, .. }) = app.model.dialog_mut() {
+            card.clear();
+        }
+        let name = std::path::Path::new(&app.card_path)
+            .file_name()
+            .map(|name| present::preview(&name.to_string_lossy(), FILE_NAME_LIMIT))
+            .unwrap_or_default();
+        app.card_file = Some(CardFile { name, read: false });
+        return;
     }
     if (main || submitted) && has_card && !busy {
         app.model.confirm();
@@ -479,7 +726,19 @@ enum CardAction {
 /// An own card or an invitation, with its QR code.
 fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
     let theme = theme::current(ctx);
-    let invitation = !matches!(app.model.dialog(), Some(Dialog::OwnCard { .. }));
+    let own = match app.model.dialog() {
+        Some(Dialog::OwnCard { identity, .. }) => Some(*identity),
+        _ => None,
+    };
+    let invitation = own.is_none();
+    // The fingerprint of the identity, which those who add the card check.
+    let fingerprint = own.and_then(|identity| {
+        app.model
+            .identities()
+            .iter()
+            .find(|view| view.id == identity)
+            .map(|view| view.full_fingerprint.clone())
+    });
     let salt = match app.model.dialog() {
         Some(Dialog::OwnCard { identity, .. }) => Id::new(("own-card", *identity)),
         Some(Dialog::ShowInvitation { invitation, .. }) => Id::new(("invitation", *invitation)),
@@ -495,7 +754,7 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
     let sentence = if invitation {
         "Give this invitation to one person. Anyone who has it can send you a request until you revoke it."
     } else {
-        "Share this card with people you want to talk to. It contains no secret."
+        OWN_CARD
     };
     let qr_label = if invitation {
         "QR code of the invitation"
@@ -517,17 +776,40 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
             };
             paragraph(ui, &theme, sentence);
             ui.add_space(theme.space.xs);
-            if let Some(matrix) = matrix {
-                ui.vertical_centered(|ui| {
-                    ui.add(QrCode::new(matrix, qr_label).max_side(theme.size.qr));
-                });
-                ui.add_space(theme.space.xs);
+            match (matrix, &fingerprint) {
+                // The fingerprint beside the code, so that the dialog fits
+                // the smallest window.
+                (Some(matrix), Some(fingerprint)) => {
+                    ui.horizontal_top(|ui| {
+                        ui.add(QrCode::new(matrix, qr_label).max_side(theme.size.qr));
+                        ui.add_space(theme.space.sm);
+                        ui.vertical(|ui| {
+                            field_label(ui, &theme, "Your fingerprint");
+                            fingerprint_box(ui, &theme, fingerprint);
+                            caption(ui, &theme, NO_SCAN);
+                        });
+                    });
+                }
+                (Some(matrix), None) => {
+                    ui.vertical_centered(|ui| {
+                        ui.add(QrCode::new(matrix, qr_label).max_side(theme.size.qr));
+                        caption(ui, &theme, NO_SCAN);
+                    });
+                }
+                (None, Some(fingerprint)) => {
+                    field_label(ui, &theme, "Your fingerprint");
+                    fingerprint_box(ui, &theme, fingerprint);
+                }
+                (None, None) => {}
             }
-            mono_box(ui, &theme, text);
             ui.add_space(theme.space.xs);
-            ui.horizontal(|ui| {
+            mono_box(ui, &theme, text);
+            error_line(ui, error);
+        },
+        |ui| {
+            if let Some(text) = text {
                 if ui
-                    .add(Button::secondary("Copy card").icon(icons::COPY))
+                    .add(Button::primary("Copy card").icon(icons::COPY))
                     .clicked()
                 {
                     ctx.copy_text(text.to_owned());
@@ -540,11 +822,8 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
                     save = Some(Zeroizing::new(text.to_owned()));
                     action = CardAction::Save;
                 }
-            });
-            error_line(ui, error);
-        },
-        |ui| {
-            done = ui.add(Button::primary("Done")).clicked();
+            }
+            done = ui.add(Button::secondary("Close")).clicked();
         },
     );
     match action {
@@ -586,23 +865,20 @@ fn new_invitation(ctx: &Context, app: &mut App) {
     };
     let identity = *identity;
     let busy = busy.is_some();
-    let error = *error;
+    let (label_error, error) = split_error(*error, NAME_ERRORS);
     let (mut main, mut cancel, mut submitted) = (false, false, false);
     let out = Modal::new(("new-invitation", identity), "New invitation")
         .dismissable(!busy)
         .show(
             ctx,
             |ui| {
-                paragraph(
-                    ui,
-                    &theme,
-                    "An invitation lets one person send you a request. You can revoke it at any time.",
-                );
+                paragraph(ui, &theme, INVITATION);
                 ui.add_space(theme.space.xs);
                 let output = TextField::new(("new-invitation-label", identity), label)
                     .label("Label (only you see it)")
                     .hint("For Dana")
                     .char_limit(NAME_LIMIT)
+                    .error(label_error)
                     .enabled(!busy)
                     .request_focus(focus)
                     .show(ui);
@@ -626,8 +902,8 @@ struct Danger<S> {
     title: &'static str,
     message: String,
     action: &'static str,
-    /// Also shows the choice of revoking an invitation: decline its
-    /// requests too.
+    /// Also shows the choice of revoking an invitation: drop its requests
+    /// too.
     checkbox: bool,
 }
 
@@ -654,7 +930,7 @@ fn danger<S: Hash>(ctx: &Context, app: &mut App, spec: &Danger<S>) {
                     ui.add(
                         Checkbox::new(
                             discard_requests,
-                            "Also decline the requests it brought that are still waiting",
+                            "Also drop the requests it brought that are still waiting",
                         )
                         .enabled(!busy)
                         .id_salt(*invitation),
@@ -683,6 +959,39 @@ fn danger<S: Hash>(ctx: &Context, app: &mut App, spec: &Danger<S>) {
         app.model.confirm();
     } else if cancelled || out.close_requested {
         close(app);
+    }
+}
+
+/// Asks before the sender of a request is blocked. The question holds the
+/// request it was asked for, whatever the list shows when it is answered;
+/// it goes away if that request is no longer waiting.
+fn block_request(ctx: &Context, app: &mut App) {
+    let Some(request) = app.block_request else {
+        return;
+    };
+    let waiting = app
+        .model
+        .slice(request.identity())
+        .is_some_and(|slice| slice.requests.iter().any(|view| view.id == request));
+    if !waiting || app.model.answering(request) {
+        app.block_request = None;
+        return;
+    }
+    let decision = Modal::new(("block-request", request), "Block this person?").confirm(
+        ctx,
+        BLOCK_REQUEST,
+        "Cancel",
+        "Block",
+        false,
+    );
+    match decision {
+        Some(Decision::Confirm) => {
+            app.block_request = None;
+            app.request_answers.insert(request, RequestAction::Block);
+            app.model.block_sender(request);
+        }
+        Some(Decision::Cancel) => app.block_request = None,
+        None => {}
     }
 }
 
@@ -729,7 +1038,7 @@ fn contact_details(ctx: &Context, app: &mut App) {
         return;
     };
     let busy = busy.is_some();
-    let error = *error;
+    let (name_error, error) = split_error(*error, NAME_ERRORS);
     let salt = ("contact", contact);
 
     let Some(info) = info else {
@@ -738,7 +1047,7 @@ fn contact_details(ctx: &Context, app: &mut App) {
             ctx,
             |ui| paragraph(ui, &theme, "This contact no longer exists."),
             |ui| {
-                close_clicked = ui.add(Button::primary("Close").enabled(!busy)).clicked();
+                close_clicked = ui.add(Button::secondary("Close").enabled(!busy)).clicked();
             },
         );
         if close_clicked || out.close_requested {
@@ -764,7 +1073,8 @@ fn contact_details(ctx: &Context, app: &mut App) {
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = theme.space.xxs;
                     ui.add(
-                        Text::new(&info.shown_name, &theme.text.heading, theme.color.text).truncate(),
+                        Text::new(&info.shown_name, &theme.text.heading, theme.color.text)
+                            .truncate(),
                     );
                     let line = if !info.accepted {
                         "Waiting for them to accept"
@@ -780,24 +1090,25 @@ fn contact_details(ctx: &Context, app: &mut App) {
             let output = TextField::new(("contact-name", contact), name)
                 .label("Name (only you see it)")
                 .char_limit(NAME_LIMIT)
+                .error(name_error)
                 .enabled(!busy)
                 .show(ui);
             submitted = output.submitted;
-            error_line(ui, error);
 
-            ui.add_space(theme.space.md);
-            field_label(ui, &theme, "Fingerprint");
-            mono_box(ui, &theme, &info.full_fingerprint);
-            if ui
-                .add(
-                    Button::ghost("Copy fingerprint")
+            ui.add_space(theme.space.sm);
+            ui.horizontal(|ui| {
+                field_label(ui, &theme, "Fingerprint");
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let copy = Button::ghost("Copy fingerprint")
                         .icon(icons::COPY)
-                        .size(Size::Small),
-                )
-                .clicked()
-            {
-                ctx.copy_text(info.full_fingerprint.clone());
-            }
+                        .size(Size::Small);
+                    if ui.add(copy).clicked() {
+                        ctx.copy_text(info.full_fingerprint.clone());
+                    }
+                });
+            });
+            fingerprint_box(ui, &theme, &info.full_fingerprint);
+            caption(ui, &theme, CHECK_CONTACT);
 
             ui.add_space(theme.space.sm);
             let mut verified = info.verified;
@@ -810,51 +1121,33 @@ fn contact_details(ctx: &Context, app: &mut App) {
             if response.changed() {
                 verified_change = Some(verified);
             }
-            caption(
-                ui,
-                &theme,
-                "Compare this fingerprint with the one your contact sees, in person or on a call you trust, then mark them verified.",
-            );
+            // The name waits for Save; the toggle does not.
+            caption(ui, &theme, "Saved at once");
 
             ui.add_space(theme.space.md);
             ui.add(Divider::horizontal());
             ui.add_space(theme.space.sm);
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(Button::ghost("Block").icon(icons::BAN).size(Size::Small))
-                    .clicked()
-                {
-                    next = Next::Block;
-                }
-                if ui
-                    .add(
-                        Button::ghost("Remove")
-                            .icon(icons::USER_X)
-                            .size(Size::Small),
-                    )
-                    .clicked()
-                {
-                    next = Next::Remove;
-                }
-                if ui
-                    .add(
-                        Button::ghost("Delete messages")
-                            .icon(icons::TRASH_2)
-                            .size(Size::Small),
-                    )
-                    .clicked()
-                {
-                    next = Next::DeleteMessages;
+                let actions = [
+                    (Next::Block, "Block", icons::BAN),
+                    (Next::Remove, "Remove", icons::USER_X),
+                    (Next::DeleteMessages, "Delete messages", icons::TRASH_2),
+                ];
+                for (choice, label, icon) in actions {
+                    let button = Button::danger(label)
+                        .icon(icon)
+                        .size(Size::Small)
+                        .enabled(!busy);
+                    if ui.add(button).clicked() {
+                        next = choice;
+                    }
                 }
             });
+            error_line(ui, error);
         },
         |ui| {
             save = ui
-                .add(
-                    Button::primary("Save")
-                        .enabled(changed && !busy)
-                        .busy(busy),
-                )
+                .add(Button::primary("Save").enabled(changed && !busy).busy(busy))
                 .clicked();
             close_clicked = ui.add(Button::secondary("Close").enabled(!busy)).clicked();
         },
@@ -901,7 +1194,12 @@ fn accept_request(ctx: &Context, app: &mut App) {
         .model
         .slice(request.identity())
         .and_then(|slice| slice.requests.iter().find(|view| view.id == request))
-        .map(|view| (view.display_name.clone(), view.full_fingerprint.clone()));
+        .map(|view| {
+            (
+                present::prepare(&view.display_name, false).text,
+                view.full_fingerprint.clone(),
+            )
+        });
     let Some(Dialog::AcceptRequest {
         name, busy, error, ..
     }) = app.model.dialog_mut()
@@ -909,7 +1207,7 @@ fn accept_request(ctx: &Context, app: &mut App) {
         return;
     };
     let busy = busy.is_some();
-    let error = *error;
+    let (name_error, error) = split_error(*error, NAME_ERRORS);
     let salt = ("accept-request", request);
 
     let Some((display_name, fingerprint)) = found else {
@@ -925,7 +1223,7 @@ fn accept_request(ctx: &Context, app: &mut App) {
                 error_line(ui, error);
             },
             |ui| {
-                close_clicked = ui.add(Button::primary("Close").enabled(!busy)).clicked();
+                close_clicked = ui.add(Button::secondary("Close").enabled(!busy)).clicked();
             },
         );
         if close_clicked || out.close_requested {
@@ -939,22 +1237,24 @@ fn accept_request(ctx: &Context, app: &mut App) {
         ctx,
         |ui| {
             let intro = if display_name.trim().is_empty() {
-                "They did not choose a name. Choose how you want to see them.".to_owned()
+                "The request carries no name. Choose how you want to see them.".to_owned()
             } else {
-                format!("They chose the name '{display_name}'. Choose how you want to see them.")
+                format!("They chose the name \"{display_name}\". Choose how you want to see them.")
             };
             paragraph(ui, &theme, &intro);
             ui.add_space(theme.space.sm);
             let output = TextField::new(("accept-name", request), name)
                 .label("Name (only you see it)")
                 .char_limit(NAME_LIMIT)
+                .error(name_error)
                 .enabled(!busy)
                 .request_focus(focus)
                 .show(ui);
             submitted = output.submitted;
             ui.add_space(theme.space.xs);
             field_label(ui, &theme, "Fingerprint");
-            mono_box(ui, &theme, &fingerprint);
+            fingerprint_box(ui, &theme, &fingerprint);
+            caption(ui, &theme, CHECK_BEFORE_ACCEPT);
             error_line(ui, error);
         },
         |ui| {
@@ -972,6 +1272,7 @@ fn tor_details(ctx: &Context, app: &mut App) {
     let theme = theme::current(ctx);
     let (state, label) = common::tor_state(&app.model);
     let checking = app.model.tor_checking();
+    let ready = matches!(app.model.tor_check(), Some(TorCheck::Ready { .. }));
     let words = match app.model.tor_check() {
         None => "Tor has not been checked yet.".to_owned(),
         Some(TorCheck::Ready { version, outdated }) => {
@@ -987,9 +1288,10 @@ fn tor_details(ctx: &Context, app: &mut App) {
             Some(percent) => format!("Tor is starting up ({percent}%)."),
             None => "Tor is starting up.".to_owned(),
         },
-        Some(TorCheck::NotRunning) => {
-            "Tor is not running, or Monolith cannot find it. Start Tor and check again.".to_owned()
-        }
+        Some(TorCheck::NotRunning) => "Tor is not running, or Monolith cannot find it. Open Tor \
+                                       Browser and leave it open, or start the Tor service, then \
+                                       press Check again."
+            .to_owned(),
         Some(TorCheck::SocksUnavailable) => {
             "Monolith cannot use the SOCKS port of Tor. Check the connection settings.".to_owned()
         }
@@ -1020,11 +1322,20 @@ fn tor_details(ctx: &Context, app: &mut App) {
             );
         },
         |ui| {
-            check = ui
-                .add(Button::primary("Check again").busy(checking))
-                .clicked();
+            // Tor works: nothing is left to do but close.
+            if ready {
+                close_clicked = ui.add(Button::primary("Close")).clicked();
+            }
+            let again = if ready {
+                Button::secondary("Check again")
+            } else {
+                Button::primary("Check again")
+            };
+            check = ui.add(again.busy(checking)).clicked();
             settings = ui.add(Button::secondary("Connection settings")).clicked();
-            close_clicked = ui.add(Button::ghost("Close")).clicked();
+            if !ready {
+                close_clicked = ui.add(Button::secondary("Close")).clicked();
+            }
         },
     );
     if settings {
@@ -1040,9 +1351,12 @@ fn tor_details(ctx: &Context, app: &mut App) {
 #[cfg(all(test, feature = "fixtures"))]
 #[allow(clippy::expect_used)]
 mod tests {
-    use egui::Vec2;
+    use egui::{Event, Key, Modifiers, Pos2, RawInput, Rect};
     use monolith_ui_kit::{Theme, fonts};
-    use monolith_ui_model::{UiInvitationId, UiRequestId};
+    use monolith_ui_model::{
+        Command, IdentitySnapshot, Outcome, RequestMode, RequestView, RuntimeEvent, Service,
+        UiInvitationId, UiRequestId, Update,
+    };
     use monolith_ui_snapshot::{Options, render};
 
     use super::*;
@@ -1095,6 +1409,103 @@ mod tests {
         }
     }
 
+    /// A window that takes keys, for what the dialogs do.
+    struct Window {
+        ctx: Context,
+        app: App,
+        time: f64,
+    }
+
+    impl Window {
+        fn new(app: App) -> Self {
+            let ctx = Context::default();
+            fonts::install(&ctx, &[]);
+            theme::install(&ctx, Theme::light().with_reduced_motion(true));
+            let mut window = Self {
+                ctx,
+                app,
+                time: 0.0,
+            };
+            for _ in 0..3 {
+                window.frame(Vec::new());
+            }
+            window
+        }
+
+        fn frame(&mut self, events: Vec<Event>) {
+            self.time += 0.1;
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    Pos2::ZERO,
+                    Theme::light().size.window_default,
+                )),
+                time: Some(self.time),
+                focused: true,
+                events,
+                ..RawInput::default()
+            };
+            let app = &mut self.app;
+            let _ = self.ctx.run(input, |ctx| crate::show(ctx, app));
+        }
+
+        fn press(&mut self, key: Key, modifiers: Modifiers) {
+            self.frame(vec![Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }]);
+            self.frame(Vec::new());
+        }
+
+        fn commands(&mut self) -> Vec<Command> {
+            self.app
+                .model
+                .take_commands()
+                .into_iter()
+                .map(|(_, command)| command)
+                .collect()
+        }
+    }
+
+    fn request_view(number: u64) -> RequestView {
+        RequestView {
+            id: UiRequestId::new(identity(), number),
+            fingerprint: "G2KW 8NRT 3MKZ 5DPL 2XEC 9BVH".to_owned(),
+            full_fingerprint: "G2KW 8NRT 3MKZ 5DPL 2XEC 9BVH 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM"
+                .to_owned(),
+            display_name: String::new(),
+            introduction: String::new(),
+            invitation: None,
+        }
+    }
+
+    /// The identity shown is read again, with `requests` waiting.
+    fn requests_now(app: &mut App, requests: Vec<RequestView>) {
+        app.model
+            .apply(Update::Event(RuntimeEvent::RequestReceived {
+                identity: identity(),
+                queued: true,
+            }));
+        for (command, asked) in app.model.take_commands() {
+            if asked == Command::LoadIdentity(identity()) {
+                app.model.apply(Update::Done {
+                    command,
+                    outcome: Outcome::Identity(Box::new(IdentitySnapshot {
+                        identity: identity(),
+                        contacts: Vec::new(),
+                        conversations: Vec::new(),
+                        requests: requests.clone(),
+                        invitations: Vec::new(),
+                        service: Service::Available,
+                        request_mode: RequestMode::Invitation,
+                    })),
+                });
+            }
+        }
+    }
+
     #[test]
     fn every_dialog() {
         let none = || (None, None);
@@ -1119,6 +1530,16 @@ mod tests {
                 },
             ),
             (
+                "add-contact-error",
+                Dialog::AddContact {
+                    identity: identity(),
+                    card: "monolith:card:1:XYZ".to_owned(),
+                    name: String::new(),
+                    busy,
+                    error: Some(Failure::InvalidCard),
+                },
+            ),
+            (
                 "own-card",
                 Dialog::OwnCard {
                     identity: identity(),
@@ -1132,6 +1553,16 @@ mod tests {
                 Dialog::ShowInvitation {
                     invitation: UiInvitationId::new(identity(), 1),
                     card: None,
+                    busy,
+                    error,
+                },
+            ),
+            (
+                "new-invitation",
+                Dialog::NewInvitation {
+                    identity: identity(),
+                    label: String::new(),
+                    created: None,
                     busy,
                     error,
                 },
@@ -1159,6 +1590,15 @@ mod tests {
                 },
             ),
             (
+                "contact",
+                Dialog::ContactDetails {
+                    contact: contact(10),
+                    name: "Alice Martin".to_owned(),
+                    busy,
+                    error: Some(Failure::InvalidText),
+                },
+            ),
+            (
                 "contact-gone",
                 Dialog::ContactDetails {
                     contact: contact(99),
@@ -1177,6 +1617,14 @@ mod tests {
                 },
             ),
             (
+                "block",
+                Dialog::BlockContact {
+                    contact: contact(11),
+                    busy,
+                    error,
+                },
+            ),
+            (
                 "remove",
                 Dialog::RemoveContact {
                     contact: contact(10),
@@ -1187,7 +1635,7 @@ mod tests {
             (
                 "delete-messages",
                 Dialog::DeleteConversation {
-                    contact: contact(10),
+                    contact: contact(12),
                     busy,
                     error,
                 },
@@ -1228,6 +1676,33 @@ mod tests {
         let mut app = fixture("tor-unavailable").expect("fixture");
         app.model.open(Dialog::TorDetails);
         shot("tor-down", app);
+        let mut app = fixture("tor-unavailable").expect("fixture");
+        app.model.open(Dialog::NewIdentity {
+            name: "Work".to_owned(),
+            busy: None,
+            error: None,
+        });
+        shot("new-identity-no-tor", app);
+        let mut app = base();
+        app.model.open(Dialog::AddContact {
+            identity: identity(),
+            card: CARD.to_owned(),
+            name: String::new(),
+            busy: None,
+            error: None,
+        });
+        app.card_file = Some(CardFile {
+            name: "dana-card.txt".to_owned(),
+            read: true,
+        });
+        shot("add-contact-read", app);
+        let mut app = fixture("requests").expect("fixture");
+        app.block_request = Some(UiRequestId::new(identity(), 1));
+        shot("block-request", app);
+        // A request as Monolith sends it: no name, no introduction.
+        let mut app = fixture("requests").expect("fixture");
+        requests_now(&mut app, vec![request_view(1)]);
+        shot("request-without-name", app);
     }
 
     #[test]
@@ -1251,5 +1726,148 @@ mod tests {
         app.model.close();
         let _ = render(&ctx, &options, |ctx| crate::show(ctx, &mut app));
         assert!(app.qr.is_none());
+    }
+
+    fn new_identity_dialog() -> Dialog {
+        Dialog::NewIdentity {
+            name: "Work".to_owned(),
+            busy: None,
+            error: None,
+        }
+    }
+
+    fn creates(commands: &[Command]) -> bool {
+        commands
+            .iter()
+            .any(|command| matches!(command, Command::CreateIdentity { .. }))
+    }
+
+    /// Opens "New identity" in `app`, with the focus in its name field.
+    fn naming(app: App) -> Window {
+        let mut app = app;
+        app.model.open(new_identity_dialog());
+        let mut window = Window::new(app);
+        let field = TextField::new("new-identity-name", &mut String::new()).edit_id();
+        window.ctx.memory_mut(|memory| memory.request_focus(field));
+        window.frame(Vec::new());
+        let _ = window.commands();
+        window
+    }
+
+    #[test]
+    fn no_identity_is_made_while_tor_is_unavailable() {
+        let mut window = naming(fixture("tor-unavailable").expect("fixture"));
+        // Enter in the name field submits the dialog.
+        window.press(Key::Enter, Modifiers::NONE);
+        assert!(!creates(&window.commands()));
+        assert!(matches!(
+            window.app.model.dialog(),
+            Some(Dialog::NewIdentity { busy: None, .. })
+        ));
+
+        // With Tor, the same key makes it.
+        let mut window = naming(base());
+        window.press(Key::Enter, Modifiers::NONE);
+        assert!(creates(&window.commands()));
+    }
+
+    #[test]
+    fn blocking_from_a_request_blocks_only_the_request_it_was_asked_for() {
+        let mut app = fixture("requests").expect("fixture");
+        let first = UiRequestId::new(identity(), 1);
+        let second = UiRequestId::new(identity(), 2);
+        requests_now(&mut app, vec![request_view(1)]);
+        app.block_request = Some(first);
+        let mut window = Window::new(app);
+        let _ = window.commands();
+        // Nothing is blocked by asking.
+        assert!(window.app.model.dialog().is_none());
+        assert_eq!(window.app.block_request, Some(first));
+        // Another request arrives, listed first, while the question is open.
+        requests_now(&mut window.app, vec![request_view(2), request_view(1)]);
+        window.frame(Vec::new());
+        // The question has Cancel focused; Block is before it.
+        window.press(Key::Tab, Modifiers::SHIFT);
+        window.press(Key::Enter, Modifiers::NONE);
+        let commands = window.commands();
+        assert!(
+            commands.contains(&Command::BlockRequest(first)),
+            "{commands:?}"
+        );
+        assert!(!commands.contains(&Command::BlockRequest(second)));
+        assert_eq!(window.app.block_request, None);
+    }
+
+    #[test]
+    fn cancelling_the_question_blocks_nobody() {
+        let mut app = fixture("requests").expect("fixture");
+        app.block_request = Some(UiRequestId::new(identity(), 1));
+        let mut window = Window::new(app);
+        let _ = window.commands();
+        window.press(Key::Enter, Modifiers::NONE);
+        let commands = window.commands();
+        assert!(
+            !commands
+                .iter()
+                .any(|command| matches!(command, Command::BlockRequest(_))),
+            "{commands:?}"
+        );
+        assert_eq!(window.app.block_request, None);
+    }
+
+    #[test]
+    fn deleting_messages_names_those_not_yet_delivered() {
+        let app = base();
+        // Carol's conversation holds one queued message, Bob's none.
+        let carol = delete_messages_text(&app, contact(12));
+        assert!(
+            carol.contains("including 1 not yet delivered, which will not be sent"),
+            "{carol}"
+        );
+        let bob = delete_messages_text(&app, contact(11));
+        assert!(!bob.contains("not yet delivered"), "{bob}");
+        assert!(bob.starts_with("All messages with Bob at work are deleted"));
+    }
+
+    #[test]
+    fn an_error_goes_under_the_field_it_belongs_to() {
+        let (card, rest) = split_error(Some(Failure::InvalidCard), CARD_ERRORS);
+        assert_eq!(card, Some(Failure::InvalidCard.message()));
+        assert_eq!(rest, None);
+        let (name, rest) = split_error(rest, NAME_ERRORS);
+        assert_eq!((name, rest), (None, None));
+        // A failure of no field stays a line under the form.
+        let (card, rest) = split_error(Some(Failure::Storage), CARD_ERRORS);
+        assert_eq!((card, rest), (None, Some(Failure::Storage)));
+        let (name, rest) = split_error(Some(Failure::InvalidText), CARD_ERRORS);
+        assert_eq!(name, None);
+        assert_eq!(
+            split_error(rest, NAME_ERRORS),
+            (Some(Failure::InvalidText.message()), None)
+        );
+    }
+
+    #[test]
+    fn a_fingerprint_is_laid_out_in_two_rows() {
+        let full = "AF3K 72PQ 9XZT M4LB D8EV 61RC 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM";
+        assert_eq!(
+            fingerprint_rows(full),
+            [
+                "AF3K 72PQ 9XZT M4LB D8EV 61RC 5TQN",
+                "2WRK 8MZP 3XEL 6VDB 9HCA Q4KM"
+            ]
+        );
+        assert_eq!(fingerprint_rows("AF3K"), ["AF3K"]);
+        assert!(fingerprint_rows("").is_empty());
+    }
+
+    #[test]
+    fn a_revoked_invitation_is_named_by_its_label() {
+        let app = base();
+        let text = revoke_text(&app, UiInvitationId::new(identity(), 1));
+        assert!(
+            text.starts_with("People who have the invitation \"Climbing gym\""),
+            "{text}"
+        );
     }
 }
