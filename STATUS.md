@@ -77,8 +77,31 @@ Not the final verification yet. On the way:
 ## 5. Reviews
 
 Four independent reviews were started on `21b3df0`: A visual, B UX, C
-security and architecture, D egui. B has reported; A, C and D had not when
-this was written. B's findings, to reproduce, test and fix:
+security and architecture, D egui. A and B have reported; C and D had not
+when this was written.
+
+A's findings, to reproduce, test and fix: Settings breaks below 880
+points (nav always shown, rows clipped, the header button over its
+caption); dialogs have no maximum height and do not scroll (at 760 by 520
+the footer of contact details is off screen); a failed store is said three
+times and its toast covers the composer's line; toasts sit bottom centre
+over the composer and modal footers; the empty identity repeats its empty
+state in the sidebar; the narrow list shows neither Tor nor a failed store;
+in the dark theme borders vanish on raised surfaces, secondary and disabled
+buttons and the segmented control nearly disappear; dark danger buttons
+(3.1 to 1) and the light warning pill (4.1 to 1) fail contrast and are not
+in the test; field errors are drawn away from their fields
+(`TextField::error` is unused); an identity's avatar colour differs between
+the sidebar and the settings (full against compact fingerprint); reading a
+card from a file means typing a path; minor: the composer's permanent
+focus ring, a small and dense QR code with a stray pixel beside it,
+labels selectable by default, initials of placeholder names, technical
+first screens, fingerprint wrapping, inconsistent buttons, content cut at
+scroll edges, hidden scroll bars, an empty sidebar before the first
+identity, punctuation. The fixtures miss the open switcher, the narrow
+conversation and requests panes, and two show the wrong content.
+
+B's findings, to reproduce, test and fix:
 
 1. A plain card (not an invitation) shared one way fails silently under the
    default request mode "invitations only": the request is dropped, nobody
@@ -115,7 +138,7 @@ this was written. B's findings, to reproduce, test and fix:
 
 ## 6. What is left, in order
 
-1. The reports of reviews A, C and D; then for every finding of the four:
+1. The reports of reviews C and D; then for every finding of the four:
    reproduce it, a regression test before the fix, a mutation fault where
    useful, a review of sibling patterns.
 2. The property tests of the UI model (`tests/properties.rs`), under way.
