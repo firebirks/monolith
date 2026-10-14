@@ -133,7 +133,10 @@ fn sequence_seeds() -> Vec<(String, Vec<u8>)> {
     vec![
         ("ui_model_sequence/send.bin".to_owned(), bytes(&send)),
         ("ui_model_sequence/dialogs.bin".to_owned(), bytes(&dialogs)),
-        ("ui_model_sequence/stale_answers.bin".to_owned(), bytes(&stale)),
+        (
+            "ui_model_sequence/stale_answers.bin".to_owned(),
+            bytes(&stale),
+        ),
         ("ui_model_sequence/events.bin".to_owned(), bytes(&events)),
     ]
 }
