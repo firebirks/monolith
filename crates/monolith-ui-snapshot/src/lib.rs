@@ -120,6 +120,9 @@ pub struct Options {
     pub frames: u32,
     /// Seconds between frames.
     pub frame_time: f64,
+    /// The time of the first frame, in seconds: later than the last frame
+    /// of an earlier render into the same context.
+    pub start_time: f64,
     /// Where the pointer is, if anywhere.
     pub pointer: Option<Pos2>,
     /// Events given in the first frame only (key presses, text).
@@ -135,6 +138,7 @@ impl Default for Options {
             pixels_per_point: 1.0,
             frames: 4,
             frame_time: 0.5,
+            start_time: 0.0,
             pointer: None,
             events: Vec::new(),
             background: Color32::WHITE,
@@ -160,7 +164,7 @@ pub fn render(ctx: &Context, options: &Options, mut run: impl FnMut(&Context)) -
     for frame in 0..=frames {
         let mut input = RawInput {
             screen_rect: Some(screen),
-            time: Some(f64::from(frame) * options.frame_time),
+            time: Some(options.start_time + f64::from(frame) * options.frame_time),
             predicted_dt: options.frame_time as f32,
             focused: true,
             ..Default::default()
