@@ -9,7 +9,7 @@ pub(crate) mod auth;
 pub(crate) mod command;
 mod reply;
 
-use core::net::SocketAddrV4;
+use core::net::{SocketAddr, SocketAddrV4};
 
 use monolith_identity::{OnionServiceKey, ServiceId};
 use monolith_protocol::limits::{CONTROL_COMMAND_TIMEOUT, CONTROL_CONNECT_TIMEOUT};
@@ -20,10 +20,11 @@ pub(crate) use command::OnionKey;
 pub use reply::{Reply, ReplyParser};
 
 use self::auth::{
-    NONCE_LEN, parse_authchallenge, parse_protocolinfo, read_cookie, safecookie_hashes,
-    server_hash_matches,
+    NONCE_LEN, decode_quoted, parse_authchallenge, parse_protocolinfo, read_cookie,
+    safecookie_hashes, server_hash_matches,
 };
 use self::command::Command;
+use crate::config::EndpointKind;
 use crate::stream::{TorStream, connect};
 use crate::{Bootstrap, ControlAuth, Endpoint, OnionServiceSecret, TorError, TorVersion};
 
@@ -153,6 +154,16 @@ impl ControlConnection {
         parse_bootstrap_reply(&reply)
     }
 
+    /// `GETINFO net/listeners/socks`: whether Tor lists `socks` among its
+    /// SOCKS listeners.
+    pub(crate) async fn lists_socks_listener(
+        &mut self,
+        socks: &Endpoint,
+    ) -> Result<bool, TorError> {
+        let reply = self.command(&Command::SocksListeners).await?;
+        parse_socks_listeners(&reply, socks)
+    }
+
     /// `ADD_ONION`, with `target` as the address Tor connects to.
     pub(crate) async fn add_onion(
         &mut self,
@@ -210,6 +221,45 @@ pub(crate) fn parse_bootstrap_reply(reply: &Reply) -> Result<Bootstrap, TorError
         reply,
         b"status/bootstrap-phase",
     )?))
+}
+
+/// Reads the reply to `GETINFO net/listeners/socks` and says whether
+/// `socks` is one of the listeners. The value is a list of quoted entries
+/// separated by single spaces, possibly empty: `ADDR:PORT`, with an IPv6
+/// address in brackets, or `unix:PATH`. Entries other than `socks` are
+/// passed over; a value that is not such a list is a malformed reply.
+pub(crate) fn parse_socks_listeners(reply: &Reply, socks: &Endpoint) -> Result<bool, TorError> {
+    if reply.code() != 250 {
+        return Err(TorError::CommandRefused);
+    }
+    let mut rest = getinfo_value(reply, b"net/listeners/socks")?;
+    let mut listed = false;
+    while !rest.is_empty() {
+        let (entry, after) = decode_quoted(rest)?;
+        if is_listener(&entry, socks) {
+            listed = true;
+        }
+        rest = match after {
+            [] => after,
+            [b' ', next @ ..] if !next.is_empty() => next,
+            _ => return Err(TorError::InvalidTorResponse),
+        };
+    }
+    Ok(listed)
+}
+
+/// Whether a decoded entry of `net/listeners/socks` is `endpoint`.
+fn is_listener(entry: &[u8], endpoint: &Endpoint) -> bool {
+    match &endpoint.0 {
+        EndpointKind::Tcp(address) => core::str::from_utf8(entry)
+            .ok()
+            .and_then(|text| text.parse::<SocketAddr>().ok())
+            .is_some_and(|listed| listed == *address),
+        #[cfg(unix)]
+        EndpointKind::Unix(path) => {
+            entry.strip_prefix(b"unix:") == Some(path.as_os_str().as_encoded_bytes())
+        }
+    }
 }
 
 /// Checks a reply that must be exactly `250 OK`.
@@ -388,6 +438,78 @@ mod tests {
         assert!(getinfo_value(&no_ok, b"status/circuit-established").is_err());
         let prefix = reply(b"250-status/circuit-established-other=1\r\n250 OK\r\n");
         assert!(getinfo_value(&prefix, b"status/circuit-established").is_err());
+    }
+
+    #[test]
+    fn socks_listeners_are_read_as_tor_lists_them() {
+        let socks = Endpoint::parse("127.0.0.1:9150").unwrap();
+        let listed = |bytes: &[u8]| parse_socks_listeners(&reply(bytes), &socks);
+        assert_eq!(
+            listed(b"250-net/listeners/socks=\"127.0.0.1:9150\"\r\n250 OK\r\n"),
+            Ok(true)
+        );
+        // Among others, a socket and IPv6 among them, in any place.
+        assert_eq!(
+            listed(b"250-net/listeners/socks=\"unix:/run/tor/socks\" \"[::1]:9050\" \"127.0.0.1:9150\"\r\n250 OK\r\n"),
+            Ok(true)
+        );
+        assert_eq!(
+            listed(b"250-net/listeners/socks=\"127.0.0.1:9150\" \"[::1]:9050\"\r\n250 OK\r\n"),
+            Ok(true)
+        );
+        // Another port, another address, the port on IPv6, a socket, an
+        // entry that is no address, none at all.
+        for other in [
+            &b"250-net/listeners/socks=\"127.0.0.1:9050\"\r\n250 OK\r\n"[..],
+            b"250-net/listeners/socks=\"127.0.0.2:9150\"\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"[::1]:9150\"\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"unix:127.0.0.1:9150\"\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"127.0.0.1:9150 x\"\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\r\n250 OK\r\n",
+        ] {
+            assert_eq!(
+                listed(other),
+                Ok(false),
+                "{}",
+                String::from_utf8_lossy(other)
+            );
+        }
+        // Not a list as Tor writes it, or not this key.
+        for bad in [
+            &b"250-net/listeners/socks=127.0.0.1:9150\r\n250 OK\r\n"[..],
+            b"250-net/listeners/socks=\"127.0.0.1:9150\" \r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"127.0.0.1:9150\"  \"[::1]:9050\"\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"127.0.0.1:9150\"\"[::1]:9050\"\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"127.0.0.1:9150\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"127.0.0.1:9150\"\r\n250-x=y\r\n250 OK\r\n",
+            b"250-net/listeners/socks=\"127.0.0.1:9150\"\r\n250 DONE\r\n",
+            b"250-net/listeners/or=\"127.0.0.1:9150\"\r\n250 OK\r\n",
+            b"250 OK\r\n",
+        ] {
+            assert_eq!(
+                listed(bad),
+                Err(TorError::InvalidTorResponse),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+        // A Tor that does not know the key, a filter that refuses it.
+        for refused in [
+            &b"552 Unrecognized key \"net/listeners/socks\"\r\n"[..],
+            b"510 Command filtered\r\n",
+        ] {
+            assert_eq!(listed(refused), Err(TorError::CommandRefused));
+        }
+        #[cfg(unix)]
+        {
+            let socket = Endpoint::parse("unix:/run/tor/socks").unwrap();
+            let both = reply(
+                b"250-net/listeners/socks=\"127.0.0.1:9050\" \"unix:/run/tor/socks\"\r\n250 OK\r\n",
+            );
+            assert_eq!(parse_socks_listeners(&both, &socket), Ok(true));
+            let other = reply(b"250-net/listeners/socks=\"unix:/run/tor/socks2\"\r\n250 OK\r\n");
+            assert_eq!(parse_socks_listeners(&other, &socket), Ok(false));
+        }
     }
 
     #[test]

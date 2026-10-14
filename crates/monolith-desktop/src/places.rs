@@ -38,6 +38,27 @@ fn os_release_is_tails(text: &str) -> bool {
         .any(|id| id.trim_matches('"') == "tails")
 }
 
+/// The marker files of Whonix, of the Workstation and of Whonix in general
+/// (`docs/PLATFORM_WHONIX.md` section 8).
+const WHONIX_MARKERS: [&str; 2] = [
+    "/usr/share/anon-ws-base-files/workstation",
+    "/usr/share/whonix/marker",
+];
+
+/// Whether this system is Whonix: one of its marker files exists.
+pub fn is_whonix() -> bool {
+    cfg!(target_os = "linux")
+        && WHONIX_MARKERS
+            .iter()
+            .any(|marker| Path::new(marker).exists())
+}
+
+/// Whether Tor is the platform's own, behind an onion-grater filter: on
+/// Tails and on Whonix.
+pub fn filtered_tor() -> bool {
+    is_tails() || is_whonix()
+}
+
 /// A mount point as the mount table writes it: space, tab, newline and
 /// backslash as octal escapes.
 fn unescape(field: &str) -> String {
@@ -135,12 +156,25 @@ fn settings(socks: &str, control: &str, cookie_file: OsString) -> TorSettings {
     }
 }
 
+/// The folder Tor Browser's installer offers on Windows, the desktop of
+/// the home folder `home`. OneDrive's backup of folders moves the desktop
+/// into the OneDrive folder; that one is taken when Tor Browser is there.
+#[cfg(any(windows, test))]
+fn windows_tor_browser(home: &Path) -> PathBuf {
+    let onedrive = home.join("OneDrive").join("Desktop").join("Tor Browser");
+    if onedrive.is_dir() {
+        onedrive
+    } else {
+        home.join("Desktop").join("Tor Browser")
+    }
+}
+
 /// The Tor of Tor Browser, as it is installed by default.
 fn tor_browser() -> TorSettings {
     // Tor Browser installs into a folder of the user's choice; on Windows
     // it offers the desktop, on Linux it is unpacked where the user wants.
     #[cfg(windows)]
-    let folder = home().map(|home| home.join("Desktop").join("Tor Browser"));
+    let folder = home().map(|home| windows_tor_browser(&home));
     #[cfg(not(windows))]
     let folder = home().map(|home| home.join("tor-browser"));
     let cookie = folder
@@ -236,6 +270,21 @@ mod tests {
             table,
             Path::new("/home/amnesia/Persistent/monolith")
         ));
+    }
+
+    #[test]
+    fn tor_browser_is_looked_for_on_a_desktop_that_onedrive_moved() {
+        let home =
+            std::env::temp_dir().join(format!("monolith-places-test-{}", std::process::id()));
+        let desktop = home.join("Desktop").join("Tor Browser");
+        assert_eq!(windows_tor_browser(&home), desktop);
+        // A OneDrive desktop without Tor Browser is not taken.
+        let onedrive = home.join("OneDrive").join("Desktop");
+        std::fs::create_dir_all(&onedrive).unwrap();
+        assert_eq!(windows_tor_browser(&home), desktop);
+        std::fs::create_dir_all(onedrive.join("Tor Browser")).unwrap();
+        assert_eq!(windows_tor_browser(&home), onedrive.join("Tor Browser"));
+        std::fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]

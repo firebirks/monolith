@@ -37,6 +37,8 @@ pub(crate) enum Command<'a> {
     CircuitEstablished,
     /// `GETINFO status/bootstrap-phase`
     BootstrapPhase,
+    /// `GETINFO net/listeners/socks`
+    SocksListeners,
     /// `ADD_ONION` in one of its two forms, with the listener as target.
     AddOnion {
         key: OnionKey<'a>,
@@ -68,6 +70,7 @@ impl Command<'_> {
                 line.extend_from_slice(b"GETINFO status/circuit-established");
             }
             Self::BootstrapPhase => line.extend_from_slice(b"GETINFO status/bootstrap-phase"),
+            Self::SocksListeners => line.extend_from_slice(b"GETINFO net/listeners/socks"),
             Self::AddOnion { key, target } => {
                 if !target.ip().is_loopback() || target.port() == 0 {
                     return Err(TorError::Listener);
@@ -138,6 +141,10 @@ mod tests {
         assert_eq!(
             text(&Command::BootstrapPhase),
             "GETINFO status/bootstrap-phase\r\n"
+        );
+        assert_eq!(
+            text(&Command::SocksListeners),
+            "GETINFO net/listeners/socks\r\n"
         );
         assert_eq!(
             text(&Command::AddOnion {

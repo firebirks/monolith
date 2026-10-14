@@ -30,8 +30,8 @@ use monolith_protocol::body::{Message, MessageId};
 use monolith_protocol::session::Action;
 use monolith_protocol::text::ChatText;
 use monolith_tor::{
-    ControlAuth, Endpoint, KeySource, OnionService, PublishedOnionService, SystemTorBackend,
-    SystemTorConfig, TorBackend,
+    ControlAuth, Endpoint, KeySource, OnionService, PublishedOnionService, SocksProof,
+    SystemTorBackend, SystemTorConfig, TorBackend,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -60,6 +60,7 @@ fn config(side: &str) -> SystemTorConfig {
         auth: ControlAuth::SafeCookie {
             cookie_file: PathBuf::from(var("COOKIE")),
         },
+        socks_proof: SocksProof::Off,
     }
 }
 

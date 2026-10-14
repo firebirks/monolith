@@ -14,7 +14,9 @@ pub enum TorError {
     /// An endpoint in the configuration is not allowed: not loopback, not
     /// an absolute socket path, or otherwise unusable.
     Configuration,
-    /// The SOCKS endpoint could not be reached.
+    /// The SOCKS endpoint could not be reached, or, with
+    /// [`crate::SocksProof::ControlListeners`], Tor did not prove it its
+    /// own.
     SocksUnavailable,
     /// The SOCKS proxy answered with something that is not a SOCKS5 reply
     /// Monolith accepts.

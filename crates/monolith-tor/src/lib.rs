@@ -39,7 +39,7 @@ mod system;
 #[cfg(test)]
 mod testing;
 
-pub use config::{ControlAuth, Endpoint, SystemTorConfig};
+pub use config::{ControlAuth, Endpoint, SOCKS_PROOF_LIFETIME, SocksProof, SystemTorConfig};
 pub use error::TorError;
 pub use mock::{MockNetwork, MockOnionService, MockTorBackend};
 pub use secret::{IsolationGroup, ONION_SECRET_LEN, OnionServiceSecret};

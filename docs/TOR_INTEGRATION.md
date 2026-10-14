@@ -75,6 +75,14 @@ Implementations:
   misconfiguration from sending SOCKS requests across a real network.
 - If the SOCKS endpoint cannot be reached, or returns an error, the dial
   fails. There is no other transport to fall back to (S1).
+- With the listener check of the configuration
+  (`SocksProof::ControlListeners`, on in the desktop client outside Tails
+  and Whonix), a dial reaches the SOCKS endpoint only once Tor has proved
+  it its own: SAFECOOKIE on the control endpoint, then
+  `GETINFO net/listeners/socks` naming it (`TOR_CONTROL_SURFACE.md`). A
+  proof counts for 30 seconds unless a failure ends it first. Without one
+  the dial fails before anything reaches the SOCKS endpoint
+  (`THREAT_MODEL.md` adversary O).
 - A dial is abandoned after `CONNECT_TIMEOUT` and can be cancelled at any
   point. Retries follow the schedule in `RESOURCE_LIMITS.md` section 7, with
   at most `MAX_CONCURRENT_DIALS` in flight.
@@ -260,8 +268,10 @@ answers a SOCKS5 greeting. From that it reports one of:
   when Tor gave one;
 - ready: Tor has a circuit;
 
-and, independently, whether the SOCKS endpoint is reachable. Only the
-progress number and whether the bootstrap is `done` are taken from the
+and, independently, whether the SOCKS endpoint is reachable. With the
+listener check on, the SOCKS greeting waits for the same proof as a dial,
+and a SOCKS endpoint that Tor does not list is reported unreachable. Only
+the progress number and whether the bootstrap is `done` are taken from the
 bootstrap line (`TOR_CONTROL_SURFACE.md`). Monolith does not read any
 circuit, guard, stream or address information, and its correctness does
 not depend on bootstrap percentages or tags.

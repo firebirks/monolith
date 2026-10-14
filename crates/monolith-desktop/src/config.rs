@@ -6,8 +6,10 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use monolith_runtime::{ControlAuth, Endpoint, SystemTorConfig};
+use monolith_runtime::{ControlAuth, Endpoint, SocksProof, SystemTorConfig};
 use monolith_ui::{Preferences, ThemeChoice, TorSettings};
+
+use crate::places;
 
 /// The largest settings file read.
 const MAX_FILE: u64 = 64 * 1024;
@@ -215,6 +217,12 @@ fn create_private_dir(path: &Path) -> std::io::Result<()> {
 /// the loopback or a socket path, and the absolute path of the cookie of
 /// SAFECOOKIE authentication. No setting turns authentication off.
 pub fn tor_config(settings: &TorSettings) -> Option<SystemTorConfig> {
+    tor_config_on(settings, places::filtered_tor())
+}
+
+/// [`tor_config`] on a system whose Tor is the platform's own behind a
+/// filter (`filtered`), or not.
+pub(crate) fn tor_config_on(settings: &TorSettings, filtered: bool) -> Option<SystemTorConfig> {
     let socks = Endpoint::parse(settings.socks.trim()).ok()?;
     let control = Endpoint::parse(settings.control.trim()).ok()?;
     let cookie_file = PathBuf::from(settings.cookie_file.trim());
@@ -225,7 +233,28 @@ pub fn tor_config(settings: &TorSettings) -> Option<SystemTorConfig> {
         socks,
         control,
         auth: ControlAuth::SafeCookie { cookie_file },
+        socks_proof: socks_proof(filtered),
     })
+}
+
+/// Whether a dial waits until Tor proved the SOCKS endpoint its own
+/// ([`SocksProof::ControlListeners`]), on a system whose Tor is the
+/// platform's own behind a filter (`filtered`), or not.
+///
+/// On, unless `filtered`. The default Tor on Windows is Tor Browser's,
+/// which is closed more often than not; then any local account can take
+/// its SOCKS port and would receive the onion name of every dial and the
+/// isolation credentials. A system Tor that is stopped is no different.
+/// Off on Tails and Whonix: the control endpoint there is an onion-grater
+/// filter, which answers authentication itself and may refuse the GETINFO
+/// key, and the SOCKS port belongs to the platform's Tor, which holds it
+/// for as long as the system runs.
+pub fn socks_proof(filtered: bool) -> SocksProof {
+    if filtered {
+        SocksProof::Off
+    } else {
+        SocksProof::ControlListeners
+    }
 }
 
 #[cfg(test)]
@@ -301,5 +330,22 @@ mod tests {
         settings.cookie_file = COOKIE.to_owned();
         settings.socks = "192.168.1.1:9050".to_owned();
         assert!(tor_config(&settings).is_none());
+    }
+
+    #[test]
+    fn the_socks_endpoint_is_proved_except_on_tails_and_whonix() {
+        let settings = defaults().preferences.tor;
+        assert_eq!(
+            tor_config_on(&settings, false).map(|config| config.socks_proof),
+            Some(SocksProof::ControlListeners)
+        );
+        assert_eq!(
+            tor_config_on(&settings, true).map(|config| config.socks_proof),
+            Some(SocksProof::Off)
+        );
+        assert_eq!(
+            tor_config(&settings).map(|config| config.socks_proof),
+            Some(socks_proof(places::filtered_tor()))
+        );
     }
 }

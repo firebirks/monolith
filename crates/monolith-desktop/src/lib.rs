@@ -78,9 +78,11 @@ impl Options {
 /// The Tor the runtime uses: the settings if they are complete, and the
 /// default otherwise. Authentication is SAFECOOKIE in either case, even
 /// with no cookie file to read: then Tor refuses Monolith, and the screens
-/// say so.
-fn backend_config(settings: &TorSettings) -> Option<SystemTorConfig> {
-    if let Some(config) = config::tor_config(settings) {
+/// say so. The SOCKS endpoint is proved Tor's before a dial unless the
+/// system's Tor is the platform's own behind a filter (`filtered`), as
+/// [`config::socks_proof`] explains.
+fn backend_config(settings: &TorSettings, filtered: bool) -> Option<SystemTorConfig> {
+    if let Some(config) = config::tor_config_on(settings, filtered) {
         return Some(config);
     }
     Some(SystemTorConfig {
@@ -89,6 +91,7 @@ fn backend_config(settings: &TorSettings) -> Option<SystemTorConfig> {
         auth: ControlAuth::SafeCookie {
             cookie_file: PathBuf::from(settings.cookie_file.trim()),
         },
+        socks_proof: config::socks_proof(filtered),
     })
 }
 
@@ -122,7 +125,7 @@ pub fn run(options: Options) -> ExitCode {
         config.preferences.tor = default_tor;
     }
     // The default endpoints always parse; nothing else is ever used.
-    let Some(tor) = backend_config(&config.preferences.tor) else {
+    let Some(tor) = backend_config(&config.preferences.tor, places::filtered_tor()) else {
         return ExitCode::FAILURE;
     };
     let data_dir = match options.data_dir {
@@ -195,6 +198,7 @@ pub fn run(options: Options) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use monolith_runtime::SocksProof;
 
     fn args(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()
@@ -213,5 +217,35 @@ mod tests {
         assert!(Options::parse(args(&["--data-dir", "relative"])).is_err());
         assert!(Options::parse(args(&["--config"])).is_err());
         assert!(Options::parse(args(&["--open", "https://example.com"])).is_err());
+    }
+
+    #[test]
+    fn the_runtime_proves_the_socks_endpoint_except_on_tails_and_whonix() {
+        let complete = TorSettings {
+            socks: "127.0.0.1:9150".to_owned(),
+            control: "127.0.0.1:9151".to_owned(),
+            cookie_file: if cfg!(windows) {
+                r"C:\Tor\control_auth_cookie"
+            } else {
+                "/run/tor/control.authcookie"
+            }
+            .to_owned(),
+        };
+        // Without a cookie file the settings are not complete, and the
+        // runtime still gets a configuration.
+        let without_cookie = TorSettings {
+            cookie_file: String::new(),
+            ..complete.clone()
+        };
+        for settings in [&complete, &without_cookie] {
+            assert_eq!(
+                backend_config(settings, false).map(|config| config.socks_proof),
+                Some(SocksProof::ControlListeners)
+            );
+            assert_eq!(
+                backend_config(settings, true).map(|config| config.socks_proof),
+                Some(SocksProof::Off)
+            );
+        }
     }
 }

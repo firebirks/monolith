@@ -6,14 +6,15 @@
 //! from outside the process, so that the fuzz targets can check them
 //! against rules written independently.
 
-use core::net::{Ipv4Addr, SocketAddrV4};
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use monolith_identity::OnionServiceKey;
 
+use crate::config::EndpointKind;
 use crate::control::{OnionKey, auth, command::Command};
 pub use crate::control::{Reply, ReplyParser};
 pub use crate::socks::{ConnectReply, decode_connect_reply};
-use crate::{Bootstrap, OnionServiceSecret, TorError, TorVersion};
+use crate::{Bootstrap, Endpoint, OnionServiceSecret, TorError, TorVersion};
 
 /// What each interpretation of a reply made of it.
 #[derive(Debug)]
@@ -27,6 +28,8 @@ pub struct Interpretations {
     pub circuit_established: Result<bool, TorError>,
     /// `GETINFO status/bootstrap-phase`.
     pub bootstrap: Result<Bootstrap, TorError>,
+    /// `GETINFO net/listeners/socks`: whether `127.0.0.1:9050` is listed.
+    pub socks_listeners: Result<bool, TorError>,
     /// `ADD_ONION` with a new key: the service and whether a key came.
     pub add_onion_new: Result<(OnionServiceKey, bool), TorError>,
     /// `ADD_ONION` with an existing key.
@@ -38,6 +41,10 @@ pub fn interpret(reply: &Reply) -> Interpretations {
     let add_onion = |new| {
         crate::control::parse_add_onion(reply, new).map(|(key, secret)| (key, secret.is_some()))
     };
+    let socks = Endpoint(EndpointKind::Tcp(SocketAddr::from((
+        Ipv4Addr::LOCALHOST,
+        9050,
+    ))));
     Interpretations {
         protocolinfo: auth::parse_protocolinfo(reply).map(|info| {
             (
@@ -50,6 +57,7 @@ pub fn interpret(reply: &Reply) -> Interpretations {
         authchallenge: auth::parse_authchallenge(reply),
         circuit_established: crate::control::parse_circuit_established(reply),
         bootstrap: crate::control::parse_bootstrap_reply(reply),
+        socks_listeners: crate::control::parse_socks_listeners(reply, &socks),
         add_onion_new: add_onion(true),
         add_onion_existing: add_onion(false),
     }

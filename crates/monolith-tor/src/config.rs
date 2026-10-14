@@ -8,6 +8,7 @@
 
 use core::fmt;
 use core::net::SocketAddr;
+use core::time::Duration;
 use std::path::PathBuf;
 
 use crate::TorError;
@@ -102,6 +103,36 @@ pub enum ControlAuth {
     TrustedFilter,
 }
 
+/// Whether a dial waits for proof that the SOCKS endpoint is Tor's.
+///
+/// A process that listens on the SOCKS endpoint instead of Tor receives
+/// the onion name of every dial and the isolation credentials. A system
+/// Tor holds its port while the system runs. Tor Browser holds it only
+/// while it is open, and any local account can take a free loopback port.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SocksProof {
+    /// No proof: whatever listens on the SOCKS endpoint is taken for Tor.
+    #[default]
+    Off,
+    /// A dial goes to the SOCKS endpoint only if, within
+    /// [`SOCKS_PROOF_LIFETIME`] and with no failure of Tor since, the
+    /// control endpoint authenticated with SAFECOOKIE and Tor listed the
+    /// SOCKS endpoint in `GETINFO net/listeners/socks`. Otherwise nothing
+    /// is sent to it and the dial fails with [`TorError::SocksUnavailable`].
+    /// Needs [`ControlAuth::SafeCookie`]: a filter that answers
+    /// authentication itself proves nothing about who listens, so with
+    /// [`ControlAuth::TrustedFilter`] every dial fails.
+    ControlListeners,
+}
+
+/// How long a proof of [`SocksProof::ControlListeners`] lets dials
+/// through. The dials of a burst, such as the first dials after a start or
+/// a wave of retries, share one control connection; a process that takes
+/// the SOCKS port after Tor exits could receive dials for this long at
+/// most. A failed dial, a status query that finds an endpoint failing and
+/// a lost Onion Service end a proof at once.
+pub const SOCKS_PROOF_LIFETIME: Duration = Duration::from_secs(30);
+
 /// The configuration of a [`crate::SystemTorBackend`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SystemTorConfig {
@@ -111,6 +142,8 @@ pub struct SystemTorConfig {
     pub control: Endpoint,
     /// How to authenticate on the control endpoint.
     pub auth: ControlAuth,
+    /// Whether a dial waits for proof that the SOCKS endpoint is Tor's.
+    pub socks_proof: SocksProof,
 }
 
 #[cfg(test)]

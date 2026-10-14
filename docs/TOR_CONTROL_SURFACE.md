@@ -81,6 +81,32 @@ command.
 - The two keys are asked in two commands, because an unknown key makes
   Tor answer a combined GETINFO with an error and no values.
 
+### GETINFO net/listeners/socks
+
+    GETINFO net/listeners/socks
+
+- Why: to prove that the configured SOCKS endpoint is Tor's before a dial
+  sends it anything. Only with the listener check of the configuration
+  (`SocksProof::ControlListeners`), which the desktop client turns on
+  everywhere except Tails and Whonix. The CLI does not use it.
+- Sent on a control connection of its own, after SAFECOOKIE
+  authentication: before a dial when no proof counts, and in a status
+  query. A proof counts for `SOCKS_PROOF_LIFETIME` (30 seconds) and ends
+  at once with a failed dial, a status query that finds either endpoint
+  failing, or a lost control connection of a published service. Dials at
+  the same time wait for one proof. It is never sent to a trusted
+  filter: a filter answers authentication itself, so its answer would
+  prove nothing, and the check then fails every dial.
+- Tor answers with the addresses its SOCKS listeners are bound to: a list
+  of quoted entries separated by spaces, `ADDR:PORT` or `unix:PATH`,
+  empty when there are none. The parser decodes each entry and keeps only
+  whether one of them is the configured endpoint.
+- If the endpoint is not listed, or the key is refused, or the control
+  endpoint cannot be reached or authenticated, nothing is sent to the
+  SOCKS endpoint, not even a greeting. The dial fails as if Tor were not
+  running, and a status query reports the SOCKS endpoint unavailable.
+- Not in the onion-grater profiles: Tails and Whonix do not use the check.
+
 ### ADD_ONION
 
 Exactly two forms. They differ only in the key.
@@ -151,6 +177,7 @@ keywords in exactly the order shown above.
 | `250 AUTHCHALLENGE SERVERHASH=<64 hex> SERVERNONCE=<64 hex>` | SAFECOOKIE |
 | `250-status/circuit-established=0` or `=1` | readiness |
 | `250-status/bootstrap-phase=...` | progress number and `done`, nothing else |
+| `250-net/listeners/socks="..." "..."` | whether the configured SOCKS endpoint is listed, nothing else |
 | `250-ServiceID=<56 base32>` | address of the published service |
 | `250-PrivateKey=ED25519-V3:<88 base64>` | key of a newly created service |
 | `250 OK` | success |
@@ -187,8 +214,9 @@ Rules for the parser:
 `TAKEOWNERSHIP`, `DROPGUARDS`, `DROPOWNERSHIP`, `DROPTIMEOUTS`, `HSFETCH`,
 `HSPOST`, `ONION_CLIENT_AUTH_ADD`, `ONION_CLIENT_AUTH_REMOVE`,
 `ONION_CLIENT_AUTH_VIEW`, `QUIT`, and every `GETINFO` key other than the
-two above. In particular Monolith never reads `version` (PROTOCOLINFO has
-it), `address`, `onions/current`, `onions/detached`, `network-liveness`,
+three above. In particular Monolith never reads `version` (PROTOCOLINFO
+has it), `address`, `onions/current`, `onions/detached`,
+`network-liveness`, any listener list other than `net/listeners/socks`,
 guard, circuit or stream status, or configuration.
 
 Phase 0 listed `SETEVENTS HS_DESC` to confirm the descriptor upload on

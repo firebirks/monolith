@@ -21,7 +21,7 @@ use std::process::ExitCode;
 use monolith_protocol::limits::PROTOCOL_VERSION;
 use monolith_tor::{
     Bootstrap, ControlAuth, ControlStatus, Endpoint, FEATURE_BASELINE, RECOMMENDED, Readiness,
-    SocksStatus, SystemTorBackend, SystemTorConfig, TorBackend, TorStatus,
+    SocksProof, SocksStatus, SystemTorBackend, SystemTorConfig, TorBackend, TorStatus,
 };
 
 const USAGE: &str = "\
@@ -203,6 +203,7 @@ fn parse_options(args: &[String]) -> Result<(SystemTorConfig, Vec<String>), Stri
             socks,
             control,
             auth,
+            socks_proof: SocksProof::Off,
         },
         words,
     ))

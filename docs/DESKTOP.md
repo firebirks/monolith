@@ -127,7 +127,11 @@ published), Connected through Tor (the service of the identity shown is
 published), Tor unavailable. The Tor details dialog says what the last
 check found in plain words (not running, SOCKS or control not working,
 authentication refused, too old, outdated) and offers a check and the
-settings. Nothing in the client offers to connect without Tor.
+settings. Nothing in the client offers to connect without Tor. Outside
+Tails and Whonix the client dials only once Tor has listed its SOCKS
+endpoint (`THREAT_MODEL.md` adversary O): while Tor Browser is closed,
+nothing is dialed, and when Tor answers but does not list the configured
+SOCKS endpoint, the check says that SOCKS is not working.
 
 A message that cannot be delivered stays Queued; the conversation says
 why, from the runtime's last deferral: the contact could not be reached,

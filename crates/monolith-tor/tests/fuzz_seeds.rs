@@ -74,6 +74,11 @@ fn seeds() -> Vec<(String, Vec<u8>)> {
         "250-status/bootstrap-phase=WARN BOOTSTRAP PROGRESS=10 TAG=conn_done SUMMARY=\"x\" REASON=TIMEOUT HOSTID=\"AB\" HOSTADDR=\"192.0.2.1:443\"\r\n250 OK\r\n".to_owned(),
     );
     control(
+        "socks_listeners",
+        7,
+        "250-net/listeners/socks=\"127.0.0.1:9050\" \"[::1]:9050\" \"unix:/run/tor/socks\"\r\n250 OK\r\n".to_owned(),
+    );
+    control(
         "add_onion_new",
         64,
         format!("250-ServiceID={id}\r\n250-PrivateKey=ED25519-V3:{key}\r\n250 OK\r\n"),

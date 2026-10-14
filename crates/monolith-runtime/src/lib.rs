@@ -25,7 +25,9 @@ use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_storage::StorageError;
 use monolith_storage::dir::{DiskDir, VAULT, VAULT_NEW};
 use monolith_storage::vault::{KdfParams, Passphrase};
-pub use monolith_tor::{ControlAuth, Endpoint, SystemTorBackend, SystemTorConfig, TorBackend};
+pub use monolith_tor::{
+    ControlAuth, Endpoint, SocksProof, SystemTorBackend, SystemTorConfig, TorBackend,
+};
 use tokio::sync::broadcast;
 
 use core::fmt;

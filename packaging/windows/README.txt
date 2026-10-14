@@ -23,8 +23,12 @@ that runs on this computer:
 - Tor Browser, while it runs. These are the default settings of Monolith:
   SOCKS 127.0.0.1:9150, control 127.0.0.1:9151, and the cookie file in the
   Tor Browser folder, by default
-  %USERPROFILE%\Desktop\Tor Browser\Browser\TorBrowser\Data\Tor\control_auth_cookie.
+  %USERPROFILE%\Desktop\Tor Browser\Browser\TorBrowser\Data\Tor\control_auth_cookie,
+  or under %USERPROFILE%\OneDrive\Desktop\Tor Browser when OneDrive backs
+  up the desktop and Tor Browser is there.
   If Tor Browser is somewhere else, set the path in Settings > Tor.
+  Keep Tor Browser open while Monolith runs. While it is closed, messages
+  wait, and Monolith sends them after Tor Browser is open again.
 - The Tor Expert Bundle, run with a torrc that has
       ControlPort 9051
       CookieAuthentication 1

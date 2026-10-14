@@ -48,6 +48,7 @@ fn check(reply: &Reply) {
     if read.protocolinfo.is_ok()
         || read.authchallenge.is_ok()
         || read.circuit_established.is_ok()
+        || read.socks_listeners.is_ok()
         || read.add_onion_new.is_ok()
         || read.add_onion_existing.is_ok()
     {

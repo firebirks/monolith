@@ -15,7 +15,7 @@
 use core::future::Future;
 use core::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -23,7 +23,8 @@ use hmac::{Hmac, KeyInit, Mac};
 use monolith_identity::{IdentitySecretKey, OnionServiceKey, ServiceId};
 use monolith_tor::{
     Bootstrap, ControlAuth, ControlStatus, Endpoint, KeySource, OnionService, OnionServiceSecret,
-    Readiness, SocksStatus, SystemTorBackend, SystemTorConfig, TorBackend, TorError,
+    Readiness, SOCKS_PROOF_LIFETIME, SocksProof, SocksStatus, SystemTorBackend, SystemTorConfig,
+    TorBackend, TorError,
 };
 use sha2::Sha256;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -80,6 +81,8 @@ struct Script {
     del_onion: &'static str,
     /// Raw bytes sent instead of the PROTOCOLINFO reply.
     protocolinfo_override: Option<Vec<u8>>,
+    /// The reply to GETINFO net/listeners/socks.
+    listeners: String,
 }
 
 impl Script {
@@ -94,6 +97,19 @@ impl Script {
             close_after_add: false,
             del_onion: "250 OK\r\n",
             protocolinfo_override: None,
+            listeners: "552 Unrecognized key \"net/listeners/socks\"\r\n".into(),
+        }
+    }
+
+    /// A good Tor whose SOCKS listeners are `addresses`.
+    fn listing(addresses: &[SocketAddr]) -> Self {
+        let quoted: Vec<String> = addresses
+            .iter()
+            .map(|address| format!("\"{address}\""))
+            .collect();
+        Self {
+            listeners: format!("250-net/listeners/socks={}\r\n250 OK\r\n", quoted.join(" ")),
+            ..Self::good()
         }
     }
 }
@@ -142,6 +158,15 @@ impl FakeControl {
 
     fn lines(&self) -> Vec<String> {
         self.lines.lock().unwrap().clone()
+    }
+
+    /// How many control connections were opened: each starts with
+    /// PROTOCOLINFO.
+    fn sessions(&self) -> usize {
+        self.lines()
+            .iter()
+            .filter(|line| line.as_str() == "PROTOCOLINFO 1\r\n")
+            .count()
     }
 }
 
@@ -216,6 +241,8 @@ async fn serve(
             script.circuit.as_bytes().to_vec()
         } else if command == "GETINFO status/bootstrap-phase" {
             script.bootstrap.as_bytes().to_vec()
+        } else if command == "GETINFO net/listeners/socks" {
+            script.listeners.as_bytes().to_vec()
         } else if command.starts_with("ADD_ONION ") {
             // The first service of a server is key(77), the next key(78),
             // and so on, as a Tor names every service it holds differently.
@@ -243,15 +270,26 @@ async fn serve(
 /// A SOCKS server that accepts the exchange and records the CONNECT
 /// request, then answers with `connect_reply` and echoes.
 async fn fake_socks(connect_reply: Vec<u8>) -> (SocketAddr, Arc<Mutex<Vec<Vec<u8>>>>) {
+    let (address, requests, _) = counted_socks(connect_reply).await;
+    (address, requests)
+}
+
+/// [`fake_socks`], with the number of connections it accepted.
+async fn counted_socks(
+    connect_reply: Vec<u8>,
+) -> (SocketAddr, Arc<Mutex<Vec<Vec<u8>>>>, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let recorded = requests.clone();
+    let connections = Arc::new(AtomicUsize::new(0));
+    let accepted = connections.clone();
     tokio::spawn(async move {
         loop {
             let Ok((mut stream, _)) = listener.accept().await else {
                 return;
             };
+            accepted.fetch_add(1, Ordering::SeqCst);
             let recorded = recorded.clone();
             let reply = connect_reply.clone();
             tokio::spawn(async move {
@@ -287,7 +325,7 @@ async fn fake_socks(connect_reply: Vec<u8>) -> (SocketAddr, Arc<Mutex<Vec<Vec<u8
             });
         }
     });
-    (address, requests)
+    (address, requests, connections)
 }
 
 /// SAFECOOKIE with the cookie file of a scripted control server.
@@ -310,7 +348,23 @@ fn system(socks: SocketAddr, control: SocketAddr, auth: ControlAuth) -> SystemTo
         socks: Endpoint::tcp(socks).unwrap(),
         control: Endpoint::tcp(control).unwrap(),
         auth,
+        socks_proof: SocksProof::Off,
     })
+}
+
+/// [`system`] with the listener check on.
+fn proved(socks: SocketAddr, control: SocketAddr, auth: ControlAuth) -> SystemTorBackend {
+    SystemTorBackend::new(SystemTorConfig {
+        socks: Endpoint::tcp(socks).unwrap(),
+        control: Endpoint::tcp(control).unwrap(),
+        auth,
+        socks_proof: SocksProof::ControlListeners,
+    })
+}
+
+/// The answer of a SOCKS proxy to a CONNECT that succeeded.
+fn connected() -> Vec<u8> {
+    vec![5, 0, 0, 1, 0, 0, 0, 0, 0, 0]
 }
 
 /// An address on which nothing listens.
@@ -370,6 +424,7 @@ fn backend_with(socks: SocketAddr) -> SystemTorBackend {
         socks: Endpoint::tcp(socks).unwrap(),
         control: Endpoint::tcp(socks).unwrap(),
         auth: any_cookie(),
+        socks_proof: SocksProof::Off,
     })
 }
 
@@ -824,5 +879,328 @@ fn a_control_endpoint_that_names_another_cookie_file_is_refused() {
             backend.publish_onion(KeySource::Generate).await.err(),
             Some(TorError::ControlAuthentication)
         );
+    });
+}
+
+// The listener check of the SOCKS endpoint (SocksProof::ControlListeners).
+
+/// Dials once with `backend` and checks that the dial failed without a
+/// connection to the SOCKS endpoint whose connections `socks` counts.
+async fn refused_before_socks(backend: &SystemTorBackend, socks: &AtomicUsize, why: &str) {
+    let group = backend.isolation_group().unwrap();
+    assert_eq!(
+        backend.connect_onion(&key(9), &group).await.err(),
+        Some(TorError::SocksUnavailable),
+        "{why}"
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(socks.load(Ordering::SeqCst), 0, "{why}");
+}
+
+/// Starts `count` dials with `backend`, each before any of them ends, and
+/// waits for all of them.
+async fn at_once(backend: &Arc<SystemTorBackend>, count: u8) -> Vec<Result<(), TorError>> {
+    let dials: Vec<_> = (0..count)
+        .map(|index| {
+            let backend = Arc::clone(backend);
+            tokio::spawn(async move {
+                let group = backend.isolation_group().unwrap();
+                backend
+                    .connect_onion(&key(20 + index), &group)
+                    .await
+                    .map(drop)
+            })
+        })
+        .collect();
+    let mut results = Vec::new();
+    for dial in dials {
+        results.push(dial.await.unwrap());
+    }
+    results
+}
+
+/// Moves the clock of the runtime forward by `duration` at once.
+async fn skip(duration: Duration) {
+    tokio::time::pause();
+    tokio::time::advance(duration).await;
+    tokio::time::resume();
+}
+
+/// A listener that closes every connection at once.
+async fn closing_listener() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            drop(stream);
+        }
+    });
+    address
+}
+
+#[test]
+fn with_the_check_off_a_dial_asks_the_control_endpoint_nothing() {
+    run(async {
+        let (socks, _, connections) = counted_socks(connected()).await;
+        let control = FakeControl::start(Script::listing(&[socks])).await;
+        let backend = system(socks, control.address, safecookie(&control));
+        let group = backend.isolation_group().unwrap();
+        backend.connect_onion(&key(9), &group).await.unwrap();
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+        assert!(control.lines().is_empty());
+    });
+}
+
+#[test]
+fn with_the_check_on_a_dial_waits_until_tor_lists_the_socks_endpoint() {
+    run(async {
+        let (socks, requests, connections) = counted_socks(connected()).await;
+        let control = FakeControl::start(Script::listing(&[socks])).await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        let group = backend.isolation_group().unwrap();
+        let mut stream = backend.connect_onion(&key(9), &group).await.unwrap();
+        stream.write_all(b"hello").await.unwrap();
+        let mut echo = [0_u8; 5];
+        stream.read_exact(&mut echo).await.unwrap();
+        assert_eq!(&echo, b"hello");
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        // Authentication, then the one question.
+        let lines = control.lines();
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], "PROTOCOLINFO 1\r\n");
+        assert!(lines[1].starts_with("AUTHCHALLENGE SAFECOOKIE "));
+        assert!(lines[2].starts_with("AUTHENTICATE "));
+        assert_eq!(lines[3], "GETINFO net/listeners/socks\r\n");
+
+        // Tor lists other listeners as well.
+        let other = closed_port().await;
+        let control = FakeControl::start(Script::listing(&[other, socks])).await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        assert!(backend.connect_onion(&key(9), &group).await.is_ok());
+        assert_eq!(connections.load(Ordering::SeqCst), 2);
+    });
+}
+
+#[test]
+fn without_a_proof_nothing_reaches_the_socks_endpoint() {
+    run(async {
+        let (socks, _, connections) = counted_socks(connected()).await;
+
+        let backend = proved(socks, closed_port().await, any_cookie());
+        refused_before_socks(&backend, &connections, "no control endpoint").await;
+
+        let control = FakeControl::start(Script {
+            wrong_server_hash: true,
+            ..Script::listing(&[socks])
+        })
+        .await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        refused_before_socks(&backend, &connections, "a server without the cookie").await;
+        assert!(
+            control
+                .lines()
+                .iter()
+                .all(|line| !line.starts_with("GETINFO"))
+        );
+
+        let control = FakeControl::start(Script::listing(&[socks])).await;
+        let backend = proved(socks, control.address, any_cookie());
+        refused_before_socks(&backend, &connections, "another cookie file").await;
+        assert_eq!(control.lines(), vec!["PROTOCOLINFO 1\r\n".to_owned()]);
+
+        // A filter answers authentication itself, so its answer proves
+        // nothing; it is not asked.
+        let control = FakeControl::start(Script {
+            methods: "NULL",
+            ..Script::listing(&[socks])
+        })
+        .await;
+        let backend = proved(socks, control.address, ControlAuth::TrustedFilter);
+        refused_before_socks(&backend, &connections, "a trusted filter").await;
+        assert!(control.lines().is_empty());
+
+        let unquoted = format!("250-net/listeners/socks={socks}\r\n250 OK\r\n");
+        for (script, why) in [
+            (
+                Script::listing(&[closed_port().await]),
+                "another endpoint listed",
+            ),
+            (Script::listing(&[]), "no endpoint listed"),
+            (Script::good(), "the key refused"),
+            (
+                Script {
+                    listeners: unquoted,
+                    ..Script::good()
+                },
+                "an unquoted list",
+            ),
+        ] {
+            let control = FakeControl::start(script).await;
+            let backend = proved(socks, control.address, safecookie(&control));
+            refused_before_socks(&backend, &connections, why).await;
+            assert_eq!(control.sessions(), 1, "{why}");
+        }
+    });
+}
+
+#[test]
+fn a_proof_lets_dials_through_for_its_lifetime_only() {
+    run(async {
+        let (socks, _, connections) = counted_socks(connected()).await;
+        let control = FakeControl::start(Script::listing(&[socks])).await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        let group = backend.isolation_group().unwrap();
+        for target in [9, 10] {
+            backend.connect_onion(&key(target), &group).await.unwrap();
+        }
+        assert_eq!(control.sessions(), 1);
+        // Shortly before its end the proof still counts; from its end on it
+        // does not.
+        skip(SOCKS_PROOF_LIFETIME - Duration::from_secs(1)).await;
+        backend.connect_onion(&key(11), &group).await.unwrap();
+        assert_eq!(control.sessions(), 1);
+        skip(Duration::from_secs(1)).await;
+        backend.connect_onion(&key(12), &group).await.unwrap();
+        assert_eq!(control.sessions(), 2);
+        assert_eq!(connections.load(Ordering::SeqCst), 4);
+    });
+}
+
+#[test]
+fn dials_at_the_same_time_share_one_proof() {
+    run(async {
+        let (socks, _, connections) = counted_socks(connected()).await;
+        let control = FakeControl::start(Script::listing(&[socks])).await;
+        let backend = Arc::new(proved(socks, control.address, safecookie(&control)));
+        let results = at_once(&backend, 4).await;
+        assert!(results.iter().all(Result::is_ok), "{results:?}");
+        assert_eq!(control.sessions(), 1);
+        assert_eq!(connections.load(Ordering::SeqCst), 4);
+
+        // A proof that fails fails the dials that waited for it, without a
+        // control connection for each.
+        let control = FakeControl::start(Script {
+            wrong_server_hash: true,
+            ..Script::listing(&[socks])
+        })
+        .await;
+        let backend = Arc::new(proved(socks, control.address, safecookie(&control)));
+        let results = at_once(&backend, 4).await;
+        assert!(
+            results
+                .iter()
+                .all(|result| *result == Err(TorError::SocksUnavailable)),
+            "{results:?}"
+        );
+        assert_eq!(control.sessions(), 1);
+        assert_eq!(connections.load(Ordering::SeqCst), 4);
+    });
+}
+
+#[test]
+fn a_failure_of_tor_ends_the_proof() {
+    run(async {
+        // A dial that fails.
+        let (socks, _, _) = counted_socks(vec![5, 0xF2, 0, 1, 0, 0, 0, 0, 0, 0]).await;
+        let control = FakeControl::start(Script::listing(&[socks])).await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        let group = backend.isolation_group().unwrap();
+        for sessions in 1..=2 {
+            assert_eq!(
+                backend.connect_onion(&key(9), &group).await.err(),
+                Some(TorError::OnionUnreachable)
+            );
+            assert_eq!(control.sessions(), sessions);
+        }
+
+        // A status query that finds the control endpoint failing: its own
+        // control connection, then a new proof.
+        let (socks, _, _) = counted_socks(connected()).await;
+        let control = FakeControl::start(Script {
+            circuit: "250-status/circuit-established=2\r\n250 OK\r\n",
+            ..Script::listing(&[socks])
+        })
+        .await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        backend.connect_onion(&key(9), &group).await.unwrap();
+        assert_eq!(control.sessions(), 1);
+        let status = backend.status().await;
+        assert_eq!(status.control, ControlStatus::InvalidResponse);
+        assert_eq!(status.socks, SocksStatus::Reachable);
+        assert_eq!(control.sessions(), 3);
+
+        // A status query whose SOCKS greeting fails.
+        let closing = closing_listener().await;
+        let control = FakeControl::start(Script::listing(&[closing])).await;
+        let backend = proved(closing, control.address, safecookie(&control));
+        assert_ne!(backend.status().await.socks, SocksStatus::Reachable);
+        assert_eq!(control.sessions(), 2);
+        backend.status().await;
+        assert_eq!(control.sessions(), 4);
+    });
+}
+
+#[test]
+fn losing_a_published_service_ends_the_proof() {
+    run(async {
+        let (socks, _, _) = counted_socks(connected()).await;
+        let control = FakeControl::start(Script {
+            close_after_add: true,
+            ..Script::listing(&[socks])
+        })
+        .await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        let group = backend.isolation_group().unwrap();
+        backend.connect_onion(&key(9), &group).await.unwrap();
+        let mut service = backend.publish_onion(KeySource::Generate).await.unwrap();
+        backend.connect_onion(&key(9), &group).await.unwrap();
+        // The proof, then the publication.
+        assert_eq!(control.sessions(), 2);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!service.is_published());
+        backend.connect_onion(&key(9), &group).await.unwrap();
+        assert_eq!(control.sessions(), 3);
+    });
+}
+
+#[test]
+fn with_the_check_on_status_reports_a_socks_endpoint_tor_does_not_list() {
+    run(async {
+        let (socks, _, connections) = counted_socks(vec![]).await;
+        let control = FakeControl::start(Script::listing(&[closed_port().await])).await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        let status = backend.status().await;
+        assert!(matches!(status.control, ControlStatus::Reachable { .. }));
+        assert_eq!(status.socks, SocksStatus::Unavailable);
+        assert_eq!(status.readiness(), Readiness::SocksUnavailable);
+        // Not even greeted.
+        assert_eq!(connections.load(Ordering::SeqCst), 0);
+
+        // Tor not running: nothing is greeted either.
+        let backend = proved(socks, closed_port().await, any_cookie());
+        assert_eq!(backend.status().await.readiness(), Readiness::Unavailable);
+        assert_eq!(connections.load(Ordering::SeqCst), 0);
+
+        // Listed: the greeting, and only allowed commands.
+        let control = FakeControl::start(Script::listing(&[socks])).await;
+        let backend = proved(socks, control.address, safecookie(&control));
+        assert_eq!(backend.status().await.readiness(), Readiness::Ready);
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+        for line in control.lines() {
+            assert!(
+                [
+                    "PROTOCOLINFO 1\r\n",
+                    "AUTHCHALLENGE SAFECOOKIE ",
+                    "AUTHENTICATE ",
+                    "GETINFO status/circuit-established\r\n",
+                    "GETINFO status/bootstrap-phase\r\n",
+                    "GETINFO net/listeners/socks\r\n",
+                ]
+                .iter()
+                .any(|allowed| line.starts_with(allowed)),
+                "{line}"
+            );
+        }
     });
 }

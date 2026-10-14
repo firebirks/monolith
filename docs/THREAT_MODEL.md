@@ -351,7 +351,31 @@ backpressure. Peer-influenced memory has a computed ceiling.
 - The SOCKS endpoint is also the configured local one. A process that took
   it instead of Tor receives the onion name of each dial and the isolation
   token, and could relay the stream; the handshake then still fails unless
-  the stream reaches the holder of the peer's transport key.
+  the stream reaches the holder of the peer's transport key. Every queued
+  message and every retry is a dial, so over time that process learns the
+  user's contacts. A system Tor holds its port for as long as the system
+  runs. Tor Browser, the default Tor on Windows, holds it only while it is
+  open, and a stopped Tor anywhere frees it; loopback ports belong to the
+  whole machine, so any local account can then take it. The desktop client
+  therefore turns on the listener check (`SocksProof::ControlListeners`):
+  a dial reaches the SOCKS endpoint only after the control endpoint passed
+  SAFECOOKIE and Tor listed that SOCKS endpoint in
+  `GETINFO net/listeners/socks`, in a proof at most 30 seconds old
+  (`SOCKS_PROOF_LIFETIME`). A process without the cookie cannot pass
+  SAFECOOKIE, and Tor does not list a port it does not hold, so a taken
+  port gets nothing, not even a greeting; messages wait instead. A failed
+  dial, a status query that finds either endpoint failing, and the loss of
+  the control connection of a published service end a proof at once.
+  Left over: a process that takes the port after Tor exits, while a proof
+  still counts and before Monolith has seen any of these failures,
+  receives the dials of that moment, for 30 seconds at most. While a
+  service is published, Tor's exit closes its control connection, which
+  ends the proof as soon as Monolith sees it. A process in the middle of
+  the control connection, as in the previous point, could also forge the
+  list. The check is off in the CLI, and on Tails and Whonix, where the
+  platform's Tor holds the port for as long as the system runs and the
+  control endpoint is an onion-grater filter that answers authentication
+  itself.
 
 ### P. Compromised Monolith process
 

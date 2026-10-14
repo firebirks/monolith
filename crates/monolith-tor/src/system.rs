@@ -5,18 +5,23 @@ use core::fmt;
 use core::future::Future;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::task::Poll;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use monolith_identity::{OnionServiceKey, ServiceId};
 use monolith_protocol::limits::{SHUTDOWN_TIMEOUT, SOCKS_NEGOTIATION_TIMEOUT};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
+use tokio::time::Instant;
 
 use crate::control::{ControlConnection, OnionKey};
 use crate::socks;
 use crate::stream::{TorStream, connect};
 use crate::{
-    ControlStatus, FEATURE_BASELINE, IsolationGroup, KeySource, OnionService, OnionServiceSecret,
-    SocksStatus, SystemTorConfig, TorBackend, TorError, TorStatus,
+    ControlAuth, ControlStatus, FEATURE_BASELINE, IsolationGroup, KeySource, OnionService,
+    OnionServiceSecret, SOCKS_PROOF_LIFETIME, SocksProof, SocksStatus, SystemTorConfig, TorBackend,
+    TorError, TorStatus,
 };
 
 /// A [`TorBackend`] that uses a Tor the system runs.
@@ -26,13 +31,115 @@ use crate::{
 #[derive(Debug)]
 pub struct SystemTorBackend {
     config: SystemTorConfig,
+    /// The last proof of [`SocksProof::ControlListeners`]. Locked for as
+    /// long as a proof takes, so that dials at the same time wait for one
+    /// proof instead of each making their own. The configuration of a
+    /// backend never changes, so a proof is never taken for another.
+    proof: Mutex<Option<Proof>>,
+    /// Proofs attempted so far. A dial that waited while one was attempted
+    /// takes its outcome instead of attempting another at once.
+    attempts: AtomicU64,
+    /// Failures of Tor seen so far: a failed dial, a status query that
+    /// found either endpoint failing, a lost Onion Service. Shared with
+    /// every published service. A proof counts only while none came after
+    /// it began.
+    failures: Arc<AtomicU64>,
+}
+
+/// Tor listed the SOCKS endpoint at `at`, in a proof that began when
+/// `failures` failures had been seen.
+#[derive(Clone, Copy, Debug)]
+struct Proof {
+    at: Instant,
+    failures: u64,
 }
 
 impl SystemTorBackend {
     /// A backend for the Tor described by `config`. Nothing is opened until
     /// an operation needs it.
-    pub const fn new(config: SystemTorConfig) -> Self {
-        Self { config }
+    pub fn new(config: SystemTorConfig) -> Self {
+        Self {
+            config,
+            proof: Mutex::new(None),
+            attempts: AtomicU64::new(0),
+            failures: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Under [`SocksProof::ControlListeners`], fails unless a proof that
+    /// the SOCKS endpoint is Tor's counts, and makes one if none does.
+    /// Nothing is sent to the SOCKS endpoint here.
+    async fn prove_socks(&self) -> Result<(), TorError> {
+        if self.config.socks_proof == SocksProof::Off {
+            return Ok(());
+        }
+        let attempts = self.attempts.load(Ordering::SeqCst);
+        let mut proof = self.proof.lock().await;
+        if proof.is_some_and(|last| self.counts(last)) {
+            return Ok(());
+        }
+        // A proof was attempted while this call waited for the lock, and
+        // failed or no longer counts: that outcome stands.
+        if self.attempts.load(Ordering::SeqCst) != attempts {
+            return Err(TorError::SocksUnavailable);
+        }
+        let failures = self.failures.load(Ordering::SeqCst);
+        let listed = self.socks_listed().await;
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        *proof = listed.then(|| Proof {
+            at: Instant::now(),
+            failures,
+        });
+        if listed {
+            Ok(())
+        } else {
+            Err(TorError::SocksUnavailable)
+        }
+    }
+
+    /// Whether `proof` still lets dials through.
+    fn counts(&self, proof: Proof) -> bool {
+        proof.failures == self.failures.load(Ordering::SeqCst)
+            && proof.at.elapsed() < SOCKS_PROOF_LIFETIME
+    }
+
+    /// Ends every proof made so far: Tor failed after it.
+    fn forget_proof(&self) {
+        self.failures.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Whether the Tor of the control endpoint, authenticated with
+    /// SAFECOOKIE, lists the SOCKS endpoint among its SOCKS listeners. A
+    /// filter that answers authentication itself proves nothing, so
+    /// without SAFECOOKIE nothing is asked.
+    async fn socks_listed(&self) -> bool {
+        if !matches!(self.config.auth, ControlAuth::SafeCookie { .. }) {
+            return false;
+        }
+        let Ok(mut control) =
+            ControlConnection::open(&self.config.control, &self.config.auth).await
+        else {
+            return false;
+        };
+        control
+            .lists_socks_listener(&self.config.socks)
+            .await
+            .unwrap_or(false)
+    }
+
+    /// The SOCKS exchange of one dial, once the proof let it through.
+    async fn dial(
+        &self,
+        service: ServiceId,
+        isolation: &IsolationGroup,
+    ) -> Result<TorStream, TorError> {
+        let mut stream =
+            tokio::time::timeout(SOCKS_NEGOTIATION_TIMEOUT, connect(&self.config.socks))
+                .await
+                .map_err(|_| TorError::TimedOut)?
+                .map_err(|_| TorError::SocksUnavailable)?;
+        socks::negotiate(&mut stream, &service, isolation).await?;
+        Ok(stream)
     }
 
     async fn control_status(&self) -> ControlStatus {
@@ -66,6 +173,11 @@ impl SystemTorBackend {
     }
 
     async fn socks_status(&self) -> SocksStatus {
+        // With the listener check, a SOCKS endpoint that Tor has not proved
+        // its own is not even greeted.
+        if self.prove_socks().await.is_err() {
+            return SocksStatus::Unavailable;
+        }
         let attempt = tokio::time::timeout(SOCKS_NEGOTIATION_TIMEOUT, async {
             let mut stream = connect(&self.config.socks)
                 .await
@@ -82,11 +194,15 @@ impl SystemTorBackend {
             socks::check_method_reply(reply).map_err(|_| SocksStatus::InvalidResponse)
         })
         .await;
-        match attempt {
+        let status = match attempt {
             Ok(Ok(())) => SocksStatus::Reachable,
             Ok(Err(status)) => status,
             Err(_) => SocksStatus::InvalidResponse,
+        };
+        if status != SocksStatus::Reachable {
+            self.forget_proof();
         }
+        status
     }
 }
 
@@ -95,8 +211,14 @@ impl TorBackend for SystemTorBackend {
     type Service = PublishedOnionService;
 
     async fn status(&self) -> TorStatus {
+        let control = self.control_status().await;
+        // A control endpoint that fails ends the proof of the SOCKS
+        // endpoint, which is then made again or refused below.
+        if !matches!(control, ControlStatus::Reachable { .. }) {
+            self.forget_proof();
+        }
         TorStatus {
-            control: self.control_status().await,
+            control,
             socks: self.socks_status().await,
         }
     }
@@ -106,14 +228,10 @@ impl TorBackend for SystemTorBackend {
         target: &OnionServiceKey,
         isolation: &IsolationGroup,
     ) -> Result<TorStream, TorError> {
-        let service = ServiceId::from_key(target);
-        let mut stream =
-            tokio::time::timeout(SOCKS_NEGOTIATION_TIMEOUT, connect(&self.config.socks))
-                .await
-                .map_err(|_| TorError::TimedOut)?
-                .map_err(|_| TorError::SocksUnavailable)?;
-        socks::negotiate(&mut stream, &service, isolation).await?;
-        Ok(stream)
+        self.prove_socks().await?;
+        self.dial(ServiceId::from_key(target), isolation)
+            .await
+            .inspect_err(|_| self.forget_proof())
     }
 
     async fn publish_onion(&self, key: KeySource) -> Result<PublishedOnionService, TorError> {
@@ -153,6 +271,7 @@ impl TorBackend for SystemTorBackend {
             secret,
             listener,
             control: Some(control),
+            failures: Arc::clone(&self.failures),
         })
     }
 }
@@ -170,6 +289,8 @@ pub struct PublishedOnionService {
     listener: TcpListener,
     /// `None` once the service is known to be gone.
     control: Option<ControlConnection>,
+    /// The failures of Tor its backend counts.
+    failures: Arc<AtomicU64>,
 }
 
 impl PublishedOnionService {
@@ -182,8 +303,16 @@ impl PublishedOnionService {
         {
             true
         } else {
-            self.control = None;
+            self.lose_control();
             false
+        }
+    }
+
+    /// Forgets the control connection. Losing it is a failure of Tor, and
+    /// ends every proof that the SOCKS endpoint is Tor's.
+    fn lose_control(&mut self) {
+        if self.control.take().is_some() {
+            self.failures.fetch_add(1, Ordering::SeqCst);
         }
     }
 }
@@ -230,7 +359,7 @@ impl OnionService for PublishedOnionService {
             Some(Ok((stream, _))) => Ok(TorStream::Tcp(stream)),
             Some(Err(_)) => Err(TorError::Listener),
             None => {
-                self.control = None;
+                self.lose_control();
                 Err(TorError::ControlLost)
             }
         }
