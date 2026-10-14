@@ -19,298 +19,29 @@
     clippy::indexing_slicing
 )]
 
+mod common;
+
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Instant;
 
 use core::time::Duration;
 
-use egui::{Context, Pos2, RawInput, Rect};
-use monolith_desktop::bridge::{Bridge, Setup};
-use monolith_desktop::calendar::SystemCalendar;
+use common::Client;
 use monolith_tor::MockNetwork;
-use monolith_ui::{App, Preferences, ThemeChoice, TorSettings};
-use monolith_ui_kit::{Theme, fonts, theme};
-use monolith_ui_model::{
-    Dialog, Model, Phase, RowState, Selection, Status, TorIndicator, UiContactId, UiIdentityId,
-};
-use monolith_ui_snapshot::{Options, render};
-use zeroize::Zeroizing;
+use monolith_ui_model::{Dialog, Phase, RowState, Status, TorIndicator};
 
-const PASSPHRASE: &str = "correct horse battery staple";
 const PATIENCE: Duration = Duration::from_secs(240);
 
-/// One client: its window state, its bridge, and a context to draw it.
-struct Client {
-    name: &'static str,
-    app: App,
-    bridge: Option<Bridge>,
-    ctx: Context,
-    started: Instant,
-    shots: PathBuf,
-    shot: u32,
-}
-
-impl Client {
-    fn start(network: &MockNetwork, name: &'static str, data: &Path, shots: &Path) -> Self {
-        let network = network.clone();
-        let bridge = Bridge::start(
-            Setup {
-                data_dir: Some(data.to_owned()),
-                backend: Box::new(move || network.backend()),
-                shutdown_deadline: Duration::from_secs(3),
-                close_wait: Duration::from_secs(10),
-            },
-            Arc::new(|| {}),
-        )
-        .expect("bridge");
-        let preferences = Preferences {
-            theme: ThemeChoice::Light,
-            reduced_motion: true,
-            tor: TorSettings {
-                socks: "127.0.0.1:9050".to_owned(),
-                control: "127.0.0.1:9051".to_owned(),
-                cookie_file: String::new(),
-            },
-        };
-        let ctx = Context::default();
-        fonts::install(&ctx, &[]);
-        theme::install(&ctx, Theme::light().with_reduced_motion(true));
-        Self {
-            name,
-            app: App::new(Model::new(), Box::new(SystemCalendar::new()), preferences),
-            bridge: Some(bridge),
-            ctx,
-            started: Instant::now(),
-            shots: shots.to_owned(),
-            shot: 0,
-        }
-    }
-
-    fn model(&mut self) -> &mut Model {
-        &mut self.app.model
-    }
-
-    /// One frame: what the bridge said goes to the model, the window is
-    /// drawn, and what the model asks goes to the bridge.
-    fn frame(&mut self) {
-        let bridge = self.bridge.as_mut().expect("running");
-        while let Some(update) = bridge.try_update() {
-            self.app.model.apply(update);
-        }
-        let size = Theme::light().size.window_default;
-        let input = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
-            time: Some(self.started.elapsed().as_secs_f64()),
-            focused: true,
-            ..RawInput::default()
-        };
-        let app = &mut self.app;
-        let _ = self.ctx.run(input, |ctx| monolith_ui::show(ctx, app));
-        for (command, what) in self.app.model.take_commands() {
-            bridge.send(command, what);
-        }
-        bridge.flush();
-        let _ = self.app.take_effects();
-    }
-
-    /// Runs frames until `done` holds.
-    fn until(&mut self, what: &str, done: impl Fn(&Model) -> bool) {
-        let deadline = Instant::now() + PATIENCE;
-        let waited = Instant::now();
-        loop {
-            self.frame();
-            if done(&self.app.model) {
-                println!(
-                    "  {}: {what} ({:.1} s)",
-                    self.name,
-                    waited.elapsed().as_secs_f64()
-                );
-                return;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "{}: {what} did not happen in {PATIENCE:?}",
-                self.name
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    /// Writes a picture of the window. It is drawn in a context of its own,
-    /// which the software renderer sees from its first frame, textures
-    /// included; the state shown is the client's.
-    fn picture(&mut self, step: &str) {
-        self.frame();
-        self.shot += 1;
-        let ctx = Context::default();
-        fonts::install(&ctx, &[]);
-        theme::install(&ctx, Theme::light().with_reduced_motion(true));
-        let options = Options {
-            size: Theme::light().size.window_default,
-            // The clock of the client, which the notices' timers follow.
-            start_time: self.started.elapsed().as_secs_f64(),
-            frames: 4,
-            frame_time: 0.05,
-            background: Theme::light().color.bg_app,
-            ..Options::default()
-        };
-        let app = &mut self.app;
-        let image = render(&ctx, &options, |ctx| monolith_ui::show(ctx, app));
-        let path = self
-            .shots
-            .join(format!("{}-{:02}-{step}.png", self.name, self.shot));
-        image.save_png(&path).expect("write the picture");
-    }
-
-    /// Closes the window: the runtime stops, as when the user closes it.
-    fn close(&mut self) {
-        self.app.model.shut_down();
-        self.frame();
-        drop(self.bridge.take());
-    }
-
-    fn current(&self) -> UiIdentityId {
-        self.app.model.current().expect("an identity is shown")
-    }
-
-    /// Makes a profile, or opens the one there.
-    fn open_profile(&mut self) {
-        self.until("started", |model| {
-            matches!(model.phase(), Phase::Welcome | Phase::Locked)
-        });
-        let passphrase = Zeroizing::new(PASSPHRASE.to_owned());
-        if self.model().phase() == Phase::Welcome {
-            self.model().create_profile(passphrase);
-        } else {
-            self.model().unlock(passphrase);
-        }
-        self.until("the profile is open", |model| {
-            model.phase() == Phase::Ready && model.identities_loaded()
-        });
-    }
-
-    fn create_identity(&mut self, name: &str) -> UiIdentityId {
-        let before = self.app.model.identities().len();
-        self.model().open(Dialog::NewIdentity {
-            name: name.to_owned(),
-            busy: None,
-            error: None,
-        });
-        self.model().confirm();
-        let wanted = name.to_owned();
-        self.until(
-            &format!("identity {name} is made and shown"),
-            move |model| {
-                model.identities().len() == before + 1
-                    && model.dialog().is_none()
-                    && model
-                        .current_identity()
-                        .is_some_and(|view| view.name.as_deref() == Some(wanted.as_str()))
-            },
-        );
-        self.current()
-    }
-
-    fn create_invitation(&mut self, label: &str) -> String {
-        let identity = self.current();
-        self.model().open(Dialog::NewInvitation {
-            identity,
-            label: label.to_owned(),
-            created: None,
-            busy: None,
-            error: None,
-        });
-        self.model().confirm();
-        self.until("the invitation is made", |model| {
-            matches!(
-                model.dialog(),
-                Some(Dialog::NewInvitation {
-                    created: Some(_),
-                    ..
-                })
-            )
-        });
-        let Some(Dialog::NewInvitation {
-            created: Some((_, card)),
-            ..
-        }) = self.app.model.dialog()
-        else {
-            unreachable!()
-        };
-        card.to_string()
-    }
-
-    fn add_contact(&mut self, card: &str, name: &str) -> UiContactId {
-        let identity = self.current();
-        self.model().open(Dialog::AddContact {
-            identity,
-            card: card.to_owned(),
-            name: name.to_owned(),
-            busy: None,
-            error: None,
-            added: None,
-        });
-        self.model().confirm();
-        self.until("the contact is added and shown", |model| {
-            model.dialog().is_none()
-                && matches!(model.selection(), Some(Selection::Conversation(_)))
-        });
-        match self.app.model.selection() {
-            Some(Selection::Conversation(contact)) => contact,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Shows the conversation of `contact` once its identity is read.
-    fn open_conversation(&mut self, contact: UiContactId) {
-        self.until("the identity is read", move |model| {
-            model
-                .slice(contact.identity())
-                .is_some_and(|slice| slice.loaded)
-        });
-        self.model().select_conversation(contact);
-        self.until("the conversation is shown", move |model| {
-            model.selection() == Some(Selection::Conversation(contact))
-        });
-    }
-
-    fn send(&mut self, contact: UiContactId, text: &str) {
-        self.model()
-            .draft_mut(contact)
-            .expect("the draft can be edited")
-            .push_str(text);
-        self.model().send(contact);
-        let wanted = text.to_owned();
-        self.until(&format!("\"{text}\" is queued"), move |model| {
-            model.thread(contact).is_some_and(|thread| {
-                thread.draft.is_empty()
-                    && thread.messages.iter().any(|message| message.text == wanted)
-            })
-        });
-    }
-
-    fn status_of(&self, contact: UiContactId, text: &str) -> Option<Status> {
-        self.app.model.thread(contact).and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .find(|message| message.text == text)
-                .map(|message| message.status)
-        })
-    }
-
-    fn wait_status(&mut self, contact: UiContactId, text: &str, status: Status) {
-        let wanted = text.to_owned();
-        self.until(&format!("\"{text}\" is {status:?}"), move |model| {
-            model.thread(contact).is_some_and(|thread| {
-                thread
-                    .messages
-                    .iter()
-                    .any(|message| message.text == wanted && message.status == status)
-            })
-        });
-    }
+fn start(network: &MockNetwork, name: &'static str, data: &Path, shots: &Path) -> Client {
+    let network = network.clone();
+    Client::start(
+        name,
+        data,
+        move || network.backend(),
+        common::in_memory_tor(),
+        PATIENCE,
+    )
+    .with_pictures(shots)
 }
 
 fn scratch(dir: &Path, name: &str) -> PathBuf {
@@ -333,7 +64,7 @@ fn main() {
     let begun = Instant::now();
 
     println!("A. First launch, an identity, an invitation");
-    let mut alice = Client::start(&network, "alice", &data_a, &out);
+    let mut alice = start(&network, "alice", &data_a, &out);
     alice.until("the first start is shown", |model| {
         model.phase() == Phase::Welcome
     });
@@ -346,7 +77,7 @@ fn main() {
     alice.model().close();
 
     println!("B. Two clients become contacts and talk");
-    let mut bob = Client::start(&network, "bob", &data_b, &out);
+    let mut bob = start(&network, "bob", &data_b, &out);
     bob.open_profile();
     bob.create_identity("Bob");
     let at_bob = bob.add_contact(&invitation, "Alice");
@@ -360,20 +91,7 @@ fn main() {
     alice.model().show_requests();
     alice.picture("request");
     let request = alice.app.model.current_slice().unwrap().requests[0].id;
-    alice.model().open(Dialog::AcceptRequest {
-        request,
-        name: "Bob".to_owned(),
-        busy: None,
-        error: None,
-    });
-    alice.model().confirm();
-    alice.until("Bob is a contact and his conversation is shown", |model| {
-        model.dialog().is_none() && matches!(model.selection(), Some(Selection::Conversation(_)))
-    });
-    let at_alice = match alice.app.model.selection() {
-        Some(Selection::Conversation(contact)) => contact,
-        _ => unreachable!(),
-    };
+    let at_alice = alice.accept_request(request, "Bob");
     assert_eq!(at_alice.identity(), personal);
     bob.wait_status(at_bob, "Hello Alice, it is Bob.", Status::Delivered);
     alice.wait_status(at_alice, "Hello Alice, it is Bob.", Status::Received);
@@ -397,7 +115,7 @@ fn main() {
             .is_some_and(|slice| slice.deferrals.contains_key(&at_alice))
     });
     alice.picture("queued-while-offline");
-    let mut bob = Client::start(&network, "bob", &data_b, &out);
+    let mut bob = start(&network, "bob", &data_b, &out);
     bob.open_profile();
     alice.wait_status(at_alice, "Are you there?", Status::Delivered);
     alice.wait_status(at_alice, "I will wait.", Status::Delivered);
@@ -493,7 +211,7 @@ fn main() {
         .map(|view| (view.id, view.name.clone()))
         .collect();
     alice.close();
-    let mut alice = Client::start(&network, "alice", &data_a, &out);
+    let mut alice = start(&network, "alice", &data_a, &out);
     alice.open_profile();
     let again: Vec<_> = alice
         .app

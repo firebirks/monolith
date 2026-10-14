@@ -631,10 +631,10 @@ fn escape_answers_the_question_before_closing_and_leaves_the_settings_open() {
 #[test]
 fn a_waiting_delivery_says_both_sides_must_be_open_once_and_when_it_is_tried_next() {
     let window = Window::new("conversation-deferred", WIDE);
-    let banner = "Alice Martin cannot be reached right now. Their Monolith may be closed, or \
-                  they may not have accepted you yet. Monolith tries again from time to time; \
-                  your messages stay queued on this device. Messages can be delivered only \
-                  while Monolith is open on both sides. Next try in about 4 minutes.";
+    let banner = "Alice Martin cannot be reached right now. Their Monolith may be closed or \
+                  offline. Monolith tries again from time to time; your messages stay queued \
+                  on this device. Messages can be delivered only while Monolith is open on \
+                  both sides. Next try in about 4 minutes.";
     assert!(window.shows(banner), "{:#?}", window.shown());
     assert_eq!(
         window

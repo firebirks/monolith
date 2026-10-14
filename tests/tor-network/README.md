@@ -1,7 +1,7 @@
 # Private Tor network test
 
-`two-node.sh` is the end-to-end test of Phases 3, 4 and 5 on a private
-Tor network built with Chutney, the Tor Project's tool for local test
+`two-node.sh` is the end-to-end test of Phases 3 to 6 on a private Tor
+network built with Chutney, the Tor Project's tool for local test
 networks:
 
     Monolith A -- Tor A -- private Tor network -- Tor B -- Monolith B
@@ -85,6 +85,25 @@ persistent vault and its message store, driven through its standard input
 20. Every runtime node run is checked: loopback and Unix sockets only, no
     DNS, no UDP.
 
+Phase 6, with the `tor_smoke` example of `monolith-desktop`: the desktop
+client driven through its window code (the screens, the UI model, the
+bridge and the runtime, in headless frames), one process per client. The
+networking itself is shown by the steps above; this step shows that the
+client's commands and events drive that runtime over Tor.
+
+21. Each client opens a new profile with the Tor configuration the
+    desktop makes of its settings: outside Tails and Whonix a dial waits
+    until Tor, asked through the control port with SAFECOOKIE, lists the
+    SOCKS endpoint (`GETINFO net/listeners/socks`). Each checks Tor as the
+    Tor details dialog does, until the check says Tor works, which needs
+    that listing, and makes an identity. B makes an invitation and saves
+    its card as "Save card" does; A adds it as a file dropped on "Add
+    contact" and writes; B sees A's request, accepts it and answers. Each
+    shows its own message Delivered and the other's Received, says so in
+    a file, waits for the other's, and closes; the runtime stops. Every
+    wait is bounded (15 minutes; 2 for the Tor check to say Tor works),
+    and a client that times out names what it waited for and fails.
+
 And again Phase 3, as the last step because it ends Tor B (it was step 3
 of Phase 3, hence the gap in the numbers):
 
@@ -107,11 +126,13 @@ on the host:
 
     cargo build --locked -p monolith-cli
     cargo test --locked -p monolith-core --test tor_network --no-run
+    cargo build --release --locked -p monolith-desktop --example tor_smoke
     docker build -t monolith-tor-network tests/tor-network
     docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined \
         -v "$PWD:/src:ro" -v "$PWD/target:/target:ro" \
         -e MONOLITH_BIN=/target/debug/monolith \
         -e MONOLITH_LIFECYCLE_BIN=/target/debug/deps/tor_network-<hash> \
+        -e MONOLITH_DESKTOP_SMOKE_BIN=/target/release/examples/tor_smoke \
         monolith-tor-network /src/tests/tor-network/two-node.sh
 
 or directly, with `tor` and `tor-gencert` 0.4.9.5 or later, `strace`,
@@ -121,6 +142,9 @@ or directly, with `tor` and `tor-gencert` 0.4.9.5 or later, `strace`,
     python3 -m venv chutney-venv && chutney-venv/bin/pip install ./chutney
     PATH=$PWD/chutney-venv/bin:$PATH CHUTNEY_PATH=$PWD/chutney \
         tests/tor-network/two-node.sh
+
+The `tor_smoke` example opens no window: it needs no display and links no
+graphics library, only the C library.
 
 The script uses the Chutney interface of 2026 (`init
 --net-from-script-path`, and the torrc Chutney writes itself, with a
@@ -137,6 +161,9 @@ Status: steps 1 to 20 passed in the final verification of Phase 5, on
 `91bf22c`, in 2085 seconds, with Tor 0.4.9.13 and Chutney at commit
 `ae3a33c` in the container and 15 restart cycles
 (`docs/DESIGN_QUESTIONS.md` 12.8); steps 1 to 12 had passed in that of
-Phase 4, on `970316f` (11.6). The Dockerfile does not pin the version of
+Phase 4, on `970316f` (11.6). Step 21 has not run against Tor yet: its
+first run is the final verification of Phase 6. Its clients run on the
+in-memory Tor with `cargo run --release -p monolith-desktop --example
+tor_smoke`. The Dockerfile does not pin the version of
 Tor. The result that counts for a phase is the run on
 the commit of its final verification, recorded in the final report.

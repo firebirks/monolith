@@ -88,7 +88,13 @@ scan, the smallest window, an idle window, the keyboard), its bridge
 against the runtime on the in-memory Tor, its crate boundary, its files;
 two more fuzz targets (`ui_present`, `ui_model_sequence`); the Phase 6
 mutation list (UI1 and on); the workflows of the brief run by script
-against the runtime; frame measurements. Covered now: T-UI-1 to 15.
+against the runtime; frame measurements; and the private Tor network test
+extended to the client: two clients driven through their window code
+become contacts through an invitation and exchange a message each way
+over Tor. The networking itself stays proved by the runtime steps of
+Phase 5; this step shows that the client's commands and events drive that
+runtime, with the configuration the client makes of its Tor settings.
+Covered now: T-UI-1 to 16.
 
 The rest need file transfer, and are not written yet.
 
@@ -605,6 +611,7 @@ to images by `monolith-ui-snapshot`.
 | T-UI-13 | A card or an invitation (P6-20): adding one says which it was, and the contact keeps saying it, also after a restart; a plain card's request is dropped in invitation mode until the card of its sender is added too; the model keeps "Add contact" open after a plain card, unless the contact had accepted; the dialog, the conversation and the own card say what each case waits for | `monolith-core/tests/front_end.rs`, `monolith-desktop/tests/bridge.rs`, `monolith-ui-model/tests/model.rs`, `monolith-ui/tests/views.rs` |
 | T-UI-14 | Closing: a session that saves nothing, or messages not delivered (not those of an ended conversation), make a close by the system ask first; the close is cancelled and the window stays shown, also when asked again, until Close Monolith; Cancel, Escape and Enter keep it; the words count the messages; with nothing to lose the window is hidden at once | `window::tests`, `app::tests`, `dialogs::tests`, `monolith-ui/tests/views.rs`, `monolith-ui-model/tests/model.rs` |
 | T-UI-15 | Delivery: a waiting delivery says once that both sides must be open, and when the next attempt is due, counted from when the attempt failed, said again when the words change and not at all while Tor is down; typing while a message is being queued stays in the draft once it is queued, and a refused send keeps all of it | `monolith-ui-model/tests/model.rs`, `conversation::tests`, `monolith-ui/tests/views.rs`, `idle.rs` |
+| T-UI-16 | Over Tor: two clients, one process each, driven through their window code (screens, UI model, bridge, runtime, file thread) over Tor A and Tor B of the private network, with the Tor configuration the desktop makes of its settings, so that a dial waits until Tor lists the SOCKS endpoint (`GETINFO net/listeners/socks` against a real Tor). A Tor check that says Tor works, an identity each, an invitation saved to a file and dropped on "Add contact", a request accepted, a message each way shown Delivered to its sender and Received by the other, a clean close; every connection to loopback or a Unix socket. Without Tor endpoints the same script runs both clients on the in-memory Tor | `monolith-desktop/examples/tor_smoke.rs`, step 21 of `tests/tor-network/two-node.sh` |
 
 ## 4. Property tests
 

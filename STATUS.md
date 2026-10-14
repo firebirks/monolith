@@ -40,8 +40,11 @@ The whole workspace builds and its tests pass on Linux and on Windows
 pictures of every screen: `cargo run -p monolith-ui --features fixtures
 --example screens -- <dir>`; the workflows A to G by script:
 `cargo run --release -p monolith-desktop --example scenarios -- <dir>`;
-the frame costs: `cargo run --release -p monolith-ui --features fixtures
---example measure`; the archives: `packaging/README.md`. The mutation
+the smoke test of step 21 of the private Tor network test, on the
+in-memory Tor: `cargo run --release -p monolith-desktop --example
+tor_smoke`; the frame costs: `cargo run --release -p monolith-ui
+--features fixtures --example measure`; the archives:
+`packaging/README.md`. The mutation
 runner and the private Tor network test run on Linux only.
 
 ## 3. What is done
@@ -55,8 +58,10 @@ runner and the private Tor network test run on Linux only.
   contrast, the screens (source scan, smallest window, idle, keyboard),
   the bridge against the runtime, the boundary, the files; two fuzz
   targets (three faults of `present.rs` found and fixed); the Phase 6
-  mutation list UI1 to UI34; the workflows A to G by script; packaging for
-  Linux and Windows; the documents.
+  mutation list UI1 to UI34; the workflows A to G by script; step 21 of
+  the private Tor network test (two clients driven through their window
+  code over Tor A and Tor B, `examples/tor_smoke.rs`; not yet run against
+  Tor); packaging for Linux and Windows; the documents.
 
 ## 4. What was verified
 

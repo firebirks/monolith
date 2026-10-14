@@ -8,9 +8,10 @@
 #         -v "$PWD:/src:ro" -v "$PWD/target:/target:ro" \
 #         -e MONOLITH_BIN=/target/debug/monolith \
 #         -e MONOLITH_LIFECYCLE_BIN=/target/debug/deps/tor_network-<hash> \
+#         -e MONOLITH_DESKTOP_SMOKE_BIN=/target/release/examples/tor_smoke \
 #         monolith-tor-network /src/tests/tor-network/two-node.sh
 #
-# README.md says how to build the two binaries.
+# README.md says how to build the three binaries.
 #
 # Test tooling installs and starts Tor here; Monolith never does.
 FROM debian:12

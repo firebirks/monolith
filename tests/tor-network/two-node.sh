@@ -32,6 +32,15 @@
 # one node keep their queues and sessions apart; both sides sending at once
 # end with one session.
 #
+# Phase 6, with the `tor_smoke` example of the desktop client (step 21,
+# also run before step 12): two clients driven through their window code
+# (screens, UI model, bridge, runtime), each over its Tor with the
+# configuration the desktop makes of its settings, under which a dial waits
+# until Tor, asked through the control port, lists the SOCKS endpoint. B
+# saves an invitation card, A adds it from the file and writes, B accepts
+# A's request and answers; each shows its message delivered and the
+# other's received, and both close.
+#
 # Every Monolith process runs under strace, and every connect it makes
 # must go to a loopback address or a Unix socket, with no UDP socket and
 # nothing on port 53: no direct connection and no DNS. No public relay,
@@ -40,9 +49,10 @@
 #
 # Needs: CHUTNEY_PATH pointing at a Chutney checkout, tor and tor-gencert
 # on PATH (0.4.9.5 or later), python3, strace, and either cargo or the
-# binaries prebuilt: MONOLITH_BIN for `monolith` and MONOLITH_LIFECYCLE_BIN
-# for the `tor_network` test of monolith-core (the Dockerfile here runs it
-# that way).
+# binaries prebuilt: MONOLITH_BIN for `monolith`, MONOLITH_LIFECYCLE_BIN
+# for the `tor_network` test of monolith-core and MONOLITH_DESKTOP_SMOKE_BIN
+# for the `tor_smoke` example of monolith-desktop, built in release (the
+# Dockerfile here runs it that way).
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -70,6 +80,7 @@ trap cleanup EXIT
 if [ -n "${MONOLITH_BIN:-}" ]; then
     monolith=$MONOLITH_BIN
     lifecycle=${MONOLITH_LIFECYCLE_BIN:?set MONOLITH_LIFECYCLE_BIN with MONOLITH_BIN}
+    desktop=${MONOLITH_DESKTOP_SMOKE_BIN:?set MONOLITH_DESKTOP_SMOKE_BIN with MONOLITH_BIN}
 else
     cargo build --quiet --locked -p monolith-cli --manifest-path "$root/Cargo.toml"
     monolith="${CARGO_TARGET_DIR:-$root/target}/debug/monolith"
@@ -81,6 +92,9 @@ for line in sys.stdin:
     message = json.loads(line)
     if message.get("target", {}).get("name") == "tor_network" and message.get("executable"):
         print(message["executable"])' | tail -1)
+    cargo build --quiet --locked --release -p monolith-desktop --example tor_smoke \
+        --manifest-path "$root/Cargo.toml"
+    desktop="${CARGO_TARGET_DIR:-$root/target}/release/examples/tor_smoke"
 fi
 
 # Every connect must go to 127.0.0.0/8, ::1 or a Unix socket; no UDP
@@ -844,6 +858,27 @@ stop_node ra
 stop_node rb
 echo "ok   $traces node runs checked"
 
+# --- Phase 6: the desktop client --------------------------------------------
+
+echo "21. Two desktop clients driven through their window code: an invitation, a request, a message each way."
+# Each client hands what the other needs through files in this folder.
+mkdir "$work/desktop"
+status=0
+traced desktop-b "$desktop" b "$work/desktop" "$work/desktop-b" "${tor_b[@]}" \
+    >"$work/desktop-b.out" 2>&1 &
+desktop_b=$!
+traced desktop-a "$desktop" a "$work/desktop" "$work/desktop-a" "${tor_a[@]}" \
+    >"$work/desktop-a.out" 2>&1 || status=$?
+wait "$desktop_b" || status=$?
+# What each client did, also when one failed.
+cat "$work/desktop-a.out" "$work/desktop-b.out"
+test "$status" = 0
+# The Tor check proves the SOCKS endpoint as a dial does.
+grep -q '^a: the Tor check says Tor works ' "$work/desktop-a.out"
+grep -q '^b: the Tor check says Tor works ' "$work/desktop-b.out"
+grep -q '^a: passed in ' "$work/desktop-a.out"
+grep -q '^b: passed in ' "$work/desktop-b.out"
+echo "ok   Tor listed each SOCKS endpoint; each client showed its message delivered and the other's received"
 
 echo "12. Tor B goes away while B waits: the control connection is reported lost."
 status=0

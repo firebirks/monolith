@@ -269,9 +269,8 @@ fn deferral_text(
         _ if waiting => return None,
         None => return None,
         Some(Deferral::Tor | Deferral::Unreachable) => format!(
-            "{name} cannot be reached right now. Their Monolith may be closed, or they may not \
-             have accepted you yet. Monolith tries again from time to time; your messages stay \
-             queued on this device."
+            "{name} cannot be reached right now. Their Monolith may be closed or offline. \
+             Monolith tries again from time to time; your messages stay queued on this device."
         ),
         Some(Deferral::NoAddress) => format!(
             "There is no address to send to {name} yet. Messages stay queued until there is."

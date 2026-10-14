@@ -141,7 +141,10 @@ settings. Nothing in the client offers to connect without Tor. Outside
 Tails and Whonix the client dials only once Tor has listed its SOCKS
 endpoint (`THREAT_MODEL.md` adversary O): while Tor Browser is closed,
 nothing is dialed, and when Tor answers but does not list the configured
-SOCKS endpoint, the check says that SOCKS is not working.
+SOCKS endpoint, the check says that SOCKS is not working. Step 21 of the
+private Tor network test (`tests/tor-network/README.md`) runs two clients
+with this configuration against real Tor processes, driven through their
+window code by `crates/monolith-desktop/examples/tor_smoke.rs`.
 
 A message that cannot be delivered stays Queued; the conversation says
 why, from the runtime's last deferral: the contact could not be reached,
