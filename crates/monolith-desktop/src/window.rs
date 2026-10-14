@@ -243,7 +243,14 @@ fn byte(value: f32) -> u8 {
 
 /// The icon of the window: a standing slab on the accent colour.
 pub fn icon() -> IconData {
-    const SIDE: u32 = 64;
+    icon_of_side(64)
+}
+
+/// The icon, `side` pixels square: for the window, and for the packages
+/// that install an icon file.
+pub fn icon_of_side(side: u32) -> IconData {
+    // The shapes are given on a grid of 64 and drawn at `side`.
+    let unit = side as f32 / 64.0;
     let palette = Theme::dark().color;
     let background = palette.accent;
     let slab = palette.text_on_accent;
@@ -259,11 +266,23 @@ pub fn icon() -> IconData {
         (0.5 - distance).clamp(0.0, 1.0)
     };
     let mut rgba = Vec::new();
-    for row in 0..SIDE {
-        for column in 0..SIDE {
+    for row in 0..side {
+        for column in 0..side {
             let (x, y) = (column as f32 + 0.5, row as f32 + 0.5);
-            let tile = coverage(x, y, (32.0, 32.0), (30.0, 30.0), 13.0);
-            let stone = coverage(x, y, (32.0, 33.0), (7.0, 19.0), 1.5);
+            let tile = coverage(
+                x,
+                y,
+                (32.0 * unit, 32.0 * unit),
+                (30.0 * unit, 30.0 * unit),
+                13.0 * unit,
+            );
+            let stone = coverage(
+                x,
+                y,
+                (32.0 * unit, 33.0 * unit),
+                (7.0 * unit, 19.0 * unit),
+                1.5 * unit,
+            );
             let mix = |under: u8, over: u8| {
                 byte(f32::from(under) * (1.0 - stone) + f32::from(over) * stone)
             };
@@ -277,8 +296,8 @@ pub fn icon() -> IconData {
     }
     IconData {
         rgba,
-        width: SIDE,
-        height: SIDE,
+        width: side,
+        height: side,
     }
 }
 

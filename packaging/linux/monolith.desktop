@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Monolith
+GenericName=Messenger
+Comment=Private messages over Tor
+Exec=monolith-desktop
+Icon=monolith
+Terminal=false
+Categories=Network;InstantMessaging;
+StartupWMClass=monolith
