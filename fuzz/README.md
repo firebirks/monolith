@@ -2,7 +2,8 @@
 
 A `cargo fuzz` project for the protocol core, the session layer, the Tor
 adapter's parsers, the vault payload, the contact store, the message
-store payload and the message state machine. It is
+store payload, the message state machine, and the presentation and state
+of the desktop client. It is
 not a member of the main workspace: it needs a nightly toolchain and has
 its own lock file.
 
@@ -35,10 +36,17 @@ handshake with fixed ephemeral keys. The functions that allow this exist in
 | `session_frames` | piece size, then operations: send, deliver, deliver part of a frame, change a byte, drop, repeat, inject, close, block, remove the contact, lose the stream, withdraw, let time pass, expire at the next deadline | a message is delivered only if the peer sent it, once and in order; nothing is delivered from a direction that was interfered with, or after the age limit and its grace; a violation occurs only there; from the age limit on nothing but Close is sent; every way of ending a session sends the same Close; a begun frame that does not complete within `FRAME_READ_TIMEOUT` of its first byte, or no complete frame for `IDLE_TIMEOUT`, ends the session without a Close, the age limit with one; a session that expired or failed stays over |
 | `tor_control_reply` | piece size, then bytes from a control endpoint | the parser keeps every line, line count and reply size limit, an error is final, every reply has one status code and is never an event; each interpretation (PROTOCOLINFO, AUTHCHALLENGE, GETINFO, ADD_ONION) is consistent, and a private key appears only in the new-key form; 64 arbitrary key bytes never add a line to `ADD_ONION` |
 | `socks_reply` | bytes from a SOCKS proxy after a CONNECT | a reply is complete exactly when its address type's bytes have arrived, never longer than `MAX_SOCKS_REPLY_LEN`; shorter prefixes are incomplete, not wrong; an error stays an error whatever follows |
+| `ui_present` | selector byte (expand, preview limit, no local name), then text | no panic; no invisible or direction-changing character reaches the output as itself, only as its `<U+XXXX>` mark (the class is written out in the target from `PROTOCOL.md` section 9); a text of at most 16 characters comes out exactly as the rules say; an unexpanded message is a prefix of the expanded one, holds fewer lines than `MAX_RENDERED_MESSAGE_LINES` and is collapsed exactly when lines were left out; a preview is one line within its limit, is the line itself when nothing is cut and ends in an ellipsis when something is; `sendable` agrees with a second statement (not only white space, at most `MAX_MESSAGE_BYTES`); the name helpers return the local name or the fallback built from the first group of the fingerprint |
+| `ui_model_sequence` | five-byte steps: user actions (select identity or conversation, dialogs, drafts, send), commands taken, answers to commands with any outcome built from small pools of handles of two identities, every kind of runtime event, stop, start | no panic; the identity shown is a listed one; a selected conversation belongs to its identity; every command taken carries the handles of one identity and a number above the one before; commands and notices stay within a constant times the steps; an answer to a number never issued, or already answered, changes nothing (the whole state, written out, is equal before and after) |
 
 The property all of them share: for arbitrary input the code either rejects
 it or produces a valid bounded value, without a panic, without an allocation
 sized by the input, and without an unbounded loop.
+
+The text a user imports as a contact or invitation card in the desktop
+client (pasted, or read from a file) goes to the same parser as every other
+card, so `contact_card_text` covers that boundary and the desktop has no
+target of its own for it. The drawing code (egui) is not fuzzed.
 
 Four targets have a second input mode. Random bytes almost never form a
 padded frame, and never a handshake message, so in that mode the target
@@ -60,14 +68,16 @@ produces: `fuzz_seeds` in `monolith-protocol` for the first nine targets,
 `seeds` in `monolith-session` for the three session targets, `fuzz_seeds`
 in `monolith-tor` for the two Tor targets, `fuzz_seeds` in
 `monolith-storage` for `vault_payload` (payloads of version 1 and 2) and
-`message_store`, and `fuzz_seeds` in `monolith-core` for `contact_store`
-and `message_sequence`. After a format change:
+`message_store`, `fuzz_seeds` in `monolith-core` for `contact_store`
+and `message_sequence`, and `fuzz_seeds` in `monolith-ui-model` for
+`ui_present` and `ui_model_sequence`. After a format change:
 
     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-protocol --test fuzz_seeds
     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-session seeds
     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-tor --test fuzz_seeds
     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-storage --test fuzz_seeds
     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-core --test fuzz_seeds
+    MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-ui-model --test fuzz_seeds
 
 The working corpus that a run produces goes to `corpus/<target>/`, which is
 not committed.
@@ -92,7 +102,7 @@ To check that the targets compile without running them:
 
 ## Status
 
-All eighteen targets build (`fuzz_targets/session_fixtures.rs` holds
+All twenty targets build (`fuzz_targets/session_fixtures.rs` holds
 fixtures they share and is not one); Phase 4 added `vault_payload` and
 `contact_store` and extended `credential_sequence`, and Phase 5 added
 `message_store` and `message_sequence`. In the final verification of
@@ -118,6 +128,18 @@ handshake under the address sanitizer. After they gained time and
 records, `session_frames` and `handshake_responder` also ran for 150
 seconds each (25 thousand and 94 thousand executions), without a
 failure. That shows the targets work. It is not a fuzzing campaign.
+
+Phase 6 added `ui_present` and `ui_model_sequence`. Each ran for 60
+seconds from its seeds on Linux under the address sanitizer (about 105
+thousand executions for `ui_present`, 225 thousand for `ui_model_sequence`
+in the last run, after the fixes below). The first runs of `ui_present`
+found three faults in `monolith-ui-model`, all fixed with a regression test
+in `present.rs`: a preview cut at a space had no ellipsis, a preview with
+only white space after its last word had one, and a text whose lines end in
+carriage return and line feed was never collapsed, because the two form one
+grapheme cluster that was not counted as a line. `ui_model_sequence` found
+nothing in its runs. The other targets were not run again for Phase 6.
+That shows the two targets work. It is not a fuzzing campaign.
 
 Not done yet:
 

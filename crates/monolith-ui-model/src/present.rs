@@ -101,13 +101,14 @@ pub fn prepare(text: &str, expanded: bool) -> Prepared {
     let mut lines = 1_usize;
     let mut collapsed = false;
     for cluster in text.graphemes(true) {
-        if cluster == "\n" {
+        // A carriage return before a line feed makes one cluster of the two.
+        if cluster == "\n" || cluster == "\r\n" {
             if !expanded && lines >= MAX_RENDERED_MESSAGE_LINES {
                 collapsed = true;
                 break;
             }
             lines = lines.saturating_add(1);
-            out.push('\n');
+            out.push_str(cluster);
             continue;
         }
         if cluster.chars().count() > MAX_RENDERED_GRAPHEME_SCALARS {
@@ -142,8 +143,10 @@ pub fn preview(text: &str, max_chars: usize) -> String {
             continue;
         }
         if space {
-            if count >= max_chars {
-                break;
+            // A space and the next character both have to fit.
+            if count.saturating_add(1) >= max_chars {
+                out.push(ELLIPSIS);
+                return out;
             }
             out.push(' ');
             count = count.saturating_add(1);
@@ -156,7 +159,9 @@ pub fn preview(text: &str, max_chars: usize) -> String {
         out.push(character);
         count = count.saturating_add(1);
     }
-    if count >= max_chars && out.chars().count() < text.chars().count() {
+    // Lines past the limit were left out by `prepare`: that is a cut too.
+    // White space at the end of the text is not.
+    if prepared.collapsed {
         out.push(ELLIPSIS);
     }
     out
@@ -386,10 +391,39 @@ mod tests {
     }
 
     #[test]
+    fn a_carriage_return_and_line_feed_count_as_one_line_break() {
+        let text = vec!["line"; MAX_RENDERED_MESSAGE_LINES + 5].join("\r\n");
+        let collapsed = prepare(&text, false);
+        assert!(collapsed.collapsed);
+        assert_eq!(
+            collapsed.text.matches('\n').count(),
+            MAX_RENDERED_MESSAGE_LINES - 1
+        );
+        assert_eq!(prepare(&text, true).text, text);
+    }
+
+    #[test]
     fn a_preview_is_one_line_and_cut_with_an_ellipsis() {
         assert_eq!(preview("hello\n\n  world", 40), "hello world");
         assert_eq!(preview("abcdefghij", 4), "abcd\u{2026}");
         assert_eq!(preview("abcd", 4), "abcd");
+    }
+
+    #[test]
+    fn a_preview_has_an_ellipsis_only_where_it_cuts() {
+        // White space after the last word is not text that was cut.
+        assert_eq!(preview("abcde \n  ", 5), "abcde");
+        assert_eq!(preview("abcde", 5), "abcde");
+        assert_eq!(preview("abcdef", 5), "abcde\u{2026}");
+        // A cut at a space shows the ellipsis too, and no space before it.
+        assert_eq!(preview("l at 06:05", 1), "l\u{2026}");
+        assert_eq!(preview("abc def", 3), "abc\u{2026}");
+        assert_eq!(preview("abc def", 4), "abc\u{2026}");
+        assert_eq!(preview("abc def", 5), "abc d\u{2026}");
+        assert_eq!(preview("abc de", 6), "abc de");
+        // Lines left out by the line limit are.
+        let text = vec!["a"; MAX_RENDERED_MESSAGE_LINES + 5].join("\n");
+        assert!(preview(&text, 1_000).ends_with('\u{2026}'));
     }
 
     #[test]
