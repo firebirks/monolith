@@ -1139,6 +1139,64 @@ impl ContactStore {
         })
     }
 
+    /// Sets the local name of the contact record `record` of `identity`,
+    /// or removes it. Looked up under the lock of the contact: a record
+    /// deleted, blocked or made again for the same identity since is
+    /// [`StoreError::NotFound`] and keeps its own name.
+    pub(crate) fn set_alias(
+        &self,
+        identity: &IdentityPublicKey,
+        record: ContactId,
+        alias: Option<DisplayName>,
+    ) -> Result<u64, StoreError> {
+        self.check_failed()?;
+        self.with_entry(identity, false, |entry| {
+            let Some(Entry {
+                record: Record::Contact(contact),
+                ..
+            }) = entry
+            else {
+                return Err(StoreError::NotFound);
+            };
+            if contact.id != record {
+                return Err(StoreError::NotFound);
+            }
+            if contact.alias != alias {
+                contact.alias = alias;
+                self.durability.bump();
+            }
+            Ok(self.depends())
+        })
+    }
+
+    /// Marks the verification of the contact record `record` of
+    /// `identity`, looked up as [`Self::set_alias`] does.
+    pub(crate) fn set_record_verified(
+        &self,
+        identity: &IdentityPublicKey,
+        record: ContactId,
+        verified: bool,
+    ) -> Result<u64, StoreError> {
+        self.check_failed()?;
+        self.with_entry(identity, false, |entry| {
+            let Some(Entry {
+                record: Record::Contact(contact),
+                ..
+            }) = entry
+            else {
+                return Err(StoreError::NotFound);
+            };
+            if contact.id != record {
+                return Err(StoreError::NotFound);
+            }
+            if contact.verified != verified {
+                contact.verified = verified;
+                self.durability.bump();
+            }
+            Ok(self.depends())
+        })
+    }
+
     /// Records the progress of the local rotation `rotation` at a contact:
     /// its successor was sent to it, or it confirmed the new key. The
     /// caller holds the keys of the identity, so that `rotation` is the

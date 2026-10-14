@@ -647,6 +647,35 @@ impl LocalIdentity {
         self.commit(generation).await
     }
 
+    /// Sets the local name of the contact record `record`, or removes it.
+    /// [`StoreError::NotFound`] unless `record` is still the record of its
+    /// identity when the change is made. Durable when this returns.
+    pub async fn set_record_alias(
+        &self,
+        record: &ContactId,
+        alias: Option<DisplayName>,
+    ) -> Result<(), StoreError> {
+        self.check_open()?;
+        let peer = self.current_record(record).ok_or(StoreError::NotFound)?;
+        let generation = self.contacts.set_alias(&peer, *record, alias)?;
+        self.commit(generation).await
+    }
+
+    /// Marks whether the user verified the fingerprint of the contact
+    /// record `record`, as [`Self::set_record_alias`] sets its name.
+    pub async fn set_record_verified(
+        &self,
+        record: &ContactId,
+        verified: bool,
+    ) -> Result<(), StoreError> {
+        self.check_open()?;
+        let peer = self.current_record(record).ok_or(StoreError::NotFound)?;
+        let generation = self
+            .contacts
+            .set_record_verified(&peer, *record, verified)?;
+        self.commit(generation).await
+    }
+
     /// What is held about `identity`.
     pub fn contact(&self, identity: &IdentityPublicKey) -> Option<ContactView> {
         let keys = lock(&self.keys);

@@ -41,6 +41,22 @@ pub struct InvitationId {
     number: u64,
 }
 
+impl InvitationId {
+    /// The instance and the number, for a plain value of the interface.
+    pub(crate) const fn parts(self) -> (u64, u64) {
+        (self.instance, self.number)
+    }
+
+    /// The identifier of `parts`. It names something only in the instance
+    /// it says, as every identifier does.
+    pub(crate) const fn from_parts(parts: (u64, u64)) -> Self {
+        Self {
+            instance: parts.0,
+            number: parts.1,
+        }
+    }
+}
+
 struct Invitation {
     id: InvitationId,
     capability: InvitationCapability,
@@ -206,6 +222,22 @@ impl Invitations {
 pub struct RequestId {
     instance: u64,
     number: u64,
+}
+
+impl RequestId {
+    /// The instance and the number, for a plain value of the interface.
+    pub(crate) const fn parts(self) -> (u64, u64) {
+        (self.instance, self.number)
+    }
+
+    /// The identifier of `parts`. It names something only in the instance
+    /// it says, as every identifier does.
+    pub(crate) const fn from_parts(parts: (u64, u64)) -> Self {
+        Self {
+            instance: parts.0,
+            number: parts.1,
+        }
+    }
 }
 
 /// A contact request waiting for the user.

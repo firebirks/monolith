@@ -49,14 +49,15 @@ use tokio::time::Instant;
 
 use crate::api::{
     CommandError, ContactId, ContactSummary, ConversationSummary, DeferReason, Event, IdentityId,
-    IdentitySummary, MessageRef, MessageStatus, MessageView, RefusedReason, SendError,
-    ServiceState,
+    IdentitySummary, InvitationRef, InvitationSummary, MessageRef, MessageStatus, MessageView,
+    RefusedReason, RequestMode, RequestRef, RequestSummary, SendError, ServiceState, TorCheck,
 };
 use crate::budget::Budgets;
 use crate::contacts::StoreError;
 use crate::identity::{Installation, InstallationError, LocalIdentity, MessageError};
 use crate::link::{Established, Link, LinkError, answer, dial};
 use crate::messages::{Receipt, Refusal};
+use crate::requests::{InvitationId, RequestId};
 use crate::sessions::{SessionControl, SessionManager};
 use crate::supervisor::{Backoff, Publication, supervise};
 
@@ -130,6 +131,9 @@ struct IdentityRuntime {
     /// The records a session was reported available for: an event is
     /// raised only when that changes.
     available: Mutex<HashSet<ContactId>>,
+    /// The state of the Onion Service last reported, for a front end that
+    /// asks instead of following the events.
+    service: Mutex<ServiceState>,
 }
 
 impl fmt::Debug for IdentityRuntime {
@@ -291,6 +295,63 @@ fn installation_error(error: InstallationError) -> CommandError {
         InstallationError::Full => CommandError::Full,
         InstallationError::Store(error) => store_error(error),
         _ => CommandError::Storage,
+    }
+}
+
+fn request_error(error: StoreError) -> CommandError {
+    match error {
+        StoreError::NotFound => CommandError::UnknownRequest,
+        error => store_error(error),
+    }
+}
+
+fn invitation_error(error: StoreError) -> CommandError {
+    match error {
+        StoreError::NotFound => CommandError::UnknownInvitation,
+        error => store_error(error),
+    }
+}
+
+/// What a front end is told of a status query of the system Tor.
+fn tor_check(status: &monolith_tor::TorStatus) -> TorCheck {
+    use monolith_tor::{Bootstrap, ControlStatus, SocksStatus};
+    let socks = status.socks == SocksStatus::Reachable;
+    match status.control {
+        ControlStatus::Reachable {
+            version,
+            circuit_established,
+            bootstrap,
+        } => {
+            if !socks {
+                TorCheck::SocksUnavailable
+            } else if circuit_established {
+                TorCheck::Ready {
+                    version: version.to_string(),
+                    outdated: version < monolith_tor::RECOMMENDED,
+                }
+            } else {
+                TorCheck::Connecting {
+                    progress: match bootstrap {
+                        Bootstrap::InProgress(percent) => Some(percent),
+                        Bootstrap::Done => Some(100),
+                        Bootstrap::Unknown => None,
+                    },
+                }
+            }
+        }
+        ControlStatus::UnsupportedVersion(version) => TorCheck::TooOld {
+            version: version.to_string(),
+        },
+        ControlStatus::AuthenticationFailed | ControlStatus::AuthenticationUnavailable => {
+            TorCheck::AuthenticationFailed
+        }
+        ControlStatus::Unavailable | ControlStatus::InvalidResponse => {
+            if socks {
+                TorCheck::ControlUnavailable
+            } else {
+                TorCheck::NotRunning
+            }
+        }
     }
 }
 
@@ -488,6 +549,7 @@ impl<B: TorBackend + 'static> Inner<B> {
             schedulers: Mutex::new(HashSet::new()),
             timed_out: Mutex::new(HashSet::new()),
             available: Mutex::new(HashSet::new()),
+            service: Mutex::new(ServiceState::Publishing),
         });
         lock(&self.identities).insert(identity.id(), runtime.clone());
         let inner = self.clone();
@@ -563,6 +625,7 @@ impl<B: TorBackend + 'static> Inner<B> {
         let (state, mut states) = watch::channel(Publication::Publishing);
         let id = runtime.identity.id();
         let relaying = self.clone();
+        let recording = runtime.clone();
         self.spawn(async move {
             while states.changed().await.is_ok() {
                 let current = *states.borrow_and_update();
@@ -573,6 +636,9 @@ impl<B: TorBackend + 'static> Inner<B> {
                     Publication::NoKey => ServiceState::NoKey,
                     Publication::Stopped => ServiceState::Stopped,
                 };
+                // Recorded before the event, so that a front end that asks
+                // when the event arrives finds the state it reports.
+                *lock(&recording.service) = state;
                 relaying.emit(Event::Service {
                     identity: id,
                     state,
@@ -1353,10 +1419,14 @@ impl<B: TorBackend + 'static> Runtime<B> {
         let mut summaries: Vec<IdentitySummary> = lock(&self.inner.identities)
             .values()
             .filter(|held| !held.identity.is_closed())
-            .map(|held| IdentitySummary {
-                identity: held.identity.id(),
-                fingerprint: Fingerprint::of(held.identity.identity()).to_compact_text(),
-                label: held.identity.label().map(|label| label.as_str().to_owned()),
+            .map(|held| {
+                let fingerprint = Fingerprint::of(held.identity.identity());
+                IdentitySummary {
+                    identity: held.identity.id(),
+                    fingerprint: fingerprint.to_compact_text(),
+                    full_fingerprint: fingerprint.to_full_text(),
+                    label: held.identity.label().map(|label| label.as_str().to_owned()),
+                }
             })
             .collect();
         summaries.sort_by(|a, b| a.fingerprint.cmp(&b.fingerprint));
@@ -1381,9 +1451,11 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .into_iter()
             .filter_map(|(contact, peer)| {
                 let view = held.identity.contact(&peer)?;
+                let fingerprint = Fingerprint::of(&peer);
                 Some(ContactSummary {
                     contact,
-                    fingerprint: Fingerprint::of(&peer).to_compact_text(),
+                    fingerprint: fingerprint.to_compact_text(),
+                    full_fingerprint: fingerprint.to_full_text(),
                     alias: view.alias.map(|alias| alias.as_str().to_owned()),
                     accepted: view.kind == monolith_protocol::contact::RecordKind::Accepted,
                     verified: view.verified,
@@ -1643,6 +1715,257 @@ impl<B: TorBackend + 'static> Runtime<B> {
             })
             .await
             .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// Sets the local name of the contact record `contact`, or removes it
+    /// with `None` or an empty name. The name is never sent. Fails with
+    /// [`CommandError::UnknownContact`] if the record is no longer the
+    /// current one of its identity.
+    pub async fn set_contact_name(
+        &self,
+        identity: &IdentityId,
+        contact: &ContactId,
+        name: Option<&str>,
+    ) -> Result<(), CommandError> {
+        let held = self.held(identity)?;
+        let alias = name
+            .filter(|name| !name.is_empty())
+            .map(DisplayName::new)
+            .transpose()
+            .map_err(|_| CommandError::InvalidText)?;
+        let contact = *contact;
+        self.inner
+            .detached(async move {
+                held.identity
+                    .set_record_alias(&contact, alias)
+                    .await
+                    .map_err(store_error)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// Records whether the user compared the fingerprint of the contact
+    /// record `contact` out of band.
+    pub async fn set_contact_verified(
+        &self,
+        identity: &IdentityId,
+        contact: &ContactId,
+        verified: bool,
+    ) -> Result<(), CommandError> {
+        let held = self.held(identity)?;
+        let contact = *contact;
+        self.inner
+            .detached(async move {
+                held.identity
+                    .set_record_verified(&contact, verified)
+                    .await
+                    .map_err(store_error)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// The contact requests of `identity` waiting for an answer.
+    pub fn requests(&self, identity: &IdentityId) -> Result<Vec<RequestSummary>, CommandError> {
+        let held = self.held(identity)?;
+        Ok(held
+            .identity
+            .requests()
+            .into_iter()
+            .map(|pending| {
+                let fingerprint = Fingerprint::of(pending.identity());
+                RequestSummary {
+                    request: RequestRef::new(*identity, pending.id.parts()),
+                    fingerprint: fingerprint.to_compact_text(),
+                    full_fingerprint: fingerprint.to_full_text(),
+                    display_name: pending.display_name.as_str().to_owned(),
+                    introduction: pending.introduction.as_str().to_owned(),
+                    invitation: pending
+                        .admitted_by
+                        .map(|invitation| InvitationRef::new(*identity, invitation.parts())),
+                }
+            })
+            .collect())
+    }
+
+    /// Accepts the contact request `request`: its sender becomes an
+    /// accepted contact with the card of that request. Returns the record.
+    /// A request answered or dropped since, also one its sender replaced
+    /// with another, is [`CommandError::UnknownRequest`].
+    pub async fn accept_request(&self, request: &RequestRef) -> Result<ContactId, CommandError> {
+        let held = self.held(&request.identity)?;
+        let id = RequestId::from_parts(request.request());
+        self.inner
+            .detached(async move {
+                let peer = held
+                    .identity
+                    .requests()
+                    .into_iter()
+                    .find(|pending| pending.id == id)
+                    .map(|pending| *pending.identity())
+                    .ok_or(CommandError::UnknownRequest)?;
+                held.identity
+                    .accept_request(id)
+                    .await
+                    .map_err(request_error)?;
+                held.identity
+                    .contact_id(&peer)
+                    .ok_or(CommandError::UnknownContact)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// Declines the contact request `request`. Nothing is sent.
+    pub async fn decline_request(&self, request: &RequestRef) -> Result<(), CommandError> {
+        self.answer_request(request, false).await
+    }
+
+    /// Blocks the sender of the contact request `request`.
+    pub async fn block_request(&self, request: &RequestRef) -> Result<(), CommandError> {
+        self.answer_request(request, true).await
+    }
+
+    async fn answer_request(&self, request: &RequestRef, block: bool) -> Result<(), CommandError> {
+        let held = self.held(&request.identity)?;
+        let id = RequestId::from_parts(request.request());
+        self.inner
+            .detached(async move {
+                if block {
+                    held.identity.block_request(id).await
+                } else {
+                    held.identity.decline_request(id).await
+                }
+                .map_err(request_error)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// The invitations of the active set of `identity`.
+    pub fn invitations(
+        &self,
+        identity: &IdentityId,
+    ) -> Result<Vec<InvitationSummary>, CommandError> {
+        let held = self.held(identity)?;
+        Ok(held
+            .identity
+            .invitations()
+            .into_iter()
+            .map(|(invitation, label)| InvitationSummary {
+                invitation: InvitationRef::new(*identity, invitation.parts()),
+                label: label.map(|label| label.as_str().to_owned()),
+            })
+            .collect())
+    }
+
+    /// Makes a new invitation with an optional local label. Returns it with
+    /// the card that carries it, in its text form, for the user to hand to
+    /// one person. Fails with [`CommandError::Full`] when the active set is
+    /// full; nothing is revoked to make room.
+    pub async fn create_invitation(
+        &self,
+        identity: &IdentityId,
+        label: Option<&str>,
+    ) -> Result<(InvitationRef, String), CommandError> {
+        let held = self.held(identity)?;
+        let label = label
+            .filter(|label| !label.is_empty())
+            .map(DisplayName::new)
+            .transpose()
+            .map_err(|_| CommandError::InvalidText)?;
+        let identity = *identity;
+        self.inner
+            .detached(async move {
+                let (invitation, card) = held
+                    .identity
+                    .create_invitation(label)
+                    .await
+                    .map_err(invitation_error)?;
+                Ok((
+                    InvitationRef::new(identity, invitation.parts()),
+                    card.to_text(),
+                ))
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// The card of the invitation `invitation` again, in its text form.
+    pub fn invitation_card(&self, invitation: &InvitationRef) -> Result<String, CommandError> {
+        let held = self.held(&invitation.identity)?;
+        held.identity
+            .invitation_card(InvitationId::from_parts(invitation.invitation()))
+            .map(|card| card.to_text())
+            .map_err(invitation_error)
+    }
+
+    /// Revokes the invitation `invitation`: requests that carry it are
+    /// dropped from now on. With `discard_requests`, the requests it
+    /// admitted that still wait are dropped too. Returns how many were.
+    pub async fn revoke_invitation(
+        &self,
+        invitation: &InvitationRef,
+        discard_requests: bool,
+    ) -> Result<usize, CommandError> {
+        let held = self.held(&invitation.identity)?;
+        let id = InvitationId::from_parts(invitation.invitation());
+        self.inner
+            .detached(async move {
+                if discard_requests {
+                    held.identity.revoke_and_discard(id).await
+                } else {
+                    held.identity.revoke_invitation(id).await.map(|()| 0)
+                }
+                .map_err(invitation_error)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// Which requests from strangers `identity` considers.
+    pub fn request_mode(&self, identity: &IdentityId) -> Result<RequestMode, CommandError> {
+        Ok(match self.held(identity)?.identity.request_mode() {
+            monolith_protocol::contact::RequestMode::Invitation => RequestMode::Invitation,
+            monolith_protocol::contact::RequestMode::Open => RequestMode::Open,
+            monolith_protocol::contact::RequestMode::Closed => RequestMode::Closed,
+        })
+    }
+
+    /// Sets which requests from strangers `identity` considers.
+    pub async fn set_request_mode(
+        &self,
+        identity: &IdentityId,
+        mode: RequestMode,
+    ) -> Result<(), CommandError> {
+        let held = self.held(identity)?;
+        let mode = match mode {
+            RequestMode::Invitation => monolith_protocol::contact::RequestMode::Invitation,
+            RequestMode::Open => monolith_protocol::contact::RequestMode::Open,
+            RequestMode::Closed => monolith_protocol::contact::RequestMode::Closed,
+        };
+        self.inner
+            .detached(async move {
+                held.identity
+                    .set_request_mode(mode)
+                    .await
+                    .map_err(store_error)
+            })
+            .await
+            .unwrap_or(Err(CommandError::ShuttingDown))
+    }
+
+    /// The state of the Onion Service of `identity`, as last reported by
+    /// [`Event::Service`].
+    pub fn service_state(&self, identity: &IdentityId) -> Result<ServiceState, CommandError> {
+        Ok(*lock(&self.held(identity)?.service))
+    }
+
+    /// Asks the system Tor how it is: both endpoints, the version and
+    /// whether it has a circuit. Contacts only the configured endpoints.
+    pub async fn check_tor(&self) -> TorCheck {
+        tor_check(&self.inner.backend.status().await)
     }
 
     /// Asks for a session with the contact of the record `contact` now, an

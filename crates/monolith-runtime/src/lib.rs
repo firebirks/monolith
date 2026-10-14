@@ -15,7 +15,8 @@ use std::path::Path;
 pub use monolith_core::api;
 use monolith_core::api::{
     CommandError, ContactId, ContactSummary, ConversationSummary, Event, IdentityId,
-    IdentitySummary, MessageRef, MessageView, SendError,
+    IdentitySummary, InvitationRef, InvitationSummary, MessageRef, MessageView, RequestMode,
+    RequestRef, RequestSummary, SendError, ServiceState, TorCheck,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, InstallationError};
@@ -282,6 +283,108 @@ impl<B: TorBackend + 'static> Messenger<B> {
         contact: &ContactId,
     ) -> Result<bool, CommandError> {
         self.runtime.delete_conversation(identity, contact).await
+    }
+
+    /// Sets the local name of a contact, or removes it with `None` or an
+    /// empty name. The name is never sent.
+    pub async fn set_contact_name(
+        &self,
+        identity: &IdentityId,
+        contact: &ContactId,
+        name: Option<&str>,
+    ) -> Result<(), CommandError> {
+        self.runtime.set_contact_name(identity, contact, name).await
+    }
+
+    /// Records whether the user compared the fingerprint of a contact out
+    /// of band.
+    pub async fn set_contact_verified(
+        &self,
+        identity: &IdentityId,
+        contact: &ContactId,
+        verified: bool,
+    ) -> Result<(), CommandError> {
+        self.runtime
+            .set_contact_verified(identity, contact, verified)
+            .await
+    }
+
+    /// The contact requests of an identity waiting for an answer.
+    pub fn requests(&self, identity: &IdentityId) -> Result<Vec<RequestSummary>, CommandError> {
+        self.runtime.requests(identity)
+    }
+
+    /// Accepts a contact request. Returns the contact it made.
+    pub async fn accept_request(&self, request: &RequestRef) -> Result<ContactId, CommandError> {
+        self.runtime.accept_request(request).await
+    }
+
+    /// Declines a contact request. Nothing is sent.
+    pub async fn decline_request(&self, request: &RequestRef) -> Result<(), CommandError> {
+        self.runtime.decline_request(request).await
+    }
+
+    /// Blocks the sender of a contact request.
+    pub async fn block_request(&self, request: &RequestRef) -> Result<(), CommandError> {
+        self.runtime.block_request(request).await
+    }
+
+    /// The active invitations of an identity.
+    pub fn invitations(
+        &self,
+        identity: &IdentityId,
+    ) -> Result<Vec<InvitationSummary>, CommandError> {
+        self.runtime.invitations(identity)
+    }
+
+    /// Makes an invitation. Returns it with its card in text form.
+    pub async fn create_invitation(
+        &self,
+        identity: &IdentityId,
+        label: Option<&str>,
+    ) -> Result<(InvitationRef, String), CommandError> {
+        self.runtime.create_invitation(identity, label).await
+    }
+
+    /// The card of an invitation again, in text form.
+    pub fn invitation_card(&self, invitation: &InvitationRef) -> Result<String, CommandError> {
+        self.runtime.invitation_card(invitation)
+    }
+
+    /// Revokes an invitation, and with `discard_requests` the requests it
+    /// admitted. Returns how many requests were discarded.
+    pub async fn revoke_invitation(
+        &self,
+        invitation: &InvitationRef,
+        discard_requests: bool,
+    ) -> Result<usize, CommandError> {
+        self.runtime
+            .revoke_invitation(invitation, discard_requests)
+            .await
+    }
+
+    /// Which requests from strangers an identity considers.
+    pub fn request_mode(&self, identity: &IdentityId) -> Result<RequestMode, CommandError> {
+        self.runtime.request_mode(identity)
+    }
+
+    /// Sets which requests from strangers an identity considers.
+    pub async fn set_request_mode(
+        &self,
+        identity: &IdentityId,
+        mode: RequestMode,
+    ) -> Result<(), CommandError> {
+        self.runtime.set_request_mode(identity, mode).await
+    }
+
+    /// The state of the Onion Service of an identity.
+    pub fn service_state(&self, identity: &IdentityId) -> Result<ServiceState, CommandError> {
+        self.runtime.service_state(identity)
+    }
+
+    /// Asks the system Tor how it is.
+    pub async fn check_tor(&self) -> TorCheck {
+        self.runtime.check_tor().await
     }
 
     /// Stops: sessions close and services are removed within `deadline`.
