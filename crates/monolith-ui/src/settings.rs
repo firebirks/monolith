@@ -1,13 +1,19 @@
-//! The settings: a column of pages at the left, the page at the right.
+//! The settings: a column of pages at the left and the page at the right,
+//! or, in a narrow window, the list of pages, then a page with a way back.
 
-use egui::{Align, Align2, Color32, Context, Id, Layout, Sense, Ui, UiBuilder, Vec2, WidgetType};
+use egui::{
+    Align, Align2, Color32, Context, Id, Layout, Margin, Rect, Sense, Ui, UiBuilder, Vec2,
+    WidgetType,
+};
 use monolith_ui_kit::avatar::{AvatarSize, IdentityAvatar};
 use monolith_ui_kit::banner::{Banner, Tone};
 use monolith_ui_kit::button::Size;
 use monolith_ui_kit::chrome::{self, ContentPanel, SidebarPanel, TopBar};
 use monolith_ui_kit::divider::Divider;
+use monolith_ui_kit::icon_button::IconButton;
 use monolith_ui_kit::interact::{self, State};
 use monolith_ui_kit::invitation_row::InvitationRow;
+use monolith_ui_kit::menu::{MenuItem, menu_below};
 use monolith_ui_kit::section_header::SectionHeader;
 use monolith_ui_kit::segmented::Segmented;
 use monolith_ui_kit::settings_row::{SettingsGroup, SettingsRow};
@@ -38,93 +44,208 @@ const MODES: [(RequestMode, &str); 3] = [
     (RequestMode::Closed, "Nobody"),
 ];
 
-const PAGES: [(SettingsPage, &str, Icon); 5] = [
-    (SettingsPage::Appearance, "Appearance", icons::SUN),
-    (SettingsPage::Identities, "Identities", icons::USERS),
-    (SettingsPage::Tor, "Tor", icons::NETWORK),
-    (SettingsPage::Data, "Data", icons::FOLDER_OPEN),
-    (SettingsPage::About, "About", icons::INFO),
+/// The pages: what they are called, their icon, and what the list of a
+/// narrow window says of them.
+const PAGES: [(SettingsPage, &str, Icon, &str); 5] = [
+    (
+        SettingsPage::Appearance,
+        "Appearance",
+        icons::SUN,
+        "Theme and motion",
+    ),
+    (
+        SettingsPage::Identities,
+        "Identities",
+        icons::USERS,
+        "Cards, requests and invitations",
+    ),
+    (
+        SettingsPage::Tor,
+        "Tor",
+        icons::NETWORK,
+        "How Monolith reaches Tor",
+    ),
+    (
+        SettingsPage::Data,
+        "Data",
+        icons::FOLDER_OPEN,
+        "Where your profile is kept, and what is stored",
+    ),
+    (
+        SettingsPage::About,
+        "About",
+        icons::INFO,
+        "Version and licences",
+    ),
 ];
+
+/// Where the settings go after this frame.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Next {
+    Stay,
+    /// Back to the conversations.
+    Leave,
+    /// A page.
+    Page(SettingsPage),
+    /// The list of pages of a narrow window.
+    Pages,
+}
 
 /// Draws the settings at `page`.
 pub(crate) fn show(ctx: &Context, app: &mut App, page: SettingsPage) {
     let theme = theme::current(ctx);
-    let mut chosen = page;
-    SidebarPanel::new("settings-nav")
-        .resizable(false)
-        .show(ctx, |ui| {
-            egui::Frame::new()
-                .inner_margin(theme.space.md)
-                .show(ui, |ui| navigation(ui, &theme, page, &mut chosen));
+    let narrow = ctx.screen_rect().width() < theme.size.narrow_below;
+    let mut next = Next::Stay;
+    if narrow {
+        ContentPanel.show(ctx, |ui| {
+            if app.narrow_settings_page {
+                page_view(ui, app, page, true, &mut next);
+            } else {
+                pages_view(ui, &mut next);
+            }
         });
+    } else {
+        SidebarPanel::new("settings-nav")
+            .resizable(false)
+            .show(ctx, |ui| navigation(ui, &theme, page, &mut next));
+        ContentPanel.show(ctx, |ui| page_view(ui, app, page, false, &mut next));
+    }
+    match next {
+        Next::Stay => {}
+        Next::Leave => app.view = View::Main,
+        Next::Page(chosen) => {
+            app.view = View::Settings(chosen);
+            app.narrow_settings_page = true;
+        }
+        Next::Pages => app.narrow_settings_page = false,
+    }
+}
+
+fn title_of(page: SettingsPage) -> &'static str {
+    PAGES
+        .iter()
+        .find(|(candidate, _, _, _)| *candidate == page)
+        .map_or("Settings", |(_, label, _, _)| *label)
+}
+
+/// The bar at the top of the settings: `title`, a way back to the list of
+/// pages when `back`, and "Done". Returns where it asks to go.
+fn top_bar(ui: &mut Ui, theme: &Theme, title: &str, back: bool) -> Next {
+    let mut pages = false;
     let mut done = false;
-    ContentPanel.show(ctx, |ui| {
-        let title = PAGES
-            .iter()
-            .find(|(candidate, _, _)| *candidate == page)
-            .map_or("Settings", |(_, label, _)| *label);
-        TopBar::new("settings-top").show(
-            ui,
-            |ui| {
-                ui.add(Text::new(title, &theme.text.title, theme.color.text));
-            },
-            |ui| {
-                done = ui
-                    .add(Button::secondary("Done").size(Size::Small))
+    // The bar ends where the title of the column of pages ends.
+    ui.add_space(theme.space.sm);
+    TopBar::new("settings-top").show(
+        ui,
+        |ui| {
+            pages = back
+                && ui
+                    .add(IconButton::new(icons::CHEVRON_LEFT, "Back").id_salt("settings-back"))
                     .clicked();
+            ui.add(Text::new(title, &theme.text.title, theme.color.text).truncate());
+        },
+        |ui| done = ui.add(Button::secondary("Done")).clicked(),
+    );
+    if done {
+        Next::Leave
+    } else if pages {
+        Next::Pages
+    } else {
+        Next::Stay
+    }
+}
+
+/// A scrolling column of the width of a page, centred, with the gutters
+/// at its sides; it starts a little under the bar, so that what scrolls is
+/// not cut against its hairline.
+fn column(ui: &mut Ui, theme: &Theme, id_salt: &str, add: impl FnOnce(&mut Ui)) {
+    ui.add_space(theme.space.sm);
+    chrome::scroll_area(id_salt).show(ui, |ui| {
+        let area = ui.available_rect_before_wrap();
+        let width = theme
+            .size
+            .modal_wide
+            .min(area.width() - theme.space.xxl * 2.0)
+            .max(0.0);
+        let rect = Rect::from_min_size(
+            egui::pos2(area.center().x - width / 2.0, area.top() + theme.space.lg),
+            Vec2::new(width, area.height()),
+        );
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(rect)
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                ui.spacing_mut().item_spacing.y = theme.space.sm;
+                add(ui);
+                ui.add_space(theme.space.xxxl);
             },
         );
-        chrome::scroll_area("settings-scroll").show(ui, |ui| {
-            let area = ui.available_rect_before_wrap();
-            let width = theme
-                .size
-                .modal_wide
-                .min(area.width() - theme.space.xxl * 2.0)
-                .max(theme.size.sidebar_min);
-            let rect = egui::Rect::from_min_size(
-                egui::pos2(area.center().x - width / 2.0, area.top() + theme.space.xxl),
-                Vec2::new(width, area.height()),
-            );
-            ui.scope_builder(
-                UiBuilder::new()
-                    .max_rect(rect)
-                    .layout(Layout::top_down(Align::Min)),
-                |ui| {
-                    ui.spacing_mut().item_spacing.y = theme.space.sm;
-                    match page {
-                        SettingsPage::Appearance => appearance(ui, app),
-                        SettingsPage::Identities => identities(ui, app, &theme),
-                        SettingsPage::Tor => tor(ui, app, &theme),
-                        SettingsPage::Data => data(ui, app, &theme),
-                        SettingsPage::About => about(ui, &theme),
-                    }
-                    ui.add_space(theme.space.xxxl);
-                },
-            );
+    });
+}
+
+/// A page, under its bar.
+fn page_view(ui: &mut Ui, app: &mut App, page: SettingsPage, narrow: bool, next: &mut Next) {
+    let theme = theme::current(ui.ctx());
+    let asked = top_bar(ui, &theme, title_of(page), narrow);
+    if asked != Next::Stay {
+        *next = asked;
+    }
+    column(ui, &theme, "settings-scroll", |ui| match page {
+        SettingsPage::Appearance => appearance(ui, app, &theme),
+        SettingsPage::Identities => identities(ui, app, &theme),
+        SettingsPage::Tor => tor(ui, app, &theme),
+        SettingsPage::Data => data(ui, app, &theme),
+        SettingsPage::About => about(ui, &theme),
+    });
+}
+
+/// The list of pages of a narrow window.
+fn pages_view(ui: &mut Ui, next: &mut Next) {
+    let theme = theme::current(ui.ctx());
+    let asked = top_bar(ui, &theme, "Settings", false);
+    if asked != Next::Stay {
+        *next = asked;
+    }
+    column(ui, &theme, "settings-pages", |ui| {
+        SettingsGroup::new("settings-pages").show(ui, |rows| {
+            for (page, label, icon, description) in PAGES {
+                let row = SettingsRow::new(("settings-page", page), label)
+                    .description(description)
+                    .icon(icon)
+                    .navigates();
+                if rows.row(row).clicked() {
+                    *next = Next::Page(page);
+                }
+            }
         });
     });
-    if done {
-        app.view = View::Main;
-    } else if chosen != page {
-        app.view = View::Settings(chosen);
-    }
 }
 
 // ---- Navigation ----
 
-fn navigation(ui: &mut Ui, theme: &Theme, current: SettingsPage, chosen: &mut SettingsPage) {
-    ui.spacing_mut().item_spacing.y = theme.space.xxs;
-    ui.add_space(theme.space.xs);
-    ui.horizontal(|ui| {
-        ui.add_space(theme.space.sm);
-        text(ui, "Settings", &theme.text.title, theme.color.text);
-    });
-    ui.add_space(theme.space.md);
-    for (page, label, icon) in PAGES {
-        if nav_row(ui, theme, page, label, icon, page == current) {
-            *chosen = page;
-        }
-    }
+fn navigation(ui: &mut Ui, theme: &Theme, current: SettingsPage, next: &mut Next) {
+    // The title sits in a band as high as the bar of the page, and lines
+    // up with it.
+    ui.add_space(theme.space.sm);
+    let (_, band) = ui.allocate_space(Vec2::new(ui.available_width(), theme.size.topbar));
+    let mut title = ui.new_child(
+        UiBuilder::new()
+            .max_rect(band.shrink2(Vec2::new(theme.space.md * 2.0, 0.0)))
+            .layout(Layout::left_to_right(Align::Center)),
+    );
+    title.add(Text::new("Settings", &theme.text.title, theme.color.text).truncate());
+    ui.add_space(theme.space.sm);
+    egui::Frame::new()
+        .inner_margin(Margin::from(Vec2::new(theme.space.md, 0.0)))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = theme.space.xxs;
+            for (page, label, icon, _) in PAGES {
+                if nav_row(ui, theme, page, label, icon, page == current) {
+                    *next = Next::Page(page);
+                }
+            }
+        });
 }
 
 /// One selectable page of the navigation.
@@ -190,7 +311,7 @@ fn nav_row(
 // ---- Helpers ----
 
 fn text(ui: &mut Ui, content: &str, token: &TextToken, color: Color32) {
-    ui.add(Text::new(content, token, color));
+    ui.add(Text::new(content, token, color).wrap());
 }
 
 fn caption(ui: &mut Ui, theme: &Theme, content: &str) {
@@ -203,20 +324,68 @@ fn section(ui: &mut Ui, theme: &Theme, title: &str) {
     SectionHeader::new(title).show(ui);
 }
 
+/// Whether a control fits beside its text: the column has the full width
+/// of a page. Otherwise it goes under its text.
+fn roomy(ui: &Ui, theme: &Theme) -> bool {
+    ui.available_width() >= theme.size.modal_wide
+}
+
+/// A text and a button in one line when there is room, the button at the
+/// right; the button under the text otherwise. Returns whether the button
+/// was clicked.
+fn text_and_button(ui: &mut Ui, theme: &Theme, content: &str, button: Button<'_>) -> bool {
+    if !roomy(ui, theme) {
+        text(ui, content, &theme.text.body, theme.color.text_secondary);
+        return ui.add(button).clicked();
+    }
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            clicked = ui.add(button).clicked();
+            ui.add_space(theme.space.md);
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                text(ui, content, &theme.text.body, theme.color.text_secondary);
+            });
+        });
+    });
+    clicked
+}
+
+/// A card with a title, a line under it, and what `add` puts below.
+fn choice_card(ui: &mut Ui, theme: &Theme, title: &str, line: &str, add: impl FnOnce(&mut Ui)) {
+    chrome::card_frame(ui.ctx(), theme.space.lg).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = theme.space.xs;
+        text(ui, title, &theme.text.body_strong, theme.color.text);
+        caption(ui, theme, line);
+        ui.add_space(theme.space.xs);
+        add(ui);
+    });
+}
+
 // ---- Appearance ----
 
-fn appearance(ui: &mut Ui, app: &mut App) {
+fn appearance(ui: &mut Ui, app: &mut App, theme: &Theme) {
+    const THEME_LINE: &str = "Follow the system, or always light or dark.";
     let mut choice = app.draft_preferences.theme;
     let mut reduced = app.draft_preferences.reduced_motion;
+    let beside = roomy(ui, theme);
+    if !beside {
+        choice_card(ui, theme, "Theme", THEME_LINE, |ui| {
+            ui.add(Segmented::new("theme", &mut choice, &THEMES).full_width(true));
+        });
+    }
     SettingsGroup::new("appearance").show(ui, |rows| {
-        rows.row(
-            SettingsRow::new("theme", "Theme")
-                .description("Follow the system, or always light or dark.")
-                .icon(icons::SUN)
-                .trailing(|ui| {
-                    ui.add(Segmented::new("theme", &mut choice, &THEMES));
-                }),
-        );
+        if beside {
+            rows.row(
+                SettingsRow::new("theme", "Theme")
+                    .description(THEME_LINE)
+                    .icon(icons::SUN)
+                    .trailing(|ui| {
+                        ui.add(Segmented::new("theme", &mut choice, &THEMES));
+                    }),
+            );
+        }
         rows.row(
             SettingsRow::new("reduced-motion", "Reduced motion")
                 .description("Show changes at once instead of animating them.")
@@ -247,6 +416,8 @@ fn appearance(ui: &mut Ui, app: &mut App) {
 struct IdentityCard {
     id: UiIdentityId,
     name: String,
+    /// The short fingerprint, which seeds the avatar as everywhere else.
+    seed: String,
     fingerprint: String,
     mode: Option<RequestMode>,
     invitations: Option<Vec<(UiInvitationId, String)>>,
@@ -256,6 +427,15 @@ enum Action {
     NewIdentity,
     Mode(UiIdentityId, RequestMode),
     Open(Dialog),
+}
+
+/// What is said while requests are refused and invitations are active.
+fn closed_warning(active: usize) -> String {
+    if active == 1 {
+        "Your active invitation does not work while this is set to Nobody.".to_owned()
+    } else {
+        format!("Your {active} active invitations do not work while this is set to Nobody.")
+    }
 }
 
 fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
@@ -268,6 +448,7 @@ fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
             IdentityCard {
                 id: identity.id,
                 name: identity_name(identity),
+                seed: identity.fingerprint.clone(),
                 fingerprint: identity.full_fingerprint.clone(),
                 mode: slice.and_then(|slice| slice.request_mode),
                 invitations: slice.map(|slice| {
@@ -283,24 +464,15 @@ fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
         })
         .collect();
     let mut action = None;
-    ui.horizontal(|ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let new = Button::secondary("New identity")
-                .icon(icons::PLUS)
-                .size(Size::Medium);
-            if ui.add(new).clicked() {
-                action = Some(Action::NewIdentity);
-            }
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                text(
-                    ui,
-                    "Each identity has its own card, contacts and messages.",
-                    &theme.text.body,
-                    theme.color.text_secondary,
-                );
-            });
-        });
-    });
+    let new = Button::secondary("New identity").icon(icons::PLUS);
+    if text_and_button(
+        ui,
+        theme,
+        "Each identity has its own card, contacts and messages.",
+        new,
+    ) {
+        action = Some(Action::NewIdentity);
+    }
     let last = cards.len().saturating_sub(1);
     for (position, card) in cards.iter().enumerate() {
         ui.add_space(theme.space.md);
@@ -328,10 +500,7 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
     let id = card.id;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = theme.space.md;
-        ui.add(
-            IdentityAvatar::new(&card.name, crate::common::seed(&card.fingerprint))
-                .size(AvatarSize::Large),
-        );
+        ui.add(IdentityAvatar::new(&card.name, common::seed(&card.seed)).size(AvatarSize::Large));
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = theme.space.xxs;
             text(ui, &card.name, &theme.text.heading, theme.color.text);
@@ -346,26 +515,34 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
     ui.add_space(theme.space.xs);
 
     let mut mode = card.mode.unwrap_or(RequestMode::Invitation);
-    chrome::card_frame(ui.ctx(), theme.space.lg).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.spacing_mut().item_spacing.y = theme.space.xs;
-        text(
-            ui,
-            "Who can send you requests",
-            &theme.text.body_strong,
-            theme.color.text,
-        );
-        caption(
-            ui,
-            theme,
-            "A request asks to talk to this identity. An invitation always works, whatever you choose.",
-        );
-        ui.add_space(theme.space.xs);
-        ui.add_enabled(
-            card.mode.is_some(),
-            Segmented::new(("request-mode", id), &mut mode, &MODES).full_width(true),
-        );
-    });
+    let active = card.invitations.as_ref().map_or(0, Vec::len);
+    let fits = roomy(ui, theme);
+    choice_card(
+        ui,
+        theme,
+        "Who can send you requests",
+        "With Invitations only, a request needs one of your invitations. With Nobody, \
+         no request reaches you, not even through an invitation.",
+        |ui| {
+            if fits {
+                ui.add_enabled(
+                    card.mode.is_some(),
+                    Segmented::new(("request-mode", id), &mut mode, &MODES).full_width(true),
+                );
+            } else {
+                mode_menu(ui, id, card.mode.is_some(), &mut mode);
+            }
+            if card.mode == Some(RequestMode::Closed) && active > 0 {
+                ui.add_space(theme.space.xs);
+                Banner::new(
+                    ("closed-invitations", id),
+                    Tone::Warning,
+                    &closed_warning(active),
+                )
+                .show(ui);
+            }
+        },
+    );
     ui.add_space(theme.space.xs);
     SettingsGroup::new(("identity-rows", id)).show(ui, |rows| {
         let share = rows.row(
@@ -403,18 +580,18 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
     // The invitations of this identity.
     ui.add_space(theme.space.md);
     SectionHeader::new("Invitations").show(ui);
+    caption(
+        ui,
+        theme,
+        "Anyone who has one of your invitations can send you a request until you revoke it. \
+         Make one for each person, and revoke it once they are your contact.",
+    );
     let Some(invitations) = &card.invitations else {
         caption(ui, theme, "Loading...");
         return;
     };
-    if invitations.is_empty() {
-        caption(
-            ui,
-            theme,
-            "No active invitations. An invitation is a card that lets one \
-             person send you a request, whatever the setting above.",
-        );
-    } else {
+    if !invitations.is_empty() {
+        ui.add_space(theme.space.xs);
         chrome::card_frame(ui.ctx(), theme.space.sm).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = theme.space.xxs;
@@ -446,10 +623,10 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
     }
     ui.add_space(theme.space.xs);
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = theme.space.md;
         let full = invitations.len() >= MAX_INVITATIONS;
         let new = Button::secondary("New invitation")
             .icon(icons::TICKET)
-            .size(Size::Medium)
             .enabled(!full);
         if ui.add(new).clicked() {
             *action = Some(Action::Open(Dialog::NewInvitation {
@@ -465,6 +642,34 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
             theme,
             &format!("{} of {MAX_INVITATIONS} active", invitations.len()),
         );
+    });
+}
+
+/// The request modes as a button that opens them as a menu, for a column
+/// too narrow for the three side by side.
+fn mode_menu(ui: &mut Ui, id: UiIdentityId, enabled: bool, mode: &mut RequestMode) {
+    let current = MODES
+        .iter()
+        .find(|(option, _)| option == mode)
+        .map_or("", |(_, label)| *label);
+    let button = ui.push_id(("request-mode-menu", id), |ui| {
+        ui.add(
+            Button::secondary(current)
+                .icon(icons::CHEVRON_DOWN)
+                .enabled(enabled),
+        )
+    });
+    menu_below(&button.inner, |ui| {
+        for (option, label) in MODES {
+            let icon = match option {
+                RequestMode::Invitation => icons::TICKET,
+                RequestMode::Open => icons::ID_CARD,
+                RequestMode::Closed => icons::BAN,
+            };
+            if ui.add(MenuItem::new(label).icon(icon)).clicked() {
+                *mode = option;
+            }
+        }
     });
 }
 
@@ -557,6 +762,8 @@ fn tor(ui: &mut Ui, app: &mut App, theme: &Theme) {
         .iter()
         .map(|preset| preset.name.clone())
         .collect();
+    let changed = app.draft_preferences.tor != app.preferences.tor;
+    let saved = app.tor_saved && !changed;
     chrome::card_frame(ui.ctx(), theme.space.xl).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = theme.space.md;
@@ -580,12 +787,11 @@ fn tor(ui: &mut Ui, app: &mut App, theme: &Theme) {
         if !names.is_empty() {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = theme.space.sm;
-                text(
-                    ui,
+                ui.add(Text::new(
                     "Use the settings of",
                     &theme.text.caption,
                     theme.color.text_tertiary,
-                );
+                ));
                 for (index, name) in names.iter().enumerate() {
                     if ui
                         .add(Button::ghost(name.as_str()).size(Size::Small))
@@ -597,16 +803,24 @@ fn tor(ui: &mut Ui, app: &mut App, theme: &Theme) {
             });
         }
         ui.add(Divider::horizontal());
+        if saved {
+            Banner::new(
+                "tor-saved",
+                Tone::Success,
+                "Saved. Close and reopen Monolith to use these settings. Check again tests \
+                 the settings in use now.",
+            )
+            .show(ui);
+        }
+        // The action at the right, where dialogs have theirs.
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.space.md;
-            save = ui
-                .add(
-                    Button::primary("Save")
-                        .size(Size::Medium)
-                        .enabled(app.draft_preferences.tor != app.preferences.tor),
-                )
-                .clicked();
-            caption(ui, theme, "Takes effect when Monolith starts again.");
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                save = ui.add(Button::primary("Save").enabled(changed)).clicked();
+                ui.add_space(theme.space.md);
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    caption(ui, theme, "Takes effect when Monolith starts again.");
+                });
+            });
         });
     });
     if let Some(preset) = picked.and_then(|index| app.tor_presets.get(index)) {
@@ -616,6 +830,9 @@ fn tor(ui: &mut Ui, app: &mut App, theme: &Theme) {
         let mut preferences = app.preferences.clone();
         preferences.tor = app.draft_preferences.tor.clone();
         app.effect(Effect::Preferences(preferences));
+        app.tor_saved = true;
+        // The desktop applies them after this frame; the next one says so.
+        ui.ctx().request_repaint();
     }
     ui.add_space(theme.space.xs);
     caption(
@@ -647,7 +864,7 @@ fn data(ui: &mut Ui, app: &mut App, theme: &Theme) {
                     .description(
                         "Your identities, contacts and messages are gone when you close Monolith.",
                     )
-                    .icon(icons::LOCK),
+                    .icon(icons::CLOUD_OFF),
             );
         } else {
             rows.row(
@@ -714,4 +931,21 @@ fn about(ui: &mut Ui, theme: &Theme) {
             rows.row(SettingsRow::new(name, name).description(licence));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_warning_under_nobody_counts_the_active_invitations() {
+        assert_eq!(
+            closed_warning(1),
+            "Your active invitation does not work while this is set to Nobody."
+        );
+        assert_eq!(
+            closed_warning(3),
+            "Your 3 active invitations do not work while this is set to Nobody."
+        );
+    }
 }

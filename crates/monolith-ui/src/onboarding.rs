@@ -23,6 +23,10 @@ const UNLOCK_PASSPHRASE: &str = "unlock-passphrase";
 /// The size a secret buffer starts with, so that typing does not move it.
 const SECRET_CAPACITY: usize = 256;
 
+/// The most characters a passphrase field takes. The vault takes at most
+/// 1024 bytes, so no passphrase it would take is cut.
+const PASSPHRASE_LIMIT: usize = 1024;
+
 /// Draws the screen of the current phase.
 pub(crate) fn show(ctx: &Context, app: &mut App) {
     let phase = app.model.phase();
@@ -48,7 +52,7 @@ fn page(ctx: &Context, add: impl FnOnce(&mut Ui)) {
                 .size
                 .modal
                 .min(area.width() - theme.space.xxl * 2.0)
-                .max(theme.size.sidebar_min);
+                .max(0.0);
             // Centre vertically with the height the column had last
             // frame.
             let key = Id::new("monolith-onboarding-height");
@@ -74,7 +78,13 @@ fn page(ctx: &Context, add: impl FnOnce(&mut Ui)) {
                 .height();
             if (used - known).abs() > 0.5 {
                 ctx.data_mut(|data| data.insert_temp(key, used));
-                ctx.request_repaint();
+                // Laid out again with the height now known, before the
+                // misplaced pass is shown; a frame later if egui has
+                // already made all the passes it allows.
+                ctx.request_discard("the first screen changed height");
+                if !ctx.will_discard() {
+                    ctx.request_repaint();
+                }
             }
         });
     });
@@ -124,6 +134,55 @@ fn card(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
 /// Small print under the card.
 fn small_print(ui: &mut Ui, theme: &Theme, content: &str) {
     centered(ui, content, &theme.text.caption, theme.color.text_tertiary);
+}
+
+/// The first lines of the card of the first start: the wordmark above it
+/// already says what Monolith is.
+fn introduction(ui: &mut Ui, theme: &Theme) {
+    text(ui, "Welcome", &theme.text.title, theme.color.text);
+    text(
+        ui,
+        "There are no servers and no accounts: your identity is a key kept on this \
+         device, and only the people you add can write to you.",
+        &theme.text.body,
+        theme.color.text_secondary,
+    );
+}
+
+/// The way to start without the profile on disk, and what it means.
+fn use_without_saving(ui: &mut Ui, theme: &Theme, label: &str) -> bool {
+    let clicked = ui
+        .vertical_centered(|ui| {
+            ui.add(
+                Button::ghost(label)
+                    .icon(icons::CLOUD_OFF)
+                    .size(Size::Medium),
+            )
+            .clicked()
+        })
+        .inner;
+    small_print(ui, theme, "Nothing is kept when you close Monolith.");
+    clicked
+}
+
+/// Where the profile is kept, said only when asked: the path is of use to
+/// few, and reads as noise to the rest.
+fn location(ui: &mut Ui, app: &mut App, theme: &Theme) {
+    ui.add_space(theme.space.md);
+    let label = if app.show_location {
+        "Hide where my profile is kept"
+    } else {
+        "Where is my profile kept?"
+    };
+    let clicked = ui
+        .vertical_centered(|ui| ui.add(Button::ghost(label).size(Size::Small)).clicked())
+        .inner;
+    if clicked {
+        app.show_location = !app.show_location;
+    }
+    if app.show_location {
+        small_print(ui, theme, app.model.location());
+    }
 }
 
 // ---- Secrets ----
@@ -219,19 +278,7 @@ fn no_place(ui: &mut Ui, app: &mut App) {
     wordmark(ui, &theme);
     let mut start = false;
     card(ui, &theme, |ui| {
-        text(
-            ui,
-            "Welcome to Monolith",
-            &theme.text.title,
-            theme.color.text,
-        );
-        text(
-            ui,
-            "Monolith sends private messages over Tor. There are no servers and no accounts: \
-             your identity is a key kept on this device, and only the people you add can write to you.",
-            &theme.text.body,
-            theme.color.text_secondary,
-        );
+        introduction(ui, &theme);
         ui.add_space(theme.space.md);
         Banner::new(
             "no-profile-folder",
@@ -271,21 +318,8 @@ fn welcome(ui: &mut Ui, app: &mut App) {
     let key = Id::new("monolith-welcome-differ");
     wordmark(ui, &theme);
     let mut create = false;
-    let mut without_saving = false;
     card(ui, &theme, |ui| {
-        text(
-            ui,
-            "Welcome to Monolith",
-            &theme.text.title,
-            theme.color.text,
-        );
-        text(
-            ui,
-            "Monolith sends private messages over Tor. There are no servers and no accounts: \
-             your identity is a key kept on this device, and only the people you add can write to you.",
-            &theme.text.body,
-            theme.color.text_secondary,
-        );
+        introduction(ui, &theme);
         ui.add_space(theme.space.md);
         text(
             ui,
@@ -297,12 +331,14 @@ fn welcome(ui: &mut Ui, app: &mut App) {
         let first = TextField::new(WELCOME_PASSPHRASE, &mut *app.passphrase)
             .label("Passphrase")
             .secret(true)
+            .char_limit(PASSPHRASE_LIMIT)
             .request_focus(focus)
             .show(ui);
         ui.add_space(theme.space.xs);
         let second = TextField::new(WELCOME_AGAIN, &mut *app.passphrase_again)
             .label("Repeat the passphrase")
             .secret(true)
+            .char_limit(PASSPHRASE_LIMIT)
             .show(ui);
         let mut differ: bool = ctx.data(|data| data.get_temp(key)).unwrap_or(false);
         if first.changed || second.changed {
@@ -341,18 +377,8 @@ fn welcome(ui: &mut Ui, app: &mut App) {
         ctx.data_mut(|data| data.insert_temp(key, differ));
     });
     ui.add_space(theme.space.lg);
-    ui.vertical_centered(|ui| {
-        without_saving = ui
-            .add(Button::ghost("Use without saving").size(Size::Medium))
-            .clicked();
-    });
-    small_print(ui, &theme, "Nothing is kept when you close Monolith.");
-    ui.add_space(theme.space.md);
-    small_print(
-        ui,
-        &theme,
-        &format!("Profile folder: {}", app.model.location()),
-    );
+    let without_saving = use_without_saving(ui, &theme, "Use without saving");
+    location(ui, app, &theme);
     if create {
         let passphrase = take_passphrase(&mut app.passphrase);
         app.model.create_profile(passphrase);
@@ -368,12 +394,16 @@ fn locked(ui: &mut Ui, app: &mut App) {
     let theme = theme::current(&ctx);
     wordmark(ui, &theme);
     let mut unlock = false;
-    let mut without_saving = false;
     card(ui, &theme, |ui| {
-        text(ui, "Unlock Monolith", &theme.text.title, theme.color.text);
         text(
             ui,
-            "Enter the passphrase of your profile.",
+            "Unlock your profile",
+            &theme.text.title,
+            theme.color.text,
+        );
+        text(
+            ui,
+            "Enter the passphrase you chose for it.",
             &theme.text.body,
             theme.color.text_secondary,
         );
@@ -382,6 +412,7 @@ fn locked(ui: &mut Ui, app: &mut App) {
         let field = TextField::new(UNLOCK_PASSPHRASE, &mut *app.passphrase)
             .label("Passphrase")
             .secret(true)
+            .char_limit(PASSPHRASE_LIMIT)
             .request_focus(focus)
             .show(ui);
         if let Some(failure) = app.model.profile_error() {
@@ -400,22 +431,13 @@ fn locked(ui: &mut Ui, app: &mut App) {
         unlock = (clicked || field.submitted) && filled;
     });
     ui.add_space(theme.space.lg);
-    ui.vertical_centered(|ui| {
-        without_saving = ui
-            .add(
-                Button::ghost("Use without saving instead")
-                    .icon(icons::LOCK)
-                    .size(Size::Medium),
-            )
-            .clicked();
-    });
-    small_print(ui, &theme, "Nothing is kept when you close Monolith.");
-    ui.add_space(theme.space.md);
+    let without_saving = use_without_saving(ui, &theme, "Use without saving instead");
     small_print(
         ui,
         &theme,
-        &format!("Profile folder: {}", app.model.location()),
+        "Your profile is not touched; start Monolith again to open it.",
     );
+    location(ui, app, &theme);
     if unlock {
         let passphrase = take_passphrase(&mut app.passphrase);
         app.model.unlock(passphrase);

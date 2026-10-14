@@ -8,21 +8,26 @@ use egui::{
 use monolith_ui_kit::badge::Badge;
 use monolith_ui_kit::badge::{Pill, Tone as PillTone};
 use monolith_ui_kit::button::{Button, Size};
-use monolith_ui_kit::chrome::{self, scroll_area};
+use monolith_ui_kit::chrome::{self, TopBar, scroll_area};
 use monolith_ui_kit::empty_state::EmptyState;
 use monolith_ui_kit::icon_button::IconButton;
-use monolith_ui_kit::identity_switcher::{IdentityItem, IdentitySwitcher};
+use monolith_ui_kit::identity_switcher::{self, IdentityItem, IdentitySwitcher};
 use monolith_ui_kit::interact::{self, State};
 use monolith_ui_kit::rows::{ConversationRow, RowStatus};
 use monolith_ui_kit::search_field::SearchField;
+use monolith_ui_kit::text::Text;
+use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_kit::{icons, theme};
-use monolith_ui_model::{Dialog, RowState, Selection, SidebarRow, UiIdentityId, present};
+use monolith_ui_model::{Dialog, RowState, Selection, SidebarRow, Slice, UiIdentityId, present};
 
 use crate::app::{App, SettingsPage, View};
 use crate::common;
 
 /// The longest preview that is laid out; the row cuts it to its width.
 const PREVIEW_CHARS: usize = 120;
+
+/// The key of the identity switcher.
+const SWITCHER: &str = "sidebar-identity";
 
 /// Draws the sidebar; `narrow` when it is the whole window.
 pub(crate) fn show(ui: &mut Ui, app: &mut App, narrow: bool) {
@@ -43,19 +48,36 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, narrow: bool) {
         )
         .show_separator_line(false)
         .show_inside(ui, |ui| footer(ui, app));
+    let mut open_tor = false;
     if app.model.current_identity().is_none() {
         // In a wide window the content pane says what to do; the sidebar
-        // says it only when it is the whole window.
+        // says it only when it is the whole window, under the state of Tor.
         if narrow {
+            ui.add_space(pad);
+            let (tor, label) = common::tor_state(&app.model);
+            TopBar::new("sidebar-bar").show(
+                ui,
+                |_| {},
+                |ui| open_tor = ui.add(TorStatus::new(tor, label)).clicked(),
+            );
             no_identity(ui, app);
         }
+        open_tor_details(app, open_tor);
         return;
     }
     ui.add_space(pad);
-    inset(ui, pad, |ui| switcher(ui, app));
+    inset(ui, pad, |ui| {
+        if narrow {
+            // The window has no other place that says whether Tor works.
+            open_tor = switcher_and_tor(ui, app);
+        } else {
+            switcher(ui, app);
+        }
+    });
+    open_tor_details(app, open_tor);
     if app.model.ephemeral() {
         // Said for the whole session (docs/PLATFORM_TAILS.md section 5).
-        ui.add_space(theme::current(ui.ctx()).space.sm);
+        ui.add_space(theme.space.sm);
         inset(ui, pad, |ui| {
             ui.add(
                 Pill::new(PillTone::Warning, "This session saves nothing").icon(icons::CLOUD_OFF),
@@ -65,15 +87,23 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, narrow: bool) {
     ui.add_space(pad);
     inset(ui, pad, |ui| {
         SearchField::new("sidebar-search", &mut app.search)
-            .hint("Search")
+            .hint("Filter contacts")
             .compact(true)
             .request_focus(core::mem::take(&mut app.focus_search))
             .show(ui);
     });
     ui.add_space(theme.space.xs);
     requests_entry(ui, app, narrow);
-    ui.add_space(theme.space.xs);
+    // The list starts a little under what is above it, so that what
+    // scrolls is not cut against it.
+    ui.add_space(theme.space.sm);
     conversations(ui, app, narrow);
+}
+
+fn open_tor_details(app: &mut App, open: bool) {
+    if open {
+        app.model.open(Dialog::TorDetails);
+    }
 }
 
 /// Runs `add` in a column narrower than `ui` by `pad` on both sides.
@@ -100,11 +130,59 @@ fn inset<R>(ui: &mut Ui, pad: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 /// "3 contacts".
 fn count_text(count: usize) -> String {
-    if count == 1 {
-        "1 contact".to_owned()
-    } else {
-        format!("{count} contacts")
+    match count {
+        0 => "No contacts".to_owned(),
+        1 => "1 contact".to_owned(),
+        _ => format!("{count} contacts"),
     }
+}
+
+/// The line under an identity in the switcher: its contacts, its unread
+/// messages and its waiting requests, such as "4 contacts, 6 new, 1
+/// request".
+fn detail_text(contacts: usize, unread: u32, requests: usize) -> String {
+    let mut parts = vec![count_text(contacts)];
+    if unread > 0 {
+        parts.push(format!("{unread} new"));
+    }
+    match requests {
+        0 => {}
+        1 => parts.push("1 request".to_owned()),
+        _ => parts.push(format!("{requests} requests")),
+    }
+    parts.join(", ")
+}
+
+/// The line of an identity whose state was read.
+fn detail_of(slice: &Slice) -> String {
+    let unread = slice
+        .unread
+        .values()
+        .fold(0_u32, |sum, count| sum.saturating_add(*count));
+    detail_text(slice.contacts.len(), unread, slice.requests.len())
+}
+
+/// The switcher with the state of Tor at its right, in one band.
+/// Returns whether the state of Tor was clicked.
+fn switcher_and_tor(ui: &mut Ui, app: &mut App) -> bool {
+    let theme = theme::current(ui.ctx());
+    let (_, band) = ui.allocate_space(Vec2::new(ui.available_width(), theme.size.topbar));
+    let (tor, label) = common::tor_state(&app.model);
+    let mut right = ui.new_child(
+        UiBuilder::new()
+            .max_rect(band)
+            .layout(Layout::right_to_left(Align::Center)),
+    );
+    let clicked = right.add(TorStatus::new(tor, label)).clicked();
+    let mut left = band;
+    left.max.x = (right.min_rect().left() - theme.space.sm).max(left.min.x);
+    let mut rest = ui.new_child(
+        UiBuilder::new()
+            .max_rect(left)
+            .layout(Layout::top_down(Align::Min)),
+    );
+    switcher(&mut rest, app);
+    clicked
 }
 
 /// The identity switcher at the top.
@@ -112,6 +190,9 @@ fn switcher(ui: &mut Ui, app: &mut App) {
     let Some(current) = app.model.current() else {
         return;
     };
+    if core::mem::take(&mut app.open_switcher) {
+        identity_switcher::set_open(ui.ctx(), SWITCHER, true);
+    }
     let names: Vec<(UiIdentityId, String, String)> = app
         .model
         .identities()
@@ -121,7 +202,7 @@ fn switcher(ui: &mut Ui, app: &mut App) {
                 .model
                 .slice(identity.id)
                 .filter(|slice| slice.loaded)
-                .map(|slice| count_text(slice.contacts.len()))
+                .map(detail_of)
                 .unwrap_or_default();
             (identity.id, present::identity_name(identity), detail)
         })
@@ -149,7 +230,7 @@ fn switcher(ui: &mut Ui, app: &mut App) {
         .map(|slice| count_text(slice.contacts.len()))
         .unwrap_or_default();
     let output = IdentitySwitcher::new(
-        "sidebar-identity",
+        SWITCHER,
         &current,
         &items,
         "New identity",
@@ -173,6 +254,7 @@ fn switcher(ui: &mut Ui, app: &mut App) {
     }
     if manage {
         app.view = View::Settings(SettingsPage::Identities);
+        app.narrow_settings_page = true;
     }
 }
 
@@ -271,7 +353,7 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
     }
     let all = app.model.sidebar();
     if all.is_empty() {
-        no_contacts(ui, app);
+        no_contacts(ui, app, narrow);
         return;
     }
     let rows = filtered(all, &app.search);
@@ -282,7 +364,17 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
     let selection = app.model.selection();
     let theme = theme::current(ui.ctx());
     let mut clicked = None;
-    scroll_area("sidebar-rows").show(ui, |ui| {
+    // The list ends a little above the strip at the bottom, so that what
+    // scrolls is not cut against it.
+    let mut area = ui.available_rect_before_wrap();
+    area.max.y = (area.max.y - theme.space.sm).max(area.min.y);
+    let mut list = ui.new_child(
+        UiBuilder::new()
+            .id_salt("sidebar-list")
+            .max_rect(area)
+            .layout(Layout::top_down(Align::Min)),
+    );
+    scroll_area("sidebar-rows").show(&mut list, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for row in &rows {
             let (preview, outgoing) = preview_of(row);
@@ -324,11 +416,26 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
     }
 }
 
-/// The empty list of an identity without contacts.
-fn no_contacts(ui: &mut Ui, app: &mut App) {
+/// The empty list of an identity without contacts. In a wide window the
+/// content pane says what to do, and the list only where they will be.
+fn no_contacts(ui: &mut Ui, app: &mut App, narrow: bool) {
     let Some(identity) = app.model.current() else {
         return;
     };
+    if !narrow {
+        let theme = theme::current(ui.ctx());
+        inset(ui, theme.space.sm + theme.space.md, |ui| {
+            ui.add(
+                Text::new(
+                    "Your contacts will be listed here.",
+                    &theme.text.caption,
+                    theme.color.text_tertiary,
+                )
+                .wrap(),
+            );
+        });
+        return;
+    }
     let output = EmptyState::new("sidebar-no-contacts", icons::USERS, "No contacts yet")
         .body("Add someone using their Monolith card or invitation.")
         .primary("Add contact")
@@ -420,32 +527,36 @@ fn open_invitation(app: &mut App, identity: UiIdentityId) {
     });
 }
 
-/// The quiet strip at the bottom: add a contact, invite, settings.
+/// The quiet strip at the bottom: add a contact, invite, one's own card,
+/// and the settings. Before the first identity, only the settings.
 fn footer(ui: &mut Ui, app: &mut App) {
     let theme = theme::current(ui.ctx());
     let identity = app.model.current();
     let mut add = false;
     let mut invite = false;
+    let mut card = false;
     let mut settings = false;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = theme.space.xs;
-        let enabled = identity.is_some();
-        add = ui
-            .add(
-                Button::ghost("Add contact")
-                    .icon(icons::USER_PLUS)
-                    .size(Size::Small)
-                    .enabled(enabled),
-            )
-            .clicked();
-        invite = ui
-            .add(
-                Button::ghost("Invite")
-                    .icon(icons::TICKET)
-                    .size(Size::Small)
-                    .enabled(enabled),
-            )
-            .clicked();
+        if identity.is_some() {
+            add = ui
+                .add(
+                    Button::ghost("Add contact")
+                        .icon(icons::USER_PLUS)
+                        .size(Size::Small),
+                )
+                .clicked();
+            invite = ui
+                .add(
+                    Button::ghost("Invite")
+                        .icon(icons::TICKET)
+                        .size(Size::Small),
+                )
+                .clicked();
+            card = ui
+                .add(IconButton::new(icons::ID_CARD, "My card").small())
+                .clicked();
+        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             settings = ui
                 .add(IconButton::new(icons::SETTINGS, "Settings").small())
@@ -459,8 +570,30 @@ fn footer(ui: &mut Ui, app: &mut App) {
         if invite {
             open_invitation(app, identity);
         }
+        if card {
+            app.model.open(Dialog::OwnCard {
+                identity,
+                card: None,
+                busy: None,
+                error: None,
+            });
+        }
     }
     if settings {
         app.view = View::Settings(SettingsPage::Appearance);
+        app.narrow_settings_page = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_identity_in_the_switcher_says_its_contacts_new_messages_and_requests() {
+        assert_eq!(detail_text(4, 6, 1), "4 contacts, 6 new, 1 request");
+        assert_eq!(detail_text(1, 0, 2), "1 contact, 2 requests");
+        assert_eq!(detail_text(0, 0, 0), "No contacts");
+        assert_eq!(detail_text(3, 1, 0), "3 contacts, 1 new");
     }
 }

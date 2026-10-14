@@ -2,12 +2,13 @@
 //! (sidebar and content, or one of them in a narrow window), the global
 //! notices, the dialogs and the toasts.
 
-use egui::{Context, Key, KeyboardShortcut, Modifiers};
-use monolith_ui_kit::chrome::{ContentPanel, SidebarPanel};
+use egui::{Context, Key, KeyboardShortcut, Margin, Modifiers, Popup, TopBottomPanel, Vec2};
+use monolith_ui_kit::banner::{Banner, Tone};
+use monolith_ui_kit::chrome::{self, ContentPanel, SidebarPanel};
 use monolith_ui_kit::theme;
 use monolith_ui_model::{Phase, Selection};
 
-use crate::app::{App, View};
+use crate::app::{App, SettingsPage, View};
 use crate::{conversation, dialogs, onboarding, requests, settings, sidebar};
 
 /// Draws the window for this frame.
@@ -25,6 +26,11 @@ pub fn show(ctx: &Context, app: &mut App) {
 
 fn main(ctx: &Context, app: &mut App) {
     shortcuts(ctx, app);
+    if app.view != View::Settings(SettingsPage::Tor) {
+        // "Saved" is said on the visit of the Tor page that saved.
+        app.tor_saved = false;
+    }
+    storage_failed(ctx, app);
     if let View::Settings(page) = app.view {
         settings::show(ctx, app, page);
         return;
@@ -45,8 +51,33 @@ fn main(ctx: &Context, app: &mut App) {
     ContentPanel.show(ctx, |ui| content(ui, app));
 }
 
+/// A store that failed, said once for the whole window: across its top, on
+/// every view, until Monolith starts again.
+fn storage_failed(ctx: &Context, app: &App) {
+    if !app.model.storage_failed() {
+        return;
+    }
+    let theme = theme::current(ctx);
+    TopBottomPanel::top("storage-failed")
+        .frame(chrome::surface_frame(
+            ctx,
+            Margin::from(Vec2::new(theme.space.lg, theme.space.sm)),
+        ))
+        .show_separator_line(false)
+        .show(ctx, |ui| {
+            Banner::new(
+                "storage-failed",
+                Tone::Danger,
+                "Monolith can no longer save. Restart Monolith to continue.",
+            )
+            .show(ui);
+        });
+}
+
 /// The content pane: the conversation, the requests, or what to do next.
 fn content(ui: &mut egui::Ui, app: &mut App) {
+    // The bar at the top ends where the identity card of the sidebar ends.
+    ui.add_space(theme::current(ui.ctx()).space.sm);
     match app.model.selection() {
         Some(Selection::Conversation(contact)) => conversation::show(ui, app, contact),
         Some(Selection::Requests) => requests::show(ui, app),
@@ -56,9 +87,9 @@ fn content(ui: &mut egui::Ui, app: &mut App) {
 
 /// The keyboard shortcuts of the main window, while no dialog is open:
 /// Ctrl+F (Cmd+F on macOS) for the filter of the list, Alt+Up and Alt+Down
-/// for the conversation before or after the one shown. Enter sends,
-/// Shift+Enter starts a new line, and Escape closes a dialog, in their
-/// components.
+/// for the conversation before or after the one shown, Escape to leave
+/// the settings. Enter sends, Shift+Enter starts a new line, and Escape
+/// closes a dialog or a menu, in their components.
 fn shortcuts(ctx: &Context, app: &mut App) {
     if app.model.dialog().is_some() {
         return;
@@ -66,13 +97,20 @@ fn shortcuts(ctx: &Context, app: &mut App) {
     let find = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);
     let previous = KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp);
     let next = KeyboardShortcut::new(Modifiers::ALT, Key::ArrowDown);
-    let (find, previous, next) = ctx.input_mut(|input| {
+    let in_settings = matches!(app.view, View::Settings(_));
+    // Escape belongs to an open menu first.
+    let menu = Popup::is_any_open(ctx);
+    let (find, previous, next, leave) = ctx.input_mut(|input| {
         (
             input.consume_shortcut(&find),
             input.consume_shortcut(&previous),
             input.consume_shortcut(&next),
+            in_settings && !menu && input.consume_key(Modifiers::NONE, Key::Escape),
         )
     });
+    if leave {
+        app.view = View::Main;
+    }
     if find {
         app.view = View::Main;
         app.narrow_conversation = false;

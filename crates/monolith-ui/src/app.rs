@@ -1,6 +1,7 @@
 //! The state of the window: the UI model, and what only the screens need
 //! (notices on screen, the QR code shown, the passphrase being typed, the
-//! filter of the sidebar, which settings page is open).
+//! filter of the sidebar, which settings page is open, and what a narrow
+//! window shows).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -186,6 +187,16 @@ pub struct App {
     /// In a narrow window, whether the conversation is shown instead of
     /// the list.
     pub(crate) narrow_conversation: bool,
+    /// In a narrow window, whether the settings show a page instead of the
+    /// list of pages.
+    pub(crate) narrow_settings_page: bool,
+    /// The Tor settings were saved on this visit of the Tor page.
+    pub(crate) tor_saved: bool,
+    /// The first screens show where the profile is kept.
+    pub(crate) show_location: bool,
+    /// The identity switcher opens its list at the next frame (for
+    /// pictures of it).
+    pub(crate) open_switcher: bool,
     /// The filter of the sidebar.
     pub(crate) search: String,
     /// The passphrase being typed.
@@ -235,6 +246,10 @@ impl App {
             toasts: Toasts::new().dismiss_label("Dismiss"),
             view: View::Main,
             narrow_conversation: false,
+            narrow_settings_page: false,
+            tor_saved: false,
+            show_location: false,
+            open_switcher: false,
             search: String::new(),
             passphrase: Zeroizing::new(String::with_capacity(256)),
             passphrase_again: Zeroizing::new(String::with_capacity(256)),

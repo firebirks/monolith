@@ -43,7 +43,12 @@ fn repaint_after_settling(name: &str, theme: Theme, frames: u32) -> Duration {
 
 #[test]
 fn a_settled_window_asks_for_no_frame() {
-    for name in NAMES.iter().filter(|name| **name != "opening") {
+    // A spinner turns while a profile opens, and the Tor state pulses while
+    // Tor connects.
+    for name in NAMES
+        .iter()
+        .filter(|name| !["opening", "tor-connecting"].contains(*name))
+    {
         for (theme, reduced) in [(Theme::light(), false), (Theme::dark(), true)] {
             let delay = repaint_after_settling(name, theme.with_reduced_motion(reduced), 30);
             assert_eq!(
