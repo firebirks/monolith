@@ -7,9 +7,13 @@
 //! the same across restarts and never name anything of another identity.
 //! Text a peer sent is shown as text only; `Debug` prints none of it.
 //!
-//! Events are notifications, raised after the state they report is
-//! durable. A front end that misses some (a slow consumer is told how
-//! many it missed) reads the current state again with the queries.
+//! Events are notifications. One that reports stored state (a message
+//! queued, received or delivered, a contact accepted) is raised after that
+//! state is durable. The others report the runtime, whose state is not
+//! stored: sessions, services, a request held in memory, a refused
+//! message, a deferred attempt, an identity that closed, a failed store.
+//! A front end that misses some (a slow consumer is told how many it
+//! missed) reads the current state again with the queries.
 
 use core::fmt;
 use core::time::Duration;
@@ -232,11 +236,13 @@ pub enum ServiceState {
 pub enum RefusedReason {
     /// The conversation or the message store is full.
     StoreFull,
-    /// The message store could not be written.
+    /// Reserved; not raised in this version. A message the message store
+    /// could not write is reported by [`Event::StorageFailed`].
     Storage,
 }
 
-/// Something that happened, after it is durable.
+/// Something that happened: stored state once it is durable, or a change
+/// of the runtime (see the module documentation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Event {
@@ -304,6 +310,9 @@ pub enum Event {
         queued: bool,
     },
     /// A local identity was closed: deleted, or its installation closed.
+    /// Raised when it closes, which for a deletion is before the vault
+    /// commit; if that commit fails, [`Event::StorageFailed`] follows and
+    /// a restart shows the identity.
     IdentityClosed {
         /// Which.
         identity: IdentityId,

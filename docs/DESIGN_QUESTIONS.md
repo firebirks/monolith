@@ -1882,10 +1882,11 @@ P5-10 `MESSAGE_ACK_TIMEOUT`, 60 seconds: a message whose acknowledgement
     sent again on a later session, after the reconnect delay.
 
 P5-11 Events are a bounded broadcast of `MAX_UI_EVENTS`
-    (`RESOURCE_LIMITS.md` section 8): raised after the state they report
-    is durable, never with message text; a consumer that falls behind is
-    told how many it missed and reads the state again. Nothing waits for a
-    slow consumer.
+    (`RESOURCE_LIMITS.md` section 8), never with message text; one that
+    reports stored state is raised after that state is durable, the others
+    report the runtime (ADR 0007); a consumer that falls behind is told
+    how many it missed and reads the state again. Nothing waits for a slow
+    consumer.
 
 P5-12 The boundary of a front end: the plain values of `monolith_core::api`
     and the crate `monolith-runtime`, whose `Messenger` hands out no local

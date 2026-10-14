@@ -400,9 +400,10 @@ even when our own retry timer is long.
 The core sends events to a front end through one bounded queue of
 `MAX_UI_EVENTS` entries. Since Phase 5 the runtime keeps this as a bounded
 broadcast: events name what changed (a message by its conversation and
-place, never its text) and are raised once the change is durable; a front
-end that falls more than `MAX_UI_EVENTS` behind is told how many it missed
-and reads the state again with the queries. Nothing waits for a slow front
+place, never its text), and one that reports stored state is raised once
+the change is durable (ADR 0007); a front end that falls more than
+`MAX_UI_EVENTS` behind is told how many it missed and reads the state
+again with the queries. Nothing waits for a slow front
 end, and nothing is lost by it: the state is in the message store. What
 follows was the design before Phase 5 and still describes the events of
 the contact store. Events that describe state (peer online, request

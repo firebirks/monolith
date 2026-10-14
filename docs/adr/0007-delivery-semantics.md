@@ -110,12 +110,18 @@ message per round trip; correctness is the priority in version 1.
 
 ### Events
 
-Events are notifications raised after the state they report is durable.
-They are not the state: a consumer that misses some reads the current
-state with queries. No correctness property depends on an event being
-seen. Queries read the state in memory, which can be ahead of the store
-by the changes whose write is under way; if that write fails, the store
-fails closed (`StorageFailed`) and a restart shows the store as it was.
+Events are notifications. One that reports stored state (a message
+queued, received or delivered, a contact accepted) is raised after that
+state is durable. The others report the runtime, whose state is not
+stored: sessions, services, a request held in memory, a refused message,
+a deferred attempt, a failed store, and an identity that closed, which
+for a deletion is before the vault commit (if that commit fails,
+`StorageFailed` follows and a restart shows the identity). Events are
+not the state: a consumer that misses some reads the current state with
+queries. No correctness property depends on an event being seen. Queries
+read the state in memory, which can be ahead of the store by the changes
+whose write is under way; if that write fails, the store fails closed
+(`StorageFailed`) and a restart shows the store as it was.
 
 A command that changes something runs as a task of its own: once begun,
 it completes and raises its event also if its caller stops waiting for
