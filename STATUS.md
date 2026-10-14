@@ -77,8 +77,29 @@ Not the final verification yet. On the way:
 ## 5. Reviews
 
 Four independent reviews were started on `21b3df0`: A visual, B UX, C
-security and architecture, D egui. A and B have reported; C and D had not
+security and architecture, D egui. A, B and C have reported; D had not
 when this was written.
+
+C's findings (nothing critical or high; the handles and the stale-answer
+design hold, and the runtime additions keep the Phase 5 guarantees):
+medium: on Windows the default Tor is Tor Browser, usually closed, so
+another local account can bind 127.0.0.1:9150 and receive the onion names
+of contacts at every delivery attempt; dial only while an authenticated
+control session exists and check Tor's SOCKS listener, and document the
+risk. Low: the composer's undo history keeps sent text, also after the
+messages are deleted; a session that saves nothing still writes the
+settings file; a card file read is applied to whichever Add contact
+dialog is open; the window never learns that the bridge thread failed,
+and a failed task leaves its command unanswered; passphrase hygiene (no
+character limit, egui's per-frame copies, input methods, an over-long
+unlock passphrase that shows the create screen); `Debug` of the model
+prints cards and drafts; the Windows vault directory is described wrongly
+(std renames with `MoveFileExW` first, `FileRenameInfoEx` only after
+access is denied; `4918c9a` stated the reverse) and the durability of a
+rename through a directory flush is not documented by Windows.
+Informational: a card path is checked then opened by name (a FIFO swapped
+in can hang the exit); UNC paths make Windows connect over SMB; copied
+invitation cards enter the Windows clipboard history.
 
 A's findings, to reproduce, test and fix: Settings breaks below 880
 points (nav always shown, rows clipped, the header button over its
@@ -138,7 +159,7 @@ B's findings, to reproduce, test and fix:
 
 ## 6. What is left, in order
 
-1. The reports of reviews C and D; then for every finding of the four:
+1. The report of review D; then for every finding of the four:
    reproduce it, a regression test before the fix, a mutation fault where
    useful, a review of sibling patterns.
 2. The property tests of the UI model (`tests/properties.rs`), under way.
