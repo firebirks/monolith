@@ -596,3 +596,143 @@ fn an_ended_conversation_shows_but_takes_no_message() {
     assert!(!model.can_send(ended));
     assert_eq!(model.contact_name(ended), "Former contact GGGG");
 }
+
+#[test]
+fn a_failure_is_told_in_its_sentence_never_in_its_debug_form() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let request = UiRequestId::new(identity(1), 1);
+    let mut snap = snapshot(identity(1), Vec::new());
+    snap.requests = vec![RequestView {
+        id: request,
+        fingerprint: "FFFF 0000".to_owned(),
+        full_fingerprint: String::new(),
+        display_name: String::new(),
+        introduction: String::new(),
+        invitation: None,
+    }];
+    model.apply(Update::Event(RuntimeEvent::RequestReceived {
+        identity: identity(1),
+        queued: true,
+    }));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(_) => Some(Outcome::Identity(Box::new(snap.clone()))),
+        _ => None,
+    });
+    model.take_notices();
+    model.decline(request);
+    answer_all(&mut model, |command| match command {
+        Command::DeclineRequest(_) => Some(Outcome::Failed(Failure::NoSuchRequest)),
+        _ => None,
+    });
+    let texts: Vec<String> = model
+        .take_notices()
+        .into_iter()
+        .map(|notice| notice.text)
+        .collect();
+    assert_eq!(texts, vec![Failure::NoSuchRequest.message().to_owned()]);
+}
+
+#[test]
+fn a_snapshot_shows_only_what_belongs_to_its_identity() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    let foreign = contact(2, 20);
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let mut snap = snapshot(
+                identity(1),
+                vec![
+                    contact_view(contact(1, 10), "Carol", "CCCC 1111"),
+                    contact_view(foreign, "Erin", "EEEE 3333"),
+                ],
+            );
+            snap.conversations = vec![ConversationView {
+                contact: foreign,
+                fingerprint: "EEEE 3333".to_owned(),
+                active: true,
+                messages: 0,
+                queued: 0,
+                latest: None,
+            }];
+            snap.requests = vec![RequestView {
+                id: UiRequestId::new(identity(2), 4),
+                fingerprint: "FFFF 0000".to_owned(),
+                full_fingerprint: String::new(),
+                display_name: String::new(),
+                introduction: String::new(),
+                invitation: None,
+            }];
+            snap.invitations = vec![InvitationView {
+                id: UiInvitationId::new(identity(2), 5),
+                label: None,
+            }];
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        _ => None,
+    });
+    let slice = model.slice(identity(1)).unwrap();
+    assert!(
+        slice
+            .contacts
+            .iter()
+            .all(|view| view.id.identity() == identity(1))
+    );
+    assert_eq!(slice.contacts.len(), 1);
+    assert!(slice.conversations.is_empty());
+    assert!(slice.requests.is_empty());
+    assert!(slice.invitations.is_empty());
+}
+
+#[test]
+fn no_secret_or_text_is_printed_by_debug() {
+    let commands = [
+        Command::OpenProfile {
+            passphrase: Zeroizing::new("hunter2 secret".to_owned()),
+        },
+        Command::CreateProfile {
+            passphrase: Zeroizing::new("hunter2 secret".to_owned()),
+        },
+        Command::Send {
+            contact: contact(1, 10),
+            text: "secret words".to_owned(),
+        },
+        Command::AddContact {
+            identity: identity(1),
+            card: "MONOLITH secret card".to_owned(),
+            name: Some("secret name".to_owned()),
+        },
+        Command::SetContactName {
+            contact: contact(1, 10),
+            name: Some("secret name".to_owned()),
+        },
+        Command::CreateIdentity {
+            name: Some("secret name".to_owned()),
+        },
+        Command::CreateInvitation {
+            identity: identity(1),
+            label: Some("secret label".to_owned()),
+        },
+    ];
+    for command in &commands {
+        let text = format!("{command:?} {command:#?}");
+        assert!(!text.contains("secret"), "{text}");
+    }
+    let outcomes = [
+        Outcome::Card(Zeroizing::new("MONOLITH secret card".to_owned())),
+        Outcome::InvitationCreated {
+            invitation: UiInvitationId::new(identity(1), 1),
+            card: Zeroizing::new("MONOLITH secret card".to_owned()),
+        },
+        Outcome::Messages {
+            contact: contact(1, 10),
+            messages: vec![message(contact(1, 10), 1, Status::Received, "secret")],
+            complete: true,
+        },
+    ];
+    for outcome in &outcomes {
+        let text = format!("{outcome:?} {outcome:#?}");
+        assert!(!text.contains("secret"), "{text}");
+    }
+}

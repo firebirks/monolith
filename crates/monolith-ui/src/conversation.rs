@@ -407,12 +407,8 @@ fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
                         MessageBubble::new(message.id, direction, &prepared.text, &clock)
                             .first_in_group(first_in_group)
                             .last_in_group(last_in_group);
-                    match message.status {
-                        Status::Queued => bubble = bubble.status(MarkStatus::Queued, "Queued"),
-                        Status::Delivered => {
-                            bubble = bubble.status(MarkStatus::Delivered, "Delivered");
-                        }
-                        Status::Received => {}
+                    if let Some((mark, label)) = mark(message.status) {
+                        bubble = bubble.status(mark, label);
                     }
                     if prepared.collapsed {
                         bubble = bubble.collapsed("Show more");
@@ -633,5 +629,33 @@ pub(crate) fn show_nothing_selected(ui: &mut Ui, app: &mut App) {
             .body("Choose a contact on the left to read and write messages.")
             .show(ui);
         }
+    }
+}
+
+/// The mark of a message: exactly the status the runtime gave it. A
+/// received message has none.
+fn mark(status: Status) -> Option<(MarkStatus, &'static str)> {
+    match status {
+        Status::Queued => Some((MarkStatus::Queued, "Queued")),
+        Status::Delivered => Some((MarkStatus::Delivered, "Delivered")),
+        Status::Received => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_message_is_marked_with_the_status_the_runtime_gave() {
+        assert!(matches!(
+            mark(Status::Queued),
+            Some((MarkStatus::Queued, "Queued"))
+        ));
+        assert!(matches!(
+            mark(Status::Delivered),
+            Some((MarkStatus::Delivered, "Delivered"))
+        ));
+        assert!(mark(Status::Received).is_none());
     }
 }

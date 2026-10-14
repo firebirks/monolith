@@ -188,3 +188,27 @@ fn remember(ui: &Ui, request: UiRequestId, action: RequestAction) {
     ui.ctx()
         .data_mut(|data| data.insert_temp(busy_id(request), action));
 }
+
+#[cfg(test)]
+mod tests {
+    use monolith_ui_model::{UiIdentityId, UiInvitationId};
+
+    use super::*;
+
+    #[test]
+    fn the_name_a_sender_chose_is_quoted_never_made_the_title() {
+        let identity = UiIdentityId::from_bytes([1; 16]);
+        let request = RequestView {
+            id: UiRequestId::new(identity, 1),
+            fingerprint: "F6QW 8NRT".to_owned(),
+            full_fingerprint: "F6QW 8NRT 3MKZ".to_owned(),
+            display_name: "Your Bank".to_owned(),
+            introduction: String::new(),
+            invitation: Some(UiInvitationId::new(identity, 2)),
+        };
+        let shown = entry(&request, Some(Some("Climbing gym")));
+        assert!(!shown.title.contains("Your Bank"), "{}", shown.title);
+        assert!(shown.caption.contains("\"Your Bank\""), "{}", shown.caption);
+        assert!(shown.caption.contains("Climbing gym"), "{}", shown.caption);
+    }
+}

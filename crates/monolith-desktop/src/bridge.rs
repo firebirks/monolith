@@ -876,5 +876,11 @@ mod tests {
         );
         let again = handles.handle(Fake(id(1), 1));
         assert_ne!(again, gone);
+        assert_ne!(again, other);
+        // Nor anyone else's.
+        assert_eq!(
+            handles.get(convert::identity(&id(2)), other),
+            Some(Fake(id(2), 1))
+        );
     }
 }

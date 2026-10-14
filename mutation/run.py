@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the mutation suite. See README.md in this directory.
 
-Usage: python3 mutation/run.py <phase1|phase2|phase3|phase4|phase5|all> <workers> [fault id ...]
+Usage: python3 mutation/run.py <phase1|...|phase6|all> <workers> [fault id ...]
 
 Each fault of faults.py is applied to a copy of the committed HEAD, one at
 a time; the tests of the affected crates run; the file is restored. The
@@ -87,6 +87,9 @@ def cargo_test(tree, crates, limit):
     command = ["cargo", "test", "--locked", "--no-fail-fast"]
     for crate in crates:
         command += ["-p", crate]
+    # The screens are tested in the states their fixtures build.
+    if "monolith-ui" in crates:
+        command += ["--features", "monolith-ui/fixtures"]
     env = dict(os.environ, CARGO_TERM_COLOR="never")
     process = subprocess.Popen(
         command,
@@ -284,9 +287,15 @@ def run_main():
         "phase3": faults.PHASE3,
         "phase4": faults.PHASE4,
         "phase5": faults.PHASE5,
+        "phase6": faults.PHASE6,
     }.get(
         phase,
-        faults.PHASE1 + faults.PHASE2 + faults.PHASE3 + faults.PHASE4 + faults.PHASE5,
+        faults.PHASE1
+        + faults.PHASE2
+        + faults.PHASE3
+        + faults.PHASE4
+        + faults.PHASE5
+        + faults.PHASE6,
     )
     if only:
         selected = [item for item in selected if item["id"] in only]
@@ -304,12 +313,16 @@ def run_main():
     # Build each copy once, so that the first fault of a worker is not
     # charged with the whole build, check that the unmodified tree passes,
     # and measure how long its tests take.
+    # The unmodified run covers the crates of the protocol and the core, as
+    # it always has, and every other crate a selected fault is tested with.
+    unmodified = sorted(
+        set(faults.TESTS["monolith-identity"])
+        | {crate for item in selected for crate in item["crates"]}
+    )
     slowest = 0
     for tree in trees:
         started = time.time()
-        code, output, timed_out = cargo_test(
-            tree, faults.TESTS["monolith-identity"], UNMODIFIED_TIMEOUT
-        )
+        code, output, timed_out = cargo_test(tree, unmodified, UNMODIFIED_TIMEOUT)
         if code != 0:
             log(output[-3000:])
             if timed_out:

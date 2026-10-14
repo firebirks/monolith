@@ -259,4 +259,13 @@ mod tests {
         assert_eq!(read_card(&dir.join("missing")), Err(Failure::File));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_device_is_never_read_as_a_card() {
+        // It is not a file: it is refused before a byte is read, never
+        // read up to the limit.
+        assert_eq!(read_card(Path::new("/dev/zero")), Err(Failure::File));
+        assert_eq!(read_card(Path::new("/dev/null")), Err(Failure::File));
+    }
 }
