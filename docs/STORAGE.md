@@ -36,8 +36,12 @@ gone when the process exits. In persistent mode they are in the message
 store, encrypted under a key derived from the vault key (section 5).
 
 Data directory: `$XDG_DATA_HOME/monolith`, falling back to
-`~/.local/share/monolith`. On Tails there is no default; see
-`PLATFORM_TAILS.md` section 5.
+`~/.local/share/monolith`. On Tails there is no default outside the
+Persistent Storage; see `PLATFORM_TAILS.md` section 5. The desktop client
+uses `/home/amnesia/Persistent/monolith` there while the Persistent
+Storage is unlocked, and otherwise offers only a session that keeps
+nothing. On Windows the data directory is `%LOCALAPPDATA%\Monolith\Profile`
+(section 3.8).
 
     monolith/            0700
       vault              0600   encrypted identity and contacts
@@ -393,6 +397,39 @@ file.
 The directory is 0700 and files are 0600, set at creation, not after. At
 open, Monolith refuses a data directory or vault that is group or world
 accessible, is a symbolic link, or is not owned by the current user.
+
+### 3.8 Windows
+
+Since Phase 6 the vault directory also runs on Windows
+(`crates/monolith-storage/src/disk_windows.rs`, P6-13). The files, their
+formats, the order of writes and the recovery of section 3.5 are those of
+Unix; what differs is how the operations are made:
+
+- The directory is held open for as long as the vault is, without the
+  sharing that would let another process rename or delete it, so that the
+  path checked when it was opened keeps naming the same directory.
+- Nothing that is a reparse point (a symbolic link or a junction) is
+  followed: each file is opened as itself and refused if it is one, as
+  Unix refuses a symbolic link.
+- The single-instance lock (`lock`) is a file opened with no sharing at
+  all. A second process cannot open it, and Windows releases it when the
+  process ends, however it ends.
+- A file is created only if it does not exist and flushed with
+  `FlushFileBuffers` before it is renamed; the directory's names are
+  flushed through a handle of the directory opened for writing. A rename
+  is that of the standard library, which replaces its target in one step
+  (`FileRenameInfoEx` with POSIX semantics, or `MoveFileExW` with
+  `MOVEFILE_REPLACE_EXISTING` on a file system without them), and a
+  second name is a hard link.
+
+What Unix checks and Windows does not: who owns the directory and who else
+may read it. Windows keeps that in access control lists, which the
+standard library cannot read, and Monolith uses no code of its own outside
+it. The default data directory is `%LOCALAPPDATA%\Monolith\Profile`, inside
+the user's profile, whose list gives access to the user, SYSTEM and the
+administrators; a directory elsewhere has the list its parent gives it.
+This is a documented limitation of the Windows build, not a check skipped
+on Unix.
 
 ## 4. Temporary files
 

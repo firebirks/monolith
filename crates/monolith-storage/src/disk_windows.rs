@@ -14,8 +14,10 @@
 //! - a file is created only if it does not exist, and flushed with
 //!   `FlushFileBuffers`; the names of the directory are flushed with
 //!   `FlushFileBuffers` on the handle of the directory;
-//! - a rename replaces its target in one step (`MoveFileExW` with
-//!   `MOVEFILE_REPLACE_EXISTING`), and a second name is a hard link.
+//! - a rename is that of the standard library, which replaces its target
+//!   in one step (`FileRenameInfoEx` with POSIX semantics, or
+//!   `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` on a file system
+//!   without them), and a second name is a hard link.
 //!
 //! What Unix checks and this does not: who owns the directory and who
 //! else may read it. Windows keeps that in access control lists, which
