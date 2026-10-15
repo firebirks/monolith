@@ -190,7 +190,9 @@ window switchers, screen recorders and other programs on the same desktop.
   be recovered.
 - Identities: made from the identity switcher or the settings, switched
   from the switcher, deleted from the settings after a confirmation that
-  says what is removed.
+  says what is removed. The card of the identity shown is one click away:
+  "Share my card" in the switcher, the card button in the footer of the
+  list, and the empty state of an identity without contacts.
 - Contacts: added by pasting a card or an invitation card, or reading one
   from a file (typed path or dropped on the window, at most 64 KiB, checked
   like pasted text). A request to a stranger leaves with the first message

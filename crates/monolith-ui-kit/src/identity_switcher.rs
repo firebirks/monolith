@@ -1,6 +1,7 @@
 //! The identity switcher at the top of the sidebar: a trigger that shows
 //! the current identity, and a popup that lists the identities with the
-//! entries to create a new one and to manage them.
+//! entries to create a new one and to manage them, and, if asked, one to
+//! share the card of the current one.
 
 use core::hash::Hash;
 
@@ -41,6 +42,8 @@ pub struct Output<K> {
     pub new_identity: bool,
     /// "Manage identities" was clicked.
     pub manage: bool,
+    /// The entry of [`IdentitySwitcher::card_entry`] was clicked.
+    pub card: bool,
     /// The popup is open.
     pub open: bool,
 }
@@ -73,6 +76,7 @@ pub struct IdentitySwitcher<'a, K> {
     caption: &'a str,
     new_label: &'a str,
     manage_label: &'a str,
+    card_label: Option<&'a str>,
 }
 
 impl<'a, K: Hash + PartialEq + Clone> IdentitySwitcher<'a, K> {
@@ -93,7 +97,15 @@ impl<'a, K: Hash + PartialEq + Clone> IdentitySwitcher<'a, K> {
             caption: "",
             new_label,
             manage_label,
+            card_label: None,
         }
+    }
+
+    /// Adds an entry, first under the list, for the card of the current
+    /// identity, with `label` as its text.
+    pub fn card_entry(mut self, label: &'a str) -> Self {
+        self.card_label = Some(label);
+        self
     }
 
     /// The line under the name in the trigger (for example the number of
@@ -196,6 +208,7 @@ impl<'a, K: Hash + PartialEq + Clone> IdentitySwitcher<'a, K> {
         let mut selected = None;
         let mut new_identity = false;
         let mut manage = false;
+        let mut card = false;
         let frame = Frame::new()
             .fill(c.bg_raised)
             .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))
@@ -293,23 +306,24 @@ impl<'a, K: Hash + PartialEq + Clone> IdentitySwitcher<'a, K> {
                 line.center().y,
                 Stroke::new(theme.stroke.hairline, c.border_subtle),
             );
+            let card_entry = self.card_label.map(|label| (label, icons::ID_CARD, "card"));
             let entries: [(&str, Icon, &str); 2] = [
                 (self.new_label, icons::PLUS, "new"),
                 (self.manage_label, icons::SETTINGS, "manage"),
             ];
-            for (label, icon, key) in entries {
+            for (label, icon, key) in card_entry.into_iter().chain(entries) {
                 let row_id = Id::new((id, "entry", key));
                 let clicked = entry_row(ui, &theme, row_id, label, icon);
                 if clicked {
-                    if key == "new" {
-                        new_identity = true;
-                    } else {
-                        manage = true;
+                    match key {
+                        "new" => new_identity = true,
+                        "manage" => manage = true,
+                        _ => card = true,
                     }
                 }
             }
         });
-        if selected.is_some() || new_identity || manage {
+        if selected.is_some() || new_identity || manage || card {
             Popup::close_id(ui.ctx(), popup_open_id);
         }
         let open = Popup::is_id_open(ui.ctx(), popup_open_id);
@@ -318,6 +332,7 @@ impl<'a, K: Hash + PartialEq + Clone> IdentitySwitcher<'a, K> {
             selected,
             new_identity,
             manage,
+            card,
             open,
         }
     }

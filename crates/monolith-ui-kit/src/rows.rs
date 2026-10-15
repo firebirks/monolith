@@ -103,6 +103,11 @@ fn paint_row_background(ui: &Ui, theme: &Theme, rect: Rect, state: State) {
 pub enum RowStatus {
     /// The other side has not accepted yet.
     WaitingForAcceptance,
+    /// The other side has to add the card of the local identity: the card
+    /// added for them was not an invitation.
+    WaitingForTheirCard,
+    /// Nothing was written yet, so no request has left.
+    RequestNotSent,
     /// The conversation ended: the contact was removed or blocked. One
     /// mark for both, which does not say which.
     Ended,
@@ -113,7 +118,9 @@ pub enum RowStatus {
 impl RowStatus {
     fn icon(self) -> Icon {
         match self {
-            Self::WaitingForAcceptance => icons::HOURGLASS,
+            Self::WaitingForAcceptance | Self::WaitingForTheirCard | Self::RequestNotSent => {
+                icons::HOURGLASS
+            }
             Self::Ended => icons::CIRCLE_DASHED,
             Self::Queued => icons::CLOCK,
         }
@@ -123,6 +130,8 @@ impl RowStatus {
     pub fn label(self) -> &'static str {
         match self {
             Self::WaitingForAcceptance => "waiting for acceptance",
+            Self::WaitingForTheirCard => "waiting for them to add your card",
+            Self::RequestNotSent => "request not sent yet",
             Self::Ended => "no longer a contact",
             Self::Queued => "messages queued",
         }

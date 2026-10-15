@@ -247,6 +247,19 @@ fn a_marker_says_its_word_under_the_pointer() {
 }
 
 #[test]
+fn every_waiting_marker_says_what_it_waits_for() {
+    assert_eq!(
+        RowStatus::WaitingForAcceptance.label(),
+        "waiting for acceptance"
+    );
+    assert_eq!(
+        RowStatus::WaitingForTheirCard.label(),
+        "waiting for them to add your card"
+    );
+    assert_eq!(RowStatus::RequestNotSent.label(), "request not sent yet");
+}
+
+#[test]
 fn an_anonymous_row_draws_a_person_instead_of_initials() {
     let glyph = icons::USER.char().to_string();
     for anonymous in [false, true] {

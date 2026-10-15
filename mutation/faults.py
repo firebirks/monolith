@@ -1749,4 +1749,8 @@ PHASE6 = [
           ("        header.response.scroll_to_me(Some(Align::Min));\n", "")),
     fault("UI145", UK + "mark.rs", "the first screens show no mark",
           ("            paint_mark(ui.painter(), &theme, mark);\n", "")),
+    fault("UI146", UK + "identity_switcher.rs", "the card entry of the switcher reports nothing",
+          ("                        _ => card = true,", "                        _ => {}")),
+    fault("UI147", UI + "sidebar.rs", "Share my card in the switcher opens nothing",
+          ("    if output.card {\n        open_own_card(app, current);\n    }\n", "")),
 ]

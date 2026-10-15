@@ -828,6 +828,17 @@ fn my_card_is_one_click_from_the_list() {
 }
 
 #[test]
+fn the_identity_switcher_shares_the_card_of_the_identity_shown() {
+    let mut window = Window::new("identity-switcher", WIDE);
+    let shown = window.app.model.current();
+    window.click("Share my card");
+    assert!(matches!(
+        window.app.model.dialog(),
+        Some(Dialog::OwnCard { identity, .. }) if Some(*identity) == shown
+    ));
+}
+
+#[test]
 fn an_identity_without_contacts_is_offered_them_once() {
     let wide = Window::new("empty-identity", WIDE);
     assert_eq!(wide.count("No contacts yet"), 1);

@@ -153,6 +153,37 @@ fn the_new_and_manage_entries_report_themselves_and_close_the_list() {
 }
 
 #[test]
+fn the_card_entry_is_shown_only_when_asked_and_reports_itself() {
+    let (mut rig, mut seen) = opened();
+    let out = rig.frame(vec![], |ctx| show(ctx, 10, &mut seen));
+    assert!(!paints(&out, "Share my card"));
+
+    let mut card = false;
+    let mut trigger = Rect::NOTHING;
+    let with_card = |ctx: &Context, card: &mut bool, trigger: &mut Rect| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let out =
+                IdentitySwitcher::new("sw", &10_u32, &ITEMS, "New identity", "Manage identities")
+                    .card_entry("Share my card")
+                    .show(ui);
+            *trigger = out.response.rect;
+            *card |= out.card;
+            assert!(out.selected.is_none() && !out.new_identity && !out.manage);
+        });
+    };
+    let mut rig = Rig::new();
+    rig.settle(2, |ctx| with_card(ctx, &mut card, &mut trigger));
+    let at = trigger.center();
+    rig.click(at, |ctx| with_card(ctx, &mut card, &mut trigger));
+    let out = rig.frame(vec![], |ctx| with_card(ctx, &mut card, &mut trigger));
+    assert!(paints(&out, "Share my card"));
+    let at = rect_of(&rig, entry_id("entry", "card")).center();
+    rig.click(at, |ctx| with_card(ctx, &mut card, &mut trigger));
+    assert!(card);
+    assert!(!is_open(&rig.ctx, "sw"));
+}
+
+#[test]
 fn a_click_outside_closes_the_list_without_choosing() {
     let (mut rig, mut seen) = opened();
     rig.click(pos2(390.0, 590.0), |ctx| show(ctx, 10, &mut seen));

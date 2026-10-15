@@ -18,7 +18,9 @@ use monolith_ui_kit::search_field::SearchField;
 use monolith_ui_kit::text::Text;
 use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_kit::{icons, theme};
-use monolith_ui_model::{Dialog, RowState, Selection, SidebarRow, Slice, UiIdentityId, present};
+use monolith_ui_model::{
+    Dialog, RowState, Selection, SidebarRow, Slice, UiIdentityId, Waiting, present,
+};
 
 use crate::app::{App, SettingsPage, View};
 use crate::{common, conversation};
@@ -234,10 +236,14 @@ fn switcher(ui: &mut Ui, app: &mut App) {
         "Manage identities",
     )
     .caption(&caption)
+    .card_entry("Share my card")
     .show(ui);
     let chosen = output.selected;
     let new_identity = output.new_identity;
     let manage = output.manage;
+    if output.card {
+        open_own_card(app, current);
+    }
     if let Some(key) = chosen {
         app.model.select_identity(key);
         app.narrow_conversation = false;
@@ -380,7 +386,11 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
                 .unwrap_or_default();
             let mut statuses = Vec::new();
             match row.state {
-                RowState::Waiting => statuses.push(RowStatus::WaitingForAcceptance),
+                RowState::Waiting => statuses.push(match row.waiting {
+                    Some(Waiting::TheirCard) => RowStatus::WaitingForTheirCard,
+                    Some(Waiting::FirstMessage) => RowStatus::RequestNotSent,
+                    Some(Waiting::Acceptance) | None => RowStatus::WaitingForAcceptance,
+                }),
                 RowState::Ended => statuses.push(RowStatus::Ended),
                 RowState::Contact => {}
             }
