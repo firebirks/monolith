@@ -10,6 +10,7 @@ use egui::{
     Modifiers, Rect, Response, ScrollArea, Stroke, TextEdit, Ui, Vec2, pos2,
 };
 
+use crate::chrome::ScrollView;
 use crate::icon_button::IconButton;
 use crate::icons;
 use crate::interact::{self, mix};
@@ -170,8 +171,9 @@ impl<'a> Composer<'a> {
                 Layout::top_down(Align::Min),
                 |ui| {
                     ui.set_width(edit_w);
-                    ScrollArea::vertical()
-                        .id_salt(self.id.with("scroll"))
+                    // No stop of the Tab key but the edit: the area neither
+                    // drags nor takes the focus with its bar.
+                    ScrollView::new(self.id.with("scroll"), ScrollArea::vertical())
                         .max_height(max_edit_h)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {

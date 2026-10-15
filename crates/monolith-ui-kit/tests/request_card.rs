@@ -1,5 +1,5 @@
 //! The request card: the order of its answers on screen and from the
-//! keyboard.
+//! keyboard, and the well that holds the words of the sender.
 
 #![allow(
     clippy::unwrap_used,
@@ -12,8 +12,9 @@
 mod common;
 
 use common::{Rig, focused_labels};
-use egui::epaint::Shape;
+use egui::epaint::{RectShape, Shape};
 use egui::{Context, FullOutput, Key, Pos2};
+use monolith_ui_kit::Theme;
 use monolith_ui_kit::request_card::{Output, RequestCard};
 
 fn show(ctx: &Context, output: &mut Output) {
@@ -67,6 +68,43 @@ fn tab_reaches_accept_and_decline_before_block() {
         outputs.extend(rig.key(Key::Tab, |ctx| show(ctx, &mut output)));
     }
     assert_eq!(focused_labels(&outputs), ["Accept", "Decline", "Block"]);
+}
+
+/// The rectangles painted in `output`.
+fn rects(output: &FullOutput) -> Vec<RectShape> {
+    fn walk(shape: &Shape, into: &mut Vec<RectShape>) {
+        match shape {
+            Shape::Vec(shapes) => {
+                for shape in shapes {
+                    walk(shape, into);
+                }
+            }
+            Shape::Rect(rect) => into.push(rect.clone()),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    for clipped in &output.shapes {
+        walk(&clipped.shape, &mut found);
+    }
+    found
+}
+
+#[test]
+fn the_message_sits_in_a_well_with_an_edge_in_both_themes() {
+    // On the card of the dark theme the fill of the well alone is hardly
+    // told from the card's.
+    for theme in [Theme::light(), Theme::dark()] {
+        let mut rig = Rig::with_theme(theme.clone());
+        let mut output = Output::default();
+        let out = rig.settle(3, |ctx| show(ctx, &mut output));
+        let well = rects(&out)
+            .into_iter()
+            .find(|rect| rect.fill == theme.color.bg_sunken)
+            .expect("the well is painted");
+        assert!(well.stroke.width > 0.0, "{:?}", theme.mode);
+        assert_eq!(well.stroke.color, theme.color.border_subtle);
+    }
 }
 
 #[test]

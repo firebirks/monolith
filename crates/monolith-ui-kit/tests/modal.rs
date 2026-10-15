@@ -1,4 +1,5 @@
-//! Modal state: what closes it, what does not, and what it shields.
+//! Modal state: what closes it, what does not, what it shields, and where
+//! toasts go over it.
 
 #![allow(
     clippy::unwrap_used,
@@ -13,6 +14,7 @@ mod common;
 use common::{Rig, paints};
 use egui::{Context, Event, Id, Key, Modifiers, MouseWheelUnit, Rect, pos2, vec2};
 use monolith_ui_kit::modal::{Decision, Modal};
+use monolith_ui_kit::toast::{Kind, Toasts};
 use monolith_ui_kit::{Button, TextField, Theme};
 
 /// Shows a modal and tells whether it asked to close.
@@ -272,9 +274,9 @@ fn the_scrim_and_the_card_are_no_tab_stops() {
             }
         }
     }
-    // The field, the two actions and the scroll bar of the body, which
-    // egui makes a stop of its own; nothing else.
-    assert_eq!(stops.len(), 4, "{stops:?}");
+    // The field and the two actions; nothing else, not the scroll bar of
+    // the body either.
+    assert_eq!(stops.len(), 3, "{stops:?}");
     for id in [seen.field_id, seen.save_id, seen.cancel_id] {
         assert!(stops.contains(&id));
     }
@@ -330,4 +332,74 @@ fn a_busy_confirmation_answers_nothing() {
     rig.key(Key::Enter, |ctx| confirm(ctx, true, &mut decision));
     rig.click(pos2(5.0, 5.0), |ctx| confirm(ctx, true, &mut decision));
     assert_eq!(decision, None);
+}
+
+/// Where the first toast was drawn.
+fn toast(rig: &Rig) -> Rect {
+    rig.ctx
+        .read_response(Id::new(("monolith-toast", 0_u64)))
+        .expect("the toast is shown")
+        .rect
+}
+
+#[test]
+fn a_toast_over_a_modal_keeps_clear_of_its_title_and_its_actions() {
+    let theme = Theme::light();
+    // Its title is at the top of the card, its actions at the bottom.
+    let title = |card: Rect| {
+        Rect::from_min_max(
+            card.min,
+            pos2(
+                card.right(),
+                card.top() + theme.space.xxl + theme.text.title.line_height,
+            ),
+        )
+    };
+    let actions = |card: Rect| {
+        Rect::from_min_max(
+            pos2(
+                card.left(),
+                card.bottom() - theme.space.xxl - theme.size.control,
+            ),
+            card.max,
+        )
+    };
+
+    // A short modal leaves room under it.
+    let mut rig = Rig::new();
+    let mut toasts = Toasts::new();
+    toasts.push(Kind::Success, "Card copied");
+    let mut requested = false;
+    rig.settle(4, |ctx| {
+        show(ctx, true, &mut requested);
+        toasts.show(ctx);
+    });
+    let card = rig
+        .ctx
+        .read_response(Id::new(("monolith-modal", "dialog")).with("card"))
+        .expect("the card was shown")
+        .rect;
+    assert!(toast(&rig).top() > card.bottom(), "{:?}", toast(&rig));
+
+    // A tall one does not: the toast sits above its actions.
+    let mut rig = smallest();
+    let mut toasts = Toasts::new();
+    toasts.push(Kind::Success, "Card copied");
+    let mut seen = Tall::default();
+    rig.settle(4, |ctx| {
+        tall(ctx, &mut seen);
+        toasts.show(ctx);
+    });
+    let shown = toast(&rig);
+    assert!(rig.screen().contains_rect(shown), "{shown:?}");
+    assert!(
+        !shown.intersects(title(seen.card)),
+        "{shown:?} {:?}",
+        seen.card
+    );
+    assert!(
+        !shown.intersects(actions(seen.card)),
+        "{shown:?} {:?}",
+        seen.card
+    );
 }

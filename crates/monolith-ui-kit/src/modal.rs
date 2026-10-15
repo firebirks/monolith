@@ -9,11 +9,11 @@
 use egui::{
     Align, Area, Context, CornerRadius, Frame, Id, Key, Label, Layout, Modifiers, Order, Popup,
     Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2,
-    containers::scroll_area::{ScrollBarVisibility, ScrollSource},
-    emath::TSTransform,
+    containers::scroll_area::ScrollBarVisibility, emath::TSTransform,
 };
 
 use crate::button::{Button, Size};
+use crate::chrome::ScrollView;
 use crate::theme::{self, Theme};
 
 /// What came of showing a modal.
@@ -49,6 +49,28 @@ pub struct Modal<'a> {
 /// How small the card is when it starts to appear.
 const APPEAR_SCALE: f32 = 0.96;
 
+/// Where a modal was drawn, and in which pass.
+#[derive(Clone, Copy, Debug)]
+struct Drawn {
+    pass: u64,
+    card: Rect,
+    actions: Rect,
+}
+
+fn drawn_id() -> Id {
+    Id::new("monolith-ui-kit/modal-drawn")
+}
+
+/// The card of the modal drawn so far in this pass, and the row of its
+/// actions, if one was: what is shown over a modal keeps clear of its
+/// title and its actions.
+pub(crate) fn drawn(ctx: &Context) -> Option<(Rect, Rect)> {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|data| data.get_temp::<Drawn>(drawn_id()))
+        .filter(|drawn| drawn.pass == pass)
+        .map(|drawn| (drawn.card, drawn.actions))
+}
+
 /// Lays out `body` in a scroll area at most `max_height` tall, as wide as
 /// `ui`. The scroll bar floats in the right padding of the card, clear of
 /// the content.
@@ -69,16 +91,12 @@ fn scrolling_body<R>(
             .max_rect(slot)
             .layout(Layout::top_down(Align::Min)),
     );
-    let shown = ScrollArea::vertical()
-        .id_salt(id)
+    let area = ScrollArea::vertical()
+        .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
+        .animated(true);
+    let shown = ScrollView::new(id, area)
         .auto_shrink([false, true])
         .max_height(max_height)
-        .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
-        .scroll_source(ScrollSource {
-            drag: false,
-            ..ScrollSource::ALL
-        })
-        .animated(true)
         .show(&mut area_ui, |ui| {
             ui.set_width(width);
             ui.spacing_mut().item_spacing = Vec2::new(theme.space.sm, theme.space.sm);
@@ -248,15 +266,22 @@ impl<'a> Modal<'a> {
                         let body_max = (card_max_height - fixed).max(theme.size.control);
                         let inner = scrolling_body(ui, &theme, body_id, body_max, body);
                         ui.add_space(theme.space.xl);
-                        ui.allocate_ui_with_layout(
+                        let actions = ui.allocate_ui_with_layout(
                             Vec2::new(ui.available_width(), theme.size.control),
                             Layout::right_to_left(Align::Center),
                             footer,
                         );
-                        inner
+                        (inner, actions.response.rect)
                     })
                     .inner
             });
+        let (inner, actions) = card.inner;
+        let drawn = Drawn {
+            pass: ctx.cumulative_pass_nr(),
+            card: card.response.rect,
+            actions,
+        };
+        ctx.data_mut(|data| data.insert_temp(drawn_id(), drawn));
 
         // A press on the scrim raises its area; the card goes back above.
         if scrim.is_pointer_button_down_on() || scrim.clicked() {
@@ -280,7 +305,7 @@ impl<'a> Modal<'a> {
             }
         }
         ModalOutput {
-            inner: card.inner,
+            inner,
             close_requested,
         }
     }

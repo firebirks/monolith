@@ -16,14 +16,15 @@
     clippy::arithmetic_side_effects
 )]
 
-use egui::epaint::Shape;
+use egui::epaint::{ClippedShape, Shape};
 use egui::{
     Color32, Context, Event, FullOutput, Id, Key, Modifiers, OutputCommand, PointerButton, Pos2,
     RawInput, Rect, Vec2, ViewportCommand, ViewportId, pos2,
 };
 use monolith_ui::fixtures::{NOW, conversation_window, fixture, long_text};
 use monolith_ui::{App, Effect, EffectResult};
-use monolith_ui_kit::{Theme, fonts, icons, theme};
+use monolith_ui_kit::avatar::color_index;
+use monolith_ui_kit::{TextField, Theme, fonts, icons, theme};
 use monolith_ui_model::{
     Command, Deferral, Dialog, Failure, MessageView, Outcome, RuntimeEvent, Status, UiBlockedId,
     UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
@@ -66,6 +67,8 @@ struct Window {
     /// The outlined rectangles of the last frame, with the colour of their
     /// outline.
     outlines: Vec<(Rect, Color32)>,
+    /// Everything the last frame drew.
+    shapes: Vec<ClippedShape>,
     /// What the frames since the last look asked of the window.
     commands: Vec<ViewportCommand>,
     /// What the last frame copied to the clipboard.
@@ -95,6 +98,7 @@ impl Window {
             time: 0.0,
             texts: Vec::new(),
             outlines: Vec::new(),
+            shapes: Vec::new(),
             commands: Vec::new(),
             copied: Vec::new(),
         }
@@ -113,6 +117,7 @@ impl Window {
         let output = self.ctx.run(input, |ctx| monolith_ui::show(ctx, app));
         self.texts = texts(&output);
         self.outlines = outlines(&output);
+        self.shapes.clone_from(&output.shapes);
         if let Some(viewport) = output.viewport_output.get(&ViewportId::ROOT) {
             self.commands.extend(viewport.commands.iter().cloned());
         }
@@ -287,6 +292,104 @@ impl Window {
         }
         self.settle();
         asked
+    }
+
+    /// The groups on each row of every full fingerprint (13 groups of four
+    /// characters) drawn in the last frame.
+    fn fingerprints(&self) -> Vec<Vec<usize>> {
+        let mut found = Vec::new();
+        each_shape(&self.shapes, &mut |shape, _| {
+            let Shape::Text(text) = shape else {
+                return;
+            };
+            let groups: Vec<&str> = text.galley.text().split_whitespace().collect();
+            if groups.len() != 13 || groups.iter().any(|group| group.len() != 4) {
+                return;
+            }
+            let rows = text
+                .galley
+                .rows
+                .iter()
+                .map(|row| {
+                    let line: String = row.glyphs.iter().map(|glyph| glyph.chr).collect();
+                    line.split_whitespace().count()
+                })
+                .collect();
+            found.push(rows);
+        });
+        found
+    }
+
+    /// The rectangles the last frame filled with `color`, such as the
+    /// notices of one tone.
+    fn filled(&self, color: Color32) -> Vec<Rect> {
+        let mut found = Vec::new();
+        each_shape(&self.shapes, &mut |shape, _| {
+            if let Shape::Rect(rect) = shape {
+                if rect.fill == color {
+                    found.push(rect.rect);
+                }
+            }
+        });
+        found
+    }
+
+    /// The fills of the rectangles the last frame drew.
+    fn fills(&self) -> Vec<Color32> {
+        let mut found = Vec::new();
+        each_shape(&self.shapes, &mut |shape, _| {
+            if let Shape::Rect(rect) = shape {
+                found.push(rect.fill);
+            }
+        });
+        found
+    }
+
+    /// The clip of the first text that reads `text`.
+    fn clip_of(&self, text: &str) -> Option<Rect> {
+        let mut found = None;
+        each_shape(&self.shapes, &mut |shape, clip| {
+            if let Shape::Text(shown) = shape {
+                if found.is_none() && shown.galley.text() == text {
+                    found = Some(clip);
+                }
+            }
+        });
+        found
+    }
+
+    /// Where the first toast was drawn in the last frame.
+    fn toast(&self) -> Rect {
+        (0..8_u64)
+            .find_map(|toast| self.ctx.read_response(Id::new(("monolith-toast", toast))))
+            .expect("a toast is shown")
+            .rect
+    }
+
+    /// Where the first text that holds `part` was drawn.
+    fn rect_of(&self, part: &str) -> Rect {
+        self.texts
+            .iter()
+            .find(|(shown, _)| shown.contains(part))
+            .map(|(_, rect)| *rect)
+            .unwrap_or_else(|| panic!("{part:?} is not shown"))
+    }
+}
+
+/// Calls `visit` with every shape of `shapes`, those inside a list
+/// included, and the clip it was drawn in.
+fn each_shape(shapes: &[ClippedShape], visit: &mut impl FnMut(&Shape, Rect)) {
+    fn walk(shape: &Shape, clip: Rect, visit: &mut impl FnMut(&Shape, Rect)) {
+        if let Shape::Vec(list) = shape {
+            for shape in list {
+                walk(shape, clip, visit);
+            }
+        } else {
+            visit(shape, clip);
+        }
+    }
+    for clipped in shapes {
+        walk(&clipped.shape, clipped.clip_rect, visit);
     }
 }
 
@@ -1587,4 +1690,232 @@ fn deleting_the_messages_of_a_contact_that_has_not_accepted_says_its_request_wai
         "{:#?}",
         window.shown()
     );
+}
+
+#[test]
+fn a_full_fingerprint_is_laid_out_in_rows_of_seven_and_six_everywhere() {
+    // People comparing a fingerprint read it on the request card, in the
+    // contact dialog and under their own identity: the same rows on each.
+    for (name, size) in [
+        ("requests", WIDE),
+        ("narrow-requests", SMALLEST),
+        ("settings-identities", WIDE),
+        ("settings-identities", SMALLEST),
+        ("contact-details", WIDE),
+        ("contact-details", SMALLEST),
+        ("own-card-open", SMALLEST),
+    ] {
+        let window = Window::new(name, size);
+        let found = window.fingerprints();
+        assert!(!found.is_empty(), "{name} at {size:?} shows no fingerprint");
+        for rows in found {
+            assert_eq!(rows, [7, 6], "{name} at {size:?}");
+        }
+    }
+}
+
+#[test]
+fn a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar() {
+    let person = icons::USER.char().to_string();
+    // The name a sender chose is not who they are: no initials of it.
+    let window = Window::new("requests", WIDE);
+    assert!(window.shows_part("Calls themselves \"Frank\"."));
+    assert!(!window.shows("F"), "{:#?}", window.shown());
+    // Carol and Dana in the list, and the card.
+    assert_eq!(window.count(&person), 3);
+
+    // Carol has no name of her own.
+    let mut window = Window::new("waiting", WIDE);
+    let carol = UiContactId::new(UiIdentityId::from_bytes([1; 16]), [12; 16]);
+    window.app.model.open(Dialog::ContactDetails {
+        contact: carol,
+        name: String::new(),
+        busy: None,
+        error: None,
+    });
+    window.settle();
+    assert!(window.shows("Contact C7TQ"));
+    assert!(!window.shows("CC"), "{:#?}", window.shown());
+}
+
+#[test]
+fn every_ended_conversation_has_the_same_neutral_mark_in_the_list() {
+    // Dana was removed or blocked; the list does not say which.
+    let window = Window::new("conversation", WIDE);
+    assert!(!window.shows(&icons::BAN.char().to_string()));
+    assert_eq!(window.count(&icons::CIRCLE_DASHED.char().to_string()), 1);
+}
+
+#[test]
+fn the_request_modes_stay_side_by_side_beside_the_pages() {
+    // Wide enough for the pages beside the page, never narrower than the
+    // page of a narrow window.
+    for width in [880.0, 900.0, 960.0, 1040.0] {
+        let window = Window::new("settings-identities", Vec2::new(width, 700.0));
+        assert!(window.shows("Appearance"), "{width}");
+        assert!(window.shows("Anyone with my card"), "{width}");
+        assert!(window.shows("Nobody"), "{width}");
+    }
+}
+
+#[test]
+fn the_contact_dialog_offers_quiet_buttons_and_a_question_confirms_with_a_solid_one() {
+    let danger = Theme::light().color.danger_fill;
+    let window = Window::new("contact-details", WIDE);
+    for label in ["Block", "Remove", "Delete messages"] {
+        assert!(window.shows(label), "{label}");
+    }
+    assert!(!window.fills().contains(&danger));
+    let window = Window::new("confirm-block", WIDE);
+    let solid = window
+        .fills()
+        .into_iter()
+        .filter(|fill| *fill == danger)
+        .count();
+    assert_eq!(solid, 1);
+}
+
+#[test]
+fn messages_are_cut_clear_of_the_bar_above_them() {
+    let theme = Theme::light();
+    // The newest message is in view, and older ones are cut at the top:
+    // as far under the bar as the list of conversations and the settings
+    // are cut under what is above them.
+    let window = Window::new("narrow-conversation", SMALLEST);
+    let bar = theme.space.sm + theme.size.topbar;
+    let clip = window
+        .clip_of("Agreed. I will send a summary tonight.")
+        .expect("the newest message is shown");
+    assert!(
+        clip.top() >= bar + theme.space.md,
+        "messages are cut at {} under a bar that ends at {bar}",
+        clip.top()
+    );
+}
+
+fn add_contact(window: &mut Window) -> UiIdentityId {
+    let identity = UiIdentityId::from_bytes([1; 16]);
+    window.app.model.open(Dialog::AddContact {
+        identity,
+        card: String::new(),
+        name: String::new(),
+        busy: None,
+        error: None,
+        added: None,
+    });
+    window.settle();
+    identity
+}
+
+#[test]
+fn a_click_on_the_place_to_drop_a_card_file_goes_to_its_path() {
+    let mut window = Window::new("conversation", WIDE);
+    let identity = add_contact(&mut window);
+    let path = TextField::new(("add-contact-path", identity), &mut String::new()).edit_id();
+    assert_ne!(window.ctx.memory(|memory| memory.focused()), Some(path));
+    window.click("Drop a card file here");
+    assert_eq!(window.ctx.memory(|memory| memory.focused()), Some(path));
+    // It opens nothing.
+    assert!(window.app.take_effects().is_empty());
+}
+
+#[test]
+fn the_card_typed_in_add_contact_is_kept_in_no_undo_history() {
+    let mut window = Window::new("conversation", WIDE);
+    let identity = add_contact(&mut window);
+    let card = TextField::new(("add-contact-card", identity), &mut String::new()).edit_id();
+    window.ctx.memory_mut(|memory| memory.request_focus(card));
+    window.settle();
+    let typed = |window: &Window| match window.app.model.dialog() {
+        Some(Dialog::AddContact { card, .. }) => card.clone(),
+        _ => panic!("Add contact is not open"),
+    };
+    // Two bursts, far enough apart for an undo history to tell them apart.
+    for burst in ["monolith:card:1:FIRST", "SECOND"] {
+        window.frame(vec![Event::Text(burst.to_owned())]);
+        window.time += 3.0;
+        window.settle();
+    }
+    assert_eq!(typed(&window), "monolith:card:1:FIRSTSECOND");
+    window.frame(vec![Event::Key {
+        key: Key::Z,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers::COMMAND,
+    }]);
+    window.settle();
+    assert_eq!(typed(&window), "monolith:card:1:FIRSTSECOND");
+}
+
+/// The short fingerprints of the identities of the fixtures.
+const PERSONAL: &str = "M0N0 L1TH 7QZK 4WPE 9RTD 2XBC";
+
+const WORK: &str = "W0RK 4ZQP 8TNM 2KLE 6XRD 9VBC";
+
+#[test]
+fn an_identity_has_the_same_colour_in_the_list_and_in_the_settings() {
+    let theme = Theme::light();
+    let colour = |fingerprint: &str| theme.color.avatar[color_index(fingerprint.as_bytes())];
+    // The full fingerprint would give Personal another colour.
+    let full = format!("{PERSONAL} 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM");
+    assert_ne!(colour(&full), colour(PERSONAL));
+    // Identities are drawn as rounded squares, contacts as circles.
+    let identities = |window: &Window| -> Vec<Color32> {
+        window
+            .fills()
+            .into_iter()
+            .filter(|fill| theme.color.avatar.contains(fill))
+            .collect()
+    };
+    let list = Window::new("conversation", WIDE);
+    assert_eq!(identities(&list), [colour(PERSONAL)]);
+    let settings = Window::new("settings-identities", Vec2::new(1180.0, 2000.0));
+    assert_eq!(identities(&settings), [colour(PERSONAL), colour(WORK)]);
+}
+
+#[test]
+fn a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_actions_of_a_dialog() {
+    for size in [WIDE, SMALLEST] {
+        let window = Window::new("toast-banners", size);
+        assert!(window.shows("Card copied"));
+        let notices = window.filled(Theme::light().color.accent_subtle);
+        assert!(!notices.is_empty(), "at {size:?} no notice is shown");
+        for notice in notices {
+            assert!(
+                !window.toast().intersects(notice),
+                "at {size:?} the toast {:?} covers the notice {notice:?}",
+                window.toast()
+            );
+        }
+
+        let window = Window::new("toast-dialog", size);
+        assert!(window.shows("Card copied"));
+        for part in ["Your card", "Copy card", "Save card", "Close"] {
+            let covered = window.rect_of(part);
+            assert!(
+                !window.toast().intersects(covered),
+                "at {size:?} the toast {:?} covers {part:?} at {covered:?}",
+                window.toast()
+            );
+        }
+    }
+}
+
+#[test]
+fn the_picture_of_the_blocked_people_has_them_in_view() {
+    // Below the fold of the first window unless scrolled to.
+    let window = Window::new("settings-blocked", WIDE);
+    assert!(window.shows(DANA), "{:#?}", window.shown());
+    assert!(window.shows(GREG));
+}
+
+#[test]
+fn the_first_screens_show_the_mark_beside_the_name() {
+    let accent = Theme::light().color.accent;
+    for name in ["welcome", "unlock", "opening"] {
+        let window = Window::new(name, WIDE);
+        assert!(window.shows("Monolith"), "{name}");
+        assert!(window.fills().contains(&accent), "{name} has no mark");
+    }
 }

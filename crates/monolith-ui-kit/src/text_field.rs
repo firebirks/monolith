@@ -33,6 +33,7 @@ pub struct TextField<'a> {
     error: Option<&'a str>,
     icon: Option<Icon>,
     secret: bool,
+    no_history: bool,
     enabled: bool,
     char_limit: Option<usize>,
     width: Option<f32>,
@@ -51,6 +52,7 @@ impl<'a> TextField<'a> {
             error: None,
             icon: None,
             secret: false,
+            no_history: false,
             enabled: true,
             char_limit: None,
             width: None,
@@ -93,6 +95,15 @@ impl<'a> TextField<'a> {
     /// the input method of the system is off while it has the focus.
     pub fn secret(mut self, secret: bool) -> Self {
         self.secret = secret;
+        self
+    }
+
+    /// Text that must not stay in egui's memory once it is gone from the
+    /// field, such as a card that can carry an invitation: shown as typed,
+    /// but kept in no undo history ([`forget`] removes the rest). A secret
+    /// field keeps none either.
+    pub fn no_history(mut self, no_history: bool) -> Self {
+        self.no_history = no_history;
         self
     }
 
@@ -237,15 +248,14 @@ impl<'a> TextField<'a> {
             }
             if self.secret {
                 // No copy of the secret stays in an undo history.
-                if let Some(mut state) = TextEdit::load_state(ui.ctx(), edit_id) {
-                    state.clear_undoer();
-                    TextEdit::store_state(ui.ctx(), edit_id, state);
-                }
+                clear_history(ui.ctx(), edit_id);
                 // Nor goes to the input method of the system, which may
                 // learn it: without IME output the window turns it off.
                 if ui.memory(|memory| memory.has_focus(edit_id)) {
                     ui.ctx().output_mut(|output| output.ime = None);
                 }
+            } else if self.no_history {
+                clear_history(ui.ctx(), edit_id);
             }
             if !self.enabled {
                 ui.ctx()
@@ -281,6 +291,14 @@ impl<'a> TextField<'a> {
             changed: false,
             submitted: false,
         })
+    }
+}
+
+/// Empties the undo history egui keeps for the text field `edit_id`.
+fn clear_history(ctx: &egui::Context, edit_id: Id) {
+    if let Some(mut state) = TextEdit::load_state(ctx, edit_id) {
+        state.clear_undoer();
+        TextEdit::store_state(ctx, edit_id, state);
     }
 }
 

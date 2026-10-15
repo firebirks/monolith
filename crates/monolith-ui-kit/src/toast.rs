@@ -4,7 +4,8 @@
 //! notices and their timers, and egui's memory holds nothing of them.
 //! Errors stay until the user dismisses them; the others go by
 //! themselves. At most three are shown, at the top of the window under the
-//! top bar, clear of the composer and of the actions of a modal; the newest
+//! top bar (or of the part of a view under its notices), clear of the
+//! composer; over a modal, clear of its title and its actions. The newest
 //! is at the bottom of the stack. The others wait their turn, with their
 //! timers not yet started. A screen reader is told of each as it comes.
 
@@ -177,6 +178,22 @@ impl Toasts {
     /// height of a top bar from its top edge.
     pub fn show_in(&mut self, ctx: &Context, area: Rect) -> ToastsOutput {
         let theme = theme::current(ctx);
+        self.place(ctx, area, area.top() + theme.size.topbar)
+    }
+
+    /// Like [`Toasts::show_in`], at the top of `area` itself: the part of a
+    /// view under its bar and its notices, so that the notices of the view
+    /// stay in sight.
+    pub fn show_over(&mut self, ctx: &Context, area: Rect) -> ToastsOutput {
+        self.place(ctx, area, area.top())
+    }
+
+    /// Shows the notices centred in `area`, from `top` down. Over a modal
+    /// they keep clear of its title and its actions: under the card where
+    /// there is room, above it otherwise, and in the last resort just above
+    /// its actions.
+    fn place(&mut self, ctx: &Context, area: Rect, top: f32) -> ToastsOutput {
+        let theme = theme::current(ctx);
         let now = ctx.input(|input| input.time);
         let elapsed = self.last_tick.map_or(0.0, |last| (now - last).max(0.0));
         self.last_tick = Some(now);
@@ -227,17 +244,38 @@ impl Toasts {
         if visible.is_empty() {
             return output;
         }
+        let id = Id::new("monolith-toasts");
+        let gap = theme.space.sm;
+        let modal = crate::modal::drawn(ctx);
+        let over = modal.map_or(area, |(card, _)| card);
         let width = theme
             .size
             .toast
-            .min(area.width() - theme.space.lg * 2.0)
+            .min(over.width() - theme.space.lg * 2.0)
             .max(theme.size.control);
-        let origin = egui::pos2(
-            area.center().x - width / 2.0,
-            area.top() + theme.size.topbar + theme.space.sm,
-        );
-        Area::new(Id::new("monolith-toasts"))
+        let left = over.center().x - width / 2.0;
+        let (origin, pivot) = match modal {
+            None => (egui::pos2(left, top + gap), Align2::LEFT_TOP),
+            Some((card, actions)) => {
+                // As tall as the stack was in the last frame, or one notice.
+                let height = ctx
+                    .memory(|memory| memory.area_rect(id))
+                    .map_or(theme.text.body.line_height + theme.space.md * 2.0, |rect| {
+                        rect.height()
+                    });
+                let screen = ctx.screen_rect();
+                if card.bottom() + gap + height <= screen.bottom() - gap {
+                    (egui::pos2(left, card.bottom() + gap), Align2::LEFT_TOP)
+                } else if card.top() - gap - height >= screen.top() + gap {
+                    (egui::pos2(left, card.top() - gap), Align2::LEFT_BOTTOM)
+                } else {
+                    (egui::pos2(left, actions.top() - gap), Align2::LEFT_BOTTOM)
+                }
+            }
+        };
+        Area::new(id)
             .order(Order::Foreground)
+            .pivot(pivot)
             .fixed_pos(origin)
             .interactable(true)
             .show(ctx, |ui| {

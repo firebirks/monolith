@@ -8,10 +8,10 @@ use egui::{
 };
 
 use crate::avatar::{Avatar, AvatarSize};
-use crate::button::{Button, Size};
+use crate::button::Button;
 use crate::fingerprint::Fingerprint;
 use crate::interact;
-use crate::rows::{QuietDanger, wrapped};
+use crate::rows::wrapped;
 use crate::theme;
 
 /// The longest introduction that is laid out, in rows. Longer ones end in
@@ -47,6 +47,7 @@ pub struct RequestCard<'a> {
     title: &'a str,
     sender: &'a str,
     seed: &'a [u8],
+    anonymous: bool,
     introduction: Option<(&'a str, &'a str)>,
     fingerprint: &'a str,
     caption: &'a str,
@@ -70,6 +71,7 @@ impl<'a> RequestCard<'a> {
             title,
             sender: "",
             seed: &[],
+            anonymous: false,
             introduction: None,
             fingerprint: "",
             caption: "",
@@ -86,6 +88,13 @@ impl<'a> RequestCard<'a> {
         self
     }
 
+    /// A person glyph instead of the initials of the name the sender
+    /// chose, which is not who they are.
+    pub fn anonymous(mut self, anonymous: bool) -> Self {
+        self.anonymous = anonymous;
+        self
+    }
+
     /// The sender's own words, under the caller's `label` that says whose
     /// they are.
     pub fn introduction(mut self, label: &'a str, text: &'a str) -> Self {
@@ -95,7 +104,8 @@ impl<'a> RequestCard<'a> {
         self
     }
 
-    /// The fingerprint of the sender, grouped as it should be shown.
+    /// The fingerprint of the sender, its groups separated by spaces, laid
+    /// out as [`Fingerprint`] lays out every full fingerprint.
     pub fn fingerprint(mut self, fingerprint: &'a str) -> Self {
         self.fingerprint = fingerprint;
         self
@@ -130,7 +140,11 @@ impl<'a> RequestCard<'a> {
                 ui.spacing_mut().item_spacing = Vec2::new(theme.space.md, theme.space.sm);
 
                 ui.horizontal_top(|ui| {
-                    ui.add(Avatar::new(self.sender, self.seed).size(AvatarSize::Large));
+                    ui.add(
+                        Avatar::new(self.sender, self.seed)
+                            .anonymous(self.anonymous)
+                            .size(AvatarSize::Large),
+                    );
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 1.0;
                         let width = ui.available_width();
@@ -152,8 +166,11 @@ impl<'a> RequestCard<'a> {
 
                 if let Some((label, text)) = self.introduction {
                     ui.add_space(theme.space.xs);
+                    // A hairline as well as the fill: on the card of the dark
+                    // theme the fill alone hardly shows.
                     Frame::new()
                         .fill(c.bg_sunken)
+                        .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))
                         .corner_radius(CornerRadius::same(theme.radius.md))
                         .inner_margin(Margin::same(12))
                         .show(ui, |ui| {
@@ -250,12 +267,11 @@ impl<'a> RequestCard<'a> {
                         .max_rect(left)
                         .layout(Layout::left_to_right(Align::Center)),
                 );
-                let blocked = blocking.add(QuietDanger {
-                    label: block,
-                    size: Size::Medium,
-                    enabled: usable(RequestAction::Block),
-                    busy: self.busy == Some(RequestAction::Block),
-                });
+                let blocked = blocking.add(
+                    Button::quiet_danger(block)
+                        .enabled(usable(RequestAction::Block))
+                        .busy(self.busy == Some(RequestAction::Block)),
+                );
                 output.block = blocked.clicked();
             });
         });

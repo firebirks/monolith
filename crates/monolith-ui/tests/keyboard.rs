@@ -1,13 +1,16 @@
 //! The window without a mouse: Ctrl+F reaches the filter, Alt+Down and
 //! Alt+Up go through the conversations of the list and hand the focus to
-//! the composer, and no shortcut acts while a dialog is open.
+//! the composer, no shortcut acts while a dialog is open, and Tab stops
+//! only on controls.
 
 #![cfg(feature = "fixtures")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use egui::{Context, Event, Key, Modifiers, Pos2, RawInput, Rect};
+use egui::output::OutputEvent;
+use egui::{Context, Event, FullOutput, Id, Key, Modifiers, Pos2, RawInput, Rect};
 use monolith_ui::App;
 use monolith_ui::fixtures::fixture;
+use monolith_ui_kit::composer::Composer;
 use monolith_ui_kit::search_field::SearchField;
 use monolith_ui_kit::{Theme, fonts, theme};
 use monolith_ui_model::{Dialog, Selection, UiContactId, UiIdentityId};
@@ -34,7 +37,7 @@ impl Window {
         window
     }
 
-    fn frame(&mut self, events: Vec<Event>) {
+    fn frame(&mut self, events: Vec<Event>) -> FullOutput {
         self.time += 0.1;
         let input = RawInput {
             screen_rect: Some(Rect::from_min_size(
@@ -47,18 +50,20 @@ impl Window {
             ..RawInput::default()
         };
         let app = &mut self.app;
-        let _ = self.ctx.run(input, |ctx| monolith_ui::show(ctx, app));
+        self.ctx.run(input, |ctx| monolith_ui::show(ctx, app))
     }
 
-    fn press(&mut self, key: Key, modifiers: Modifiers) {
-        self.frame(vec![Event::Key {
+    /// Presses `key` with `modifiers`; the outputs of the frame of the
+    /// press and of the next one.
+    fn press(&mut self, key: Key, modifiers: Modifiers) -> Vec<FullOutput> {
+        let pressed = self.frame(vec![Event::Key {
             key,
             physical_key: None,
             pressed: true,
             repeat: false,
             modifiers,
         }]);
-        self.frame(Vec::new());
+        vec![pressed, self.frame(Vec::new())]
     }
 
     fn shown(&self) -> Option<UiContactId> {
@@ -122,4 +127,36 @@ fn no_shortcut_acts_under_a_dialog() {
     let filter = SearchField::new("sidebar-search", &mut String::new()).edit_id();
     window.press(Key::F, Modifiers::COMMAND);
     assert_ne!(window.ctx.memory(|memory| memory.focused()), Some(filter));
+}
+
+/// Whether a widget that says what it is took the focus in `outputs`. A
+/// scroll bar, the edge of a panel or the drag area of a scroll area says
+/// nothing.
+fn a_control_took_the_focus(outputs: &[FullOutput]) -> bool {
+    outputs
+        .iter()
+        .flat_map(|output| &output.platform_output.events)
+        .any(|event| matches!(event, OutputEvent::FocusGained(_)))
+}
+
+#[test]
+fn tab_from_the_composer_and_from_the_filter_reaches_only_controls() {
+    let composer = Composer::new(("composer", contact(10)), &mut String::new()).edit_id();
+    let filter = SearchField::new("sidebar-search", &mut String::new()).edit_id();
+    for start in [composer, filter] {
+        let mut window = Window::new("conversation");
+        window.ctx.memory_mut(|memory| memory.request_focus(start));
+        window.frame(Vec::new());
+        let mut stops: Vec<Id> = Vec::new();
+        // Round the whole window, more than once.
+        for _ in 0..40 {
+            let outputs = window.press(Key::Tab, Modifiers::NONE);
+            let focused = window.ctx.memory(|memory| memory.focused());
+            assert!(
+                a_control_took_the_focus(&outputs),
+                "Tab from {start:?} stopped on {focused:?}, which says nothing, after {stops:?}"
+            );
+            stops.extend(focused);
+        }
+    }
 }

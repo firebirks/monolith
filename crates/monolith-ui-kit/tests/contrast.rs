@@ -8,7 +8,8 @@
 //!
 //! Hairlines and the outlines of controls are not text, but they have to
 //! be seen on every surface they are drawn on; they are held to smaller
-//! ratios of their own.
+//! ratios of their own. So are wells, fields and cards on what they are
+//! drawn on: by their fill or by their edge.
 
 #![allow(clippy::unwrap_used)]
 
@@ -313,6 +314,87 @@ fn hairlines_and_outlines_show_on_every_surface_in_both_themes() {
                         "{name}: {what} on {surface} is {ratio:.2} to 1, under {least}"
                     ));
                 }
+            }
+        }
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+/// The areas the components fill on a parent (wells, fields, cards and
+/// raised surfaces): their fill, the parent, and the colour of their edge,
+/// if they have one.
+fn areas(theme: &Theme) -> Vec<(String, Color32, Color32, Option<Color32>)> {
+    let c = &theme.color;
+    let mut areas = vec![
+        (
+            "the well of the message of a request, on its card".to_owned(),
+            c.bg_sunken,
+            c.bg_card,
+            Some(c.border_subtle),
+        ),
+        (
+            "a sunken box of a dialog".to_owned(),
+            c.bg_sunken,
+            c.bg_raised,
+            Some(c.border_subtle),
+        ),
+        (
+            "the place to drop a card file".to_owned(),
+            c.bg_sunken,
+            c.bg_raised,
+            Some(c.border_strong),
+        ),
+        (
+            "the composer".to_owned(),
+            c.bg_sunken,
+            c.bg_surface,
+            Some(c.border),
+        ),
+        (
+            "the filter of the sidebar".to_owned(),
+            c.bg_sunken,
+            c.bg_sidebar,
+            Some(c.border),
+        ),
+        (
+            "a card on a surface".to_owned(),
+            c.bg_card,
+            c.bg_surface,
+            Some(c.border_subtle),
+        ),
+        // Over the sidebar a menu stands out by its shadow as well.
+        (
+            "a menu, a toast or a modal on a surface".to_owned(),
+            c.bg_raised,
+            c.bg_surface,
+            Some(c.border_subtle),
+        ),
+    ];
+    for (surface, parent) in parents(theme) {
+        areas.push((
+            format!("a text field on {surface}"),
+            c.bg_sunken,
+            parent,
+            Some(c.border),
+        ));
+    }
+    areas
+}
+
+#[test]
+fn wells_fields_and_cards_stand_out_from_what_they_are_drawn_on_in_both_themes() {
+    // Non-text contrast: the fill differs from the parent by 1.2 to 1, or
+    // an edge does.
+    const LEAST: f64 = 1.2;
+    let mut found = Vec::new();
+    for (name, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        for (what, fill, parent, edge) in areas(&theme) {
+            let by_fill = contrast(fill, parent);
+            let by_edge = edge.map_or(0.0, |edge| contrast(edge, parent));
+            if by_fill < LEAST && by_edge < LEAST {
+                found.push(format!(
+                    "{name}: {what} is {by_fill:.2} to 1 by its fill and {by_edge:.2} by its edge, under {LEAST}"
+                ));
             }
         }
     }

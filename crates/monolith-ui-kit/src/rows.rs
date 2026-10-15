@@ -1,20 +1,20 @@
 //! Rows of the sidebar and of lists: the conversation row, the contact
-//! row, and the single-line text and quiet danger button that the other
-//! components of this group share.
+//! row, and the single-line and wrapped text that the other components of
+//! this group share.
 
 use std::sync::Arc;
 
 use egui::epaint::text::{LayoutJob, TextWrapping};
 use egui::{
-    Align, Align2, Color32, CornerRadius, Galley, Id, Layout, Rect, Response, Sense, Stroke,
-    StrokeKind, Ui, UiBuilder, Vec2, Widget, WidgetType,
+    Align, Align2, Color32, CornerRadius, Galley, Id, Layout, Rect, Response, Sense, Ui, UiBuilder,
+    Vec2, Widget, WidgetType,
 };
 
 use crate::avatar::{self, Face, Outline};
-use crate::button::Size;
 use crate::icons::{self, Icon};
-use crate::interact::{self, State, mix};
+use crate::interact::{self, State};
 use crate::theme::{self, TextToken, Theme};
+use crate::tooltip;
 
 /// Lays out `text` in one line of at most `max_width`, ending in an
 /// ellipsis where it does not fit. Control characters (line breaks in a
@@ -97,13 +97,15 @@ fn paint_row_background(ui: &Ui, theme: &Theme, rect: Rect, state: State) {
     }
 }
 
-/// A small marker on the preview line of a conversation.
+/// A small marker on the preview line of a conversation: a glyph, which
+/// says its word under the pointer and to a screen reader.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RowStatus {
     /// The other side has not accepted yet.
     WaitingForAcceptance,
-    /// The contact is blocked.
-    Blocked,
+    /// The conversation ended: the contact was removed or blocked. One
+    /// mark for both, which does not say which.
+    Ended,
     /// A message waits for the network.
     Queued,
 }
@@ -112,7 +114,7 @@ impl RowStatus {
     fn icon(self) -> Icon {
         match self {
             Self::WaitingForAcceptance => icons::HOURGLASS,
-            Self::Blocked => icons::BAN,
+            Self::Ended => icons::CIRCLE_DASHED,
             Self::Queued => icons::CLOCK,
         }
     }
@@ -121,9 +123,18 @@ impl RowStatus {
     pub fn label(self) -> &'static str {
         match self {
             Self::WaitingForAcceptance => "waiting for acceptance",
-            Self::Blocked => "no longer a contact",
+            Self::Ended => "no longer a contact",
             Self::Queued => "messages queued",
         }
+    }
+
+    /// The marker in words as its tooltip says them: a capital first.
+    fn words(self) -> String {
+        let label = self.label();
+        let mut chars = label.chars();
+        chars.next().map_or_else(String::new, |first| {
+            first.to_uppercase().chain(chars).collect()
+        })
     }
 }
 
@@ -356,12 +367,17 @@ impl Widget for ConversationRow<'_> {
                 right -= theme.space.xs + 1.0;
             }
             let size = theme.size.icon_sm;
-            status.icon().paint(
-                ui.painter(),
-                egui::pos2(right - size / 2.0, preview_center_y),
-                size,
-                tertiary,
+            let center = egui::pos2(right - size / 2.0, preview_center_y);
+            status.icon().paint(ui.painter(), center, size, tertiary);
+            // The glyph says its word under the pointer; the row says it to
+            // a screen reader.
+            let area = Rect::from_center_size(center, Vec2::splat(size));
+            let mark = ui.interact(
+                area,
+                self.id.with(("status", status.label())),
+                Sense::hover(),
             );
+            tooltip::show(&mark, &status.words());
             right -= size;
             have_right = true;
         }
@@ -583,100 +599,6 @@ impl Widget for ContactRow<'_> {
         }
         if state.focused {
             interact::focus_ring(painter, rect, CornerRadius::same(theme.radius.lg), &theme);
-        }
-        response
-    }
-}
-
-/// The fill of a pressed quiet danger button, under `danger_pressed` text.
-pub(crate) fn quiet_danger_pressed(theme: &Theme) -> Color32 {
-    mix(theme.color.danger_subtle, theme.color.danger, 0.12)
-}
-
-/// A small or medium text button for destructive actions that are not the
-/// main one: no frame until hovered, danger-coloured text.
-#[derive(Clone, Debug)]
-#[must_use = "add it with `ui.add(...)`"]
-pub(crate) struct QuietDanger<'a> {
-    pub(crate) label: &'a str,
-    pub(crate) size: Size,
-    pub(crate) enabled: bool,
-    pub(crate) busy: bool,
-}
-
-impl Widget for QuietDanger<'_> {
-    fn ui(self, ui: &mut Ui) -> Response {
-        let theme = theme::current(ui.ctx());
-        let c = &theme.color;
-        let (height, padding, token) = match self.size {
-            Size::Small => (
-                theme.size.control_sm,
-                theme.space.sm,
-                &theme.text.caption_strong,
-            ),
-            Size::Medium => (
-                theme.size.control,
-                theme.space.md + 2.0,
-                &theme.text.body_strong,
-            ),
-            Size::Large => (
-                theme.size.control_lg,
-                theme.space.lg + 4.0,
-                &theme.text.body_strong,
-            ),
-        };
-        let icon_size = theme.size.icon;
-        let gap = theme.space.sm;
-        let galley = ui.painter().layout_no_wrap(
-            self.label.to_owned(),
-            token.font_id(),
-            Color32::PLACEHOLDER,
-        );
-        let content_width = galley.size().x + if self.busy { icon_size + gap } else { 0.0 };
-        let interactive = self.enabled && !self.busy;
-        let sense = if interactive {
-            Sense::click()
-        } else {
-            Sense::hover()
-        };
-        let (rect, response) =
-            ui.allocate_exact_size(Vec2::new(content_width + padding * 2.0, height), sense);
-        interact::describe_enabled(&response, WidgetType::Button, self.label, interactive);
-        if ui.is_rect_visible(rect) {
-            let state = State {
-                enabled: self.enabled,
-                ..State::of(ui, &response, response.id, &theme, false)
-            };
-            let (fill, text) = if !state.enabled {
-                (Color32::TRANSPARENT, c.text_disabled)
-            } else if state.pressed {
-                (quiet_danger_pressed(&theme), c.danger_pressed)
-            } else {
-                (
-                    c.danger_subtle.gamma_multiply(state.hover),
-                    mix(c.danger, c.danger_hover, state.hover),
-                )
-            };
-            let radius = CornerRadius::same(theme.radius.md);
-            let painter = ui.painter();
-            painter.rect(rect, radius, fill, Stroke::NONE, StrokeKind::Inside);
-            let mut x = rect.center().x - content_width / 2.0;
-            if self.busy {
-                crate::spinner::paint(
-                    ui,
-                    egui::pos2(x + icon_size / 2.0, rect.center().y),
-                    icon_size,
-                    text,
-                );
-                x += icon_size + gap;
-            }
-            let pos = Align2::LEFT_CENTER
-                .anchor_size(egui::pos2(x, rect.center().y), galley.size())
-                .min;
-            ui.painter().galley(pos, galley, text);
-            if state.focused {
-                interact::focus_ring(ui.painter(), rect, radius, &theme);
-            }
         }
         response
     }

@@ -1,5 +1,5 @@
-//! Conversation and contact rows: selection, clicks, ids and what a screen
-//! reader is told.
+//! Conversation and contact rows: selection, clicks, ids, and what a screen
+//! reader is told and the pointer shows.
 
 #![allow(
     clippy::unwrap_used,
@@ -14,7 +14,7 @@ mod common;
 use std::cell::Cell;
 
 use common::{Rig, clicked_infos, dump, paints, texts};
-use egui::{Context, Rect, WidgetType};
+use egui::{Context, Event, Rect, WidgetType};
 use monolith_ui_kit::icons;
 use monolith_ui_kit::rows::{ContactRow, ConversationRow, RowStatus, Secondary};
 
@@ -209,7 +209,41 @@ fn a_conversation_row_tells_a_screen_reader_its_markers_in_words() {
     let label = infos[0].label.clone().unwrap();
     assert!(label.contains("waiting for acceptance"), "{label}");
     assert!(label.contains("messages queued"), "{label}");
-    assert_eq!(RowStatus::Blocked.label(), "no longer a contact");
+    assert_eq!(RowStatus::Ended.label(), "no longer a contact");
+}
+
+#[test]
+fn a_marker_says_its_word_under_the_pointer() {
+    // On screen the markers are glyphs; under the pointer they say what
+    // they mean, as the status of a message does.
+    let statuses = [RowStatus::WaitingForAcceptance, RowStatus::Queued];
+    let run = |ctx: &Context| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let row = ConversationRow::new("c", "Contact C7TQ", &[2])
+                .preview("Hello, this is Sam")
+                .statuses(&statuses);
+            ui.add(row);
+        });
+    };
+    for (status, words) in [
+        (RowStatus::WaitingForAcceptance, "Waiting for acceptance"),
+        (RowStatus::Queued, "Messages queued"),
+    ] {
+        let mut rig = Rig::new();
+        let before = rig.settle(2, run);
+        assert!(!paints(&before, words));
+        let mark = rig
+            .ctx
+            .read_response(ConversationRow::id_for("c").with(("status", status.label())))
+            .expect("the marker was shown")
+            .rect;
+        rig.frame(vec![Event::PointerMoved(mark.center())], run);
+        let mut after = rig.frame_after(1.0, vec![], run);
+        for _ in 0..3 {
+            after = rig.frame(vec![], run);
+        }
+        assert!(paints(&after, words), "{words}");
+    }
 }
 
 #[test]

@@ -17,6 +17,7 @@ pub fn show(ctx: &Context, app: &mut App) {
     for contact in app.model.take_forgotten() {
         conversation::forget(ctx, contact);
     }
+    app.toast_area = None;
     match app.model.phase() {
         Phase::Ready => main(ctx, app),
         Phase::Starting | Phase::Welcome | Phase::Locked | Phase::Opening | Phase::Stopped => {
@@ -24,7 +25,13 @@ pub fn show(ctx: &Context, app: &mut App) {
         }
     }
     dialogs::show(ctx, app);
-    if let Some(toast) = app.toasts.show(ctx).action {
+    // Under the bar and the notices of the view, so that both stay in
+    // sight; over a dialog, clear of its title and its actions.
+    let shown = match app.toast_area.take() {
+        Some(area) => app.toasts.show_over(ctx, area),
+        None => app.toasts.show(ctx),
+    };
+    if let Some(toast) = shown.action {
         app.toast_action(toast);
     }
 }

@@ -5,6 +5,7 @@ use egui::{Align, Context, Frame, Id, Layout, Sense, Ui, UiBuilder, Vec2};
 use monolith_ui_kit::banner::{Banner, InlineError, Tone};
 use monolith_ui_kit::button::Size;
 use monolith_ui_kit::chrome;
+use monolith_ui_kit::mark::Wordmark;
 use monolith_ui_kit::spinner;
 use monolith_ui_kit::text::Text;
 use monolith_ui_kit::text_field::{self, TextField};
@@ -110,7 +111,7 @@ fn centered(ui: &mut Ui, content: &str, token: &TextToken, color: egui::Color32)
 /// The wordmark and the line under it.
 fn wordmark(ui: &mut Ui, theme: &Theme) {
     ui.add_space(theme.space.xs);
-    centered(ui, "Monolith", &theme.text.display, theme.color.text);
+    ui.add(Wordmark::new("Monolith"));
     centered(
         ui,
         "Private messages over Tor",

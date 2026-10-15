@@ -1,5 +1,5 @@
 //! Text field behaviour: typing, limits, notes under the field, and what
-//! a secret field leaves in egui's memory.
+//! a secret field and a field without history leave in egui's memory.
 
 #![allow(
     clippy::unwrap_used,
@@ -20,6 +20,7 @@ use monolith_ui_kit::text_field;
 #[derive(Clone, Copy, Default)]
 struct Cfg {
     secret: bool,
+    no_history: bool,
     enabled_off: bool,
     limit: Option<usize>,
     error: Option<&'static str>,
@@ -41,6 +42,7 @@ fn show(ctx: &Context, text: &mut String, cfg: Cfg, seen: &mut Seen) {
         let mut field = TextField::new("field", text)
             .label("Name")
             .secret(cfg.secret)
+            .no_history(cfg.no_history)
             .enabled(!cfg.enabled_off)
             .error(cfg.error)
             .help(cfg.help)
@@ -216,6 +218,21 @@ fn an_ordinary_field_can_undo_and_a_secret_one_keeps_no_history() {
         ..Cfg::default()
     };
     assert_eq!(type_then_undo(secret), "first second");
+}
+
+#[test]
+fn a_field_without_history_shows_what_is_typed_and_cannot_undo_it() {
+    let cfg = Cfg {
+        no_history: true,
+        ..Cfg::default()
+    };
+    assert_eq!(type_then_undo(cfg), "first second");
+    // Unlike a secret, it is shown as it is.
+    let mut text = String::from("monolith:card:1:ABC");
+    let mut rig = Rig::new();
+    rig.settle(2, |ctx| show(ctx, &mut text, cfg, &mut Seen::default()));
+    let (output, _) = frame(&mut rig, &mut text, cfg);
+    assert!(paints(&output, "monolith:card:1:ABC"));
 }
 
 /// Whether a focused field with `cfg` asks the platform for its input

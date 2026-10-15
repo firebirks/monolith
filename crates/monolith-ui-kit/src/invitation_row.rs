@@ -8,7 +8,7 @@ use egui::{Align, Id, Layout, Rect, Sense, Ui, UiBuilder, Vec2, WidgetType};
 use crate::button::{Button, Size};
 use crate::icons;
 use crate::interact;
-use crate::rows::{QuietDanger, single_line};
+use crate::rows::single_line;
 use crate::theme;
 
 /// What the user did with an invitation row.
@@ -87,12 +87,12 @@ impl<'a> InvitationRow<'a> {
                 .layout(Layout::right_to_left(Align::Center)),
         );
         child.spacing_mut().item_spacing.x = theme.space.xs;
-        let revoke = child.add(QuietDanger {
-            label: self.revoke_label,
-            size: Size::Small,
-            enabled: !self.busy,
-            busy: self.busy,
-        });
+        let revoke = child.add(
+            Button::quiet_danger(self.revoke_label)
+                .size(Size::Small)
+                .enabled(!self.busy)
+                .busy(self.busy),
+        );
         let show = child.add(
             Button::secondary(self.show_label)
                 .size(Size::Small)

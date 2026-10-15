@@ -381,7 +381,7 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
             let mut statuses = Vec::new();
             match row.state {
                 RowState::Waiting => statuses.push(RowStatus::WaitingForAcceptance),
-                RowState::Ended => statuses.push(RowStatus::Blocked),
+                RowState::Ended => statuses.push(RowStatus::Ended),
                 RowState::Contact => {}
             }
             if row.queued > 0 {

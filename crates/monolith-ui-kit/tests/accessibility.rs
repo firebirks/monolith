@@ -11,18 +11,21 @@
 
 mod common;
 
-use common::{Rig, node};
+use common::{Rig, focused_labels, node};
 use egui::{CursorIcon, Event, Id, Key, Ui};
 use monolith_ui_kit::bubble::{Direction, MessageBubble};
 use monolith_ui_kit::checkbox::Checkbox;
+use monolith_ui_kit::chrome::{ContentPanel, SidebarPanel, scroll_area};
+use monolith_ui_kit::composer::Composer;
 use monolith_ui_kit::icon_button::IconButton;
 use monolith_ui_kit::menu::MenuItem;
 use monolith_ui_kit::rows::{ContactRow, ConversationRow};
 use monolith_ui_kit::search_field::SearchField;
 use monolith_ui_kit::segmented::Segmented;
 use monolith_ui_kit::settings_row::{SettingsGroup, SettingsRow};
+use monolith_ui_kit::text::Text;
 use monolith_ui_kit::toggle::Toggle;
-use monolith_ui_kit::{Button, TextField, icons};
+use monolith_ui_kit::{Button, TextField, Theme, icons, theme};
 
 /// Adds one control and returns the id of its accessible node.
 type Make = fn(&mut Ui) -> Id;
@@ -181,4 +184,47 @@ fn tab_passes_over_message_bubbles_and_the_frame_of_the_search_field() {
         }
     }
     assert_eq!(stops, vec![search_id, after_id]);
+}
+
+#[test]
+fn tab_passes_over_scroll_bars_drag_areas_and_the_edge_of_the_sidebar() {
+    // A sidebar that can be resized, with a list that scrolls, beside a
+    // composer whose draft is taller than it: each has parts that egui
+    // makes stops of the Tab key unless told otherwise.
+    let mut draft = "A line of the draft\n".repeat(30);
+    let mut run = |ctx: &egui::Context| {
+        SidebarPanel::new("side").show(ctx, |ui| {
+            ui.add(Button::secondary("Left"));
+            scroll_area("list").show(ui, |ui| {
+                for index in 0..60 {
+                    ui.add(Text::new(
+                        &format!("Row {index}"),
+                        &theme::current(ui.ctx()).text.body,
+                        theme::current(ui.ctx()).color.text,
+                    ));
+                }
+            });
+        });
+        ContentPanel.show(ctx, |ui| {
+            ui.add(Button::secondary("Right"));
+            Composer::new("composer", &mut draft).show(ui);
+        });
+    };
+    let mut rig = Rig::sized(Theme::light(), egui::vec2(900.0, 600.0));
+    rig.settle(3, &mut run);
+    let mut stops = Vec::new();
+    for _ in 0..16 {
+        let outputs = rig.key(Key::Tab, &mut run);
+        let labels = focused_labels(&outputs);
+        let focused = rig.ctx.memory(|memory| memory.focused());
+        assert!(
+            !labels.is_empty(),
+            "Tab stopped on {focused:?}, which says nothing, after {stops:?}"
+        );
+        stops.extend(labels);
+    }
+    // Every control was reached.
+    for label in ["Left", "Right", "Send message"] {
+        assert!(stops.iter().any(|stop| stop == label), "{label}: {stops:?}");
+    }
 }

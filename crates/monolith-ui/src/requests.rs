@@ -11,7 +11,7 @@ use monolith_ui_kit::{icons, theme};
 use monolith_ui_model::{Dialog, RequestView, UiRequestId, present};
 
 use crate::app::App;
-use crate::{common, dialogs};
+use crate::common;
 
 /// What a request without a name or an introduction says: Monolith sends
 /// none (`DESIGN_QUESTIONS.md` P6-5). How to check the fingerprint is said
@@ -65,7 +65,7 @@ fn entry(request: &RequestView, label: Option<Option<&str>>) -> Entry {
         title,
         name,
         introduction,
-        fingerprint: dialogs::fingerprint_rows(&request.full_fingerprint).join("\n"),
+        fingerprint: request.full_fingerprint.clone(),
         seed: request.fingerprint.clone(),
         caption: sentences.join(" "),
     }
@@ -102,6 +102,7 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
             open_tor = ui.add(TorStatus::new(tor, tor_label)).clicked();
         },
     );
+    app.toast_area = Some(ui.available_rect_before_wrap());
     if back {
         app.narrow_conversation = false;
     }
@@ -158,8 +159,10 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
                     .copied()
                     .unwrap_or(RequestAction::Decline)
             });
+            // The name a sender chose stands for nobody: no initials of it.
             let output = RequestCard::new(item.id, &item.title, "Accept", "Decline", "Block")
                 .sender(&item.name, common::seed(&item.seed))
+                .anonymous(true)
                 .introduction("Their message", &item.introduction)
                 .fingerprint(&item.fingerprint)
                 .caption(&item.caption)

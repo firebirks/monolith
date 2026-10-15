@@ -105,6 +105,7 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, contact: UiContactId) {
             error: None,
         });
     }
+    app.toast_area = Some(ui.available_rect_before_wrap());
     messages(ui, app, contact, pad);
     app.focus_composer = false;
     app.last_conversation = Some(contact);
@@ -420,7 +421,6 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
             asked |= banner.show(ui).action;
         }
     });
-    ui.add_space(theme.space.sm);
     asked
 }
 
@@ -603,6 +603,9 @@ fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
         load: false,
         expand: None,
     };
+    // The list starts a little under the bar or the notices, as the other
+    // lists do, so that what scrolls is not cut against them.
+    ui.add_space(theme.space.sm);
     message_list::show(ui, scroll_id(contact), pad, theme.space.md, &mut shown);
     let (load, expand) = (shown.load, shown.expand);
     if let Some(id) = expand {
@@ -717,6 +720,7 @@ pub(crate) fn show_nothing_selected(ui: &mut Ui, app: &mut App) {
             open_tor = ui.add(TorStatus::new(tor, label)).clicked();
         },
     );
+    app.toast_area = Some(ui.available_rect_before_wrap());
     if open_tor {
         app.model.open(Dialog::TorDetails);
     }

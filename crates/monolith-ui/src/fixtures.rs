@@ -2,15 +2,16 @@
 //! through what the bridge would say to the model. Built with the
 //! `fixtures` feature, which the binary does not enable.
 
+use monolith_ui_kit::toast::Kind;
 use monolith_ui_model::{
-    BlockedView, Command, ContactView, ConversationView, Deferral, Dialog, IdentitySnapshot,
-    IdentityView, InvitationView, MessageView, Model, Outcome, ProfileOnDisk, RequestMode,
-    RequestView, RuntimeEvent, Service, Status, TorCheck, UiBlockedId, UiContactId, UiIdentityId,
-    UiInvitationId, UiMessageId, UiRequestId, Update,
+    BlockedView, Command, ContactView, ConversationView, Deferral, Dialog, Failure,
+    IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, Outcome, ProfileOnDisk,
+    RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck, UiBlockedId, UiContactId,
+    UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
-use crate::app::{App, SettingsPage, ThemeChoice, View};
+use crate::app::{App, CardFile, SettingsPage, ThemeChoice, View};
 
 /// "Now" in every fixture: 2026-10-14 18:30 UTC, a Wednesday.
 pub const NOW: u64 = 1_792_002_600;
@@ -56,7 +57,38 @@ pub const NAMES: &[&str] = &[
     "close-queued",
     "long-names",
     "long-names-requests",
+    "ended",
+    "requests-empty",
+    "requests-without-name",
+    "invitation-created",
+    "toast-banners",
+    "toast-dialog",
+    "storage-failed-toast",
+    // Every other dialog, over Alice's conversation unless said otherwise.
+    "dialog-new-identity",
+    "dialog-new-identity-no-tor",
+    "dialog-add-contact-filled",
+    "dialog-add-contact-read",
+    "dialog-own-card",
+    "dialog-show-invitation",
+    "dialog-revoke",
+    "dialog-contact-error",
+    "dialog-contact-gone",
+    "dialog-contact-waiting",
+    "dialog-remove",
+    "dialog-delete-messages",
+    "dialog-delete-identity",
+    "dialog-accept",
+    "dialog-accept-gone",
+    "dialog-block-request",
+    "dialog-decline-request",
+    "dialog-unblock",
+    "dialog-tor",
+    "dialog-tor-down",
 ];
+
+/// A card as the field of "Add contact" takes it, holding an invitation.
+const INVITATION_CARD: &str = "monolith:card:1:AJQXG43FMNZGK5BAONSWG4TFOQQGS3THEBUW4ZZAMVZXIZLTEBZG65LTMVZGKIDON5ZGOIDCMFWGS43IMFRGGZDFMZTWQ2LKNNWG23TPOBYXE43UOV3HO6DZPJTWC3DJNZSXE5DFPBPXG5LBNZSWCZB2GE3DENBQGIYTCMRRGMZDGNZYHA4DKNJWGU3TSMJZGQYDCOBWGM2TEMBTHE3DSOJTGAZGGMBRGQ3Q";
 
 fn identity(n: u8) -> UiIdentityId {
     UiIdentityId::from_bytes([n; 16])
@@ -233,6 +265,22 @@ fn bob_messages(new: u8) -> Vec<MessageView> {
     list
 }
 
+/// Dana's conversation, which ended: she was removed or blocked.
+fn dana_messages() -> Vec<MessageView> {
+    let dana = contact(1, 13);
+    vec![
+        message(
+            dana,
+            1,
+            Status::Received,
+            9_020,
+            "Are you coming to the workshop on Friday?",
+        ),
+        message(dana, 2, Status::Delivered, 9_010, "Yes, I will be there."),
+        message(dana, 3, Status::Received, 9_000, "Talk soon."),
+    ]
+}
+
 /// How the bridge answers, for one state.
 struct Builder {
     model: Model,
@@ -253,6 +301,11 @@ struct Builder {
     /// The personal identity blocked Dana, a contact, and Greg, who sent a
     /// request.
     blocked: bool,
+    /// No request waits.
+    no_requests: bool,
+    /// Frank's request carries no name and no introduction, as Monolith
+    /// sends them.
+    nameless_request: bool,
 }
 
 impl Builder {
@@ -269,6 +322,8 @@ impl Builder {
             carol_invited: true,
             carol_written: true,
             blocked: false,
+            no_requests: false,
+            nameless_request: false,
         }
     }
 
@@ -356,6 +411,8 @@ impl Builder {
                     alice_messages(self.queued_tail, self.long)
                 } else if *asked == contact(1, 11) {
                     bob_messages(self.bob_new)
+                } else if *asked == contact(1, 13) {
+                    dana_messages()
                 } else if *asked == contact(1, 12) && !self.carol_written {
                     Vec::new()
                 } else {
@@ -400,6 +457,11 @@ impl Builder {
         };
         let alice_all = alice_messages(self.queued_tail, self.long);
         let bob_all = bob_messages(self.bob_new);
+        let (sender, introduction) = if self.nameless_request {
+            ("", "")
+        } else {
+            (sender, introduction)
+        };
         let mut conversations = vec![
             ConversationView {
                 contact: alice,
@@ -437,12 +499,24 @@ impl Builder {
                 active: false,
                 messages: 3,
                 queued: 0,
-                latest: Some(message(dana, 3, Status::Received, 9_000, "Talk soon.")),
+                latest: dana_messages().last().cloned(),
             },
         ];
         if !self.carol_written {
             conversations.retain(|conversation| conversation.contact != carol);
         }
+        let requests = if self.no_requests {
+            Vec::new()
+        } else {
+            vec![RequestView {
+                id: UiRequestId::new(personal, 1),
+                fingerprint: FRANK_FP.to_owned(),
+                full_fingerprint: full(FRANK_FP),
+                display_name: sender.to_owned(),
+                introduction: introduction.to_owned(),
+                invitation: Some(UiInvitationId::new(personal, 1)),
+            }]
+        };
         IdentitySnapshot {
             identity: personal,
             contacts: vec![
@@ -455,14 +529,7 @@ impl Builder {
                 contact_view(erin, Some("Erin"), ERIN_FP, true),
             ],
             conversations,
-            requests: vec![RequestView {
-                id: UiRequestId::new(personal, 1),
-                fingerprint: FRANK_FP.to_owned(),
-                full_fingerprint: full(FRANK_FP),
-                display_name: sender.to_owned(),
-                introduction: introduction.to_owned(),
-                invitation: Some(UiInvitationId::new(personal, 1)),
-            }],
+            requests,
             invitations: vec![
                 InvitationView {
                     id: UiInvitationId::new(personal, 1),
@@ -728,7 +795,10 @@ pub fn fixture(name: &str) -> Option<App> {
         "settings-blocked" => {
             let mut builder = Builder::new().started(true);
             builder.blocked = true;
-            settings(builder.ready().app(), SettingsPage::Identities)
+            let mut app = settings(builder.ready().app(), SettingsPage::Identities);
+            // The list is below the fold of the first window.
+            app.reveal_blocked = true;
+            app
         }
         "settings-tor" => settings(standard().app(), SettingsPage::Tor),
         "settings-data" => settings(standard().app(), SettingsPage::Data),
@@ -768,6 +838,220 @@ pub fn fixture(name: &str) -> Option<App> {
             let mut app = long().app();
             app.model.show_requests();
             app.narrow_conversation = true;
+            app
+        }
+        // In a narrow window these show the conversation or the requests,
+        // not the list.
+        "ended" => {
+            let mut app = standard().open(contact(1, 13)).app();
+            app.narrow_conversation = true;
+            app
+        }
+        "requests-empty" => {
+            let mut builder = Builder::new().started(true);
+            builder.no_requests = true;
+            let mut app = builder.ready().app();
+            app.model.show_requests();
+            app.narrow_conversation = true;
+            app
+        }
+        "requests-without-name" => {
+            let mut builder = Builder::new().started(true);
+            builder.nameless_request = true;
+            let mut app = builder.ready().app();
+            app.model.show_requests();
+            app.narrow_conversation = true;
+            app
+        }
+        "invitation-created" => with_dialog(Dialog::NewInvitation {
+            identity: identity(1),
+            label: "For Dana".to_owned(),
+            created: Some((
+                UiInvitationId::new(identity(1), 3),
+                Zeroizing::new(INVITATION_CARD.to_owned()),
+            )),
+            busy: None,
+            error: None,
+        }),
+        "toast-banners" => {
+            // Over the notice that nothing is sent while Tor is down; in a
+            // narrow window, the conversation.
+            let mut app = fixture("tor-unavailable")?;
+            app.toasts.push(Kind::Success, "Card copied");
+            app.narrow_conversation = true;
+            app
+        }
+        "toast-dialog" => {
+            // Over a dialog as tall as the smallest window.
+            let mut app = fixture("dialog-own-card")?;
+            app.toasts.push(Kind::Success, "Card copied");
+            app
+        }
+        "storage-failed-toast" => {
+            // What fails after the store failed says so as well.
+            let mut builder = standard().open(contact(1, 10));
+            builder
+                .model
+                .apply(Update::Event(RuntimeEvent::StorageFailed));
+            builder.model.set_verified(contact(1, 10), false);
+            builder.answer(|command| match command {
+                Command::SetVerified { .. } => Some(Outcome::Failed(Failure::Storage)),
+                _ => None,
+            });
+            builder.app()
+        }
+        name => return dialog(name),
+    };
+    Some(app)
+}
+
+/// Alice's conversation with `dialog` open over it.
+fn with_dialog(dialog: Dialog) -> App {
+    let mut app = Builder::new()
+        .started(true)
+        .ready()
+        .open(contact(1, 10))
+        .app();
+    app.model.open(dialog);
+    app
+}
+
+/// The dialogs of [`NAMES`] that start with "dialog-".
+fn dialog(name: &str) -> Option<App> {
+    let personal = identity(1);
+    let app = match name {
+        "dialog-new-identity" => with_dialog(Dialog::NewIdentity {
+            name: "Work".to_owned(),
+            busy: None,
+            error: None,
+        }),
+        "dialog-new-identity-no-tor" => {
+            let mut app = fixture("tor-unavailable")?;
+            app.model.open(Dialog::NewIdentity {
+                name: "Work".to_owned(),
+                busy: None,
+                error: None,
+            });
+            app
+        }
+        "dialog-add-contact-filled" => with_dialog(Dialog::AddContact {
+            identity: personal,
+            card: INVITATION_CARD.to_owned(),
+            name: "Dana".to_owned(),
+            busy: None,
+            error: None,
+            added: None,
+        }),
+        "dialog-add-contact-read" => {
+            let mut app = with_dialog(Dialog::AddContact {
+                identity: personal,
+                card: INVITATION_CARD.to_owned(),
+                name: String::new(),
+                busy: None,
+                error: None,
+                added: None,
+            });
+            app.card_file = Some(CardFile {
+                name: "dana-card.txt".to_owned(),
+                read: true,
+            });
+            app
+        }
+        "dialog-own-card" => {
+            let mut builder = Builder::new().started(true).ready().open(contact(1, 10));
+            builder.model.open(Dialog::OwnCard {
+                identity: personal,
+                card: None,
+                busy: None,
+                error: None,
+            });
+            builder.settle();
+            builder.app()
+        }
+        "dialog-show-invitation" => {
+            let mut app = with_dialog(Dialog::ShowInvitation {
+                invitation: UiInvitationId::new(personal, 1),
+                card: None,
+                busy: None,
+                error: None,
+            });
+            // The card the runtime gives back.
+            if let Some(Dialog::ShowInvitation { card, busy, .. }) = app.model.dialog_mut() {
+                *card = Some(Zeroizing::new(INVITATION_CARD.to_owned()));
+                *busy = None;
+            }
+            app
+        }
+        "dialog-revoke" => with_dialog(Dialog::RevokeInvitation {
+            invitation: UiInvitationId::new(personal, 1),
+            discard_requests: true,
+            busy: None,
+            error: Some(Failure::Disk),
+        }),
+        "dialog-contact-error" => with_dialog(Dialog::ContactDetails {
+            contact: contact(1, 10),
+            name: "Alice Martin".to_owned(),
+            busy: None,
+            error: Some(Failure::InvalidText),
+        }),
+        "dialog-contact-gone" => with_dialog(Dialog::ContactDetails {
+            contact: contact(1, 99),
+            name: String::new(),
+            busy: None,
+            error: None,
+        }),
+        "dialog-contact-waiting" => with_dialog(Dialog::ContactDetails {
+            contact: contact(1, 12),
+            name: String::new(),
+            busy: None,
+            error: None,
+        }),
+        "dialog-remove" => with_dialog(Dialog::RemoveContact {
+            contact: contact(1, 10),
+            busy: None,
+            error: None,
+        }),
+        "dialog-delete-messages" => with_dialog(Dialog::DeleteConversation {
+            contact: contact(1, 12),
+            busy: None,
+            error: None,
+        }),
+        "dialog-delete-identity" => with_dialog(Dialog::DeleteIdentity {
+            identity: personal,
+            busy: None,
+            error: None,
+        }),
+        "dialog-accept" => with_dialog(Dialog::AcceptRequest {
+            request: UiRequestId::new(personal, 1),
+            name: "Frank".to_owned(),
+            busy: None,
+            error: None,
+        }),
+        "dialog-accept-gone" => with_dialog(Dialog::AcceptRequest {
+            request: UiRequestId::new(personal, 9),
+            name: String::new(),
+            busy: None,
+            error: None,
+        }),
+        "dialog-block-request" => {
+            let mut app = fixture("requests")?;
+            app.block_request = Some(UiRequestId::new(personal, 1));
+            app
+        }
+        "dialog-decline-request" => {
+            let mut app = fixture("requests")?;
+            app.decline_request = Some(UiRequestId::new(personal, 1));
+            app
+        }
+        "dialog-unblock" => {
+            let mut app = fixture("settings-blocked")?;
+            app.unblock = Some(UiBlockedId::new(personal, 1));
+            app
+        }
+        "dialog-tor" => with_dialog(Dialog::TorDetails),
+        "dialog-tor-down" => {
+            let mut app = fixture("tor-unavailable")?;
+            app.model.open(Dialog::TorDetails);
             app
         }
         _ => return None,

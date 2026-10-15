@@ -22,6 +22,7 @@ pub mod icons;
 pub mod identity_switcher;
 pub mod interact;
 pub mod invitation_row;
+pub mod mark;
 pub mod menu;
 pub mod message_status;
 pub mod modal;

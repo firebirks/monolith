@@ -1,5 +1,6 @@
-//! The fingerprint: its groups in rows of six, fewer where there is no
-//! room, and the text as it is written.
+//! The fingerprint: its groups in rows of seven, so that the 13 groups of
+//! a full fingerprint make rows of seven and six; fewer where there is no
+//! room; and the text as it is written.
 
 #![allow(
     clippy::unwrap_used,
@@ -15,7 +16,8 @@ use std::sync::Arc;
 
 use common::Rig;
 use egui::epaint::Shape;
-use egui::{FullOutput, Galley};
+use egui::{Color32, FullOutput, Galley};
+use monolith_ui_kit::Theme;
 use monolith_ui_kit::fingerprint::Fingerprint;
 
 const FINGERPRINT: &str = "AF3K 72PQ 9XZT M4LB D8EV 61RC 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM";
@@ -57,10 +59,10 @@ fn rows(width: f32, compact: bool) -> (Vec<usize>, String) {
 }
 
 #[test]
-fn a_fingerprint_is_laid_out_in_rows_of_six_groups() {
+fn a_fingerprint_is_laid_out_in_rows_of_seven_and_six_groups() {
     for compact in [false, true] {
         let (groups, text) = rows(380.0, compact);
-        assert_eq!(groups, [6, 6, 1], "compact {compact}");
+        assert_eq!(groups, [7, 6], "compact {compact}");
         // It is copied as it is written.
         assert_eq!(text, FINGERPRINT);
     }
@@ -72,4 +74,22 @@ fn a_narrow_fingerprint_puts_fewer_groups_on_a_row() {
     assert!(groups.iter().all(|count| *count <= groups[0]));
     assert!(groups[0] < 6 && groups[0] >= 1, "{groups:?}");
     assert_eq!(groups.iter().sum::<usize>(), 13);
+}
+
+#[test]
+fn a_row_of_seven_needs_no_room_for_the_space_after_it() {
+    // The fingerprint beside a QR code has the width of seven groups and
+    // little more.
+    let mut rig = Rig::new();
+    rig.settle(1, |_| {});
+    let seven = "AF3K 72PQ 9XZT M4LB D8EV 61RC 5TQN";
+    let font = Theme::light().text.mono.font_id();
+    let width = rig.ctx.fonts(|fonts| {
+        fonts
+            .layout_no_wrap(seven.to_owned(), font, Color32::WHITE)
+            .size()
+            .x
+    });
+    let (groups, _) = rows(width + 1.0, false);
+    assert_eq!(groups, [7, 6]);
 }

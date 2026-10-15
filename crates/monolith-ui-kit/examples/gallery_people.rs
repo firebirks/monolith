@@ -71,7 +71,7 @@ fn sheet(spec: &Sheet<'_>, dir: &Path, mut body: impl FnMut(&mut egui::Ui)) {
 fn conversations(ui: &mut egui::Ui, focus: bool, selected: Option<u32>) {
     let seeds: [&[u8]; 6] = [b"a1", b"b2", b"c3", b"d4", b"e5", b"f6"];
     let waiting = [RowStatus::WaitingForAcceptance];
-    let blocked = [RowStatus::Blocked];
+    let ended = [RowStatus::Ended];
     let queued = [RowStatus::Queued];
     ui.add(
         ConversationRow::new(1_u32, "Alice Martin", seeds[0])
@@ -99,7 +99,7 @@ fn conversations(ui: &mut egui::Ui, focus: bool, selected: Option<u32>) {
         ConversationRow::new(4_u32, "Former contact D4XM", seeds[3])
             .preview("Talk soon.")
             .timestamp("12 Oct")
-            .statuses(&blocked)
+            .statuses(&ended)
             .anonymous(true)
             .selected(selected == Some(4)),
     );

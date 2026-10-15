@@ -20,8 +20,12 @@ pub enum Kind {
     Secondary,
     /// A quiet action, without a frame until hovered.
     Ghost,
-    /// An action that destroys something.
+    /// An action that destroys something: the confirming button of a
+    /// question.
     Danger,
+    /// A destructive action that is not the main one, or that only asks
+    /// first: danger-coloured text without a frame until hovered.
+    QuietDanger,
 }
 
 /// How large.
@@ -84,6 +88,11 @@ impl<'a> Button<'a> {
         Self::new(Kind::Danger, label)
     }
 
+    /// A destructive action that is not the main one.
+    pub fn quiet_danger(label: &'a str) -> Self {
+        Self::new(Kind::QuietDanger, label)
+    }
+
     /// A leading icon.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
@@ -135,7 +144,7 @@ fn colors(theme: &Theme, kind: Kind, state: State) -> Colors {
     let c = &theme.color;
     if !state.enabled {
         return match kind {
-            Kind::Ghost => Colors {
+            Kind::Ghost | Kind::QuietDanger => Colors {
                 fill: egui::Color32::TRANSPARENT,
                 stroke: egui::Color32::TRANSPARENT,
                 text: c.text_disabled,
@@ -191,7 +200,28 @@ fn colors(theme: &Theme, kind: Kind, state: State) -> Colors {
                 text: mix(c.text_secondary, c.text, state.hover),
             }
         }
+        Kind::QuietDanger => {
+            let (fill, text) = if state.pressed {
+                (quiet_danger_pressed(theme), c.danger_pressed)
+            } else {
+                (
+                    c.danger_subtle.gamma_multiply(state.hover),
+                    mix(c.danger, c.danger_hover, state.hover),
+                )
+            };
+            Colors {
+                fill,
+                stroke: egui::Color32::TRANSPARENT,
+                text,
+            }
+        }
     }
+}
+
+/// The fill of a pressed quiet destructive button, under `danger_pressed`
+/// text.
+pub(crate) fn quiet_danger_pressed(theme: &Theme) -> egui::Color32 {
+    mix(theme.color.danger_subtle, theme.color.danger, 0.12)
 }
 
 impl Widget for Button<'_> {

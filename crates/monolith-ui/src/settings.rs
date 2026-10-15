@@ -10,6 +10,7 @@ use monolith_ui_kit::banner::{Banner, Tone};
 use monolith_ui_kit::button::Size;
 use monolith_ui_kit::chrome::{self, ContentPanel, SidebarPanel, TopBar};
 use monolith_ui_kit::divider::Divider;
+use monolith_ui_kit::fingerprint::Fingerprint;
 use monolith_ui_kit::icon_button::IconButton;
 use monolith_ui_kit::interact::{self, State};
 use monolith_ui_kit::invitation_row::InvitationRow;
@@ -115,8 +116,11 @@ pub(crate) fn show(ctx: &Context, app: &mut App, page: SettingsPage) {
             }
         });
     } else {
+        // As narrow as a sidebar gets: the page beside it is never narrower
+        // than the page of a narrow window.
         SidebarPanel::new("settings-nav")
             .resizable(false)
+            .default_width(theme.size.sidebar_min)
             .show(ctx, |ui| navigation(ui, &theme, page, &mut next));
         ContentPanel.show(ctx, |ui| page_view(ui, app, page, false, &mut next));
     }
@@ -201,6 +205,7 @@ fn page_view(ui: &mut Ui, app: &mut App, page: SettingsPage, narrow: bool, next:
     if asked != Next::Stay {
         *next = asked;
     }
+    app.toast_area = Some(ui.available_rect_before_wrap());
     column(ui, &theme, "settings-scroll", |ui| match page {
         SettingsPage::Appearance => appearance(ui, app, &theme),
         SettingsPage::Identities => identities(ui, app, &theme),
@@ -500,11 +505,16 @@ fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
     ) {
         action = Some(Action::NewIdentity);
     }
+    // The first list of blocked people is scrolled into view when asked
+    // (for pictures of it).
+    let reveal = core::mem::take(&mut app.reveal_blocked)
+        .then(|| cards.iter().position(|card| !card.blocked.is_empty()))
+        .flatten();
     let last = cards.len().saturating_sub(1);
     for (position, card) in cards.iter().enumerate() {
         ui.add_space(theme.space.md);
         ui.push_id(("settings-identity", card.id), |ui| {
-            identity_card(ui, theme, card, &mut action);
+            identity_card(ui, theme, card, reveal == Some(position), &mut action);
         });
         if position != last {
             ui.add_space(theme.space.lg);
@@ -525,7 +535,13 @@ fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
     }
 }
 
-fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut Option<Action>) {
+fn identity_card(
+    ui: &mut Ui,
+    theme: &Theme,
+    card: &IdentityCard,
+    reveal_blocked: bool,
+    action: &mut Option<Action>,
+) {
     let id = card.id;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = theme.space.md;
@@ -533,12 +549,8 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = theme.space.xxs;
             text(ui, &card.name, &theme.text.heading, theme.color.text);
-            text(
-                ui,
-                &card.fingerprint,
-                &theme.text.mono,
-                theme.color.text_secondary,
-            );
+            // In the rows the other person reads it in.
+            ui.add(Fingerprint::new(&card.fingerprint).color(theme.color.text_secondary));
         });
     });
     ui.add_space(theme.space.xs);
@@ -676,7 +688,10 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
 
     // The people this identity blocked.
     ui.add_space(theme.space.md);
-    SectionHeader::new("Blocked").show(ui);
+    let header = SectionHeader::new("Blocked").show(ui);
+    if reveal_blocked {
+        header.response.scroll_to_me(Some(Align::Min));
+    }
     if card.blocked.is_empty() {
         caption(ui, theme, NOBODY_BLOCKED);
         return;

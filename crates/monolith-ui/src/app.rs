@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use egui::Rect;
 use monolith_ui_kit::qr::QrMatrix;
 use monolith_ui_kit::request_card::RequestAction;
 use monolith_ui_kit::toast::{Kind, Toasts};
@@ -229,6 +230,9 @@ pub struct App {
     /// The identity switcher opens its list at the next frame (for
     /// pictures of it).
     pub(crate) open_switcher: bool,
+    /// The identities page scrolls its first list of blocked people into
+    /// view at the next frame (for pictures of it).
+    pub(crate) reveal_blocked: bool,
     /// The filter of the sidebar.
     pub(crate) search: String,
     /// The passphrase being typed.
@@ -269,6 +273,9 @@ pub struct App {
     pub(crate) last_conversation: Option<UiContactId>,
     /// The Tor settings offered on the Tor page, the default first.
     pub(crate) tor_presets: Vec<TorPreset>,
+    /// Where the view drawn in this frame wants its toasts: the part of it
+    /// under its bar and its notices.
+    pub(crate) toast_area: Option<Rect>,
     effects: Vec<Effect>,
 }
 
@@ -296,6 +303,7 @@ impl App {
             tor_saved: false,
             show_location: false,
             open_switcher: false,
+            reveal_blocked: false,
             search: String::new(),
             passphrase: Zeroizing::new(String::with_capacity(SECRET_CAPACITY)),
             passphrase_again: Zeroizing::new(String::with_capacity(SECRET_CAPACITY)),
@@ -313,6 +321,7 @@ impl App {
             focus_search: false,
             last_conversation: None,
             tor_presets: Vec::new(),
+            toast_area: None,
             effects: Vec::new(),
         }
     }

@@ -282,13 +282,20 @@ accessibility. The screens use components only: a source scan
 (`crates/monolith-ui/tests/screens.rs`) fails on a stock egui widget or a
 colour, font or size of a screen's own. Screens and components are drawn to
 images by a software renderer (`monolith-ui-snapshot`) for review, in
-every fixture state, light and dark:
-`cargo run -p monolith-ui --features fixtures --example screens -- <dir>`.
+every fixture state, light and dark, at 1180 by 760, 820 by 600 and 760 by
+520 points, a folder for each size:
+`cargo run -p monolith-ui --features fixtures --example screens -- <dir>`
+(`-- <dir> <name> <width> <height>` draws one state at one size). The
+states include every dialog (the fixtures named `dialog-`), toasts over a
+conversation with notices and over a dialog, and the empty and ended
+views.
 
 ## 8. Keyboard
 
 - Tab and Shift+Tab move the focus; the focused control has a ring; Enter
-  or Space activates a focused button.
+  or Space activates a focused button. Tab stops on controls only: the
+  edge of the sidebar and the scroll bars are dragged with the pointer and
+  take no focus, and lists scroll with the wheel or as the focus moves.
 - Enter sends, Shift+Enter starts a new line; Enter submits a dialog's
   field.
 - Escape closes a dialog that is not waiting for its action, clears the
@@ -307,9 +314,14 @@ message (below); a visible focus ring;
 contrast by the formula of WCAG 2.1 of at least 7 to 1 for main text and
 4.5 to 1 for supporting text, hints, times and text on the accent, on
 everything they are drawn on, in both themes
-(`crates/monolith-ui-kit/tests/contrast.rs`); status said by an icon and a
-word, never by colour alone (Queued, Delivered, the Tor state, ended
-conversations); reduced motion; the zoom of section 8; AccessKit roles and
+(`crates/monolith-ui-kit/tests/contrast.rs`), and wells, fields and cards
+told from what they are drawn on by their fill or a hairline; status never
+by colour alone: the Tor state is a word beside its dot, the status of a
+message (Queued, Delivered) and the markers of the list of conversations
+(waiting for acceptance, messages queued, no longer a contact) are glyphs
+that say their word as a tooltip and to a screen reader, and an ended
+conversation says so in words in its bar and its notice; reduced motion;
+the zoom of section 8; AccessKit roles and
 names for the components (buttons, rows, fields with their labels, the
 composer and the filter with their placeholder, toggles, segmented
 controls, the switcher, menus, banners, message bubbles with their status,

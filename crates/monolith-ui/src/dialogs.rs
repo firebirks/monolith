@@ -22,6 +22,7 @@ use monolith_ui_kit::banner::{Banner, InlineError, Tone};
 use monolith_ui_kit::button::{Button, Size};
 use monolith_ui_kit::checkbox::Checkbox;
 use monolith_ui_kit::divider::Divider;
+use monolith_ui_kit::fingerprint::Fingerprint;
 use monolith_ui_kit::icons;
 use monolith_ui_kit::interact;
 use monolith_ui_kit::modal::{Decision, Modal};
@@ -362,14 +363,6 @@ fn close_text(warning: CloseWarning) -> Vec<String> {
     paragraphs
 }
 
-/// A fingerprint in two rows of groups, the first holding the odd one:
-/// the 13 groups of a full fingerprint make rows of 7 and 6.
-pub(crate) fn fingerprint_rows(fingerprint: &str) -> Vec<String> {
-    let groups: Vec<&str> = fingerprint.split_whitespace().collect();
-    let first = groups.len().div_ceil(2).max(1);
-    groups.chunks(first).map(|row| row.join(" ")).collect()
-}
-
 /// The error of a dialog, split: the sentence of a failure that belongs to
 /// the field of `field`, drawn under that field, and any other failure,
 /// drawn as a line under the form.
@@ -430,13 +423,10 @@ fn mono_box(ui: &mut Ui, theme: &Theme, text: &str) {
     });
 }
 
-/// A fingerprint in two rows, mono and selectable, in a sunken box.
+/// A fingerprint in a sunken box, in the rows it has everywhere.
 fn fingerprint_box(ui: &mut Ui, theme: &Theme, fingerprint: &str) {
     sunken(ui, theme, |ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        for row in fingerprint_rows(fingerprint) {
-            ui.add(Text::new(&row, &theme.text.mono, theme.color.text).selectable(true));
-        }
+        ui.add(Fingerprint::new(fingerprint));
     });
 }
 
@@ -507,6 +497,10 @@ fn card_field_id(identity: UiIdentityId) -> Id {
     TextField::new(("add-contact-card", identity), &mut String::new()).edit_id()
 }
 
+fn path_field_id(identity: UiIdentityId) -> Id {
+    TextField::new(("add-contact-path", identity), &mut String::new()).edit_id()
+}
+
 /// The card typed in "Add contact" can be an invitation: when the dialog is
 /// gone, what egui kept of the field (cursor, undo history) goes too.
 fn track_card_field(ctx: &Context, app: &mut App, open: bool) {
@@ -528,17 +522,22 @@ fn track_card_field(ctx: &Context, app: &mut App, open: bool) {
 
 /// Where a card file can be dropped: a dashed frame that lights up while a
 /// file is dragged over the window. Once a card was read from a file, the
-/// frame holds the name of that file.
-fn drop_zone(ui: &mut Ui, theme: &Theme, hovering: bool, read: Option<&str>) {
+/// frame holds the name of that file. There is no file picker
+/// (`DESIGN_QUESTIONS.md` P6-15): a click on the frame goes to the field of
+/// the path, below it, and is no stop of the Tab key. Returns whether it
+/// was clicked; it takes no click while the dialog waits.
+fn drop_zone(ui: &mut Ui, theme: &Theme, busy: bool, hovering: bool, read: Option<&str>) -> bool {
     const WORDS: &str = "Drop a card file here";
     let size = Vec2::new(ui.available_width(), theme.size.control_lg);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    let sense = if busy { Sense::hover() } else { Sense::CLICK };
+    let (rect, response) = ui.allocate_exact_size(size, sense);
     let read = read.filter(|_| !hovering);
     let label = read.map_or_else(|| WORDS.to_owned(), |name| format!("Card read from {name}"));
     interact::describe(&response, WidgetType::Label, &label);
     if !ui.is_rect_visible(rect) {
-        return;
+        return response.clicked();
     }
+    let state = interact::State::of(ui, &response, response.id, theme, false);
     let c = &theme.color;
     let (fill, edge, ink) = if hovering {
         (c.accent_subtle, c.accent, c.accent_text)
@@ -548,6 +547,7 @@ fn drop_zone(ui: &mut Ui, theme: &Theme, hovering: bool, read: Option<&str>) {
     let radius = CornerRadius::same(theme.radius.md);
     let painter = ui.painter().clone();
     painter.rect_filled(rect, radius, fill);
+    painter.rect_filled(rect, radius, c.hover.gamma_multiply(state.hover));
     let mut outline = Vec::new();
     path::rounded_rectangle(
         &mut outline,
@@ -570,7 +570,7 @@ fn drop_zone(ui: &mut Ui, theme: &Theme, hovering: bool, read: Option<&str>) {
                 .layout(Layout::centered_and_justified(Direction::LeftToRight)),
         );
         inside.add(Pill::new(PillTone::Success, name).icon(icons::CIRCLE_CHECK));
-        return;
+        return response.clicked();
     }
     let galley = painter.layout_no_wrap(WORDS.to_owned(), theme.text.body.font_id(), ink);
     let icon = theme.size.icon;
@@ -584,6 +584,7 @@ fn drop_zone(ui: &mut Ui, theme: &Theme, hovering: bool, read: Option<&str>) {
     );
     let top = rect.center().y - galley.size().y / 2.0;
     painter.galley(egui::pos2(left + icon + gap, top), galley, ink);
+    response.clicked()
 }
 
 // ---- Dialogs ----
@@ -689,18 +690,23 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
         .show(
             ctx,
             |ui| {
+                // An invitation in it is a capability: no copy of it stays
+                // in an undo history.
                 let output = TextField::new(("add-contact-card", identity), card)
                     .label("Card")
                     .hint("Paste their card or invitation")
                     .help(Some(CARD_HELP))
                     .error(card_error)
                     .enabled(!busy)
+                    .no_history(true)
                     .request_focus(focus)
                     .show(ui);
                 submitted |= output.submitted && has_card;
                 typed = output.changed;
                 ui.add_space(theme.space.xs);
-                drop_zone(ui, &theme, hovering, read.as_deref());
+                if drop_zone(ui, &theme, busy, hovering, read.as_deref()) {
+                    ui.memory_mut(|memory| memory.request_focus(path_field_id(identity)));
+                }
                 ui.allocate_ui_with_layout(
                     Vec2::new(ui.available_width(), theme.size.control),
                     Layout::right_to_left(Align::Center),
@@ -1291,6 +1297,8 @@ fn close_question(ctx: &Context, app: &mut App) {
 /// What the details dialog shows of a contact, copied out of the model.
 struct ContactInfo {
     shown_name: String,
+    /// It has a name of its own, not one made of its fingerprint.
+    named: bool,
     current_name: String,
     fingerprint: String,
     full_fingerprint: String,
@@ -1309,6 +1317,7 @@ enum Next {
 fn contact_info(app: &App, contact: UiContactId) -> Option<ContactInfo> {
     app.model.contact(contact).map(|view| ContactInfo {
         shown_name: present::contact_name(view),
+        named: present::named(view),
         current_name: view.name.clone().unwrap_or_default(),
         fingerprint: view.fingerprint.clone(),
         full_fingerprint: view.full_fingerprint.clone(),
@@ -1359,6 +1368,7 @@ fn contact_details(ctx: &Context, app: &mut App) {
             ui.horizontal(|ui| {
                 ui.add(
                     Avatar::new(&info.shown_name, common::seed(&info.fingerprint))
+                        .anonymous(!info.named)
                         .size(AvatarSize::Extra)
                         .verified(info.verified),
                 );
@@ -1428,8 +1438,9 @@ fn contact_details(ctx: &Context, app: &mut App) {
                     (Next::Remove, "Remove", icons::USER_X),
                     (Next::DeleteMessages, "Delete messages", icons::TRASH_2),
                 ];
+                // Each only asks; the question confirms with the solid one.
                 for (choice, label, icon) in actions {
-                    let button = Button::danger(label)
+                    let button = Button::quiet_danger(label)
                         .icon(icon)
                         .size(Size::Small)
                         .enabled(!busy);
@@ -1623,12 +1634,12 @@ mod tests {
     use monolith_ui_kit::{Theme, fonts};
     use monolith_ui_model::{
         Command, IdentitySnapshot, Outcome, RequestMode, RequestView, RuntimeEvent, Service,
-        UiBlockedId, UiInvitationId, UiRequestId, Update,
+        UiInvitationId, UiRequestId, Update,
     };
     use monolith_ui_snapshot::{Options, render};
 
     use super::*;
-    use crate::fixtures::fixture;
+    use crate::fixtures::{NAMES, fixture};
 
     const CARD: &str = "monolith:card:1:AJQXG43FMNZGK5BAONSWG4TFOQQGS3THEBUW4ZZAMVZXIZLTEBZG65LTMVZGKIDON5ZGOIDCMFWGS43IMFRGGZDFMZTWQ2LKNNWG23TPOBYXE43UOV3HO6DZPJTWC3DJNZSXE5DFPBPXG5LBNZSWCZB2GE3DENBQGIYTCMRRGMZDGNZYHA4DKNJWGU3TSMJZGQYDCOBWGM2TEMBTHE3DSOJTGAZGGMBRGQ3Q";
 
@@ -1642,27 +1653,6 @@ mod tests {
 
     fn base() -> App {
         fixture("conversation").expect("fixture")
-    }
-
-    /// Renders `app` light and dark into `MONOLITH_DIALOG_SHOTS`, if set.
-    fn shot(name: &str, mut app: App) {
-        let Ok(dir) = std::env::var("MONOLITH_DIALOG_SHOTS") else {
-            return;
-        };
-        for (suffix, chosen) in [("light", Theme::light()), ("dark", Theme::dark())] {
-            let ctx = Context::default();
-            fonts::install(&ctx, &[]);
-            let background = chosen.color.bg_app;
-            theme::install(&ctx, chosen.with_reduced_motion(true));
-            let options = Options {
-                size: Vec2::new(900.0, 760.0),
-                background,
-                ..Options::default()
-            };
-            let image = render(&ctx, &options, |ctx| crate::show(ctx, &mut app));
-            let path = std::path::Path::new(&dir).join(format!("{name}-{suffix}.png"));
-            image.save_png(&path).expect("write the PNG");
-        }
     }
 
     /// Opens `dialog`; a card dialog gets its card at once.
@@ -1776,222 +1766,23 @@ mod tests {
     }
 
     #[test]
-    fn every_dialog() {
-        let none = || (None, None);
-        let (busy, error) = none();
-        let mut cases: Vec<(&str, Dialog)> = vec![
-            (
-                "new-identity",
-                Dialog::NewIdentity {
-                    name: "Work".to_owned(),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "add-contact-filled",
-                Dialog::AddContact {
-                    identity: identity(),
-                    card: CARD.to_owned(),
-                    name: "Dana".to_owned(),
-                    busy,
-                    error,
-                    added: None,
-                },
-            ),
-            (
-                "add-contact-error",
-                Dialog::AddContact {
-                    identity: identity(),
-                    card: "monolith:card:1:XYZ".to_owned(),
-                    name: String::new(),
-                    busy,
-                    error: Some(Failure::InvalidCard),
-                    added: None,
-                },
-            ),
-            (
-                "card-added",
-                Dialog::AddContact {
-                    identity: identity(),
-                    card: String::new(),
-                    name: String::new(),
-                    busy,
-                    error,
-                    added: Some(contact(12)),
-                },
-            ),
-            (
-                "own-card",
-                Dialog::OwnCard {
-                    identity: identity(),
-                    card: None,
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "show-invitation",
-                Dialog::ShowInvitation {
-                    invitation: UiInvitationId::new(identity(), 1),
-                    card: None,
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "new-invitation",
-                Dialog::NewInvitation {
-                    identity: identity(),
-                    label: String::new(),
-                    created: None,
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "invitation-created",
-                Dialog::NewInvitation {
-                    identity: identity(),
-                    label: "For Dana".to_owned(),
-                    created: Some((
-                        UiInvitationId::new(identity(), 3),
-                        Zeroizing::new(CARD.to_owned()),
-                    )),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "revoke",
-                Dialog::RevokeInvitation {
-                    invitation: UiInvitationId::new(identity(), 1),
-                    discard_requests: true,
-                    busy,
-                    error: Some(Failure::Disk),
-                },
-            ),
-            (
-                "contact",
-                Dialog::ContactDetails {
-                    contact: contact(10),
-                    name: "Alice Martin".to_owned(),
-                    busy,
-                    error: Some(Failure::InvalidText),
-                },
-            ),
-            (
-                "contact-gone",
-                Dialog::ContactDetails {
-                    contact: contact(99),
-                    name: String::new(),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "contact-waiting",
-                Dialog::ContactDetails {
-                    contact: contact(12),
-                    name: String::new(),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "block",
-                Dialog::BlockContact {
-                    contact: contact(11),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "remove",
-                Dialog::RemoveContact {
-                    contact: contact(10),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "delete-messages",
-                Dialog::DeleteConversation {
-                    contact: contact(12),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "delete-identity",
-                Dialog::DeleteIdentity {
-                    identity: identity(),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "accept",
-                Dialog::AcceptRequest {
-                    request: UiRequestId::new(identity(), 1),
-                    name: "Frank".to_owned(),
-                    busy,
-                    error,
-                },
-            ),
-            (
-                "accept-gone",
-                Dialog::AcceptRequest {
-                    request: UiRequestId::new(identity(), 9),
-                    name: String::new(),
-                    busy,
-                    error,
-                },
-            ),
-            ("tor", Dialog::TorDetails),
-        ];
-        for (name, dialog) in cases.drain(..) {
-            let mut app = base();
-            open(&mut app, dialog);
-            shot(name, app);
+    fn every_dialog_fixture_shows_its_dialog() {
+        // Pictured by the screens example with the other states.
+        let names: Vec<&str> = NAMES
+            .iter()
+            .copied()
+            .filter(|name| name.starts_with("dialog-"))
+            .collect();
+        assert!(names.len() >= 18, "{names:?}");
+        for name in names {
+            let mut window = Window::new(fixture(name).expect("fixture"));
+            window.frame(Vec::new());
+            let open = window.app.model.dialog().is_some()
+                || window.app.block_request.is_some()
+                || window.app.decline_request.is_some()
+                || window.app.unblock.is_some();
+            assert!(open, "{name} shows no dialog");
         }
-        let mut app = fixture("tor-unavailable").expect("fixture");
-        app.model.open(Dialog::TorDetails);
-        shot("tor-down", app);
-        let mut app = fixture("tor-unavailable").expect("fixture");
-        app.model.open(Dialog::NewIdentity {
-            name: "Work".to_owned(),
-            busy: None,
-            error: None,
-        });
-        shot("new-identity-no-tor", app);
-        let mut app = base();
-        app.model.open(Dialog::AddContact {
-            identity: identity(),
-            card: CARD.to_owned(),
-            name: String::new(),
-            busy: None,
-            error: None,
-            added: None,
-        });
-        app.card_file = Some(CardFile {
-            name: "dana-card.txt".to_owned(),
-            read: true,
-        });
-        shot("add-contact-read", app);
-        let mut app = fixture("requests").expect("fixture");
-        app.block_request = Some(UiRequestId::new(identity(), 1));
-        shot("block-request", app);
-        let mut app = fixture("requests").expect("fixture");
-        app.decline_request = Some(UiRequestId::new(identity(), 1));
-        shot("decline-request", app);
-        let mut app = fixture("settings-blocked").expect("fixture");
-        app.unblock = Some(UiBlockedId::new(identity(), 1));
-        shot("unblock", app);
-        // A request as Monolith sends it: no name, no introduction.
-        let mut app = fixture("requests").expect("fixture");
-        requests_now(&mut app, vec![request_view(1)]);
-        shot("request-without-name", app);
     }
 
     #[test]
@@ -2182,18 +1973,68 @@ mod tests {
         );
     }
 
+    /// The text of every row of the text drawn in `shapes` that starts with
+    /// `start`.
+    fn rows_of(shapes: &[egui::epaint::ClippedShape], start: &str) -> Vec<String> {
+        fn walk(shape: &Shape, start: &str, into: &mut Vec<String>) {
+            match shape {
+                Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        walk(shape, start, into);
+                    }
+                }
+                Shape::Text(text) if text.galley.text().starts_with(start) => {
+                    for row in &text.galley.rows {
+                        let line: String = row.glyphs.iter().map(|glyph| glyph.chr).collect();
+                        into.push(line.trim_end().to_owned());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, start, &mut found);
+        }
+        found
+    }
+
     #[test]
     fn a_fingerprint_is_laid_out_in_two_rows() {
-        let full = "AF3K 72PQ 9XZT M4LB D8EV 61RC 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM";
+        // In the smallest window too: a row of seven groups and one of six.
+        let mut app = base();
+        open(
+            &mut app,
+            Dialog::ContactDetails {
+                contact: contact(10),
+                name: "Alice Martin".to_owned(),
+                busy: None,
+                error: None,
+            },
+        );
+        let ctx = Context::default();
+        fonts::install(&ctx, &[]);
+        theme::install(&ctx, Theme::light().with_reduced_motion(true));
+        let mut rows = Vec::new();
+        for frame in 0..3 {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    Pos2::ZERO,
+                    Theme::light().size.window_min,
+                )),
+                time: Some(f64::from(frame)),
+                ..RawInput::default()
+            };
+            let output = ctx.run(input, |ctx| crate::show(ctx, &mut app));
+            rows = rows_of(&output.shapes, "AF3K");
+        }
         assert_eq!(
-            fingerprint_rows(full),
+            rows,
             [
                 "AF3K 72PQ 9XZT M4LB D8EV 61RC 5TQN",
                 "2WRK 8MZP 3XEL 6VDB 9HCA Q4KM"
             ]
         );
-        assert_eq!(fingerprint_rows("AF3K"), ["AF3K"]);
-        assert!(fingerprint_rows("").is_empty());
     }
 
     #[test]
