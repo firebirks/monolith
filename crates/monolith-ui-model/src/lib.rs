@@ -23,6 +23,6 @@ pub use failure::Failure;
 pub use ids::{UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId};
 pub use model::{
     Dialog, Model, Notice, NoticeKind, Phase, RowState, Selection, SidebarRow, Slice, Thread,
-    TorIndicator,
+    TorIndicator, Waiting,
 };
 pub use protocol::{Command, CommandId, IdentitySnapshot, Outcome, ProfileOnDisk, Update};

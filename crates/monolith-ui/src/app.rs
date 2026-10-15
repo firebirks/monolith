@@ -11,9 +11,16 @@ use monolith_ui_kit::request_card::RequestAction;
 use monolith_ui_kit::toast::{Kind, Toasts};
 use monolith_ui_model::present::{Calendar, UtcCalendar};
 use monolith_ui_model::{
-    Dialog, Failure, Model, NoticeKind, Phase, UiContactId, UiIdentityId, UiRequestId,
+    Dialog, Failure, Model, NoticeKind, Phase, UiBlockedId, UiContactId, UiIdentityId,
+    UiInvitationId, UiRequestId,
 };
 use zeroize::{Zeroize, Zeroizing};
+
+/// The room a buffer of a passphrase has from the start: the most a field
+/// takes, `present::MAX_PASSPHRASE_CHARS` characters of at most four
+/// bytes, so that typing or pasting never moves it and leaves no copy
+/// behind.
+pub(crate) const SECRET_CAPACITY: usize = 1024;
 
 /// How the window looks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -237,6 +244,15 @@ pub struct App {
     /// The request whose sender the user is asked to block, captured when
     /// the question opened.
     pub(crate) block_request: Option<UiRequestId>,
+    /// The request the user is asked to decline, captured when the question
+    /// opened.
+    pub(crate) decline_request: Option<UiRequestId>,
+    /// Someone the user is asked to unblock, captured when the question
+    /// opened.
+    pub(crate) unblock: Option<UiBlockedId>,
+    /// The notices on screen that offer to revoke an invitation, by the
+    /// number of their toast.
+    revoke_offers: BTreeMap<u64, UiInvitationId>,
     /// The question asked before the window closes, while it is open, with
     /// what closing would cost.
     pub(crate) closing: Option<CloseWarning>,
@@ -281,12 +297,15 @@ impl App {
             show_location: false,
             open_switcher: false,
             search: String::new(),
-            passphrase: Zeroizing::new(String::with_capacity(256)),
-            passphrase_again: Zeroizing::new(String::with_capacity(256)),
+            passphrase: Zeroizing::new(String::with_capacity(SECRET_CAPACITY)),
+            passphrase_again: Zeroizing::new(String::with_capacity(SECRET_CAPACITY)),
             qr: None,
             card_path: String::new(),
             card_file: None,
             block_request: None,
+            decline_request: None,
+            unblock: None,
+            revoke_offers: BTreeMap::new(),
             closing: None,
             close_allowed: false,
             request_answers: BTreeMap::new(),
@@ -394,7 +413,7 @@ impl App {
     pub fn effect_done(&mut self, result: EffectResult) {
         match result {
             EffectResult::CardSaved { path } => {
-                self.toasts.push(Kind::Success, format!("Saved to {path}"));
+                self.toasts.push(Kind::Success, format!("Saved to {path}."));
             }
             EffectResult::CardRead {
                 identity,
@@ -423,20 +442,47 @@ impl App {
                 }
             }
             EffectResult::Failed(failure) => {
-                self.toasts.push(Kind::Error, failure.message());
+                if failure.said_in_place() {
+                    self.toasts.push(Kind::Error, failure.message());
+                }
             }
         }
     }
 
     /// Moves the notices of the model onto the screen.
     pub(crate) fn pump_notices(&mut self) {
+        // An offer goes with its toast: none is left once no toast is.
+        if self.toasts.is_empty() {
+            self.revoke_offers.clear();
+        }
         for notice in self.model.take_notices() {
             let kind = match notice.kind {
                 NoticeKind::Success => Kind::Success,
                 NoticeKind::Info => Kind::Info,
                 NoticeKind::Error => Kind::Error,
             };
-            self.toasts.push(kind, notice.text);
+            match notice.revoke {
+                Some(invitation) => {
+                    let toast = self.toasts.push_with_action(kind, notice.text, "Revoke");
+                    self.revoke_offers.insert(toast, invitation);
+                }
+                None => {
+                    self.toasts.push(kind, notice.text);
+                }
+            }
+        }
+    }
+
+    /// The action of the toast `toast` was chosen: a Revoke asks whether
+    /// to revoke its invitation, as revoking from the settings does.
+    pub(crate) fn toast_action(&mut self, toast: u64) {
+        if let Some(invitation) = self.revoke_offers.remove(&toast) {
+            self.model.open(Dialog::RevokeInvitation {
+                invitation,
+                discard_requests: false,
+                busy: None,
+                error: None,
+            });
         }
     }
 
@@ -452,8 +498,8 @@ mod tests {
 
     use monolith_ui_kit::theme::{self, Theme};
     use monolith_ui_model::{
-        Command, ConversationView, IdentitySnapshot, IdentityView, Outcome, ProfileOnDisk,
-        RequestMode, Service, Update,
+        Command, ContactView, ConversationView, IdentitySnapshot, IdentityView, Outcome,
+        ProfileOnDisk, RequestMode, RuntimeEvent, Service, UiMessageId, Update,
     };
 
     use super::*;
@@ -552,6 +598,41 @@ mod tests {
         assert_eq!(shown(&app), (String::new(), Some(Failure::InvalidCard)));
     }
 
+    /// What the first identity of [`open_profile`] holds: a contact (record
+    /// 10) whose conversation has `queued` messages waiting, and an ended
+    /// conversation (record 11) with `ended` messages it will never send.
+    fn first_identity(queued: usize, ended: usize) -> IdentitySnapshot {
+        let conversation = |record: u8, active: bool, queued: usize| ConversationView {
+            contact: UiContactId::new(identity(1), [record; 16]),
+            fingerprint: String::new(),
+            active,
+            messages: queued,
+            queued,
+            latest: None,
+        };
+        IdentitySnapshot {
+            identity: identity(1),
+            contacts: vec![ContactView {
+                id: UiContactId::new(identity(1), [10; 16]),
+                name: None,
+                fingerprint: String::new(),
+                full_fingerprint: String::new(),
+                accepted: true,
+                verified: false,
+                invitation: false,
+            }],
+            conversations: vec![
+                conversation(10, true, queued),
+                conversation(11, false, ended),
+            ],
+            requests: Vec::new(),
+            invitations: Vec::new(),
+            blocked: Vec::new(),
+            service: Service::Available,
+            request_mode: RequestMode::Invitation,
+        }
+    }
+
     /// A model with a profile open, kept on disk or not, with `identities`
     /// identities; the first has a conversation with `queued` messages
     /// waiting and an ended one with `ended` messages it will never send.
@@ -562,14 +643,6 @@ mod tests {
             location: String::new(),
         });
         model.start_without_saving();
-        let conversation = |record: u8, active: bool, queued: usize| ConversationView {
-            contact: UiContactId::new(identity(1), [record; 16]),
-            fingerprint: String::new(),
-            active,
-            messages: queued,
-            queued,
-            latest: None,
-        };
         for _ in 0..3 {
             for (id, command) in model.take_commands() {
                 let outcome = match command {
@@ -587,17 +660,13 @@ mod tests {
                             })
                             .collect(),
                     ),
+                    Command::LoadIdentity(asked) if asked == identity(1) => {
+                        Outcome::Identity(Box::new(first_identity(queued, ended)))
+                    }
                     Command::LoadIdentity(asked) => Outcome::Identity(Box::new(IdentitySnapshot {
                         identity: asked,
                         contacts: Vec::new(),
-                        conversations: if asked == identity(1) {
-                            vec![
-                                conversation(10, true, queued),
-                                conversation(11, false, ended),
-                            ]
-                        } else {
-                            Vec::new()
-                        },
+                        conversations: Vec::new(),
                         requests: Vec::new(),
                         invitations: Vec::new(),
                         blocked: Vec::new(),
@@ -614,6 +683,60 @@ mod tests {
         }
         assert_eq!(model.phase(), Phase::Ready);
         model
+    }
+
+    #[test]
+    fn closing_counts_a_message_being_queued_and_one_queued_before_it_is_read_again() {
+        let mut model = open_profile(false, 1, 0, 0);
+        assert_eq!(close_warning(&model), None);
+        let contact = UiContactId::new(identity(1), [10; 16]);
+        model.select_conversation(contact);
+        for (id, command) in model.take_commands() {
+            if matches!(command, Command::LoadMessages { .. }) {
+                model.apply(Update::Done {
+                    command: id,
+                    outcome: Outcome::Messages {
+                        contact,
+                        messages: Vec::new(),
+                        complete: true,
+                    },
+                });
+            }
+        }
+        model
+            .draft_mut(contact)
+            .unwrap()
+            .push_str("See you at eight.");
+        model.send(contact);
+        let commands = model.take_commands();
+        let one = Some(CloseWarning {
+            loses_everything: false,
+            undelivered: 1,
+        });
+        // While the runtime queues it.
+        assert_eq!(close_warning(&model), one);
+        // Queued, before the identity is read again.
+        let message = UiMessageId::new(contact, 1);
+        model.apply(Update::Event(RuntimeEvent::MessageQueued(message)));
+        for (id, command) in commands {
+            if matches!(command, Command::Send { .. }) {
+                model.apply(Update::Done {
+                    command: id,
+                    outcome: Outcome::MessageQueued(message),
+                });
+            }
+        }
+        assert_eq!(close_warning(&model), one);
+        // Read again: it is counted once, as the runtime says.
+        for (id, command) in model.take_commands() {
+            if command == Command::LoadIdentity(identity(1)) {
+                model.apply(Update::Done {
+                    command: id,
+                    outcome: Outcome::Identity(Box::new(first_identity(1, 0))),
+                });
+            }
+        }
+        assert_eq!(close_warning(&model), one);
     }
 
     #[test]

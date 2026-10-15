@@ -14,9 +14,9 @@ use crate::app::App;
 use crate::{common, dialogs};
 
 /// What a request without a name or an introduction says: Monolith sends
-/// none (`DESIGN_QUESTIONS.md` P6-5).
-const NOTHING_SENT: &str = "No name or message comes with a request. Check the fingerprint with \
-                            the person before you accept.";
+/// none (`DESIGN_QUESTIONS.md` P6-5). How to check the fingerprint is said
+/// once, under the list.
+const NOTHING_SENT: &str = "This request came without a name or a message.";
 
 /// How to check who sent a request.
 const CHECK: &str = "Before you accept, ask the person to read you the fingerprint under their \
@@ -95,7 +95,8 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
                     .add(IconButton::new(icons::CHEVRON_LEFT, "Back").id_salt("requests-back"))
                     .clicked();
             }
-            ui.add(Text::new("Requests", &theme.text.heading, theme.color.text));
+            // A page of its own, titled as the settings are.
+            ui.add(Text::new("Requests", &theme.text.title, theme.color.text));
         },
         |ui| {
             open_tor = ui.add(TorStatus::new(tor, tor_label)).clicked();
@@ -127,7 +128,7 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
         None => Vec::new(),
     };
     if entries.is_empty() {
-        EmptyState::new("requests-empty", icons::INBOX, "No requests waiting.")
+        EmptyState::new("requests-empty", icons::INBOX, "No requests waiting")
             .body(KEPT)
             .show(ui);
         return;
@@ -195,13 +196,12 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
             error: None,
         });
     }
+    // Asked first: the question holds this request, whatever the list
+    // shows when it is answered.
     if let Some(request) = decline {
-        app.request_answers.insert(request, RequestAction::Decline);
-        app.model.decline(request);
+        app.decline_request = Some(request);
     }
     if let Some(request) = block {
-        // Asked first: the dialog holds this request, whatever the list
-        // shows when it is answered.
         app.block_request = Some(request);
     }
 }
@@ -242,6 +242,13 @@ mod tests {
         assert!(shown.caption.contains(NOTHING_SENT), "{}", shown.caption);
         let named = entry(&request("Frank", ""), Some(None));
         assert!(!named.caption.contains(NOTHING_SENT), "{}", named.caption);
+    }
+
+    #[test]
+    fn a_request_without_a_name_leaves_the_fingerprint_to_the_advice_under_the_list() {
+        let shown = entry(&request("", ""), Some(None));
+        assert!(!shown.caption.contains("fingerprint"), "{}", shown.caption);
+        assert!(CHECK.contains("fingerprint"));
     }
 }
 

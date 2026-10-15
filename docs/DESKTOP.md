@@ -105,9 +105,11 @@ acknowledgement made durable by the contact (`adr/0007-delivery-semantics.md`).
 Pressing Send, the command returning, or a session existing is never shown
 as delivery. The draft stays editable while the message is being queued,
 and loses the text sent only once the runtime says the message is durably
-queued: what was typed after it stays, and a draft changed within the text
-sent stays whole. A refused send keeps the draft, with what was typed
-meanwhile, and says why.
+queued, and only if the draft has started with that text ever since it was
+sent: what was typed after it stays, and a draft cleared or changed within
+the text sent meanwhile stays whole, also when it starts with that text
+again. A refused send keeps the draft, with what was typed meanwhile, and
+says why.
 
 ### Late and stale events
 
@@ -162,20 +164,30 @@ P5-8), and, from the delay of the last deferral, when the next attempt is
 due ("Next try in about 4 minutes", "in less than a minute"; nothing once
 it is due, and nothing while Tor is down). The model keeps that delay as
 the time it ends, counted from when the window took the event, and drops it
-once nothing is queued. A failed store is said once, by a banner across the
-top of every view that asks for a restart; nothing can be sent after it. A
-contact that was removed or blocked ends its conversation, which stays
-readable and takes no message.
+once nothing is queued. While Tor is unavailable the notice says that
+nothing can be delivered: messages are still queued. A failed store is said
+once, by a banner across the top of every view that asks for a restart; the
+command that met it adds no error or notice of its own, and nothing can be
+sent after it. A contact that was removed or blocked ends its conversation,
+which stays readable, says once that it ended, and has no composer.
 
 The window's title counts what waits over all identities (messages not
 read and requests not answered), as "Monolith (7)", and the window asks
 for attention when that count grows while it is in the background; the
-identity switcher gives each identity its own counts.
+identity switcher gives each identity its own counts. The title, count
+included, is visible to anything that reads window titles: the task bar,
+window switchers, screen recorders and other programs on the same desktop.
 
 ## 6. Workflows
 
 - First start: a profile kept on disk under a passphrase, or a session that
-  keeps nothing (P6-7). Later starts ask for the passphrase.
+  keeps nothing (P6-7). Later starts ask for the passphrase. A passphrase
+  field takes at most 256 characters, which are at most 1024 bytes of
+  UTF-8, the most the vault takes, and its buffer has room for that from
+  the start, so that typing or pasting never moves it. A failure of the
+  passphrase is said under its field, which it marks; the first start says
+  to use a long phrase of several words, and that a lost passphrase cannot
+  be recovered.
 - Identities: made from the identity switcher or the settings, switched
   from the switcher, deleted from the settings after a confirmation that
   says what is removed.
@@ -183,21 +195,40 @@ identity switcher gives each identity its own counts.
   from a file (typed path or dropped on the window, at most 64 KiB, checked
   like pasted text). A request to a stranger leaves with the first message
   (P6-6), which the conversation says while the contact waits. The runtime
-  says whether the text added was an invitation, and the contact keeps
-  saying it (P6-20). After a card that is not an invitation, "Add contact"
-  stays open to say that the other side must add the user's card too before
-  messages can arrive, with a button to the user's card; the conversation
-  says the same, with the same button, until the contact accepts. After an
-  invitation it says that the request leaves with the first message and is
-  seen through that invitation, without a name or a message.
+  says whether the card the contact's record holds after the import is an
+  invitation, and the contact keeps saying it (P6-20); for a contact that
+  accepted already, a card added changes nothing. After a card that is not
+  an invitation, "Add contact" stays open to say that the other side must
+  add the user's card too before messages can arrive, with a button to the
+  user's card; the conversation says the same, with the same button, until
+  the contact accepts. After an invitation it says that the request goes
+  out with the messages and should be seen through that invitation (only
+  while the invitation is active and the other side takes requests),
+  without a name or a message. What such a contact waits for is said in
+  the same words under its name, in the list and in its details: "Request
+  not sent yet" while nothing was written to it, "Waiting for them to
+  accept your request" once something was, "Waiting for them to add your
+  card" after a card that is not an invitation. Deleting the messages of
+  such a contact says that the request goes out only with a message.
+- An identity without contacts offers to add one and to share its card;
+  Invite is in the strip under the list.
 - The user's own card says what a card alone does under the request mode
   of the identity: with Invitations only, someone who has only the card
   can reach the user once the user has added their card too; with Anyone
   with my card, anyone who has it can send a request; with Nobody, no
-  request arrives at all.
+  request arrives at all. Under Nobody, the invitations of the identity,
+  "New invitation" and the card of an invitation say that no request
+  arrives through an invitation either.
 - Requests: listed with the sender's fingerprint, the invitation that
   admitted them, and the name and introduction the sender chose, quoted as
-  their words; accepted (naming the contact), declined or blocked.
+  their words; accepted (naming the contact), declined or blocked. Accepting
+  a request that came through an invitation, while the identity takes
+  requests, ends with a toast that says the invitation still admits
+  requests, with Revoke, which asks as revoking from the settings does.
+  Declining asks first: nothing is sent, the sender's later requests are
+  dropped (`PROTOCOL.md` section 12), and the client neither lists nor
+  undoes a decline; adding the sender's card takes them off the declined
+  list (P4-13).
 - Blocking: a contact from the menu of its conversation or its details,
   the sender of a request from the request, each after a confirmation.
   Someone blocked cannot reach the identity: no session, no request, no
@@ -205,22 +236,23 @@ identity switcher gives each identity its own counts.
 - Unblocking: Settings > Identities lists, under each identity, the people
   it blocked by their short fingerprint, the only thing the contact store
   keeps of them (P6-14), each with Unblock; an identity that blocked nobody
-  says so in one line. Unblocking takes no confirmation, since blocking
-  again undoes it, and a toast says what it did. Someone unblocked has no
-  record at all (P6-21): not a contact again and not declined; a request
-  from them is considered as the request mode says, and adding their card
-  makes a new contact with a new conversation. A conversation that ended
-  with the block stays ended.
+  says so in one line. Unblocking asks first, and a toast says what it did.
+  Someone unblocked has no record at all (P6-21): not a contact again and
+  not declined; a request from them is considered as the request mode
+  says, and adding their card makes a new contact with a new conversation.
+  Since nothing is kept of them, the client can block them again only from
+  a request they send or once their card is added, which the question
+  says. A conversation that ended with the block stays ended.
 - Invitations: made with a label only the user sees, shown as a card with
   its QR code, copied or saved, listed with "N of 16 active", revoked with
   or without the requests they admitted.
 - Messages: Enter sends, Shift+Enter starts a new line; the composer knows
   the limit of `PROTOCOL.md` section 9; a conversation is read in pages of
   100, newest first, up to 2000 at a time (P6-9).
-- Destructive actions (block, remove a contact, delete messages on this
-  device, revoke, delete an identity) each have a confirmation that names
-  what happens, and are shown done only when the runtime says so.
-  Unblocking is not one of them: it is undone by blocking again.
+- Destructive actions (block, decline, remove a contact, delete messages
+  on this device, revoke, delete an identity) and unblocking each have a
+  confirmation that names what happens, with Cancel focused so that Enter
+  changes nothing, and are shown done only when the runtime says so.
 - Closing: the window's close button, Alt+F4 and a close by the system take
   one path (`window::close_or_ask`; the client has no Quit shortcut of its
   own). When closing costs nothing the window is hidden at once and the
@@ -270,7 +302,8 @@ No shortcut of the system is taken over.
 
 ## 9. Accessibility
 
-What there is: keyboard use of every screen; a visible focus ring;
+What there is: keyboard use of every screen, but for the menu of a
+message (below); a visible focus ring;
 contrast by the formula of WCAG 2.1 of at least 7 to 1 for main text and
 4.5 to 1 for supporting text, hints, times and text on the accent, on
 everything they are drawn on, in both themes
@@ -293,6 +326,12 @@ What is missing, and not claimed:
   around it (section 12), so only those are in the AccessKit tree; a
   screen reader reaches the others by scrolling. The keyboard does not
   reach the "Show more" of a message out of view either.
+- The menu of a message (Copy text) opens with the secondary button of a
+  pointer only; the keyboard cannot open it. Selecting the text of a
+  message takes a pointer too; Ctrl+C then copies it.
+- While a passphrase field has the focus the input method of the system is
+  off (`adr/0011`): a passphrase that can only be typed through an input
+  method can only be pasted.
 - Right-to-left scripts are drawn in logical order, unshaped, and scripts
   that need shaping (Arabic, Indic) are drawn without it (`adr/0010`).
 - The text size does not follow the system's setting; the zoom is not kept.
@@ -312,8 +351,9 @@ user's other devices if that is turned on too; the client cannot keep a
 copy out of it.
 
 Files: the vault and the message store (the runtime's, `STORAGE.md`); the
-settings file (window size, theme, reduced motion, Tor endpoints; 0600 on
-Unix); a card saved on request, as a new file in the Downloads folder
+settings file (window size, theme, reduced motion, Tor endpoints; not
+encrypted, apart from the profile, as the Data page of the settings says;
+0600 on Unix); a card saved on request, as a new file in the Downloads folder
 (0600 on Unix, never replacing a file); fonts read from fixed system paths.
 Nothing else: no log, no cache, no crash report, no eframe persistence.
 
@@ -329,9 +369,13 @@ something else between the two steps is refused unread. What is put there
 in that moment, by someone who can write to the folder, is still opened
 before it is refused. On Windows its path must be an absolute path on a
 drive (`C:\...`): a share (`\\server\...`), a device path (`\\?\`, `\\.\`)
-or a relative path is refused, so that reading a card never makes Windows
-reach another computer over SMB, outside Tor; the file opened is checked
-again to be a regular file.
+or a relative path is refused, so that naming a share does not make
+Windows reach another computer over SMB, outside Tor; the file opened is
+checked again to be a regular file. A path on a drive can still reach the
+network, and the client cannot tell: a drive letter mapped to a share, a
+link or junction to a share, and a file of a cloud folder kept online only
+(downloaded when it is read) are read over the network, outside Tor, as
+Windows reads them.
 
 ## 11. No network in the client
 
@@ -391,8 +435,14 @@ start of the newest message.
 - A contact added by a card that is not an invitation is said to wait until
   it adds the user's card. The client cannot know whether that side takes
   requests from anyone, in which case the request is also listed there
-  (P6-20). The list of conversations does not tell the two kinds of
-  waiting contact apart; the conversation does.
+  (P6-20). Nor can it know whether a request sent through an invitation
+  was seen: only that it waits to be accepted.
+- Unread counts are kept in memory only: they start again from nothing
+  each time Monolith opens. The Data page of the settings says so.
+- Declined requests are not listed, and a decline cannot be undone in the
+  client but by adding the sender's card. Someone unblocked can be blocked
+  again only from a request of theirs or once their card is added: the
+  contact store keeps no record of them (P6-21).
 - The window's size and maximized state are kept, not its position.
 - On Windows the permissions of the profile folder are not checked
   (`STORAGE.md` section 3.8).

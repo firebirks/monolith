@@ -97,9 +97,14 @@ any other.
   closes; the text field that edits it keeps no undo history in egui's
   memory, and its state is removed when the dialog closes. While it has
   the focus the window turns the input method of the system off, so that
-  the passphrase is not composed through it; it takes at most 1024
-  characters. egui still copies the text of a field while it draws it;
-  those copies are not wiped.
+  the passphrase is not composed through it: a passphrase that needs an
+  input method can only be pasted. It takes at most 256 characters, which
+  are at most 1024 bytes of UTF-8, the most the vault takes (the vault
+  measures the passphrase normalized to NFC, which lengthens a few rare
+  characters, and refuses one that is then too long). The buffer has room
+  for 1024 bytes from the start, so that typing or pasting never moves it
+  and leaves no copy of it behind. egui still copies the text of a field
+  while it draws it; those copies are not wiped.
 - The composer keeps no undo history either: a sent or deleted message
   cannot come back with Ctrl+Z, and message text stays out of egui's
   memory.

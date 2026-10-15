@@ -2265,7 +2265,9 @@ P6-19 Contrast: main text at least 7 to 1 and every other text, hints and
 P6-20 A card and an invitation are told apart (review finding B1: a
     person who added a plain card waited for ever while the other side, in
     the default mode, dropped every request without a word). Adding a card
-    says whether it carried an invitation, and a contact's summary says
+    says whether the card the contact's record holds afterwards carries an
+    invitation (for an accepted contact a card added changes nothing, so
+    that need not be the card added), and a contact's summary says
     whether the card held for it carries one, which its requests carry
     (`PROTOCOL.md` sections 8.3 and 12.2). The store keeps that card in the
     contact's credentials, so nothing new is stored and the answer
@@ -2296,9 +2298,11 @@ P6-21 Unblocking (review finding B3: a block could not be undone in the
     considered as the request mode says (with "invitations only", only with
     an active invitation; with "nobody", never); an import of its card
     makes a requested contact with a new record and a new conversation; the
-    conversation that ended with the block stays ended. The client unblocks
-    without a confirmation, since blocking again undoes it, and says so in
-    a toast.
+    conversation that ended with the block stays ended. Blocking again does
+    not undo an unblock: with no record left, the client can block them
+    again only from a request they send or once their card is added. So the
+    client asks before it unblocks, saying what unblocking lets them do and
+    that, and says in a toast what it did.
 
 ### 13.2 Not part of Phase 6
 

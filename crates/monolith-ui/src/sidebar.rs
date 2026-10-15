@@ -21,7 +21,7 @@ use monolith_ui_kit::{icons, theme};
 use monolith_ui_model::{Dialog, RowState, Selection, SidebarRow, Slice, UiIdentityId, present};
 
 use crate::app::{App, SettingsPage, View};
-use crate::common;
+use crate::{common, conversation};
 
 /// The key of the identity switcher.
 const SWITCHER: &str = "sidebar-identity";
@@ -328,10 +328,11 @@ fn preview_of(row: &SidebarRow) -> (&str, bool) {
     match &row.latest {
         Some(message) => (&row.preview, message.status.outgoing()),
         None => {
-            let text = match row.state {
-                RowState::Ended => "No longer a contact",
-                RowState::Waiting => "Waiting for them to accept",
-                RowState::Contact => "No messages yet",
+            let text = match (row.state, row.waiting) {
+                (RowState::Ended, _) => "No longer a contact",
+                // As the conversation and the details say it.
+                (_, Some(waiting)) => common::waiting_words(waiting),
+                (RowState::Waiting | RowState::Contact, None) => "No messages yet",
             };
             (text, false)
         }
@@ -431,16 +432,17 @@ fn no_contacts(ui: &mut Ui, app: &mut App, narrow: bool) {
         });
         return;
     }
+    // Invite is in the strip below.
     let output = EmptyState::new("sidebar-no-contacts", icons::USERS, "No contacts yet")
-        .body("Add someone using their Monolith card or invitation.")
+        .body(conversation::NO_CONTACTS)
         .primary("Add contact")
-        .secondary("Invite")
+        .secondary("Share my card")
         .show(ui);
     if output.primary {
         open_add_contact(app, identity);
     }
     if output.secondary {
-        open_invitation(app, identity);
+        open_own_card(app, identity);
     }
 }
 
@@ -526,6 +528,15 @@ fn open_invitation(app: &mut App, identity: UiIdentityId) {
     });
 }
 
+fn open_own_card(app: &mut App, identity: UiIdentityId) {
+    app.model.open(Dialog::OwnCard {
+        identity,
+        card: None,
+        busy: None,
+        error: None,
+    });
+}
+
 /// The quiet strip at the bottom: add a contact, invite, one's own card,
 /// and the settings. Before the first identity, only the settings.
 fn footer(ui: &mut Ui, app: &mut App) {
@@ -570,12 +581,7 @@ fn footer(ui: &mut Ui, app: &mut App) {
             open_invitation(app, identity);
         }
         if card {
-            app.model.open(Dialog::OwnCard {
-                identity,
-                card: None,
-                busy: None,
-                error: None,
-            });
+            open_own_card(app, identity);
         }
     }
     if settings {

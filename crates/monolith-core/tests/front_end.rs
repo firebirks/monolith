@@ -870,3 +870,30 @@ fn a_plain_card_reaches_an_identity_that_wants_invitations_once_it_adds_the_card
         assert!(a.runtime.contacts(&a.id()).unwrap()[0].accepted);
     });
 }
+
+#[test]
+fn an_invitation_added_for_an_accepted_contact_is_said_as_the_record_holds_it() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let a = Peer::start(&network, 1).await;
+        let b = Peer::start(&network, 2).await;
+        // A and B add each other's plain cards and become contacts.
+        let at_a = request_with_card(&a, &b.card()).await;
+        b.runtime.add_contact(&b.id(), &a.card()).await.unwrap();
+        until(|| {
+            a.runtime.messages(&a.id(), &at_a, None, 10).unwrap()[0].status
+                == MessageStatus::Delivered
+        })
+        .await;
+        assert!(a.runtime.contacts(&a.id()).unwrap()[0].accepted);
+        // An invitation of B changes nothing for an accepted contact
+        // (`PROTOCOL.md` section 12.2): the record keeps the plain card, and
+        // the answer says so, as the summary does.
+        let (_, invitation) = b.runtime.create_invitation(&b.id(), None).await.unwrap();
+        let again = a.runtime.add_contact(&a.id(), &invitation).await.unwrap();
+        assert_eq!(again.contact, at_a);
+        let summary = a.runtime.contacts(&a.id()).unwrap().remove(0);
+        assert!(!summary.invitation);
+        assert_eq!(again.invitation, summary.invitation);
+    });
+}

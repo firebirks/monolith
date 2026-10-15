@@ -50,7 +50,9 @@ pub enum Failure {
     /// The message store is full.
     StoreFull,
     /// Something could not be saved. Nothing more is saved until Monolith
-    /// starts again.
+    /// starts again. The runtime reports it with an event too, and the
+    /// window says it once, for as long as it lasts: it is not said where
+    /// it was met ([`Failure::said_in_place`]).
     Storage,
     /// Tor did not do what was asked.
     Tor,
@@ -67,11 +69,21 @@ pub enum Failure {
 }
 
 impl Failure {
+    /// Whether the sentence is said where the failure was met: under a
+    /// field, in a dialog, in a notice. A failed store is not; the window
+    /// says it once, across its top, until Monolith starts again.
+    pub const fn said_in_place(self) -> bool {
+        !matches!(self, Self::Storage)
+    }
+
     /// The sentence the user reads.
     pub const fn message(self) -> &'static str {
         match self {
             Self::WrongPassphrase => "That passphrase does not open this profile.",
-            Self::UnusablePassphrase => "Choose a passphrase that is not empty and not too long.",
+            // The fields take at most `present::MAX_PASSPHRASE_CHARS`.
+            Self::UnusablePassphrase => {
+                "Choose a passphrase that is not empty and has at most 256 characters."
+            }
             Self::InUse => "Monolith is already open with this profile.",
             Self::UnsafePermissions => {
                 "The profile folder can be read by other users. Monolith will not open it. \
@@ -89,9 +101,14 @@ impl Failure {
                  folder elsewhere and start Monolith again."
             }
             Self::MessageStoreMismatch => {
-                "The saved messages belong to a different profile. Nothing was changed."
+                "The saved messages belong to a different profile. Nothing was changed. Keep \
+                 the profile folder; to start a new profile, move the folder elsewhere and start \
+                 Monolith again."
             }
-            Self::Disk => "The disk could not be read or written.",
+            Self::Disk => {
+                "The disk could not be read or written. Check that it is connected and has free \
+                 space, then try again."
+            }
             Self::InvalidText => "This text contains characters that cannot be used here.",
             Self::TooLong => "This message is too long.",
             Self::NoSuchIdentity => "This identity no longer exists.",
@@ -115,7 +132,7 @@ impl Failure {
             Self::StoreFull => {
                 "There is no more room for messages. Delete older conversations to make room."
             }
-            Self::Storage => "Monolith could not save. Restart Monolith to continue.",
+            Self::Storage => "Monolith can no longer save. Restart Monolith to continue.",
             Self::Tor => {
                 "Monolith could not reach Tor. Open Tor Browser and keep it open, or start the \
                  Tor service, then try again."
@@ -127,7 +144,41 @@ impl Failure {
                 "These Tor settings cannot be used. Tor must be on this computer, and the \
                  cookie file needs its full path."
             }
-            Self::Unexpected => "Something went wrong.",
+            Self::Unexpected => {
+                "Something went wrong. Try again; if it happens again, restart Monolith."
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failure_that_stops_the_user_says_what_to_do_next() {
+        assert!(Failure::Disk.message().contains("then try again"));
+        assert!(
+            Failure::MessageStoreMismatch
+                .message()
+                .contains("move the folder elsewhere and start Monolith again")
+        );
+        assert!(Failure::Unexpected.message().contains("Try again"));
+        // The limit is the one of the fields.
+        let limit = format!(
+            "at most {} characters",
+            crate::present::MAX_PASSPHRASE_CHARS
+        );
+        assert!(Failure::UnusablePassphrase.message().contains(&limit));
+    }
+
+    #[test]
+    fn a_failed_store_has_the_words_of_the_window_and_is_said_by_it_alone() {
+        assert_eq!(
+            Failure::Storage.message(),
+            "Monolith can no longer save. Restart Monolith to continue."
+        );
+        assert!(!Failure::Storage.said_in_place());
+        assert!(Failure::StoreFull.said_in_place());
     }
 }

@@ -130,7 +130,9 @@ pub struct ContactSummary {
 pub struct AddedContact {
     /// The contact record of its identity.
     pub contact: ContactId,
-    /// The card carried an invitation.
+    /// The card the record holds after the import carries an invitation,
+    /// as [`ContactSummary::invitation`] says. For an accepted contact the
+    /// card imported changes nothing (`docs/PROTOCOL.md` section 12.2).
     pub invitation: bool,
 }
 

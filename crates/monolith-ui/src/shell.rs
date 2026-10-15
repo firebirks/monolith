@@ -6,7 +6,7 @@ use egui::{Context, Key, KeyboardShortcut, Margin, Modifiers, Popup, TopBottomPa
 use monolith_ui_kit::banner::{Banner, Tone};
 use monolith_ui_kit::chrome::{self, ContentPanel, SidebarPanel};
 use monolith_ui_kit::theme;
-use monolith_ui_model::{Phase, Selection};
+use monolith_ui_model::{Failure, Phase, Selection};
 
 use crate::app::{App, SettingsPage, View};
 use crate::{conversation, dialogs, onboarding, requests, settings, sidebar};
@@ -24,7 +24,9 @@ pub fn show(ctx: &Context, app: &mut App) {
         }
     }
     dialogs::show(ctx, app);
-    let _ = app.toasts.show(ctx);
+    if let Some(toast) = app.toasts.show(ctx).action {
+        app.toast_action(toast);
+    }
 }
 
 fn main(ctx: &Context, app: &mut App) {
@@ -68,12 +70,8 @@ fn storage_failed(ctx: &Context, app: &App) {
         ))
         .show_separator_line(false)
         .show(ctx, |ui| {
-            Banner::new(
-                "storage-failed",
-                Tone::Danger,
-                "Monolith can no longer save. Restart Monolith to continue.",
-            )
-            .show(ui);
+            // The words of the failure, which nothing else says.
+            Banner::new("storage-failed", Tone::Danger, Failure::Storage.message()).show(ui);
         });
 }
 
@@ -88,13 +86,18 @@ fn content(ui: &mut egui::Ui, app: &mut App) {
     }
 }
 
-/// The keyboard shortcuts of the main window, while no dialog is open and
-/// closing is not asked about: Ctrl+F (Cmd+F on macOS) for the filter of
-/// the list, Alt+Up and Alt+Down for the conversation before or after the
-/// one shown, Escape to leave the settings. Enter sends, Shift+Enter starts a new line, and Escape
-/// closes a dialog or a menu, in their components.
+/// The keyboard shortcuts of the main window, while no dialog or question
+/// is open: Ctrl+F (Cmd+F on macOS) for the filter of the list, Alt+Up and
+/// Alt+Down for the conversation before or after the one shown, Escape to
+/// leave the settings. Enter sends, Shift+Enter starts a new line, and
+/// Escape closes a dialog, a question or a menu, in their components.
 fn shortcuts(ctx: &Context, app: &mut App) {
     if app.model.dialog().is_some() || app.block_request.is_some() || app.asking_to_close() {
+        return;
+    }
+    // The other questions of the window, about a request or someone
+    // blocked, hold the keyboard too.
+    if app.decline_request.is_some() || app.unblock.is_some() {
         return;
     }
     let find = KeyboardShortcut::new(Modifiers::COMMAND, Key::F);

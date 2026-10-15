@@ -21,6 +21,10 @@ pub const MAX_MESSAGE_BYTES: usize = 16_384;
 /// (`MAX_DISPLAY_NAME_LEN`).
 pub const MAX_NAME_BYTES: usize = 64;
 
+/// The most characters a passphrase field takes: as UTF-8 they are at most
+/// 1024 bytes, the most the vault takes (`STORAGE.md` section 3.3).
+pub const MAX_PASSPHRASE_CHARS: usize = 256;
+
 /// The longest preview of the newest message of a conversation, in
 /// characters; the list cuts it to its width.
 pub const PREVIEW_CHARS: usize = 120;

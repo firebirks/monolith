@@ -19,7 +19,7 @@ use monolith_ui_model::{
     BlockedView, Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure,
     IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase,
     ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Status, UiBlockedId,
-    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update, present,
+    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update, Waiting, present,
 };
 use zeroize::Zeroizing;
 
@@ -1849,4 +1849,242 @@ fn the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes() {
     assert_eq!(model.sidebar_revision(), rows);
     // A copy is what the rows are.
     assert_eq!(model.sidebar(), model.sidebar_rows());
+}
+
+#[test]
+fn a_failed_store_met_by_a_command_raises_no_notice_of_its_own() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.take_notices();
+    model.set_verified(c, true);
+    model.set_request_mode(identity(1), RequestMode::Open);
+    answer_all(&mut model, |command| match command {
+        Command::SetVerified { .. } | Command::SetRequestMode { .. } => {
+            Some(Outcome::Failed(Failure::Storage))
+        }
+        _ => None,
+    });
+    // The window says it, once, for as long as it lasts.
+    assert!(model.take_notices().is_empty());
+    // Any other failure is told where it was met.
+    model.set_verified(c, true);
+    answer_all(&mut model, |command| match command {
+        Command::SetVerified { .. } => Some(Outcome::Failed(Failure::NoSuchContact)),
+        _ => None,
+    });
+    let texts: Vec<String> = model
+        .take_notices()
+        .into_iter()
+        .map(|notice| notice.text)
+        .collect();
+    assert_eq!(texts, [Failure::NoSuchContact.message()]);
+}
+
+#[test]
+fn a_contact_that_has_not_accepted_waits_for_a_first_message_an_acceptance_or_its_card() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let new = contact(1, 12);
+    let written = contact(1, 13);
+    let carded = contact(1, 14);
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let waiting = |id: UiContactId, name: &str, invitation: bool| {
+                let mut view = contact_view(id, name, "GGGG 4444");
+                view.accepted = false;
+                view.invitation = invitation;
+                view
+            };
+            let mut snap = snapshot(
+                identity(1),
+                vec![
+                    contact_view(contact(1, 10), "Carol", "CCCC 1111"),
+                    waiting(new, "Gina", true),
+                    waiting(written, "Hal", true),
+                    waiting(carded, "Ida", false),
+                ],
+            );
+            snap.conversations = vec![ConversationView {
+                contact: written,
+                fingerprint: "GGGG 4444".to_owned(),
+                active: true,
+                messages: 1,
+                queued: 1,
+                latest: None,
+            }];
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        _ => None,
+    });
+    assert_eq!(model.waiting(contact(1, 10)), None);
+    assert_eq!(model.waiting(new), Some(Waiting::FirstMessage));
+    assert_eq!(model.waiting(written), Some(Waiting::Acceptance));
+    assert_eq!(model.waiting(carded), Some(Waiting::TheirCard));
+    // The list says the same of each.
+    for row in model.sidebar_rows() {
+        assert_eq!(row.waiting, model.waiting(row.contact), "{row:?}");
+    }
+}
+
+#[test]
+fn a_draft_that_stopped_starting_with_the_text_sent_keeps_all_of_it() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    messages_of(&mut model, c, Vec::new());
+    let queue = |model: &mut Model, sequence: u64| {
+        answer_all(model, |command| match command {
+            Command::Send { .. } => Some(Outcome::MessageQueued(UiMessageId::new(c, sequence))),
+            _ => None,
+        });
+    };
+    model.draft_mut(c).unwrap().push_str("ok");
+    model.send(c);
+    // Cleared while it is queued, then typed again from the same start.
+    model.draft_mut(c).unwrap().clear();
+    model.draft_edited(c);
+    model.draft_mut(c).unwrap().push_str("ok, I will call");
+    model.draft_edited(c);
+    queue(&mut model, 1);
+    assert_eq!(model.thread(c).unwrap().draft, "ok, I will call");
+    // Typed on after it, starting with it all along: the text sent goes.
+    model.send(c);
+    model.draft_mut(c).unwrap().push_str(" at six");
+    model.draft_edited(c);
+    queue(&mut model, 2);
+    assert_eq!(model.thread(c).unwrap().draft, "at six");
+}
+
+#[test]
+fn a_message_being_queued_or_queued_before_a_read_counts_as_undelivered() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let c = contact(1, 10);
+    model.select_conversation(c);
+    messages_of(&mut model, c, Vec::new());
+    let read = |queued: usize, with_c: bool| {
+        let contacts = if with_c {
+            vec![contact_view(c, "Carol", "CCCC 1111")]
+        } else {
+            Vec::new()
+        };
+        let mut snap = snapshot(identity(1), contacts);
+        snap.conversations = vec![ConversationView {
+            contact: c,
+            fingerprint: "CCCC 1111".to_owned(),
+            active: with_c,
+            messages: queued,
+            queued,
+            latest: None,
+        }];
+        Outcome::Identity(Box::new(snap))
+    };
+    assert_eq!(model.undelivered(), 0);
+    model.draft_mut(c).unwrap().push_str("hello");
+    model.send(c);
+    // A read of A asked while it is being queued.
+    model.apply(Update::Event(RuntimeEvent::RequestReceived {
+        identity: identity(1),
+        queued: true,
+    }));
+    let asked = model.take_commands();
+    assert_eq!(model.undelivered(), 1);
+    // Queued: the read asked before does not count it, and it is counted
+    // until a read asked later does.
+    let message = UiMessageId::new(c, 1);
+    model.apply(Update::Event(RuntimeEvent::MessageQueued(message)));
+    for (id, command) in asked {
+        let outcome = match command {
+            Command::Send { .. } => Outcome::MessageQueued(message),
+            Command::LoadIdentity(_) => read(0, true),
+            _ => continue,
+        };
+        model.apply(Update::Done {
+            command: id,
+            outcome,
+        });
+    }
+    assert_eq!(model.undelivered(), 1);
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(_) => Some(read(1, true)),
+        _ => None,
+    });
+    assert_eq!(model.undelivered(), 1);
+    // Removed: what was queued for it is never sent.
+    model.apply(Update::Event(RuntimeEvent::MessageQueued(
+        UiMessageId::new(c, 2),
+    )));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(_) => Some(read(2, false)),
+        _ => None,
+    });
+    assert_eq!(model.undelivered(), 0);
+}
+
+/// Identity A shown with one request, which came through an invitation
+/// labelled "Gym", under `mode`.
+fn with_invited_request(mode: RequestMode) -> (Model, UiRequestId, UiInvitationId) {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    let request = UiRequestId::new(identity(1), 1);
+    let invitation = UiInvitationId::new(identity(1), 3);
+    model.apply(Update::Event(RuntimeEvent::Missed));
+    answer_all(&mut model, |command| match command {
+        Command::LoadIdentity(id) if *id == identity(1) => {
+            let mut snap = snapshot(identity(1), Vec::new());
+            snap.requests = vec![RequestView {
+                id: request,
+                fingerprint: "FFFF 0000".to_owned(),
+                full_fingerprint: String::new(),
+                display_name: String::new(),
+                introduction: String::new(),
+                invitation: Some(invitation),
+            }];
+            snap.invitations = vec![InvitationView {
+                id: invitation,
+                label: Some("Gym".to_owned()),
+            }];
+            snap.request_mode = mode;
+            Some(Outcome::Identity(Box::new(snap)))
+        }
+        _ => None,
+    });
+    model.take_notices();
+    (model, request, invitation)
+}
+
+fn accept(model: &mut Model, request: UiRequestId) {
+    model.open(Dialog::AcceptRequest {
+        request,
+        name: "Frank".to_owned(),
+        busy: None,
+        error: None,
+    });
+    model.confirm();
+    answer_all(model, |command| match command {
+        Command::AcceptRequest { .. } => Some(Outcome::RequestAccepted(contact(1, 15))),
+        _ => None,
+    });
+}
+
+#[test]
+fn accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it() {
+    let (mut model, request, invitation) = with_invited_request(RequestMode::Invitation);
+    accept(&mut model, request);
+    let notices = model.take_notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].kind, NoticeKind::Success);
+    assert_eq!(notices[0].revoke, Some(invitation));
+    assert!(notices[0].text.contains("\"Gym\""), "{}", notices[0].text);
+    // While requests are set to Nobody the invitation admits none: nothing
+    // to offer.
+    let (mut model, request, _) = with_invited_request(RequestMode::Closed);
+    accept(&mut model, request);
+    let notices = model.take_notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].revoke, None);
+    assert_eq!(notices[0].text, "Request accepted.");
 }

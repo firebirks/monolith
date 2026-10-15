@@ -10,22 +10,29 @@ use monolith_ui_kit::text::Text;
 use monolith_ui_kit::text_field::{self, TextField};
 use monolith_ui_kit::theme::{self, TextToken, Theme};
 use monolith_ui_kit::{Button, icons};
-use monolith_ui_model::Phase;
+use monolith_ui_model::present::MAX_PASSPHRASE_CHARS;
+use monolith_ui_model::{Failure, Phase};
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::app::App;
+use crate::app::{App, SECRET_CAPACITY};
 
 /// Salts of the egui ids of the secret fields.
 const WELCOME_PASSPHRASE: &str = "welcome-passphrase";
 const WELCOME_AGAIN: &str = "welcome-passphrase-again";
 const UNLOCK_PASSPHRASE: &str = "unlock-passphrase";
 
-/// The size a secret buffer starts with, so that typing does not move it.
-const SECRET_CAPACITY: usize = 256;
+/// Failures that belong to the passphrase field; the others are of the
+/// profile folder, and are said under the form.
+const PASSPHRASE_ERRORS: &[Failure] = &[Failure::WrongPassphrase, Failure::UnusablePassphrase];
 
-/// The most characters a passphrase field takes. The vault takes at most
-/// 1024 bytes, so no passphrase it would take is cut.
-const PASSPHRASE_LIMIT: usize = 1024;
+/// The failure of the last attempt, split: the sentence of one that
+/// belongs to the passphrase field, and any other.
+fn split_error(failure: Option<Failure>) -> (Option<&'static str>, Option<Failure>) {
+    match failure {
+        Some(failure) if PASSPHRASE_ERRORS.contains(&failure) => (Some(failure.message()), None),
+        other => (None, other),
+    }
+}
 
 /// Draws the screen of the current phase.
 pub(crate) fn show(ctx: &Context, app: &mut App) {
@@ -143,7 +150,7 @@ fn introduction(ui: &mut Ui, theme: &Theme) {
     text(
         ui,
         "There are no servers and no accounts: your identity is a key kept on this \
-         device, and only the people you add can write to you.",
+         device, and only people you accept can send you messages.",
         &theme.text.body,
         theme.color.text_secondary,
     );
@@ -328,27 +335,30 @@ fn welcome(ui: &mut Ui, app: &mut App) {
             theme.color.text,
         );
         let focus = wants_focus(&ctx);
+        // That the two passphrases differ is said under the second until
+        // either changes, in place of the failure of the last attempt; a
+        // failure of the passphrase is said under the first.
+        let shown: bool = ctx.data(|data| data.get_temp(key)).unwrap_or(false);
+        let (field_error, error) = split_error(app.model.profile_error());
         let first = TextField::new(WELCOME_PASSPHRASE, &mut *app.passphrase)
             .label("Passphrase")
+            .help(Some("Use a long phrase of several words."))
+            .error(field_error.filter(|_| !shown))
             .secret(true)
-            .char_limit(PASSPHRASE_LIMIT)
+            .char_limit(MAX_PASSPHRASE_CHARS)
             .request_focus(focus)
             .show(ui);
         ui.add_space(theme.space.xs);
         let second = TextField::new(WELCOME_AGAIN, &mut *app.passphrase_again)
             .label("Repeat the passphrase")
+            .error(shown.then_some("The two passphrases differ."))
             .secret(true)
-            .char_limit(PASSPHRASE_LIMIT)
+            .char_limit(MAX_PASSPHRASE_CHARS)
             .show(ui);
-        let mut differ: bool = ctx.data(|data| data.get_temp(key)).unwrap_or(false);
-        if first.changed || second.changed {
-            differ = false;
-        }
-        if differ {
-            ui.add(InlineError::new("The two passphrases differ."));
-        } else if let Some(failure) = app.model.profile_error() {
+        if let Some(failure) = error.filter(|_| !shown) {
             ui.add(InlineError::new(failure.message()));
         }
+        let mut differ = shown && !first.changed && !second.changed;
         text(
             ui,
             "Your identities, contacts and messages are kept encrypted on this device under \
@@ -373,6 +383,10 @@ fn welcome(ui: &mut Ui, app: &mut App) {
             } else {
                 differ = true;
             }
+        }
+        if differ != shown {
+            // Drawn as it is now in the next frame.
+            ctx.request_repaint();
         }
         ctx.data_mut(|data| data.insert_temp(key, differ));
     });
@@ -409,13 +423,15 @@ fn locked(ui: &mut Ui, app: &mut App) {
         );
         ui.add_space(theme.space.sm);
         let focus = wants_focus(&ctx);
+        let (field_error, error) = split_error(app.model.profile_error());
         let field = TextField::new(UNLOCK_PASSPHRASE, &mut *app.passphrase)
             .label("Passphrase")
+            .error(field_error)
             .secret(true)
-            .char_limit(PASSPHRASE_LIMIT)
+            .char_limit(MAX_PASSPHRASE_CHARS)
             .request_focus(focus)
             .show(ui);
-        if let Some(failure) = app.model.profile_error() {
+        if let Some(failure) = error {
             ui.add(InlineError::new(failure.message()));
         }
         ui.add_space(theme.space.sm);
@@ -445,5 +461,80 @@ fn locked(ui: &mut Ui, app: &mut App) {
     } else if without_saving {
         forget_all(&ctx, app);
         app.model.start_without_saving();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{Event, Key, Modifiers, Pos2, RawInput, Rect};
+    use monolith_ui_kit::{fonts, theme::Theme};
+    use monolith_ui_model::{Model, ProfileOnDisk, Update};
+
+    use super::*;
+
+    /// A frame of the window in `ctx`, with `events`.
+    fn frame(ctx: &Context, app: &mut App, time: &mut f64, events: Vec<Event>) {
+        *time += 0.1;
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                Pos2::ZERO,
+                Theme::light().size.window_default,
+            )),
+            time: Some(*time),
+            focused: true,
+            events,
+            ..RawInput::default()
+        };
+        let _ = ctx.run(input, |ctx| crate::show(ctx, app));
+    }
+
+    #[test]
+    fn a_passphrase_typed_or_pasted_to_the_limit_never_moves_its_buffer() {
+        let ctx = Context::default();
+        fonts::install(&ctx, &[]);
+        theme::install(&ctx, Theme::light().with_reduced_motion(true));
+        let mut model = Model::new();
+        model.apply(Update::Started {
+            profile: ProfileOnDisk::Absent,
+            location: "/home/user/.local/share/monolith".to_owned(),
+        });
+        let mut app = App::for_tests(model, 0);
+        let mut time = 0.0;
+        for _ in 0..3 {
+            frame(&ctx, &mut app, &mut time, Vec::new());
+        }
+        let first = app.passphrase.as_ptr();
+        let again = app.passphrase_again.as_ptr();
+        // Characters of four bytes, typed a few at a time into the first
+        // field, past its limit.
+        let four = "\u{1D49C}";
+        for _ in 0..30 {
+            frame(
+                &ctx,
+                &mut app,
+                &mut time,
+                vec![Event::Text(four.repeat(10))],
+            );
+        }
+        assert_eq!(app.passphrase.as_ptr(), first);
+        assert_eq!(app.passphrase.chars().count(), 256);
+        assert_eq!(app.passphrase.len(), 1024);
+        // Pasted into the second, past its limit.
+        let tab = Event::Key {
+            key: Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        frame(&ctx, &mut app, &mut time, vec![tab]);
+        frame(
+            &ctx,
+            &mut app,
+            &mut time,
+            vec![Event::Paste(four.repeat(300))],
+        );
+        assert_eq!(app.passphrase_again.as_ptr(), again);
+        assert_eq!(app.passphrase_again.chars().count(), 256);
     }
 }

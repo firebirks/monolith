@@ -20,7 +20,7 @@ use monolith_ui_kit::{Theme, icons, theme};
 use monolith_ui_model::present::Calendar;
 use monolith_ui_model::{
     Deferral, Dialog, Failure, MessageView, Model, Status, Thread, TorIndicator, UiContactId,
-    UiMessageId, present,
+    UiMessageId, Waiting, present,
 };
 
 use crate::app::App;
@@ -29,6 +29,10 @@ use crate::message_list::{self, Key};
 
 /// Messages of one sender within this many seconds form a group.
 const GROUP_SECONDS: u64 = 300;
+
+/// What an identity without contacts can do.
+pub(crate) const NO_CONTACTS: &str =
+    "Add someone using their Monolith card or invitation, or share your card with them.";
 
 /// What the "more" menu asked for.
 #[derive(Clone, Copy)]
@@ -61,15 +65,14 @@ pub(crate) fn inset<R>(ui: &mut Ui, pad: f32, add: impl FnOnce(&mut Ui) -> R) ->
     result
 }
 
-/// The words under the name in the header, if any. A contact added by a
-/// card that is not an invitation waits until it adds this identity's card.
-fn status_line(ended: bool, accepted: bool, verified: bool, invited: bool) -> Option<&'static str> {
+/// The words under the name in the header, if any: that the conversation
+/// ended, what a contact that has not accepted waits for, as the list and
+/// its details say it, or that it was verified.
+fn status_line(ended: bool, waiting: Option<Waiting>, verified: bool) -> Option<&'static str> {
     if ended {
         Some("No longer a contact")
-    } else if !accepted && !invited {
-        Some("Waiting for them to add your card")
-    } else if !accepted {
-        Some("Waiting for them to accept your request")
+    } else if let Some(waiting) = waiting {
+        Some(common::waiting_words(waiting))
     } else if verified {
         Some("Verified")
     } else {
@@ -82,13 +85,17 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, contact: UiContactId) {
     let theme = theme::current(ui.ctx());
     let narrow = ui.ctx().screen_rect().width() < theme.size.narrow_below;
     let pad = theme.space.xl;
-    TopBottomPanel::bottom(egui::Id::new(("conversation-composer", contact)))
-        .frame(chrome::surface_frame(
-            ui.ctx(),
-            Margin::from(Vec2::new(pad, theme.space.lg)),
-        ))
-        .show_separator_line(false)
-        .show_inside(ui, |ui| composer(ui, app, contact));
+    // An ended conversation takes no message: it has no composer, and its
+    // notice says why.
+    if app.model.contact(contact).is_some() {
+        TopBottomPanel::bottom(egui::Id::new(("conversation-composer", contact)))
+            .frame(chrome::surface_frame(
+                ui.ctx(),
+                Margin::from(Vec2::new(pad, theme.space.lg)),
+            ))
+            .show_separator_line(false)
+            .show_inside(ui, |ui| composer(ui, app, contact));
+    }
     header(ui, app, contact, narrow);
     if banners(ui, app, contact, pad) {
         app.model.open(Dialog::OwnCard {
@@ -119,9 +126,9 @@ fn header(ui: &mut Ui, app: &mut App, contact: UiContactId, narrow: bool) {
     let ended = view.is_none();
     let accepted = view.is_some_and(|view| view.accepted);
     let verified = view.is_some_and(|view| view.verified);
-    let invited = view.is_some_and(|view| view.invitation);
     let anonymous = !view.is_some_and(present::named);
-    let line = status_line(ended, accepted, verified, invited);
+    let waiting = app.model.waiting(contact);
+    let line = status_line(ended, waiting, verified);
     let (tor, tor_label) = common::tor_state(&app.model);
     let mut back = false;
     let mut open_tor = false;
@@ -256,10 +263,11 @@ fn header(ui: &mut Ui, app: &mut App, contact: UiContactId, narrow: bool) {
 const BOTH_OPEN: &str = "Messages can be delivered only while Monolith is open on both sides.";
 
 /// The sentence for a delivery that waits, `None` for nothing to say.
-/// While Tor is known not to work nothing can be sent, whatever the last
-/// attempt said. Otherwise Tor not opening a stream to the contact is what
-/// an offline contact looks like, and is said as such. While the contact
-/// has not accepted, the notice of the request says enough.
+/// While Tor is known not to work nothing can be delivered, whatever the
+/// last attempt said; messages are still queued. Otherwise Tor not opening
+/// a stream to the contact is what an offline contact looks like, and is
+/// said as such. While the contact has not accepted, the notice of the
+/// request says enough.
 fn deferral_text(
     reason: Option<Deferral>,
     name: &str,
@@ -267,10 +275,9 @@ fn deferral_text(
     waiting: bool,
 ) -> Option<String> {
     let text = match reason {
-        _ if tor_down => {
-            "Tor is not available, so nothing can be sent. Monolith tries again when Tor is back."
-                .to_owned()
-        }
+        _ if tor_down => "Tor is not available, so nothing can be delivered. Monolith tries \
+                          again when Tor is back."
+            .to_owned(),
         _ if waiting => return None,
         None => return None,
         Some(Deferral::Tor | Deferral::Unreachable) => format!(
@@ -349,13 +356,19 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
         ));
     }
     // Without an invitation the request is dropped, unless they take
-    // requests from anyone (`PROTOCOL.md` section 12.2).
+    // requests from anyone (`PROTOCOL.md` section 12.2). With one, it is
+    // seen only while the invitation is active and they take requests.
     if waiting && invited {
+        let with = if app.model.waiting(contact) == Some(Waiting::FirstMessage) {
+            "your first message"
+        } else {
+            "your messages"
+        };
         notices.push((
             "waiting",
             Tone::Info,
             format!(
-                "Your request leaves with your first message. {name} sees it through the invitation they gave you, with your fingerprint only, and can read your messages after accepting. Tell them it is you."
+                "Your request goes out with {with}. {name} should see it through the invitation they gave you, with your fingerprint only, and can read your messages after accepting. Tell them it is you."
             ),
             None,
         ));
@@ -380,12 +393,14 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
             notices.push(("deferral", Tone::Info, text, None));
         }
     }
+    // Refused only for want of room: the conversation or the message store
+    // is full (`RefusedReason::StoreFull` of the runtime).
     if refused {
         notices.push((
             "refused",
             Tone::Warning,
             format!(
-                "A message from {name} could not be saved on this device. Their Monolith will send it again."
+                "There is no more room for messages on this device, so a message from {name} could not be saved. Their Monolith will send it again. To make room, delete the messages of this conversation or of others."
             ),
             None,
         ));
@@ -428,12 +443,6 @@ struct Messages<'a> {
     calendar: &'a dyn Calendar,
     theme: Arc<Theme>,
     contact: UiContactId,
-    /// The contact has not accepted yet.
-    waiting: bool,
-    /// The card held for the contact carries an invitation.
-    invited: bool,
-    /// The name of the contact.
-    name: String,
     /// "Load earlier messages" was chosen.
     load: bool,
     /// "Show more" was chosen on this message.
@@ -515,7 +524,7 @@ impl message_list::Content for Messages<'_> {
             ui.add_space(theme.space.sm);
         }
         if thread.messages.is_empty() && !thread.loading {
-            empty_note(ui, self.waiting, self.invited, &self.name);
+            empty_note(ui);
         }
     }
 
@@ -586,23 +595,11 @@ impl message_list::Content for Messages<'_> {
 /// messages in or near view are laid out (`message_list`).
 fn messages(ui: &mut Ui, app: &mut App, contact: UiContactId, pad: f32) {
     let theme = theme::current(ui.ctx());
-    let name = app.model.contact_name(contact);
-    let waiting = app
-        .model
-        .contact(contact)
-        .is_some_and(|view| !view.accepted);
-    let invited = app
-        .model
-        .contact(contact)
-        .is_some_and(|view| view.invitation);
     let mut shown = Messages {
         model: &mut app.model,
         calendar: &*app.calendar,
         theme: theme.clone(),
         contact,
-        waiting,
-        invited,
-        name,
         load: false,
         expand: None,
     };
@@ -630,50 +627,36 @@ pub(crate) fn forget(ctx: &egui::Context, contact: UiContactId) {
     ctx.data_mut(|data| data.remove::<Failure>(egui::Id::new(("send-error", contact))));
 }
 
-/// The note of a conversation without messages.
-fn empty_note(ui: &mut Ui, waiting: bool, invited: bool, name: &str) {
+/// The note of a conversation without messages. What a contact that has
+/// not accepted waits for is said once, by the notice above.
+fn empty_note(ui: &mut Ui) {
     let theme = theme::current(ui.ctx());
     ui.add_space(theme.space.huge);
     ui.vertical_centered(|ui| {
-        ui.spacing_mut().item_spacing.y = theme.space.xs;
         ui.add(Text::new(
             "No messages yet.",
             &theme.text.body_strong,
             theme.color.text_secondary,
         ));
-        if waiting {
-            let text = if invited {
-                format!(
-                    "Your first message sends your request. {name} can read it only after accepting."
-                )
-            } else {
-                format!("Your messages stay on this device until {name} has added your card too.")
-            };
-            ui.add(Text::new(
-                &text,
-                &theme.text.caption,
-                theme.color.text_tertiary,
-            ));
-        }
     });
 }
 
-fn make_composer<'a>(
-    text: &'a mut String,
+fn make_composer(
+    text: &mut String,
     contact: UiContactId,
-    (sendable, reason): (bool, Option<&'a str>),
+    sendable: bool,
     busy: bool,
     focus: bool,
-) -> Composer<'a> {
+) -> Composer<'_> {
     Composer::new(("composer", contact), text)
         .max_bytes(present::MAX_MESSAGE_BYTES)
         .sendable(sendable)
-        .blocked_reason(reason)
         .busy(busy)
         .request_focus(focus)
 }
 
-/// The composer at the bottom, with the error of the last send above it.
+/// The composer at the bottom of the conversation of a contact, with the
+/// error of the last send above it.
 fn composer(ui: &mut Ui, app: &mut App, contact: UiContactId) {
     let theme = theme::current(ui.ctx());
     let ctx = ui.ctx().clone();
@@ -692,15 +675,12 @@ fn composer(ui: &mut Ui, app: &mut App, contact: UiContactId) {
         .model
         .thread(contact)
         .is_some_and(|thread| thread.sending.is_some());
-    let ended = app.model.contact(contact).is_none();
     // After a failed store nothing can be sent; the composer gives no
     // reason of its own, as the window says it once.
     let storage = app.model.storage_failed();
-    let reason = (ended && !storage).then_some("This contact was removed or blocked.");
     let sendable = app.model.can_send(contact);
-    let focus =
-        !ended && !storage && (app.focus_composer || app.last_conversation != Some(contact));
-    if let Some(failure) = failure {
+    let focus = !storage && (app.focus_composer || app.last_conversation != Some(contact));
+    if let Some(failure) = failure.filter(|failure| failure.said_in_place()) {
         ui.add(InlineError::new(failure.message()));
         ui.add_space(theme.space.sm);
     }
@@ -709,13 +689,15 @@ fn composer(ui: &mut Ui, app: &mut App, contact: UiContactId) {
         // queued; without a thread read there is none.
         let mut none = String::new();
         let output = match app.model.draft_mut(contact) {
-            Some(draft) => {
-                make_composer(draft, contact, (sendable, reason), sending, focus).show(ui)
-            }
-            None => make_composer(&mut none, contact, (sendable, reason), sending, focus).show(ui),
+            Some(draft) => make_composer(draft, contact, sendable, sending, focus).show(ui),
+            None => make_composer(&mut none, contact, sendable, sending, focus).show(ui),
         };
         (output.send_requested, output.changed)
     };
+    if changed {
+        // Whether the draft still starts with a text being queued.
+        app.model.draft_edited(contact);
+    }
     if changed || send {
         ctx.data_mut(|data| data.remove::<Failure>(error_id));
     }
@@ -763,10 +745,11 @@ pub(crate) fn show_nothing_selected(ui: &mut Ui, app: &mut App) {
             }
         }
         Some(identity) if loaded && empty => {
+            // Invite is in the strip under the list.
             let output = EmptyState::new("nothing-no-contacts", icons::USERS, "No contacts yet")
-                .body("Add someone using their Monolith card or invitation.")
+                .body(NO_CONTACTS)
                 .primary("Add contact")
-                .secondary("Invite")
+                .secondary("Share my card")
                 .show(ui);
             if output.primary {
                 app.model.open(Dialog::AddContact {
@@ -779,10 +762,9 @@ pub(crate) fn show_nothing_selected(ui: &mut Ui, app: &mut App) {
                 });
             }
             if output.secondary {
-                app.model.open(Dialog::NewInvitation {
+                app.model.open(Dialog::OwnCard {
                     identity,
-                    label: String::new(),
-                    created: None,
+                    card: None,
                     busy: None,
                     error: None,
                 });
@@ -834,6 +816,8 @@ mod tests {
             let text = deferral_text(reason, "Alice", true, false).unwrap_or_default();
             assert!(text.starts_with("Tor is not available"), "{text}");
             assert!(!text.contains("Alice"), "{text}");
+            // The composer still queues: what waits is delivery.
+            assert!(text.contains("nothing can be delivered"), "{text}");
         }
         for reason in [Deferral::Tor, Deferral::Unreachable] {
             let text = deferral_text(Some(reason), "Alice", false, false).unwrap_or_default();

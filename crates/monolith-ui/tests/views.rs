@@ -18,15 +18,15 @@
 
 use egui::epaint::Shape;
 use egui::{
-    Context, Event, FullOutput, Id, Key, Modifiers, OutputCommand, PointerButton, Pos2, RawInput,
-    Rect, Vec2, ViewportCommand, ViewportId, pos2,
+    Color32, Context, Event, FullOutput, Id, Key, Modifiers, OutputCommand, PointerButton, Pos2,
+    RawInput, Rect, Vec2, ViewportCommand, ViewportId, pos2,
 };
 use monolith_ui::fixtures::{NOW, conversation_window, fixture, long_text};
-use monolith_ui::{App, Effect};
+use monolith_ui::{App, Effect, EffectResult};
 use monolith_ui_kit::{Theme, fonts, icons, theme};
 use monolith_ui_model::{
-    Command, Deferral, Dialog, MessageView, Outcome, RuntimeEvent, Status, UiBlockedId,
-    UiContactId, UiIdentityId, UiMessageId, Update,
+    Command, Deferral, Dialog, Failure, MessageView, Outcome, RuntimeEvent, Status, UiBlockedId,
+    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -63,6 +63,9 @@ struct Window {
     time: f64,
     /// The texts of the last frame, where they were drawn.
     texts: Vec<(String, Rect)>,
+    /// The outlined rectangles of the last frame, with the colour of their
+    /// outline.
+    outlines: Vec<(Rect, Color32)>,
     /// What the frames since the last look asked of the window.
     commands: Vec<ViewportCommand>,
     /// What the last frame copied to the clipboard.
@@ -91,6 +94,7 @@ impl Window {
             size,
             time: 0.0,
             texts: Vec::new(),
+            outlines: Vec::new(),
             commands: Vec::new(),
             copied: Vec::new(),
         }
@@ -108,6 +112,7 @@ impl Window {
         let app = &mut self.app;
         let output = self.ctx.run(input, |ctx| monolith_ui::show(ctx, app));
         self.texts = texts(&output);
+        self.outlines = outlines(&output);
         if let Some(viewport) = output.viewport_output.get(&ViewportId::ROOT) {
             self.commands.extend(viewport.commands.iter().cloned());
         }
@@ -245,6 +250,44 @@ impl Window {
     fn count(&self, text: &str) -> usize {
         self.texts.iter().filter(|(shown, _)| shown == text).count()
     }
+
+    /// How many texts drawn hold `part`.
+    fn count_part(&self, part: &str) -> usize {
+        self.texts
+            .iter()
+            .filter(|(shown, _)| shown.contains(part))
+            .count()
+    }
+
+    /// The outlines drawn in the colour of an error: the fields that hold
+    /// one.
+    fn error_outlines(&self) -> Vec<Rect> {
+        let danger = Theme::light().color.danger;
+        self.outlines
+            .iter()
+            .filter(|(_, color)| *color == danger)
+            .map(|(rect, _)| *rect)
+            .collect()
+    }
+
+    /// Types `text` into what has the focus.
+    fn type_text(&mut self, text: &str) {
+        self.frame(vec![Event::Text(text.to_owned())]);
+    }
+
+    /// Answers the commands asked since the last look that `answer` has an
+    /// answer for, and returns every command asked.
+    fn answer(&mut self, mut answer: impl FnMut(&Command) -> Option<Outcome>) -> Vec<Command> {
+        let mut asked = Vec::new();
+        for (command, what) in self.app.model.take_commands() {
+            if let Some(outcome) = answer(&what) {
+                self.app.model.apply(Update::Done { command, outcome });
+            }
+            asked.push(what);
+        }
+        self.settle();
+        asked
+    }
 }
 
 fn collect(shape: &Shape, into: &mut Vec<(String, Rect)>) {
@@ -267,6 +310,27 @@ fn texts(output: &FullOutput) -> Vec<(String, Rect)> {
     let mut found = Vec::new();
     for clipped in &output.shapes {
         collect(&clipped.shape, &mut found);
+    }
+    found
+}
+
+fn collect_outlines(shape: &Shape, into: &mut Vec<(Rect, Color32)>) {
+    match shape {
+        Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_outlines(shape, into);
+            }
+        }
+        Shape::Rect(rect) if rect.stroke.width > 0.0 => into.push((rect.rect, rect.stroke.color)),
+        _ => {}
+    }
+}
+
+/// Every outlined rectangle painted in `output`, with its outline colour.
+fn outlines(output: &FullOutput) -> Vec<(Rect, Color32)> {
+    let mut found = Vec::new();
+    for clipped in &output.shapes {
+        collect_outlines(&clipped.shape, &mut found);
     }
     found
 }
@@ -728,7 +792,8 @@ fn the_first_screens_say_where_the_profile_is_kept_only_when_asked() {
 #[test]
 fn a_passphrase_is_cut_at_the_longest_the_vault_takes() {
     let mut window = Window::new("welcome", WIDE);
-    let long = "a".repeat(1100);
+    // 256 characters of four bytes are the 1024 bytes the vault takes.
+    let long = "\u{1D49C}".repeat(300);
     // The first field has the focus; type, move to the second, type.
     window.frame(vec![Event::Text(long.clone())]);
     window.frame(vec![Event::Key {
@@ -747,10 +812,12 @@ fn a_passphrase_is_cut_at_the_longest_the_vault_takes() {
             .take_commands()
             .into_iter()
             .find_map(|(_, command)| match command {
-                Command::CreateProfile { passphrase } => Some(passphrase.len()),
+                Command::CreateProfile { passphrase } => {
+                    Some((passphrase.chars().count(), passphrase.len()))
+                }
                 _ => None,
             });
-    assert_eq!(created, Some(1024));
+    assert_eq!(created, Some((256, 1024)));
 }
 
 /// What a contact added by a card, not an invitation, waits for.
@@ -758,8 +825,8 @@ const CARD_ADDED: &str = "This is their card, not an invitation. Contact C7TQ mu
                           card too before your messages can arrive.";
 const WAITING_CARD: &str = "You added their card, not an invitation. Contact C7TQ must add \
                             your card too before your messages can arrive.";
-const WAITING_INVITATION: &str = "Your request leaves with your first message. Contact C7TQ sees \
-                                  it through the invitation they gave you, with your \
+const WAITING_INVITATION: &str = "Your request goes out with your messages. Contact C7TQ should \
+                                  see it through the invitation they gave you, with your \
                                   fingerprint only, and can read your messages after \
                                   accepting. Tell them it is you.";
 
@@ -1030,8 +1097,15 @@ fn what_is_typed_while_a_message_is_queued_stays_in_the_composer() {
     assert!(window.shows("Bring the map."));
 }
 
+/// What the question before unblocking says: what it lets them do, and
+/// that nothing is kept of them to block them by.
+const UNBLOCK: &str = "They can send you requests again, as \"Who can send you requests\" \
+                       allows. Monolith keeps no record of them after this, so you can block \
+                       them again only from a request they send or once you have added their \
+                       card.";
+
 #[test]
-fn the_identities_page_lists_who_is_blocked_and_unblocks_at_once() {
+fn the_identities_page_lists_who_is_blocked_and_unblocks_after_asking() {
     // Tall enough to show the whole page, wide and narrow.
     for size in [Vec2::new(1180.0, 2000.0), Vec2::new(760.0, 2200.0)] {
         let mut window = Window::new("settings-blocked", size);
@@ -1042,15 +1116,32 @@ fn the_identities_page_lists_who_is_blocked_and_unblocks_at_once() {
         // Work blocked nobody: one line says so.
         assert_eq!(window.count("Nobody is blocked."), 1);
 
-        // No question first: the person on the row is unblocked at once.
+        // A question first, which says what unblocking does; nothing is
+        // unblocked by asking, and Enter keeps the block: Cancel has the
+        // focus.
+        let _ = window.app.model.take_commands();
         window.click_beside("Unblock", DANA);
-        assert!(window.app.model.dialog().is_none());
+        assert!(
+            window.shows("Unblock this person?"),
+            "{:#?}",
+            window.shown()
+        );
+        assert!(window.shows(UNBLOCK));
+        assert!(window.app.model.take_commands().is_empty());
+        window.press(Key::Enter);
+        assert!(!window.shows("Unblock this person?"));
+        assert!(window.app.model.take_commands().is_empty());
+        // Asked again and confirmed: the person on the row is unblocked.
+        window.click_beside("Unblock", DANA);
+        window.click_last("Unblock");
+        assert!(!window.shows("Unblock this person?"));
         let dana = UiBlockedId::new(UiIdentityId::from_bytes([1; 16]), 1);
         let commands = window.app.model.take_commands();
         let asked: Vec<&Command> = commands.iter().map(|(_, command)| command).collect();
         assert_eq!(asked, [&Command::Unblock(dana)]);
         // While it is under way, the button takes no click.
         window.click_beside("Unblock", DANA);
+        assert!(!window.shows("Unblock this person?"));
         assert!(window.app.model.take_commands().is_empty());
 
         window.app.model.apply(Update::Done {
@@ -1062,6 +1153,7 @@ fn the_identities_page_lists_who_is_blocked_and_unblocks_at_once() {
 
         // The button of the other row names the other person.
         window.click_beside("Unblock", GREG);
+        window.click_last("Unblock");
         let greg = UiBlockedId::new(UiIdentityId::from_bytes([1; 16]), 2);
         let unblocks: Vec<Command> = window
             .app
@@ -1076,9 +1168,423 @@ fn the_identities_page_lists_who_is_blocked_and_unblocks_at_once() {
 }
 
 #[test]
+fn the_shortcuts_of_the_window_wait_while_unblocking_is_asked() {
+    let mut window = Window::new("settings-blocked", Vec2::new(1180.0, 2000.0));
+    let _ = window.app.model.take_commands();
+    window.click_beside("Unblock", DANA);
+    assert!(window.shows("Unblock this person?"));
+    // Escape answers the question; it does not leave the settings.
+    window.press(Key::Escape);
+    assert!(!window.shows("Unblock this person?"));
+    assert!(window.shows(DANA));
+    assert!(window.app.model.take_commands().is_empty());
+}
+
+#[test]
 fn an_identity_that_blocked_nobody_says_so_in_one_line() {
     let window = Window::new("settings-identities", Vec2::new(1180.0, 2000.0));
     assert_eq!(window.count("Nobody is blocked."), 2);
     assert!(!window.shows(BLOCKED));
     assert!(!window.shows("Unblock"));
+}
+
+fn carol() -> UiContactId {
+    UiContactId::new(UiIdentityId::from_bytes([1; 16]), [12; 16])
+}
+
+/// How many texts drawn say that Monolith must be started again.
+fn restart_said(window: &Window) -> usize {
+    window.count_part("Restart Monolith")
+}
+
+#[test]
+fn a_failed_store_is_said_once_and_not_again_where_it_was_met() {
+    let mut window = Window::new("conversation", WIDE);
+    let _ = window.app.model.take_commands();
+    // A send meets it.
+    window.type_text("See you at eight.");
+    window.press(Key::Enter);
+    window.answer(|command| match command {
+        Command::Send { .. } => Some(Outcome::Failed(Failure::Storage)),
+        _ => None,
+    });
+    window
+        .app
+        .model
+        .apply(Update::Event(RuntimeEvent::StorageFailed));
+    window.settle();
+    assert_eq!(restart_said(&window), 1, "{:#?}", window.shown());
+    // So does the action of a dialog.
+    window.app.model.open(Dialog::ContactDetails {
+        contact: alice(),
+        name: "Alice".to_owned(),
+        busy: None,
+        error: None,
+    });
+    window.app.model.confirm();
+    window.answer(|command| match command {
+        Command::SetContactName { .. } => Some(Outcome::Failed(Failure::Storage)),
+        _ => None,
+    });
+    assert_eq!(restart_said(&window), 1, "{:#?}", window.shown());
+    // And a command without a dialog.
+    window.app.model.close();
+    window.app.model.set_verified(alice(), false);
+    window.answer(|command| match command {
+        Command::SetVerified { .. } => Some(Outcome::Failed(Failure::Storage)),
+        _ => None,
+    });
+    assert_eq!(restart_said(&window), 1, "{:#?}", window.shown());
+}
+
+#[test]
+fn a_message_refused_for_want_of_room_says_what_to_do() {
+    let mut window = Window::new("conversation", WIDE);
+    window
+        .app
+        .model
+        .apply(Update::Event(RuntimeEvent::MessageRefused(alice())));
+    window.settle();
+    assert!(
+        window.shows_part("There is no more room for messages on this device"),
+        "{:#?}",
+        window.shown()
+    );
+    assert!(window.shows_part("To make room, delete"));
+}
+
+#[test]
+fn a_passphrase_that_fails_marks_its_field() {
+    // The wrong passphrase, under the field that holds it.
+    let window = Window::new("unlock-error", WIDE);
+    assert!(window.shows("That passphrase does not open this profile."));
+    assert_eq!(window.error_outlines().len(), 1, "{:#?}", window.outlines);
+    // Two that differ mark the second field.
+    let mut window = Window::new("welcome", WIDE);
+    assert!(window.error_outlines().is_empty());
+    window.type_text("first words");
+    window.press(Key::Tab);
+    window.type_text("other words");
+    window.press(Key::Enter);
+    assert!(window.shows("The two passphrases differ."));
+    let marked = window.error_outlines();
+    assert_eq!(marked.len(), 1, "{:#?}", window.outlines);
+    let (_, again) = window
+        .texts
+        .iter()
+        .find(|(text, _)| text == "Repeat the passphrase")
+        .unwrap();
+    assert!(marked[0].top() > again.bottom(), "{marked:?} {again:?}");
+}
+
+#[test]
+fn the_first_start_says_how_to_choose_a_passphrase_and_who_can_write() {
+    let window = Window::new("welcome", WIDE);
+    assert!(window.shows("Use a long phrase of several words."));
+    assert!(window.shows_part("only people you accept can send you messages"));
+    assert!(!window.shows_part("only the people you add can write to you"));
+}
+
+/// What invitations do while requests are set to Nobody.
+const NOBODY_INVITATIONS: &str = "Requests are set to Nobody: no request arrives, not even \
+                                  through an invitation, until you change who can send you \
+                                  requests.";
+
+/// What every text said of an invitation, true only while requests are
+/// not set to Nobody.
+const UNTIL_REVOKED: &str = "can send you a request until you revoke it";
+
+#[test]
+fn under_nobody_no_text_says_that_an_invitation_brings_a_request() {
+    // The personal identity is set to Nobody; Work is not.
+    let mut window = Window::new("settings-nobody", Vec2::new(1180.0, 2000.0));
+    assert_eq!(
+        window.count_part(NOBODY_INVITATIONS),
+        1,
+        "{:#?}",
+        window.shown()
+    );
+    assert_eq!(window.count_part(UNTIL_REVOKED), 1);
+    window.press(Key::Escape);
+    let personal = UiIdentityId::from_bytes([1; 16]);
+    window.app.model.open(Dialog::NewInvitation {
+        identity: personal,
+        label: String::new(),
+        created: None,
+        busy: None,
+        error: None,
+    });
+    window.settle();
+    assert!(
+        window.shows_part(NOBODY_INVITATIONS),
+        "{:#?}",
+        window.shown()
+    );
+    assert!(!window.shows_part(UNTIL_REVOKED));
+    window.app.model.confirm();
+    window.answer(|command| match command {
+        Command::CreateInvitation { .. } => Some(Outcome::InvitationCreated {
+            invitation: UiInvitationId::new(personal, 3),
+            card: Zeroizing::new("MONOLITH1:AAAA".to_owned()),
+        }),
+        _ => None,
+    });
+    assert!(window.shows("New invitation"));
+    assert!(
+        window.shows_part(NOBODY_INVITATIONS),
+        "{:#?}",
+        window.shown()
+    );
+    assert!(!window.shows_part(UNTIL_REVOKED));
+}
+
+#[test]
+fn accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it() {
+    let mut window = Window::new("requests", WIDE);
+    let _ = window.app.model.take_commands();
+    window.click("Accept");
+    window.click_last("Accept");
+    let frank = UiContactId::new(UiIdentityId::from_bytes([1; 16]), [15; 16]);
+    window.answer(|command| match command {
+        Command::AcceptRequest { .. } => Some(Outcome::RequestAccepted(frank)),
+        _ => None,
+    });
+    assert!(
+        window.shows_part("\"Climbing gym\""),
+        "{:#?}",
+        window.shown()
+    );
+    window.click("Revoke");
+    assert!(
+        matches!(
+            window.app.model.dialog(),
+            Some(Dialog::RevokeInvitation { invitation, .. })
+                if *invitation == UiInvitationId::new(UiIdentityId::from_bytes([1; 16]), 1)
+        ),
+        "{:?}",
+        window.app.model.dialog()
+    );
+}
+
+/// What the question before declining says.
+const DECLINE: &str = "Nothing is sent to them. Their later requests are dropped without being \
+                       shown, and Monolith does not show whom you declined, so this cannot be \
+                       undone here. To talk with them later, add their card.";
+
+#[test]
+fn declining_a_request_asks_first_and_says_it_cannot_be_undone() {
+    let mut window = Window::new("requests", WIDE);
+    let _ = window.app.model.take_commands();
+    window.click("Decline");
+    assert!(
+        window.shows("Decline this request?"),
+        "{:#?}",
+        window.shown()
+    );
+    assert!(window.shows(DECLINE));
+    assert!(window.app.model.take_commands().is_empty());
+    // Enter keeps the request: Cancel has the focus.
+    window.press(Key::Enter);
+    assert!(!window.shows("Decline this request?"));
+    assert!(window.app.model.take_commands().is_empty());
+    // Asked again and confirmed: the request is declined.
+    window.click("Decline");
+    window.click_last("Decline");
+    let asked: Vec<Command> = window
+        .app
+        .model
+        .take_commands()
+        .into_iter()
+        .map(|(_, command)| command)
+        .collect();
+    assert_eq!(
+        asked,
+        [Command::DeclineRequest(UiRequestId::new(
+            UiIdentityId::from_bytes([1; 16]),
+            1
+        ))]
+    );
+}
+
+#[test]
+fn the_shortcuts_of_the_window_wait_while_declining_is_asked() {
+    let mut window = Window::new("requests", WIDE);
+    window.click("Decline");
+    let selected = window.app.model.selection();
+    window.frame(vec![Event::Key {
+        key: Key::ArrowDown,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers::ALT,
+    }]);
+    window.settle();
+    assert_eq!(window.app.model.selection(), selected);
+    assert!(window.shows("Decline this request?"));
+}
+
+#[test]
+fn a_waiting_contact_is_said_to_wait_for_the_same_thing_everywhere() {
+    for (name, said, places) in [
+        // Nothing written yet: the header, the list and the details.
+        ("waiting-new", "Request not sent yet", 3),
+        // Written to: the header and the details; the list shows the
+        // message.
+        ("waiting", "Waiting for them to accept your request", 2),
+        ("waiting-card", "Waiting for them to add your card", 2),
+    ] {
+        let mut window = Window::new(name, WIDE);
+        window.app.model.open(Dialog::ContactDetails {
+            contact: carol(),
+            name: String::new(),
+            busy: None,
+            error: None,
+        });
+        window.settle();
+        assert_eq!(window.count(said), places, "{name}: {:#?}", window.shown());
+        assert!(!window.shows_part("Your first message sends your request"));
+    }
+    let window = Window::new("waiting-new", WIDE);
+    assert!(window.shows_part("Your request goes out with your first message."));
+}
+
+#[test]
+fn an_ended_conversation_says_once_that_it_ended() {
+    let mut window = Window::new("conversation", WIDE);
+    window.click("Former contact D4XM");
+    assert_eq!(
+        window.count_part("removed or blocked"),
+        1,
+        "{:#?}",
+        window.shown()
+    );
+    assert!(window.shows("No longer a contact"));
+}
+
+#[test]
+fn tor_is_said_the_same_in_its_details_and_in_the_settings() {
+    let mut window = Window::new("tor-unavailable", WIDE);
+    window.app.model.open(Dialog::TorDetails);
+    window.settle();
+    let said: Vec<String> = window
+        .texts
+        .iter()
+        .filter(|(text, _)| text.starts_with("Tor is not running"))
+        .map(|(text, _)| text.clone())
+        .collect();
+    assert_eq!(said.len(), 1, "{:#?}", window.shown());
+    assert!(said[0].contains("Check again"), "{said:?}");
+    window.click("Connection settings");
+    assert!(window.shows("SOCKS endpoint"));
+    assert!(window.shows(&said[0]), "{:#?}", window.shown());
+}
+
+#[test]
+fn notices_end_with_a_period_and_empty_states_have_titles_without_one() {
+    let mut window = Window::new("conversation", WIDE);
+    window.app.model.open(Dialog::OwnCard {
+        identity: UiIdentityId::from_bytes([1; 16]),
+        card: None,
+        busy: None,
+        error: None,
+    });
+    window.answer(|command| match command {
+        Command::OwnCard(_) => Some(Outcome::Card(Zeroizing::new("MONOLITH1:AAAA".to_owned()))),
+        _ => None,
+    });
+    window.click("Copy card");
+    assert!(window.shows("Card copied."), "{:#?}", window.shown());
+    window.app.effect_done(EffectResult::CardSaved {
+        path: "/home/user/Downloads/monolith-card.txt".to_owned(),
+    });
+    window.settle();
+    assert!(window.shows("Saved to /home/user/Downloads/monolith-card.txt."));
+
+    let mut window = Window::new("empty-identity", WIDE);
+    window.app.model.show_requests();
+    window.settle();
+    assert!(window.shows("No requests waiting"), "{:#?}", window.shown());
+}
+
+#[test]
+fn the_data_and_about_pages_say_what_is_kept_apart_and_nothing_twice() {
+    let window = Window::new("settings-data", WIDE);
+    assert!(window.shows_part("not encrypted"), "{:#?}", window.shown());
+    assert!(window.shows_part("Unread counts are not kept"));
+    let window = Window::new("about", WIDE);
+    assert!(!window.shows_part("0.0.0"), "{:#?}", window.shown());
+    assert_eq!(window.count_part("No telemetry"), 1);
+}
+
+#[test]
+fn the_details_of_a_contact_say_what_is_saved_when() {
+    let window = Window::new("contact-details", WIDE);
+    assert!(window.shows("Changes to Verified are saved at once; the name when you press Save."));
+    assert!(!window.shows("Saved at once"));
+}
+
+#[test]
+fn an_identity_without_contacts_offers_its_card() {
+    for size in [WIDE, NARROW] {
+        let mut window = Window::new("empty-identity", size);
+        window.click("Share my card");
+        assert!(
+            matches!(
+                window.app.model.dialog(),
+                Some(Dialog::OwnCard { identity, .. })
+                    if *identity == UiIdentityId::from_bytes([2; 16])
+            ),
+            "{size:?}"
+        );
+    }
+}
+
+#[test]
+fn a_draft_cleared_and_typed_again_while_a_message_is_queued_stays_whole() {
+    let mut window = Window::new("conversation", WIDE);
+    let _ = window.app.model.take_commands();
+    window.type_text("ok");
+    window.press(Key::Enter);
+    let sent: Vec<_> = window
+        .app
+        .model
+        .take_commands()
+        .into_iter()
+        .filter(|(_, command)| matches!(command, Command::Send { .. }))
+        .collect();
+    assert_eq!(sent.len(), 1);
+    // Cleared while the runtime queues it, and something new typed that
+    // starts the same way.
+    window.press(Key::Backspace);
+    window.press(Key::Backspace);
+    assert_eq!(window.app.model.thread(alice()).unwrap().draft, "");
+    window.type_text("ok, I will call");
+    window.settle();
+    window.app.model.apply(Update::Done {
+        command: sent[0].0,
+        outcome: Outcome::MessageQueued(UiMessageId::new(alice(), 20)),
+    });
+    window.settle();
+    assert_eq!(
+        window.app.model.thread(alice()).unwrap().draft,
+        "ok, I will call"
+    );
+}
+
+#[test]
+fn deleting_the_messages_of_a_contact_that_has_not_accepted_says_its_request_waits_too() {
+    let mut window = Window::new("waiting", WIDE);
+    window.app.model.open(Dialog::DeleteConversation {
+        contact: carol(),
+        busy: None,
+        error: None,
+    });
+    window.settle();
+    assert!(
+        window.shows_part(
+            "Your request goes out only with a message, so it is not sent either until you write again."
+        ),
+        "{:#?}",
+        window.shown()
+    );
 }

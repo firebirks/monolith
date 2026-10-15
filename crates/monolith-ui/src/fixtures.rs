@@ -28,6 +28,7 @@ pub const NAMES: &[&str] = &[
     "conversation-deferred",
     "narrow-conversation",
     "waiting",
+    "waiting-new",
     "waiting-card",
     "card-added",
     "tor-unavailable",
@@ -247,6 +248,8 @@ struct Builder {
     /// Carol, who has not accepted, was added by an invitation, not by
     /// her card.
     carol_invited: bool,
+    /// A message to Carol was written, which takes the request.
+    carol_written: bool,
     /// The personal identity blocked Dana, a contact, and Greg, who sent a
     /// request.
     blocked: bool,
@@ -264,6 +267,7 @@ impl Builder {
             bob_new: 0,
             long: false,
             carol_invited: true,
+            carol_written: true,
             blocked: false,
         }
     }
@@ -352,6 +356,8 @@ impl Builder {
                     alice_messages(self.queued_tail, self.long)
                 } else if *asked == contact(1, 11) {
                     bob_messages(self.bob_new)
+                } else if *asked == contact(1, 12) && !self.carol_written {
+                    Vec::new()
                 } else {
                     vec![message(
                         *asked,
@@ -394,6 +400,49 @@ impl Builder {
         };
         let alice_all = alice_messages(self.queued_tail, self.long);
         let bob_all = bob_messages(self.bob_new);
+        let mut conversations = vec![
+            ConversationView {
+                contact: alice,
+                fingerprint: ALICE_FP.to_owned(),
+                active: true,
+                messages: alice_all.len(),
+                queued: usize::from(self.queued_tail),
+                latest: alice_all.last().cloned(),
+            },
+            ConversationView {
+                contact: bob,
+                fingerprint: BOB_FP.to_owned(),
+                active: true,
+                messages: bob_all.len(),
+                queued: 0,
+                latest: bob_all.last().cloned(),
+            },
+            ConversationView {
+                contact: carol,
+                fingerprint: CAROL_FP.to_owned(),
+                active: true,
+                messages: 1,
+                queued: 1,
+                latest: Some(message(
+                    carol,
+                    1,
+                    Status::Queued,
+                    3_000,
+                    "Hello, this is Sam from the workshop.",
+                )),
+            },
+            ConversationView {
+                contact: dana,
+                fingerprint: DANA_FP.to_owned(),
+                active: false,
+                messages: 3,
+                queued: 0,
+                latest: Some(message(dana, 3, Status::Received, 9_000, "Talk soon.")),
+            },
+        ];
+        if !self.carol_written {
+            conversations.retain(|conversation| conversation.contact != carol);
+        }
         IdentitySnapshot {
             identity: personal,
             contacts: vec![
@@ -405,46 +454,7 @@ impl Builder {
                 },
                 contact_view(erin, Some("Erin"), ERIN_FP, true),
             ],
-            conversations: vec![
-                ConversationView {
-                    contact: alice,
-                    fingerprint: ALICE_FP.to_owned(),
-                    active: true,
-                    messages: alice_all.len(),
-                    queued: usize::from(self.queued_tail),
-                    latest: alice_all.last().cloned(),
-                },
-                ConversationView {
-                    contact: bob,
-                    fingerprint: BOB_FP.to_owned(),
-                    active: true,
-                    messages: bob_all.len(),
-                    queued: 0,
-                    latest: bob_all.last().cloned(),
-                },
-                ConversationView {
-                    contact: carol,
-                    fingerprint: CAROL_FP.to_owned(),
-                    active: true,
-                    messages: 1,
-                    queued: 1,
-                    latest: Some(message(
-                        carol,
-                        1,
-                        Status::Queued,
-                        3_000,
-                        "Hello, this is Sam from the workshop.",
-                    )),
-                },
-                ConversationView {
-                    contact: dana,
-                    fingerprint: DANA_FP.to_owned(),
-                    active: false,
-                    messages: 3,
-                    queued: 0,
-                    latest: Some(message(dana, 3, Status::Received, 9_000, "Talk soon.")),
-                },
-            ],
+            conversations,
             requests: vec![RequestView {
                 id: UiRequestId::new(personal, 1),
                 fingerprint: FRANK_FP.to_owned(),
@@ -579,6 +589,11 @@ pub fn fixture(name: &str) -> Option<App> {
             app
         }
         "waiting" => standard().open(contact(1, 12)).app(),
+        "waiting-new" => {
+            let mut builder = Builder::new().started(true);
+            builder.carol_written = false;
+            builder.ready().open(contact(1, 12)).app()
+        }
         "waiting-card" => {
             let mut app = card_only().open(contact(1, 12)).app();
             app.narrow_conversation = true;

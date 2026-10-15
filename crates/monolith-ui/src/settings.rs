@@ -24,10 +24,10 @@ use monolith_ui_kit::toggle::Toggle;
 use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_kit::{Button, Icon, icons};
 use monolith_ui_model::present::identity_name;
-use monolith_ui_model::{Dialog, RequestMode, TorCheck, UiBlockedId, UiIdentityId, UiInvitationId};
+use monolith_ui_model::{Dialog, RequestMode, UiBlockedId, UiIdentityId, UiInvitationId};
 
 use crate::app::{App, Effect, SettingsPage, ThemeChoice, View};
-use crate::common;
+use crate::{common, dialogs};
 
 /// How many invitations an identity can have active.
 const MAX_INVITATIONS: usize = 16;
@@ -519,8 +519,8 @@ fn identities(ui: &mut Ui, app: &mut App, theme: &Theme) {
         }),
         Some(Action::Mode(identity, mode)) => app.model.set_request_mode(identity, mode),
         Some(Action::Open(dialog)) => app.model.open(dialog),
-        // At once: blocking again undoes it.
-        Some(Action::Unblock(blocked)) => app.model.unblock(blocked),
+        // Asked first: nothing is kept of them once they are unblocked.
+        Some(Action::Unblock(blocked)) => app.unblock = Some(blocked),
         None => {}
     }
 }
@@ -606,15 +606,16 @@ fn identity_card(ui: &mut Ui, theme: &Theme, card: &IdentityCard, action: &mut O
         *action = Some(Action::Mode(id, mode));
     }
 
-    // The invitations of this identity.
+    // The invitations of this identity, and what they do under its mode.
     ui.add_space(theme.space.md);
     SectionHeader::new("Invitations").show(ui);
-    caption(
-        ui,
-        theme,
+    let invitations_do = if card.mode == Some(RequestMode::Closed) {
+        dialogs::INVITATIONS_NOBODY
+    } else {
         "Anyone who has one of your invitations can send you a request until you revoke it. \
-         Make one for each person, and revoke it once they are your contact.",
-    );
+         Make one for each person, and revoke it once they are your contact."
+    };
+    caption(ui, theme, invitations_do);
     let Some(invitations) = &card.invitations else {
         caption(ui, theme, "Loading...");
         return;
@@ -746,47 +747,12 @@ fn mode_menu(ui: &mut Ui, id: UiIdentityId, enabled: bool, mode: &mut RequestMod
 
 // ---- Tor ----
 
-fn check_words(check: Option<&TorCheck>) -> String {
-    match check {
-        None => "Not checked yet.".to_owned(),
-        Some(TorCheck::Ready { version, .. }) => format!("Tor {version} is running and ready."),
-        Some(TorCheck::Connecting {
-            progress: Some(percent),
-        }) => {
-            format!("Tor is starting to connect ({percent}%).")
-        }
-        Some(TorCheck::Connecting { progress: None }) => "Tor is starting to connect.".to_owned(),
-        Some(TorCheck::NotRunning) => {
-            "Tor is not running, or Monolith is set up to reach it elsewhere.".to_owned()
-        }
-        Some(TorCheck::SocksUnavailable) => {
-            "Monolith cannot reach the SOCKS port of Tor. Check the endpoint below.".to_owned()
-        }
-        Some(TorCheck::ControlUnavailable) => {
-            "Monolith cannot reach the control port of Tor. Check the endpoint below.".to_owned()
-        }
-        Some(TorCheck::AuthenticationFailed) => {
-            "Tor refused Monolith. Check the cookie file below.".to_owned()
-        }
-        Some(TorCheck::TooOld { version }) => {
-            format!("Tor {version} is too old to be used. Update Tor.")
-        }
-    }
-}
-
 fn tor(ui: &mut Ui, app: &mut App, theme: &Theme) {
-    let words = check_words(app.model.tor_check());
+    // As the Tor details say it.
+    let words = common::tor_words(app.model.tor_check());
     let (state, label) = common::tor_state(&app.model);
     let checking = app.model.tor_checking();
-    let outdated = match app.model.tor_check() {
-        Some(TorCheck::Ready {
-            version,
-            outdated: true,
-        }) => Some(format!(
-            "Tor {version} is older than recommended. Update Tor."
-        )),
-        _ => None,
-    };
+    let outdated = common::tor_outdated(app.model.tor_check());
     let mut check = false;
     SettingsGroup::new("tor-status").show(ui, |rows| {
         rows.row(
@@ -946,8 +912,11 @@ fn data(ui: &mut Ui, app: &mut App, theme: &Theme) {
             rows.row(
                 SettingsRow::new("stored", "What is stored")
                     .description(
-                        "Your identities, contacts and messages, encrypted under \
-                         your passphrase. Nothing else.",
+                        "Your identities, contacts and messages, encrypted under your \
+                         passphrase. Unread counts are not kept: they start again from \
+                         nothing each time Monolith opens. Apart from the profile, not \
+                         encrypted, a settings file keeps the size of the window, the theme, \
+                         reduced motion and the Tor settings.",
                     )
                     .icon(icons::LOCK),
             );
@@ -974,20 +943,26 @@ fn data(ui: &mut Ui, app: &mut App, theme: &Theme) {
 
 // ---- About ----
 
+/// The version of this build; "0.0.0" until there is a release, which is
+/// not said.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn about(ui: &mut Ui, theme: &Theme) {
-    let version = format!(
-        "Version {}. Private messages over Tor, with no servers and no accounts.",
-        env!("CARGO_PKG_VERSION")
-    );
+    const WHAT: &str = "Private messages over Tor, with no servers and no accounts.";
+    let what = if VERSION == "0.0.0" {
+        WHAT.to_owned()
+    } else {
+        format!("Version {VERSION}. {WHAT}")
+    };
     SettingsGroup::new("about").show(ui, |rows| {
         rows.row(
             SettingsRow::new("version", "Monolith")
-                .description(&version)
+                .description(&what)
                 .icon(icons::MESSAGE_SQUARE),
         );
         rows.row(
             SettingsRow::new("telemetry", "No telemetry")
-                .description("No telemetry, no analytics, no update checks.")
+                .description("No analytics and no update checks either.")
                 .icon(icons::SHIELD_OFF),
         );
     });

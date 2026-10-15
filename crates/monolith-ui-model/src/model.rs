@@ -95,6 +95,9 @@ pub struct Notice {
     pub kind: NoticeKind,
     /// The sentence.
     pub text: String,
+    /// An invitation the notice offers to revoke: its action asks whether
+    /// to revoke it.
+    pub revoke: Option<UiInvitationId>,
 }
 
 impl fmt::Debug for Notice {
@@ -102,7 +105,37 @@ impl fmt::Debug for Notice {
         // The sentence can name a contact.
         f.debug_struct("Notice")
             .field("kind", &self.kind)
+            .field("revoke", &self.revoke)
             .finish_non_exhaustive()
+    }
+}
+
+/// What a contact that has not accepted waits for (`PROTOCOL.md` section
+/// 12.2, `DESIGN_QUESTIONS.md` P6-6 and P6-20).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Waiting {
+    /// Its card is an invitation and nothing was written to it: the
+    /// request goes out with the first message.
+    FirstMessage,
+    /// Its card is an invitation and messages were written to it: the
+    /// request goes out with them, and waits to be accepted.
+    Acceptance,
+    /// Its card is not an invitation: it has to add the card of this
+    /// identity too.
+    TheirCard,
+}
+
+/// What `contact` waits for, its conversation holding `messages`
+/// messages; `None` once it has accepted.
+pub fn waiting(contact: &ContactView, messages: usize) -> Option<Waiting> {
+    if contact.accepted {
+        None
+    } else if !contact.invitation {
+        Some(Waiting::TheirCard)
+    } else if messages == 0 {
+        Some(Waiting::FirstMessage)
+    } else {
+        Some(Waiting::Acceptance)
     }
 }
 
@@ -131,6 +164,8 @@ pub struct SidebarRow {
     pub fingerprint: String,
     /// What it is.
     pub state: RowState,
+    /// What a contact that has not accepted waits for.
+    pub waiting: Option<Waiting>,
     /// The contact was verified.
     pub verified: bool,
     /// The newest message, if any.
@@ -159,6 +194,7 @@ impl fmt::Debug for SidebarRow {
         f.debug_struct("SidebarRow")
             .field("contact", &self.contact)
             .field("state", &self.state)
+            .field("waiting", &self.waiting)
             .field("verified", &self.verified)
             .field("latest", &self.latest)
             .field("unread", &self.unread)
@@ -191,6 +227,10 @@ pub struct Thread {
     pub draft: String,
     /// The draft is being queued by this command.
     pub sending: Option<CommandId>,
+    /// Since the send under way began, the draft has started with the text
+    /// it sends: only then does that text leave the draft once it is
+    /// queued.
+    draft_starts_with_sent: bool,
     /// Why the last send failed.
     pub send_error: Option<Failure>,
     /// Messages the user expanded past the line limit.
@@ -228,6 +268,7 @@ impl fmt::Debug for Thread {
             .field("loading", &self.loading)
             .field("stale", &self.stale)
             .field("sending", &self.sending)
+            .field("draft_starts_with_sent", &self.draft_starts_with_sent)
             .field("send_error", &self.send_error)
             .field("expanded", &self.expanded.len())
             .field("refused", &self.refused)
@@ -267,6 +308,10 @@ pub struct Slice {
     /// When delivery is tried next, per conversation that has messages
     /// queued, in seconds since the epoch, as the last attempt said.
     pub retries: BTreeMap<UiContactId, u64>,
+    /// Messages the runtime said it queued, each with the number the next
+    /// command had then: a read asked before that may not count it. Kept
+    /// until a read asked later answers.
+    queued_since: BTreeMap<UiMessageId, u64>,
     stale: bool,
     loading: bool,
     /// The rows of the sidebar, made when the contacts, conversations or
@@ -286,6 +331,11 @@ impl Slice {
                 .into_iter()
                 .map(|row| (row.contact, (row.latest, row.preview)))
                 .collect();
+        let written: BTreeMap<UiContactId, usize> = self
+            .conversations
+            .iter()
+            .map(|conversation| (conversation.contact, conversation.messages))
+            .collect();
         let row_of = |contact: UiContactId, name: String, fingerprint: &str| SidebarRow {
             contact,
             key: name.to_lowercase(),
@@ -293,6 +343,7 @@ impl Slice {
             named: false,
             fingerprint: fingerprint.to_owned(),
             state: RowState::Ended,
+            waiting: None,
             verified: false,
             latest: None,
             preview: String::new(),
@@ -311,6 +362,10 @@ impl Slice {
             } else {
                 RowState::Waiting
             };
+            row.waiting = waiting(
+                contact,
+                written.get(&contact.id).copied().unwrap_or_default(),
+            );
             row.verified = contact.verified;
             row.named = present::named(contact);
             rows.insert(contact.id, row);
@@ -325,6 +380,7 @@ impl Slice {
             });
             if !conversation.active {
                 row.state = RowState::Ended;
+                row.waiting = None;
             }
             row.latest = conversation.latest.clone();
             row.queued = conversation.queued;
@@ -365,6 +421,32 @@ impl Slice {
             self.rows_revision = revision;
         }
     }
+
+    /// How many messages wait to be delivered: those the conversations
+    /// count, those queued since the read they come from was asked, and
+    /// one for each message being queued. Those of an ended conversation
+    /// are not counted: they are never sent (`DESIGN_QUESTIONS.md` P5-9).
+    fn undelivered(&self) -> usize {
+        let counted = self
+            .conversations
+            .iter()
+            .filter(|conversation| conversation.active)
+            .fold(0_usize, |sum, conversation| {
+                sum.saturating_add(conversation.queued)
+            });
+        let current = |contact: UiContactId| self.contacts.iter().any(|view| view.id == contact);
+        let since = self
+            .queued_since
+            .keys()
+            .filter(|message| current(message.contact()))
+            .count();
+        let sending = self
+            .threads
+            .iter()
+            .filter(|(contact, thread)| thread.sending.is_some() && current(**contact))
+            .count();
+        counted.saturating_add(since).saturating_add(sending)
+    }
 }
 
 impl fmt::Debug for Slice {
@@ -384,6 +466,7 @@ impl fmt::Debug for Slice {
             .field("unread", &self.unread)
             .field("deferrals", &self.deferrals)
             .field("retries", &self.retries)
+            .field("queued_since", &self.queued_since)
             .field("stale", &self.stale)
             .field("loading", &self.loading)
             .field("rows", &self.rows.len())
@@ -859,7 +942,25 @@ impl Model {
         self.notices.push(Notice {
             kind,
             text: text.into(),
+            revoke: None,
         });
+    }
+
+    /// Tells the user that a command failed, unless the window says it
+    /// ([`Failure::said_in_place`]).
+    fn failed(&mut self, failure: Failure) {
+        if failure.said_in_place() {
+            self.notice(NoticeKind::Error, failure.message());
+        }
+    }
+
+    /// Notes that the runtime queued `message`: it waits to be delivered
+    /// even before a read of its identity counts it.
+    fn known_queued(&mut self, message: UiMessageId) {
+        let next = self.next;
+        if let Some(slice) = self.slices.get_mut(&message.contact().identity()) {
+            slice.queued_since.insert(message, next);
+        }
     }
 
     // ---- What is shown ----
@@ -961,6 +1062,15 @@ impl Model {
         self.slices.get(&contact.identity())?.threads.get(&contact)
     }
 
+    /// What `contact` waits for, if it is a contact that has not accepted.
+    pub fn waiting(&self, contact: UiContactId) -> Option<Waiting> {
+        let view = self.contact(contact)?;
+        let messages = self
+            .conversation(contact)
+            .map_or(0, |conversation| conversation.messages);
+        waiting(view, messages)
+    }
+
     /// What the main pane of the identity shown shows.
     pub fn selection(&self) -> Option<Selection> {
         self.current_slice()?.selection
@@ -1042,17 +1152,15 @@ impl Model {
         core::mem::take(&mut self.forgotten)
     }
 
-    /// How many messages wait to be delivered, over every identity. Those
-    /// of an ended conversation are not counted: they are never sent
+    /// How many messages wait to be delivered, over every identity: those
+    /// its conversations count, those the runtime queued since the read
+    /// they come from was asked, and one for each message being queued.
+    /// Those of an ended conversation are not counted: they are never sent
     /// (`DESIGN_QUESTIONS.md` P5-9).
     pub fn undelivered(&self) -> usize {
-        self.slices
-            .values()
-            .flat_map(|slice| slice.conversations.iter())
-            .filter(|conversation| conversation.active)
-            .fold(0_usize, |sum, conversation| {
-                sum.saturating_add(conversation.queued)
-            })
+        self.slices.values().fold(0_usize, |sum, slice| {
+            sum.saturating_add(slice.undelivered())
+        })
     }
 
     /// Takes the notices raised since the last call.
@@ -1244,11 +1352,36 @@ impl Model {
 
     /// The draft of the conversation of `contact`, to edit, also while a
     /// message is being queued: what is queued is the text taken when it
-    /// was sent, and once it is queued only that text leaves the draft.
+    /// was sent, and once it is queued only that text leaves the draft, if
+    /// the draft has started with it ever since ([`Self::draft_edited`]).
     pub fn draft_mut(&mut self, contact: UiContactId) -> Option<&mut String> {
         let thread = self.thread_mut(contact)?;
         thread.send_error = None;
         Some(&mut thread.draft)
+    }
+
+    /// Tells the model that the draft of `contact` was edited, as the
+    /// composer reports each frame. Once the draft no longer starts with
+    /// the text being queued, that text does not leave it when it is
+    /// queued, also if the draft starts with it again later: it was typed
+    /// again.
+    pub fn draft_edited(&mut self, contact: UiContactId) {
+        let Some(thread) = self
+            .slices
+            .get_mut(&contact.identity())
+            .and_then(|slice| slice.threads.get_mut(&contact))
+        else {
+            return;
+        };
+        let sent = thread
+            .sending
+            .and_then(|command| match self.pending.get(&command) {
+                Some(Pending::Send { text, .. }) => Some(text.as_str()),
+                _ => None,
+            });
+        if sent.is_some_and(|text| !thread.draft.starts_with(text)) {
+            thread.draft_starts_with_sent = false;
+        }
     }
 
     /// Whether the conversation of `contact` can take a message now: its
@@ -1263,8 +1396,9 @@ impl Model {
 
     /// Queues the draft of `contact`. The draft stays until the runtime
     /// says the message is durably queued, and then loses the text sent,
-    /// keeping what was typed after it; if the runtime refuses, the draft
-    /// stays as it is, typing included, and the reason is shown.
+    /// keeping what was typed after it, unless it stopped starting with
+    /// that text meanwhile; if the runtime refuses, the draft stays as it
+    /// is, typing included, and the reason is shown.
     pub fn send(&mut self, contact: UiContactId) {
         if !self.can_send(contact) {
             return;
@@ -1290,6 +1424,7 @@ impl Model {
         if let Some(thread) = self.thread_mut(contact) {
             thread.sending = Some(id);
             thread.send_error = None;
+            thread.draft_starts_with_sent = true;
         }
     }
 
@@ -1477,9 +1612,10 @@ impl Model {
         self.dialog = Some(dialog);
     }
 
-    /// Declines the request `request` at once (no dialog). Nothing is
-    /// sent; the sender goes on the declined list of the identity, and
-    /// later requests from them are dropped (`docs/PROTOCOL.md`).
+    /// Declines the request `request`, without a dialog of the model: the
+    /// window asks first. Nothing is sent; the sender goes on the declined
+    /// list of the identity, and later requests from them are dropped
+    /// (`docs/PROTOCOL.md` section 12).
     pub fn decline(&mut self, request: UiRequestId) {
         self.answer(request, Answer::Decline);
     }
@@ -1511,8 +1647,9 @@ impl Model {
             .any(|pending| matches!(pending, Pending::Answer(asked, _) if *asked == request))
     }
 
-    /// Unblocks `blocked` at once (no dialog): it can be undone by blocking
-    /// again. Asked only for someone listed, once.
+    /// Unblocks `blocked`, without a dialog of the model: the window asks
+    /// first, since nothing is kept of them afterwards to block them by
+    /// (`DESIGN_QUESTIONS.md` P6-21). Asked only for someone listed, once.
     pub fn unblock(&mut self, blocked: UiBlockedId) {
         let listed = self
             .slices
@@ -1608,6 +1745,11 @@ impl Model {
                 match outcome {
                     Outcome::Identity(snapshot) if snapshot.identity == identity => {
                         self.set_snapshot(*snapshot);
+                        // A read asked once a message was known to be
+                        // queued counts it.
+                        if let Some(slice) = self.slices.get_mut(&identity) {
+                            slice.queued_since.retain(|_, next| *next > command.get());
+                        }
                     }
                     Outcome::Failed(Failure::NoSuchIdentity) => {
                         self.identities_stale = true;
@@ -1656,27 +1798,27 @@ impl Model {
             Pending::Answer(request, answer) => {
                 self.mark_identity(request.identity());
                 match outcome {
-                    Outcome::Failed(failure) => self.notice(NoticeKind::Error, failure.message()),
+                    Outcome::Failed(failure) => self.failed(failure),
                     _ => self.notice(NoticeKind::Info, answer.done()),
                 }
             }
             Pending::Unblock(blocked) => {
                 self.mark_identity(blocked.identity());
                 if let Outcome::Failed(failure) = outcome {
-                    self.notice(NoticeKind::Error, failure.message());
+                    self.failed(failure);
                 } else {
                     self.notice(NoticeKind::Success, UNBLOCKED);
                 }
             }
             Pending::RequestMode(identity) => {
                 if let Outcome::Failed(failure) = outcome {
-                    self.notice(NoticeKind::Error, failure.message());
+                    self.failed(failure);
                 }
                 self.mark_identity(identity);
             }
             Pending::Verified(contact) => {
                 if let Outcome::Failed(failure) = outcome {
-                    self.notice(NoticeKind::Error, failure.message());
+                    self.failed(failure);
                 }
                 self.mark_identity(contact.identity());
             }
@@ -1900,16 +2042,21 @@ impl Model {
     ) {
         let queued = matches!(&outcome, Outcome::MessageQueued(message)
             if message.contact() == contact);
+        if let (true, Outcome::MessageQueued(message)) = (queued, &outcome) {
+            self.known_queued(*message);
+        }
         if let Some(thread) = self.thread_mut(contact) {
             if thread.sending == Some(command) {
                 thread.sending = None;
             }
+            let starts = core::mem::take(&mut thread.draft_starts_with_sent);
             if queued {
                 // Cleared only now that the runtime holds the message, and
-                // only of the text that was sent: what was typed after it
-                // while it was queued stays. A draft edited within that
-                // text stays as it is.
-                if let Some(typed) = thread.draft.strip_prefix(text) {
+                // only of the text that was sent, if the draft has started
+                // with it ever since: what was typed after it while it was
+                // queued stays. A draft cleared, or edited within that
+                // text, since it was sent stays as it is.
+                if let Some(typed) = thread.draft.strip_prefix(text).filter(|_| starts) {
                     let kept = typed.trim_start().len();
                     let sent = thread.draft.len().saturating_sub(kept);
                     thread.draft.drain(..sent);
@@ -1922,6 +2069,40 @@ impl Model {
         self.mark_identity(contact.identity());
     }
 
+    /// What is said once `request` is accepted: if it came through an
+    /// invitation that is active while the identity takes requests, that
+    /// invitation, which keeps admitting requests until it is revoked, and
+    /// a sentence that says so.
+    fn accepted_through(&self, request: UiRequestId) -> Option<(UiInvitationId, String)> {
+        let slice = self.slices.get(&request.identity())?;
+        if slice.request_mode == Some(RequestMode::Closed) {
+            return None;
+        }
+        let invitation = slice
+            .requests
+            .iter()
+            .find(|view| view.id == request)?
+            .invitation?;
+        let label = slice
+            .invitations
+            .iter()
+            .find(|view| view.id == invitation)?
+            .label
+            .as_deref()
+            .map(|label| present::prepare(label, false).text)
+            .filter(|label| !label.trim().is_empty());
+        let named = match label {
+            Some(label) => format!("your invitation \"{label}\""),
+            None => "the invitation it came through".to_owned(),
+        };
+        Some((
+            invitation,
+            format!(
+                "Request accepted. Others who have {named} can still send you requests until you revoke it."
+            ),
+        ))
+    }
+
     fn dialog_done(&mut self, command: CommandId, outcome: Outcome) {
         // Whether a contact just added had accepted already: then its card
         // changed nothing.
@@ -1931,6 +2112,15 @@ impl Model {
             }
             _ => false,
         };
+        // The invitation a request just accepted came through, offered to
+        // be revoked.
+        let mut through = match (&outcome, self.dialog.as_ref()) {
+            (Outcome::RequestAccepted(_), Some(Dialog::AcceptRequest { request, .. })) => {
+                self.accepted_through(*request)
+            }
+            _ => None,
+        };
+        let mut revoke = None;
         let Some(dialog) = self.dialog.as_mut() else {
             // The dialog is gone; what its command changed is read again.
             self.mark_everything_of_outcome(&outcome);
@@ -2035,6 +2225,7 @@ impl Model {
             {
                 affected = Some(contact.identity());
                 message = Some("Request accepted.");
+                revoke = through.take();
                 self.pending_open = Some(contact);
             }
             (Dialog::RevokeInvitation { .. }, Outcome::Revoked { .. }) => {
@@ -2052,8 +2243,14 @@ impl Model {
         if let Some(identity) = affected {
             self.mark_identity(identity);
         }
-        if let Some(text) = message {
-            self.notice(NoticeKind::Success, text);
+        match (message, revoke) {
+            (Some(_), Some((invitation, text))) => self.notices.push(Notice {
+                kind: NoticeKind::Success,
+                text,
+                revoke: Some(invitation),
+            }),
+            (Some(text), None) => self.notice(NoticeKind::Success, text),
+            (None, _) => {}
         }
     }
 
@@ -2068,6 +2265,9 @@ impl Model {
     }
 
     fn event(&mut self, event: RuntimeEvent) {
+        if let RuntimeEvent::MessageQueued(message) = &event {
+            self.known_queued(*message);
+        }
         match event {
             RuntimeEvent::MessageQueued(message) | RuntimeEvent::MessageDelivered(message) => {
                 self.mark_thread(message.contact());

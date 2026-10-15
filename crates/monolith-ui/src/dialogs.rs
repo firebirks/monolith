@@ -3,9 +3,10 @@
 //! Every dialog is drawn from the state of the open [`Dialog`] and acts
 //! through the model on the handles that dialog holds, never on whatever is
 //! selected. Cards can carry an invitation: they stay in the dialog and in
-//! the QR code of the app, and nowhere in egui's memory. The question asked
-//! before blocking the sender of a request is the window's own: it holds
-//! the request in [`App`] from the moment it opens.
+//! the QR code of the app, and nowhere in egui's memory. The questions
+//! asked before blocking or declining the sender of a request and before
+//! unblocking someone are the window's own: each holds what it acts on in
+//! [`App`] from the moment it opens.
 
 use std::hash::Hash;
 
@@ -35,7 +36,7 @@ use monolith_ui_kit::toggle::Toggle;
 use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_model::{
     Dialog, Failure, RequestMode, TorCheck, TorIndicator, UiContactId, UiIdentityId,
-    UiInvitationId, present,
+    UiInvitationId, UiRequestId, Waiting, present,
 };
 use zeroize::Zeroizing;
 
@@ -91,6 +92,23 @@ const IDENTITIES: &str = "Each identity has its own contacts, card and address, 
 const INVITATION: &str = "Anyone who has this invitation can send you a request until you revoke \
                           it. Make one for each person, and revoke it once they are your contact.";
 
+/// What invitations do while the identity takes no request: nothing, until
+/// that changes (`PROTOCOL.md` section 12).
+pub(crate) const INVITATIONS_NOBODY: &str = "Requests are set to Nobody: no request arrives, not \
+                                             even through an invitation, until you change who \
+                                             can send you requests. Make one for each person, \
+                                             and revoke it once they are your contact.";
+
+/// What an invitation made or shown again does, under the request mode
+/// of its identity.
+const INVITATION_CARD: &str = "Give this invitation to one person. Anyone who has it can send \
+                               you a request until you revoke it.";
+
+/// The same, while the identity takes no request.
+const INVITATION_CARD_NOBODY: &str = "Give this invitation to one person. Requests are set to \
+                                      Nobody: no request arrives, not even through an \
+                                      invitation, until you change who can send you requests.";
+
 /// How to check a fingerprint before accepting.
 const CHECK_BEFORE_ACCEPT: &str = "Before you accept, ask the person to read you the fingerprint \
                                    under their identity in Monolith (Settings > Identities), on a \
@@ -104,6 +122,21 @@ const CHECK_CONTACT: &str = "Ask the person to read you the fingerprint under th
 /// What blocking the sender of a request does.
 const BLOCK_REQUEST: &str = "They will not be able to send you a request or a message. You can \
                              unblock them later in Settings > Identities.";
+
+/// What declining a request does: their later requests are dropped, and
+/// nothing shows whom the identity declined (`PROTOCOL.md` section 12).
+/// Adding their card takes them off the declined list (P4-13).
+const DECLINE_REQUEST: &str = "Nothing is sent to them. Their later requests are dropped without \
+                               being shown, and Monolith does not show whom you declined, so \
+                               this cannot be undone here. To talk with them later, add their \
+                               card.";
+
+/// What unblocking does: the store keeps nothing of someone unblocked, so
+/// they can be blocked again only from a request or as a contact
+/// (`DESIGN_QUESTIONS.md` P6-21).
+const UNBLOCK: &str = "They can send you requests again, as \"Who can send you requests\" allows. \
+                       Monolith keeps no record of them after this, so you can block them again \
+                       only from a request they send or once you have added their card.";
 
 /// What closing a session that saves nothing does.
 const SAVES_NOTHING: &str = "This session saves nothing. Closing Monolith deletes your \
@@ -127,8 +160,10 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
         app.drop_qr();
     }
     if app.model.dialog().is_some() {
-        // A dialog of the model replaces the question of a block.
+        // A dialog of the model replaces the questions of the window.
         app.block_request = None;
+        app.decline_request = None;
+        app.unblock = None;
     }
     if app.closing.is_some() {
         // In place of any other dialog, which is back if the window stays.
@@ -136,7 +171,11 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
         return;
     }
     match app.model.dialog() {
-        None => block_request(ctx, app),
+        None => {
+            block_request(ctx, app);
+            decline_request(ctx, app);
+            unblock_question(ctx, app);
+        }
         Some(Dialog::NewIdentity { .. }) => new_identity(ctx, app),
         Some(Dialog::AddContact {
             added: Some(contact),
@@ -268,7 +307,9 @@ fn revoke_text(app: &App, invitation: UiInvitationId) -> String {
 }
 
 /// What deleting the messages of `contact` does, counting those that were
-/// never delivered: they go too, and are never sent.
+/// never delivered: they go too, and are never sent. A contact that has
+/// not accepted gets its request only with a message (P6-6), so with them
+/// goes the request too.
 fn delete_messages_text(app: &App, contact: UiContactId) -> String {
     let name = app.model.contact_name(contact);
     let queued = app
@@ -280,8 +321,14 @@ fn delete_messages_text(app: &App, contact: UiContactId) -> String {
     } else {
         format!(", including {queued} not yet delivered, which will not be sent")
     };
+    let waiting = app.model.waiting(contact).is_some() && queued > 0;
+    let request = if waiting {
+        " Your request goes out only with a message, so it is not sent either until you write again."
+    } else {
+        ""
+    };
     format!(
-        "All messages with {name} are deleted from this device{undelivered}. Their copies are not affected. Deleted data may stay on the disk until it is overwritten."
+        "All messages with {name} are deleted from this device{undelivered}.{request} Their copies are not affected. Deleted data may stay on the disk until it is overwritten."
     )
 }
 
@@ -407,9 +454,10 @@ fn loading(ui: &mut Ui, theme: &Theme, text: &str) {
     });
 }
 
-/// A failure that belongs to no field, as a line under the form.
+/// A failure that belongs to no field, as a line under the form. A failed
+/// store is not: the window says it, once.
 fn error_line(ui: &mut Ui, error: Option<Failure>) {
-    if let Some(failure) = error {
+    if let Some(failure) = error.filter(|failure| failure.said_in_place()) {
         ui.add(InlineError::new(failure.message()));
     }
 }
@@ -843,6 +891,14 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
     };
     let invitation = own.is_none();
     let mode = own.and_then(|identity| app.model.slice(identity)?.request_mode);
+    // An invitation does nothing while its identity takes no request.
+    let inviting = match app.model.dialog() {
+        Some(Dialog::NewInvitation { identity, .. }) => Some(*identity),
+        Some(Dialog::ShowInvitation { invitation, .. }) => Some(invitation.identity()),
+        _ => None,
+    };
+    let refusing = inviting.and_then(|identity| app.model.slice(identity)?.request_mode)
+        == Some(RequestMode::Closed);
     // The fingerprint of the identity, which those who add the card check.
     let fingerprint = own.and_then(|identity| {
         app.model
@@ -863,8 +919,10 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
     let (text, busy, error) = card_state(app.model.dialog());
     sync_qr(&mut app.qr, text);
     let matrix = app.qr.as_ref().map(|shown| &shown.matrix);
-    let sentence = if invitation {
-        "Give this invitation to one person. Anyone who has it can send you a request until you revoke it."
+    let sentence = if invitation && refusing {
+        INVITATION_CARD_NOBODY
+    } else if invitation {
+        INVITATION_CARD
     } else {
         match mode {
             Some(RequestMode::Open) => OWN_CARD_OPEN,
@@ -944,7 +1002,7 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
     );
     match action {
         CardAction::Copy => {
-            app.toasts.push(Kind::Success, "Card copied");
+            app.toasts.push(Kind::Success, "Card copied.");
         }
         CardAction::Save => {
             if let Some(contents) = save {
@@ -969,6 +1027,19 @@ fn card_dialog(ctx: &Context, app: &mut App, title: &str) {
 fn new_invitation(ctx: &Context, app: &mut App) {
     let theme = theme::current(ctx);
     let focus = nothing_focused(ctx);
+    // What an invitation does under the request mode of the identity.
+    let said = match app.model.dialog() {
+        Some(Dialog::NewInvitation { identity, .. })
+            if app
+                .model
+                .slice(*identity)
+                .and_then(|slice| slice.request_mode)
+                == Some(RequestMode::Closed) =>
+        {
+            INVITATIONS_NOBODY
+        }
+        _ => INVITATION,
+    };
     let Some(Dialog::NewInvitation {
         identity,
         label,
@@ -988,7 +1059,7 @@ fn new_invitation(ctx: &Context, app: &mut App) {
         .show(
             ctx,
             |ui| {
-                paragraph(ui, &theme, INVITATION);
+                paragraph(ui, &theme, said);
                 ui.add_space(theme.space.xs);
                 let output = TextField::new(("new-invitation-label", identity), label)
                     .label("Label (only you see it)")
@@ -1078,6 +1149,16 @@ fn danger<S: Hash>(ctx: &Context, app: &mut App, spec: &Danger<S>) {
     }
 }
 
+/// Whether a question about `request` can be answered: it is waiting, and
+/// no answer to it is under way.
+fn open_to_answer(app: &App, request: UiRequestId) -> bool {
+    let waiting = app
+        .model
+        .slice(request.identity())
+        .is_some_and(|slice| slice.requests.iter().any(|view| view.id == request));
+    waiting && !app.model.answering(request)
+}
+
 /// Asks before the sender of a request is blocked. The question holds the
 /// request it was asked for, whatever the list shows when it is answered;
 /// it goes away if that request is no longer waiting.
@@ -1085,11 +1166,7 @@ fn block_request(ctx: &Context, app: &mut App) {
     let Some(request) = app.block_request else {
         return;
     };
-    let waiting = app
-        .model
-        .slice(request.identity())
-        .is_some_and(|slice| slice.requests.iter().any(|view| view.id == request));
-    if !waiting || app.model.answering(request) {
+    if !open_to_answer(app, request) {
         app.block_request = None;
         return;
     }
@@ -1107,6 +1184,62 @@ fn block_request(ctx: &Context, app: &mut App) {
             app.model.block_sender(request);
         }
         Some(Decision::Cancel) => app.block_request = None,
+        None => {}
+    }
+}
+
+/// Asks before a request is declined: the sender's later requests are
+/// dropped, and nothing in the client shows or undoes a decline. Like the
+/// question of a block, it holds the request it was asked for.
+fn decline_request(ctx: &Context, app: &mut App) {
+    let Some(request) = app.decline_request else {
+        return;
+    };
+    if !open_to_answer(app, request) {
+        app.decline_request = None;
+        return;
+    }
+    let decision = Modal::new(("decline-request", request), "Decline this request?").confirm(
+        ctx,
+        DECLINE_REQUEST,
+        "Cancel",
+        "Decline",
+        false,
+    );
+    match decision {
+        Some(Decision::Confirm) => {
+            app.decline_request = None;
+            app.request_answers.insert(request, RequestAction::Decline);
+            app.model.decline(request);
+        }
+        Some(Decision::Cancel) => app.decline_request = None,
+        None => {}
+    }
+}
+
+/// Asks before someone is unblocked: nothing is kept of them afterwards.
+/// The question holds whom it was asked for, and goes away once they are
+/// no longer listed or are being unblocked.
+fn unblock_question(ctx: &Context, app: &mut App) {
+    let Some(blocked) = app.unblock else {
+        return;
+    };
+    let listed = app
+        .model
+        .slice(blocked.identity())
+        .is_some_and(|slice| slice.blocked.iter().any(|view| view.id == blocked));
+    if !listed || app.model.unblocking(blocked) {
+        app.unblock = None;
+        return;
+    }
+    let decision = Modal::new(("unblock", blocked), "Unblock this person?")
+        .confirm(ctx, UNBLOCK, "Cancel", "Unblock", false);
+    match decision {
+        Some(Decision::Confirm) => {
+            app.unblock = None;
+            app.model.unblock(blocked);
+        }
+        Some(Decision::Cancel) => app.unblock = None,
         None => {}
     }
 }
@@ -1161,9 +1294,8 @@ struct ContactInfo {
     current_name: String,
     fingerprint: String,
     full_fingerprint: String,
-    accepted: bool,
+    waiting: Option<Waiting>,
     verified: bool,
-    invitation: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1180,9 +1312,8 @@ fn contact_info(app: &App, contact: UiContactId) -> Option<ContactInfo> {
         current_name: view.name.clone().unwrap_or_default(),
         fingerprint: view.fingerprint.clone(),
         full_fingerprint: view.full_fingerprint.clone(),
-        accepted: view.accepted,
+        waiting: app.model.waiting(contact),
         verified: view.verified,
-        invitation: view.invitation,
     })
 }
 
@@ -1238,14 +1369,10 @@ fn contact_details(ctx: &Context, app: &mut App) {
                         Text::new(&info.shown_name, &theme.text.heading, theme.color.text)
                             .truncate(),
                     );
-                    let line = if !info.accepted && !info.invitation {
-                        "Waiting for them to add your card"
-                    } else if !info.accepted {
-                        "Waiting for them to accept"
-                    } else if info.verified {
-                        "Fingerprint verified"
-                    } else {
-                        "Fingerprint not verified yet"
+                    let line = match info.waiting {
+                        Some(waiting) => common::waiting_words(waiting),
+                        None if info.verified => "Fingerprint verified",
+                        None => "Fingerprint not verified yet",
                     };
                     caption(ui, &theme, line);
                 });
@@ -1286,7 +1413,11 @@ fn contact_details(ctx: &Context, app: &mut App) {
                 verified_change = Some(verified);
             }
             // The name waits for Save; the toggle does not.
-            caption(ui, &theme, "Saved at once");
+            caption(
+                ui,
+                &theme,
+                "Changes to Verified are saved at once; the name when you press Save.",
+            );
 
             ui.add_space(theme.space.md);
             ui.add(Divider::horizontal());
@@ -1436,41 +1567,10 @@ fn tor_details(ctx: &Context, app: &mut App) {
     let theme = theme::current(ctx);
     let (state, label) = common::tor_state(&app.model);
     let checking = app.model.tor_checking();
-    let ready = matches!(app.model.tor_check(), Some(TorCheck::Ready { .. }));
-    let words = match app.model.tor_check() {
-        None => "Tor has not been checked yet.".to_owned(),
-        Some(TorCheck::Ready { version, outdated }) => {
-            if *outdated {
-                format!(
-                    "Tor {version} is running. It is older than recommended; update it when you can."
-                )
-            } else {
-                format!("Tor {version} is running.")
-            }
-        }
-        Some(TorCheck::Connecting { progress }) => match progress {
-            Some(percent) => format!("Tor is starting up ({percent}%)."),
-            None => "Tor is starting up.".to_owned(),
-        },
-        Some(TorCheck::NotRunning) => "Tor is not running, or Monolith cannot find it. Open Tor \
-                                       Browser and leave it open, or start the Tor service, then \
-                                       press Check again."
-            .to_owned(),
-        Some(TorCheck::SocksUnavailable) => {
-            "Monolith cannot use the SOCKS port of Tor. Check the connection settings.".to_owned()
-        }
-        Some(TorCheck::ControlUnavailable) => {
-            "Monolith cannot reach the control port of Tor. Check the connection settings."
-                .to_owned()
-        }
-        Some(TorCheck::AuthenticationFailed) => {
-            "Tor refused Monolith access to its control port. Check the cookie file in the connection settings."
-                .to_owned()
-        }
-        Some(TorCheck::TooOld { version }) => {
-            format!("Tor {version} is too old. Install a newer version of Tor.")
-        }
-    };
+    let found = app.model.tor_check();
+    let ready = matches!(found, Some(TorCheck::Ready { .. }));
+    let words = common::tor_words(found);
+    let outdated = common::tor_outdated(found);
     let (mut check, mut settings, mut close_clicked) = (false, false, false);
     let out = Modal::new("tor-details", "Tor").show(
         ctx,
@@ -1478,11 +1578,15 @@ fn tor_details(ctx: &Context, app: &mut App) {
             ui.add(TorStatus::new(state, label));
             ui.add_space(theme.space.xs);
             paragraph(ui, &theme, &words);
+            if let Some(note) = &outdated {
+                ui.add_space(theme.space.xs);
+                Banner::new("tor-details-outdated", Tone::Warning, note).show(ui);
+            }
             ui.add_space(theme.space.xs);
             caption(
                 ui,
                 &theme,
-                "Monolith only connects through Tor. Nothing is sent while Tor is unavailable; messages wait until it is back.",
+                "Monolith only connects through Tor. Nothing is delivered while Tor is unavailable; messages wait until it is back.",
             );
         },
         |ui| {
@@ -1519,7 +1623,7 @@ mod tests {
     use monolith_ui_kit::{Theme, fonts};
     use monolith_ui_model::{
         Command, IdentitySnapshot, Outcome, RequestMode, RequestView, RuntimeEvent, Service,
-        UiInvitationId, UiRequestId, Update,
+        UiBlockedId, UiInvitationId, UiRequestId, Update,
     };
     use monolith_ui_snapshot::{Options, render};
 
@@ -1878,6 +1982,12 @@ mod tests {
         let mut app = fixture("requests").expect("fixture");
         app.block_request = Some(UiRequestId::new(identity(), 1));
         shot("block-request", app);
+        let mut app = fixture("requests").expect("fixture");
+        app.decline_request = Some(UiRequestId::new(identity(), 1));
+        shot("decline-request", app);
+        let mut app = fixture("settings-blocked").expect("fixture");
+        app.unblock = Some(UiBlockedId::new(identity(), 1));
+        shot("unblock", app);
         // A request as Monolith sends it: no name, no introduction.
         let mut app = fixture("requests").expect("fixture");
         requests_now(&mut app, vec![request_view(1)]);

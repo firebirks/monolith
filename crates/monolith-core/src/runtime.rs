@@ -1601,7 +1601,9 @@ impl<B: TorBackend + 'static> Runtime<B> {
     }
 
     /// Imports a contact card given in its text form. Returns the contact
-    /// record of its identity, and whether the card carried an invitation.
+    /// record of its identity, and whether the card that record holds
+    /// afterwards carries an invitation, which is not the card given when
+    /// that changed nothing.
     pub async fn add_contact(
         &self,
         identity: &IdentityId,
@@ -1609,7 +1611,6 @@ impl<B: TorBackend + 'static> Runtime<B> {
     ) -> Result<AddedContact, CommandError> {
         let held = self.held(identity)?;
         let card = ContactCard::from_text(card).map_err(|_| CommandError::InvalidCard)?;
-        let invitation = card.invitation().is_some();
         self.inner
             .detached(async move {
                 held.identity.import(&card).await.map_err(store_error)?;
@@ -1617,6 +1618,14 @@ impl<B: TorBackend + 'static> Runtime<B> {
                     .identity
                     .contact_id(card.identity())
                     .ok_or(CommandError::UnknownContact)?;
+                // What the record holds after the import, as its summary
+                // says: the card of an accepted contact changes nothing
+                // (`PROTOCOL.md` section 12.2).
+                let invitation = held
+                    .identity
+                    .contact(card.identity())
+                    .and_then(|view| view.credentials)
+                    .is_some_and(|credentials| credentials.invitation().is_some());
                 Ok(AddedContact {
                     contact,
                     invitation,
