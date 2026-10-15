@@ -1,7 +1,8 @@
 # Builds the Windows archive of the desktop client (packaging/README.md):
-# the release binary, a README and the licences, in one zip that unpacks
-# into a folder of its own. Run it from anywhere in the repository with
-# PowerShell 7; it needs git and cargo. It writes to target\package\.
+# the release binary, a README, the licences and the notices of the crates
+# in the binary, in one zip that unpacks into a folder of its own. Run it
+# from anywhere in the repository with PowerShell 7; it needs git, cargo
+# and Python 3 as `python`. It writes to target\package\.
 $ErrorActionPreference = 'Stop'
 
 $root = git -C $PSScriptRoot rev-parse --show-toplevel
@@ -22,11 +23,17 @@ $env:CARGO_PROFILE_RELEASE_STRIP = 'symbols'
 cargo build --release --locked -p monolith-desktop
 if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 Remove-Item Env:CARGO_PROFILE_RELEASE_STRIP
+# Where cargo built it, CARGO_TARGET_DIR included.
+$built = (cargo metadata --format-version 1 --no-deps --locked | ConvertFrom-Json).target_directory
+if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
+$hostTriple = (rustc -vV | Select-String '^host: (.*)$').Matches.Groups[1].Value
 
-Copy-Item 'target\release\monolith-desktop.exe' $out
+Copy-Item (Join-Path $built 'release\monolith-desktop.exe') $out
 Copy-Item 'packaging\windows\README.txt' $out
 Copy-Item 'LICENSE' $out
 Copy-Item 'crates\monolith-ui-kit\assets\licenses\*' (Join-Path $out 'licenses')
+python packaging\notices.py $hostTriple (Join-Path $out 'THIRD-PARTY-NOTICES.txt')
+if ($LASTEXITCODE -ne 0) { throw 'notices.py failed' }
 
 Compress-Archive -Path $out -DestinationPath $zip
 $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()

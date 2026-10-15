@@ -105,6 +105,14 @@ command.
   endpoint cannot be reached or authenticated, nothing is sent to the
   SOCKS endpoint, not even a greeting. The dial fails as if Tor were not
   running, and a status query reports the SOCKS endpoint unavailable.
+- Known cost: every failed dial ends the proof, also a dial that Tor
+  itself answers as unreachable, which is how a peer that is offline
+  looks; the backend does not tell Tor's refusals apart from a SOCKS
+  endpoint that is not Tor's. With contacts offline almost every retry of
+  delivery fails, so almost every retry first opens a control connection
+  of its own, authenticates with SAFECOOKIE and sends this command. The
+  retries are bounded by their schedule and by `MAX_CONCURRENT_DIALS`
+  (`RESOURCE_LIMITS.md` section 7); the code is left as it is.
 - Not in the onion-grater profiles: Tails and Whonix do not use the check.
 
 ### ADD_ONION

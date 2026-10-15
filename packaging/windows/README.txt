@@ -6,6 +6,8 @@ accounts. This folder holds the desktop client:
 
   monolith-desktop.exe    the program
   LICENSE, licenses\      the licence of Monolith and of the fonts and icons
+  THIRD-PARTY-NOTICES.txt the licences and notices of the code of others in
+                          the program
 
 Running
 -------

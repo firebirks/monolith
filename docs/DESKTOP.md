@@ -224,16 +224,18 @@ identity switcher gives each identity its own counts.
 - Closing: the window's close button, Alt+F4 and a close by the system take
   one path (`window::close_or_ask`; the client has no Quit shortcut of its
   own). When closing costs nothing the window is hidden at once and the
-  runtime stops behind it. Otherwise the close is cancelled, the window
-  stays (brought back if it was minimized) and asks first: in a session
-  that saves nothing, that closing deletes every identity, contact and
-  message for good, with a danger button; and how many messages are not
-  delivered yet, which a profile on disk tries again when it next opens
-  and a session that saves nothing never delivers. Close Monolith closes
-  the window, hidden only then; Cancel, Escape, Enter (Cancel has the
-  focus) or a click beside the question keep it, and the next close asks
-  again. The question takes the place of an open dialog, which is back if
-  the window stays.
+  runtime stops behind it; on Wayland, where a window cannot hide itself,
+  it goes when eframe destroys it, since the runtime and the file thread
+  are waited for only after that (`Window::start`). Otherwise the close is
+  cancelled, the window stays (brought back if it was minimized) and asks
+  first: in a session that saves nothing, that closing deletes every
+  identity, contact and message for good, with a danger button; and how
+  many messages are not delivered yet, which a profile on disk tries again
+  when it next opens and a session that saves nothing never delivers. Close
+  Monolith closes the window, hidden only then; Cancel, Escape, Enter
+  (Cancel has the focus) or a click beside the question keep it, and the
+  next close asks again. The question takes the place of an open dialog,
+  which is back if the window stays.
 
 ## 7. Design system
 
@@ -316,11 +318,20 @@ Unix); a card saved on request, as a new file in the Downloads folder
 Nothing else: no log, no cache, no crash report, no eframe persistence.
 
 A card file is read only when the user names it or drops it on the window,
-only if it is a regular file, and at most 64 KiB of it. On Windows its path
-must be an absolute path on a drive (`C:\...`): a share (`\\server\...`),
-a device path (`\\?\`, `\\.\`) or a relative path is refused, so that
-reading a card never makes Windows reach another computer over SMB, outside
-Tor.
+only if it is a regular file, and at most 64 KiB of it. The name is looked
+at (`lstat`) before anything is opened, and anything but a regular file is
+refused unopened, a symbolic link included: opening a device can do
+something of its own, such as rewinding a tape, and a pipe or a device can
+block or never end. On Unix the file is then opened without following a
+link and without waiting (`O_NOFOLLOW | O_NONBLOCK`) and read only if it is
+the file looked at, the same device and inode (`fstat`); a name given to
+something else between the two steps is refused unread. What is put there
+in that moment, by someone who can write to the folder, is still opened
+before it is refused. On Windows its path must be an absolute path on a
+drive (`C:\...`): a share (`\\server\...`), a device path (`\\?\`, `\\.\`)
+or a relative path is refused, so that reading a card never makes Windows
+reach another computer over SMB, outside Tor; the file opened is checked
+again to be a regular file.
 
 ## 11. No network in the client
 

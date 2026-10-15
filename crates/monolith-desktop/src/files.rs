@@ -2,10 +2,10 @@
 //! no frame waits: a card saved as a new file, a card file read, the
 //! settings file written. Done in the order asked.
 
+use std::fs::{File, Metadata};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::Instant;
 
 use core::time::Duration;
 
@@ -13,6 +13,7 @@ use monolith_ui::EffectResult;
 use monolith_ui_model::{Failure, UiIdentityId};
 use zeroize::Zeroizing;
 
+use crate::Join;
 use crate::bridge::Wake;
 use crate::config::{self, Config};
 
@@ -53,8 +54,7 @@ pub enum Job {
 pub struct Disk {
     jobs: Option<mpsc::SyncSender<Job>>,
     results: mpsc::Receiver<EffectResult>,
-    thread: Option<std::thread::JoinHandle<()>>,
-    close_wait: Duration,
+    thread: Join,
 }
 
 impl core::fmt::Debug for Disk {
@@ -92,9 +92,15 @@ impl Disk {
         Ok(Self {
             jobs: Some(jobs),
             results,
-            thread: Some(thread),
-            close_wait,
+            thread: Join::new(thread, close_wait),
         })
+    }
+
+    /// Takes the waiting out: dropped, the disk then lets the jobs asked
+    /// for finish without waiting for them, and what this returns waits
+    /// instead.
+    pub fn take_join(&mut self) -> Join {
+        self.thread.take()
     }
 
     /// Asks for `job`. If too many wait, it fails at once.
@@ -116,20 +122,12 @@ impl Disk {
 
 impl Drop for Disk {
     /// Lets the jobs asked for finish, so that the last settings are
-    /// written, and waits for them a while at most: a job that hangs does
-    /// not hold the exit.
+    /// written, and waits for them a while at most, unless the waiting was
+    /// taken out ([`Disk::take_join`]): a job that hangs does not hold the
+    /// exit.
     fn drop(&mut self) {
         self.jobs = None;
-        let Some(thread) = self.thread.take() else {
-            return;
-        };
-        let deadline = Instant::now().checked_add(self.close_wait);
-        while !thread.is_finished() && deadline.is_some_and(|deadline| Instant::now() < deadline) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        if thread.is_finished() {
-            let _ = thread.join();
-        }
+        drop(self.thread.take());
     }
 }
 
@@ -223,19 +221,36 @@ pub fn save_card(dir: &Path, name: &str, contents: &[u8]) -> std::io::Result<Pat
 
 /// Reads a card file: a regular file of at most [`MAX_CARD_FILE`] bytes of
 /// UTF-8. What it says is checked like pasted text.
+///
+/// The name is looked at before anything is opened, and anything but a
+/// regular file is refused unopened, a link included: opening a device can
+/// do something of its own (rewind a tape, raise a line of a modem), and a
+/// pipe or a device could block or never end. The file is then opened, on
+/// Unix without following a link and without waiting, and read only if it
+/// is still a regular file, on Unix the same one (device and inode): a name
+/// given to something else in between is refused, unread.
 pub fn read_card(path: &Path) -> Result<Zeroizing<String>, Failure> {
+    read_card_with(path, open)
+}
+
+/// [`read_card`], opening the file with `open`.
+fn read_card_with(
+    path: &Path,
+    open: impl FnOnce(&Path) -> std::io::Result<File>,
+) -> Result<Zeroizing<String>, Failure> {
     if !local(path) {
         return Err(Failure::File);
     }
-    // Opened first, then checked: what is checked is what is read, even
-    // if the name is given to something else in between. A device or a
-    // pipe could block or never end; only files are read.
-    let file = open(path).map_err(|_| Failure::File)?;
-    let metadata = file.metadata().map_err(|_| Failure::File)?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| Failure::File)?;
     if !metadata.is_file() {
         return Err(Failure::File);
     }
-    if metadata.len() > MAX_CARD_FILE {
+    let file = open(path).map_err(|_| Failure::File)?;
+    let opened = file.metadata().map_err(|_| Failure::File)?;
+    if !same_file(&metadata, &opened) {
+        return Err(Failure::File);
+    }
+    if opened.len() > MAX_CARD_FILE {
         return Err(Failure::FileTooLarge);
     }
     // Room for one byte more than allowed, so that the card is not copied
@@ -273,22 +288,33 @@ fn local(_: &Path) -> bool {
     true
 }
 
-/// Opens `path` to read it. On Unix it is opened without waiting, so that
-/// a pipe without a writer does not block the thread.
+/// Opens `path` to read it. On Unix a link is not followed, and the file is
+/// opened without waiting, so that a pipe without a writer does not block
+/// the thread.
 #[cfg(unix)]
-fn open(path: &Path) -> std::io::Result<std::fs::File> {
+fn open(path: &Path) -> std::io::Result<File> {
     use rustix::fs::{Mode, OFlags};
-    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
-    Ok(std::fs::File::from(rustix::fs::open(
-        path,
-        flags,
-        Mode::empty(),
-    )?))
+    let flags =
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
+    Ok(File::from(rustix::fs::open(path, flags, Mode::empty())?))
 }
 
 #[cfg(not(unix))]
-fn open(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::File::open(path)
+fn open(path: &Path) -> std::io::Result<File> {
+    File::open(path)
+}
+
+/// Whether the file opened is a regular file and, on Unix, the one looked
+/// at: the same device and inode.
+#[cfg(unix)]
+fn same_file(looked_at: &Metadata, opened: &Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    opened.is_file() && opened.dev() == looked_at.dev() && opened.ino() == looked_at.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file(_: &Metadata, opened: &Metadata) -> bool {
+    opened.is_file()
 }
 
 #[cfg(test)]
@@ -296,6 +322,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use std::sync::Arc;
+    use std::time::Instant;
 
     use super::*;
 
@@ -427,5 +454,105 @@ mod tests {
         // read up to the limit.
         assert_eq!(read_card(Path::new("/dev/zero")), Err(Failure::File));
         assert_eq!(read_card(Path::new("/dev/null")), Err(Failure::File));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_pipe_is_never_opened_by_its_name_or_through_a_link() {
+        use core::mem::MaybeUninit;
+        use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
+        use rustix::fs::{CWD, Mode};
+        let dir = scratch("unopened");
+        let fifo = dir.join("pipe");
+        rustix::fs::mkfifoat(CWD, &fifo, Mode::RUSR | Mode::WUSR).unwrap();
+        let link = dir.join("card.txt");
+        std::os::unix::fs::symlink(&fifo, &link).unwrap();
+        // Every opening of the pipe is seen.
+        let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
+        inotify::add_watch(&watch, &fifo, WatchFlags::OPEN).unwrap();
+        let mut buffer = [MaybeUninit::uninit(); 1024];
+        let mut events = inotify::Reader::new(&watch, &mut buffer);
+        assert_eq!(read_card(&fifo), Err(Failure::File));
+        assert_eq!(read_card(&link), Err(Failure::File));
+        assert_eq!(
+            events.next().err(),
+            Some(rustix::io::Errno::AGAIN),
+            "the pipe was opened"
+        );
+        // As it is when it is opened.
+        drop(open(&fifo).unwrap());
+        assert!(events.next().unwrap().events().contains(ReadFlags::OPEN));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_never_followed() {
+        let dir = scratch("links");
+        let card = dir.join("card.txt");
+        std::fs::write(&card, "MONOLITH card").unwrap();
+        let to_card = dir.join("to-card.txt");
+        std::os::unix::fs::symlink(&card, &to_card).unwrap();
+        let to_device = dir.join("to-device.txt");
+        std::os::unix::fs::symlink("/dev/zero", &to_device).unwrap();
+        assert_eq!(read_card(&card).unwrap().as_str(), "MONOLITH card");
+        assert_eq!(read_card(&to_card), Err(Failure::File));
+        assert_eq!(read_card(&to_device), Err(Failure::File));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_name_given_to_something_else_once_looked_at_is_not_read() {
+        /// Reads `card` once it is looked at; `swap` gives its name to
+        /// something else before it is opened.
+        fn read(
+            card: &Path,
+            other: &Path,
+            swap: fn(&Path, &Path),
+        ) -> Result<Zeroizing<String>, Failure> {
+            let _ = std::fs::remove_file(card);
+            let _ = std::fs::remove_file(other);
+            std::fs::write(card, "MONOLITH card").unwrap();
+            read_card_with(card, |path| {
+                swap(path, other);
+                open(path)
+            })
+        }
+        let dir = scratch("swapped");
+        let card = dir.join("card.txt");
+        let other = dir.join("other.txt");
+        assert_eq!(
+            read(&card, &other, |_, _| {}).unwrap().as_str(),
+            "MONOLITH card"
+        );
+        // Another file.
+        let file = read(&card, &other, |card, other| {
+            std::fs::write(other, "MONOLITH other").unwrap();
+            std::fs::rename(other, card).unwrap();
+        });
+        assert_eq!(file, Err(Failure::File));
+        // A link to the file looked at, under another name.
+        let link = read(&card, &other, |card, other| {
+            std::fs::rename(card, other).unwrap();
+            std::os::unix::fs::symlink(other, card).unwrap();
+        });
+        assert_eq!(link, Err(Failure::File));
+        // A pipe: an open that waited for a writer would never return.
+        let (sender, receiver) = mpsc::channel();
+        let (at, beside) = (card.clone(), other.clone());
+        std::thread::spawn(move || {
+            let pipe = read(&at, &beside, |card, _| {
+                use rustix::fs::{CWD, Mode};
+                std::fs::remove_file(card).unwrap();
+                rustix::fs::mkfifoat(CWD, card, Mode::RUSR | Mode::WUSR).unwrap();
+            });
+            let _ = sender.send(pipe);
+        });
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(10)).unwrap(),
+            Err(Failure::File)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

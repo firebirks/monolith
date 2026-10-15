@@ -30,11 +30,46 @@ desktop entry, a 256 pixel icon drawn by the same code as the window's
 (`cargo run -p monolith-desktop --example icon -- <file> [side]`), an
 installer for the user's home (`install.sh`: `~/.local/bin`,
 `~/.local/share/applications`, `~/.local/share/icons`), a README for
-the user, `LICENSE` and the licences of the fonts and icons. Its files are
-sorted, owned by nobody and dated at the commit, so that the same commit
-and toolchain give the same archive. The Windows archive holds the binary,
-a README, `LICENSE` and the same licences; the binary carries no icon
-resource of its own (the window sets its icon when it opens).
+the user, `LICENSE`, the licences of the fonts and icons, and
+`THIRD-PARTY-NOTICES.txt`. Its files are sorted, owned by nobody and dated
+at the commit, so that the same commit and toolchain give the same
+archive. The Windows archive holds the binary, a README, `LICENSE`, the
+same licences and its own `THIRD-PARTY-NOTICES.txt`; the binary carries
+no icon resource of its own (the window sets its icon when it opens).
+Both scripts take the binary from the target directory cargo uses,
+`CARGO_TARGET_DIR` included, and need Python 3 (`python3` on Linux,
+`python` on Windows).
+
+## Third-party notices
+
+The binary links about 170 (Windows) to 250 (Linux) third-party crates,
+under MIT, Apache-2.0, BSD, ISC, Zlib, BSL-1.0, Unicode-3.0 and the other
+licences `deny.toml` allows; most of these ask for their copyright notice
+and licence text in every copy, binaries included.
+`python3 packaging/notices.py <target triple> <file>` writes them, and
+both scripts run it for the host they build on:
+
+1. the crates built into `monolith-desktop` for that target, with their
+   versions and licence expressions: its normal dependencies and theirs,
+   procedural macros included, without development and build
+   dependencies, as `cargo tree -p monolith-desktop --edges normal`
+   resolves them (the resolve of `cargo metadata` unites the features of
+   every target and workspace member, and would name crates the binary
+   does not contain);
+2. the crates whose packages carry no licence file, with their authors;
+3. every licence text their packages carry (`LICENSE*`, `LICENCE*`,
+   `COPYING*`), each distinct text once with the crates that carry it;
+4. their notice files (`NOTICE*`, `COPYRIGHT*`), likewise;
+5. the standard texts, as SPDX publishes them (`packaging/licenses/`,
+   license-list-data 3.27.0), of the licences named by the crates of
+   item 2 and of the Rust standard library (MIT, Apache-2.0);
+6. the licences of the fonts and icons
+   (`crates/monolith-ui-kit/assets/licenses/`).
+
+The generator stops with an error when a crate has no licence file and
+names a licence whose standard text is not in `packaging/licenses/`; the
+text is then added there from SPDX. Its output depends only on the lock
+file, the target and the files it reads.
 
 ## What the binary needs at run time
 

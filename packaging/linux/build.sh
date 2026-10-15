@@ -1,9 +1,10 @@
 #!/bin/sh
 # Builds the Linux archive of the desktop client (packaging/README.md): the
 # release binary, its desktop entry, its icon, an installer for the user's
-# home and the licences, in one tar.gz that unpacks into a folder of its
-# own. Run it from anywhere in the repository; it needs git, cargo, GNU tar
-# and sha256sum. It writes to target/package/.
+# home, the licences and the notices of the crates in the binary, in one
+# tar.gz that unpacks into a folder of its own. Run it from anywhere in the
+# repository; it needs git, cargo, Python 3, GNU tar and sha256sum. It
+# writes to target/package/.
 set -eu
 
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -17,14 +18,20 @@ mkdir -p "$out/licenses"
 # No symbols in the binary; nothing else differs from a release build.
 CARGO_PROFILE_RELEASE_STRIP=symbols cargo build --release --locked -p monolith-desktop
 cargo run --release --locked --quiet -p monolith-desktop --example icon -- "$out/monolith.png" 256
+# Where cargo built it, CARGO_TARGET_DIR included.
+built=$(cargo metadata --format-version 1 --no-deps --locked |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
+host=$(rustc -vV | sed -n 's/^host: //p')
 
-cp target/release/monolith-desktop "$out/"
+cp "$built/release/monolith-desktop" "$out/"
 cp packaging/linux/monolith.desktop packaging/linux/install.sh "$out/"
 cp packaging/linux/README.txt "$out/"
 cp LICENSE "$out/"
 cp crates/monolith-ui-kit/assets/licenses/* "$out/licenses/"
+python3 packaging/notices.py "$host" "$out/THIRD-PARTY-NOTICES.txt"
 chmod 0755 "$out/monolith-desktop" "$out/install.sh"
-chmod 0644 "$out/monolith.png" "$out/monolith.desktop" "$out/README.txt" "$out/LICENSE" "$out"/licenses/*
+chmod 0644 "$out/monolith.png" "$out/monolith.desktop" "$out/README.txt" "$out/LICENSE" \
+    "$out/THIRD-PARTY-NOTICES.txt" "$out"/licenses/*
 
 # The same files give the same archive: names sorted, no owner, the time of
 # the commit.

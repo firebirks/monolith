@@ -9,6 +9,9 @@ accounts. This folder holds the desktop client:
   monolith.desktop    its entry for the application menu
   monolith.png        its icon
   LICENSE, licenses/  the licence of Monolith and of the fonts and icons
+  THIRD-PARTY-NOTICES.txt
+                      the licences and notices of the code of others in
+                      the program
 
 Running
 -------

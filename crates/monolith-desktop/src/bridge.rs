@@ -19,8 +19,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread::JoinHandle;
-use std::time::Instant;
 
 use core::future::Future;
 use core::hash::Hash;
@@ -39,7 +37,7 @@ use tokio::sync::mpsc;
 use tokio::task::{self, JoinSet, LocalSet};
 use zeroize::Zeroizing;
 
-use crate::convert;
+use crate::{Join, convert};
 
 /// How many commands, and how many updates, wait in a channel at most.
 const CHANNEL: usize = 256;
@@ -69,8 +67,7 @@ pub struct Bridge {
     updates: mpsc::Receiver<Update>,
     /// The window was told that the runtime stopped.
     stopped: bool,
-    thread: Option<JoinHandle<()>>,
-    close_wait: Duration,
+    thread: Join,
 }
 
 impl core::fmt::Debug for Bridge {
@@ -90,6 +87,11 @@ impl Bridge {
         let thread = std::thread::Builder::new()
             .name("monolith-runtime".to_owned())
             .spawn(move || {
+                // Made first, so dropped last, also when the thread
+                // unwinds: the window, which draws no frame while idle, is
+                // woken once the updates are closed and sees that the
+                // runtime stopped.
+                let _woken = WakeOnDrop(Arc::clone(&wake));
                 let out = Out {
                     updates: update_sender,
                     wake,
@@ -103,7 +105,6 @@ impl Bridge {
                     }
                     Err(_) => {
                         let _ = out.updates.blocking_send(Update::Stopped);
-                        (out.wake)();
                     }
                 }
             })?;
@@ -112,9 +113,14 @@ impl Bridge {
             backlog: VecDeque::new(),
             updates: update_receiver,
             stopped: false,
-            thread: Some(thread),
-            close_wait,
+            thread: Join::new(thread, close_wait),
         })
+    }
+
+    /// Takes the waiting out of the bridge: dropped, it then stops the
+    /// runtime without waiting for it, and what this returns waits instead.
+    pub fn take_join(&mut self) -> Join {
+        self.thread.take()
     }
 
     /// Hands a command to the bridge, or queues it until there is room.
@@ -169,21 +175,22 @@ impl Bridge {
 
 impl Drop for Bridge {
     /// Closes the bridge: the runtime stops, as for
-    /// [`Command::Shutdown`], and the window waits for it a while.
+    /// [`Command::Shutdown`], and the window waits for it a while, unless
+    /// the waiting was taken out ([`Bridge::take_join`]).
     fn drop(&mut self) {
         self.commands = None;
         self.backlog.clear();
         self.updates.close();
-        let Some(thread) = self.thread.take() else {
-            return;
-        };
-        let deadline = Instant::now().checked_add(self.close_wait);
-        while !thread.is_finished() && deadline.is_some_and(|deadline| Instant::now() < deadline) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        if thread.is_finished() {
-            let _ = thread.join();
-        }
+        drop(self.thread.take());
+    }
+}
+
+/// Wakes the window when it is dropped.
+struct WakeOnDrop(Wake);
+
+impl Drop for WakeOnDrop {
+    fn drop(&mut self) {
+        (self.0)();
     }
 }
 

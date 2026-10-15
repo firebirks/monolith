@@ -23,6 +23,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::thread::JoinHandle;
+use std::time::Instant;
 
 use core::time::Duration;
 
@@ -30,9 +32,8 @@ use monolith_runtime::{ControlAuth, Endpoint, SystemTorBackend, SystemTorConfig}
 use monolith_ui::{App, EffectResult, TorSettings};
 use monolith_ui_model::{Failure, Model};
 
-use crate::bridge::{Bridge, Setup, Wake};
+use crate::bridge::{Setup, Wake};
 use crate::config::Config;
-use crate::files::Disk;
 use crate::window::Window;
 
 /// How long the runtime has, when the window closes, to close its sessions
@@ -43,6 +44,46 @@ const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(3);
 const CLOSE_WAIT: Duration = Duration::from_secs(5);
 
 const USAGE: &str = "usage: monolith-desktop [--data-dir DIR] [--config FILE]";
+
+/// A thread of the client, waited for when this is dropped, a while at
+/// most: a thread that hangs does not hold the exit.
+#[derive(Debug)]
+pub struct Join {
+    thread: Option<JoinHandle<()>>,
+    wait: Duration,
+}
+
+impl Join {
+    fn new(thread: JoinHandle<()>, wait: Duration) -> Self {
+        Self {
+            thread: Some(thread),
+            wait,
+        }
+    }
+
+    /// Takes the thread out, leaving nothing to wait for.
+    fn take(&mut self) -> Self {
+        Self {
+            thread: self.thread.take(),
+            wait: self.wait,
+        }
+    }
+}
+
+impl Drop for Join {
+    fn drop(&mut self) {
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        let deadline = Instant::now().checked_add(self.wait);
+        while !thread.is_finished() && deadline.is_some_and(|deadline| Instant::now() < deadline) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if thread.is_finished() {
+            let _ = thread.join();
+        }
+    }
+}
 
 /// What the command line says.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -149,6 +190,11 @@ pub fn run(options: Options) -> ExitCode {
         persist_window: false,
         ..eframe::NativeOptions::default()
     };
+    // eframe drops the window's app before it destroys the window, which on
+    // Wayland cannot hide itself: the runtime and the disk thread are
+    // waited for once the window is gone, after `run_native` returns.
+    let mut threads = None;
+    let slot = &mut threads;
     let started = eframe::run_native(
         "Monolith",
         native,
@@ -169,8 +215,6 @@ pub fn run(options: Options) -> ExitCode {
                 shutdown_deadline: SHUTDOWN_DEADLINE,
                 close_wait: CLOSE_WAIT,
             };
-            let bridge = Bridge::start(setup, Arc::clone(&wake))?;
-            let disk = Disk::start(wake)?;
             let mut app = App::new(
                 Model::new(),
                 Box::new(calendar::SystemCalendar::new()),
@@ -180,15 +224,12 @@ pub fn run(options: Options) -> ExitCode {
             if tor_settings_refused {
                 app.effect_done(EffectResult::Failed(Failure::TorSettings));
             }
-            Ok(Box::new(Window::new(
-                app,
-                bridge,
-                disk,
-                config,
-                config_path,
-            )))
+            let (window, joins) = Window::start(app, setup, wake, config, config_path)?;
+            *slot = Some(joins);
+            Ok(Box::new(window))
         }),
     );
+    drop(threads);
     match started {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,

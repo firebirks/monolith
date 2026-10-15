@@ -684,6 +684,18 @@ allowed already or offered next to an allowed one (`Unlicense OR MIT` of
 see them; their licences (SIL Open Font License 1.1, ISC) are next to
 them (ADR 0012).
 
+Notices in the packages: most of these licences (MIT, Apache-2.0, the BSD
+licences, ISC, Unicode-3.0) ask for the copyright notice and the licence
+text in every copy, binaries included. Each archive of the desktop client
+carries `THIRD-PARTY-NOTICES.txt`, written when it is built by
+`packaging/notices.py` for the target built: the crates `cargo tree -p
+monolith-desktop --edges normal` names for it, with their versions and
+licences, every licence and notice file their packages carry, the
+standard texts of SPDX in `packaging/licenses/` for the crates whose
+packages carry none (the egui and AccessKit crates, `atspi-proxies`,
+`clipboard-win`, `profiling`, `qrcodegen`) and for the Rust standard
+library, and the licences of the fonts and icons (`packaging/README.md`).
+
 ## 4. Checks
 
 Run on the dependency set above; the date is in each row.

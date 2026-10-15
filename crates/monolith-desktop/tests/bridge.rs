@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use monolith_desktop::bridge::{Bridge, Setup};
@@ -517,6 +517,44 @@ fn a_runtime_thread_that_panics_is_said_to_have_stopped() {
     for _ in 0..10 {
         assert_eq!(bridge.try_update(), None);
     }
+}
+
+#[test]
+fn a_runtime_thread_that_panics_wakes_the_window() {
+    // An idle window draws no frame until it is woken: the thread wakes it
+    // as it unwinds, and by then its end can be seen.
+    let unwinding = Arc::new(AtomicBool::new(false));
+    let (panics, seen) = (Arc::clone(&unwinding), Arc::clone(&unwinding));
+    let woken = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&woken);
+    let mut bridge = Bridge::start(
+        Setup {
+            data_dir: None,
+            backend: Box::new(move || -> MockTorBackend {
+                panics.store(true, Ordering::SeqCst);
+                panic!("no backend")
+            }),
+            shutdown_deadline: Duration::from_secs(2),
+            close_wait: Duration::from_secs(10),
+        },
+        Arc::new(move || {
+            if seen.load(Ordering::SeqCst) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        }),
+    )
+    .unwrap();
+    bridge.send(CommandId::new(1), Command::StartWithoutSaving);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while woken.load(Ordering::SeqCst) == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "the thread ended without waking the window"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(matches!(bridge.try_update(), Some(Update::Started { .. })));
+    assert_eq!(bridge.try_update(), Some(Update::Stopped));
 }
 
 #[test]

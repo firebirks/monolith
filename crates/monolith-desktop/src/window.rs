@@ -2,17 +2,18 @@
 //! the screens, and hands on what they asked for.
 
 use std::path::PathBuf;
-#[cfg(feature = "screenshot")]
 use std::sync::Arc;
 
 use core::time::Duration;
 
 use egui::{Color32, Context, IconData, OutputCommand, UserAttentionType, ViewportCommand};
+use monolith_runtime::TorBackend;
 use monolith_ui::{App, Effect, EffectResult, ThemeChoice};
 use monolith_ui_kit::theme::{self, Mode, Theme};
 use monolith_ui_model::{Failure, Model};
 
-use crate::bridge::Bridge;
+use crate::Join;
+use crate::bridge::{Bridge, Setup, Wake};
 use crate::config::{self, Config};
 use crate::files::{Disk, Job};
 use crate::places;
@@ -42,6 +43,24 @@ impl core::fmt::Debug for Window {
 }
 
 impl Window {
+    /// Starts the runtime and the disk thread, with a window over `app`.
+    /// The window holds ends of them whose drop does not wait: eframe drops
+    /// it before it destroys the window, which would stay on screen, frozen,
+    /// where it cannot hide itself (on Wayland) while they stop. The threads
+    /// are waited for when what comes with the window is dropped.
+    pub fn start<B: TorBackend + 'static>(
+        app: App,
+        setup: Setup<B>,
+        wake: Wake,
+        config: Config,
+        config_path: Option<PathBuf>,
+    ) -> std::io::Result<(Self, [Join; 2])> {
+        let mut bridge = Bridge::start(setup, Arc::clone(&wake))?;
+        let mut disk = Disk::start(wake)?;
+        let threads = [bridge.take_join(), disk.take_join()];
+        Ok((Self::new(app, bridge, disk, config, config_path), threads))
+    }
+
     /// A window over `app`, with the bridge and the disk thread running.
     pub fn new(
         app: App,
@@ -289,9 +308,10 @@ pub fn close_or_ask(ctx: &Context, app: &mut App) {
     }
 }
 
-/// Takes the window off the screen as soon as it closes. The runtime then
-/// takes a few seconds to stop, while the window, no longer drawn, would
-/// stay on screen frozen.
+/// Takes the window off the screen as soon as it closes, where a window can
+/// hide itself (not on Wayland, where it goes when eframe destroys it).
+/// The runtime and the disk thread are waited for only after that
+/// ([`Window::start`]).
 pub fn hide_when_closing(ctx: &Context) {
     if ctx.input(|input| input.viewport().close_requested()) {
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
@@ -879,6 +899,49 @@ mod tests {
         assert!(commands.contains(&ViewportCommand::Visible(false)));
         assert!(!commands.contains(&ViewportCommand::CancelClose));
         assert!(!window.app.asking_to_close());
+    }
+
+    #[test]
+    fn dropping_the_window_waits_for_no_thread() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Instant;
+
+        use monolith_ui_model::CommandId;
+
+        // A runtime that takes seconds to stop: it is making the Tor
+        // backend of a session when the window goes.
+        let network = MockNetwork::new();
+        let (entered, making) = std::sync::mpsc::channel();
+        let made = Arc::new(AtomicBool::new(false));
+        let done = Arc::clone(&made);
+        let setup = Setup {
+            data_dir: None,
+            backend: Box::new(move || {
+                let _ = entered.send(());
+                std::thread::sleep(Duration::from_secs(2));
+                done.store(true, Ordering::SeqCst);
+                network.backend()
+            }),
+            shutdown_deadline: Duration::from_secs(1),
+            close_wait: Duration::from_secs(10),
+        };
+        let app = monolith_ui::App::for_tests(Model::new(), 0);
+        let (mut window, threads) =
+            Window::start(app, setup, Arc::new(|| {}), Config::defaults(tor()), None).unwrap();
+        window
+            .bridge
+            .send(CommandId::new(1), Command::StartWithoutSaving);
+        making.recv_timeout(Duration::from_secs(10)).unwrap();
+        let dropped = Instant::now();
+        drop(window);
+        assert!(
+            dropped.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            dropped.elapsed()
+        );
+        // What came with it waits for the runtime.
+        drop(threads);
+        assert!(made.load(Ordering::SeqCst));
     }
 
     #[test]
