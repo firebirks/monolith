@@ -229,7 +229,39 @@ what its reviews added:
   of another identity kept, a late answer that reads the identity shown, a
   refused unblock told as done, a number kept for someone unblocked, a
   refusal told as unexpected, and the Unblock button of one row that acts
-  on another or does nothing (UI77 to UI87).
+  on another or does nothing (UI77 to UI87);
+- what a frame draws: a preview that reads a whole long message or loses
+  its ellipsis, prepared texts kept for a message that changed or not made
+  again when it is expanded, the state of a conversation whose messages
+  were deleted kept by the window, the rows of the list not made again or
+  keeping an old preview or unread count, the reader moved by older
+  messages, a conversation that does not open at its newest message, every
+  message laid out, a misplaced frame shown, a reader taken back to the
+  bottom, initials for contacts without a name (UI88 to UI103);
+- the window around the screens: shortcuts behind a question, Tor not
+  checked again after missed events, a runtime thread that ends without
+  waking the window, threads waited for while the window is still up, a
+  card file swapped or linked in place of the one looked at (UI104 to
+  UI110);
+- what the screens say and ask: a draft cut by a queued send, an added
+  card said as given rather than as kept, declining and unblocking without
+  a question, a failed store said again, no Revoke after accepting through
+  an invitation, a message being queued not counted before closing, a
+  passphrase buffer that moves, a waiting contact said to wait for the
+  wrong thing, invitations said to bring requests under Nobody, field
+  errors not on their field (UI111 to UI123);
+- the look and the keyboard of the design system: fingerprints in rows of
+  six, initials on request cards and in the contact dialog, ended
+  conversations marked as blocked, markers without words, wells without an
+  edge, a narrow settings page, solid red triggers, messages cut against the
+  bar, the drop zone, history kept by fields that must keep none, scroll
+  bars, the sidebar edge and the composer in the Tab order, a sidebar edge
+  or a bar that cannot be dragged, toasts over notices and dialogs, the
+  blocked people out of view, the first screens without their mark, the
+  switcher's card entry, the unblock question, rows brought into view, the
+  requests entry, short first-start windows, the place of Close in the Tor
+  details, card text that does not fill its lines, and boxes wider than
+  their column (UI124 to UI160).
 
 UI33 first removed the scrim's interaction and the modal layer together;
 the scrim's own widget still shielded the pointer, so it survived. It is

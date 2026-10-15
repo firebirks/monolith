@@ -49,10 +49,24 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
 
 // ---- Layout ----
 
+/// Whether the window is shorter than the first window. The first screens
+/// then keep less room around the wordmark and inside the card, so that
+/// the main action is in view in the smallest window, and both actions of
+/// the first start in a window of 600 points.
+fn short(ctx: &Context) -> bool {
+    let theme = theme::current(ctx);
+    ctx.screen_rect().height() < theme.size.window_default.y
+}
+
 /// The window: `bg_app`, and a centred column that `add` fills.
 fn page(ctx: &Context, add: impl FnOnce(&mut Ui)) {
     let theme = theme::current(ctx);
     let frame = Frame::new().fill(theme.color.bg_app);
+    let margin = if short(ctx) {
+        theme.space.sm
+    } else {
+        theme.space.xxl
+    };
     egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
         chrome::scroll_area("onboarding-scroll").show(ui, |ui| {
             let area = ui.available_rect_before_wrap();
@@ -65,7 +79,7 @@ fn page(ctx: &Context, add: impl FnOnce(&mut Ui)) {
             // frame.
             let key = Id::new("monolith-onboarding-height");
             let known: f32 = ctx.data(|data| data.get_temp(key)).unwrap_or(0.0);
-            let top = ((area.height() - known) / 2.0).max(theme.space.xxl);
+            let top = ((area.height() - known) / 2.0).max(margin);
             let rect = egui::Rect::from_min_size(
                 egui::pos2(area.center().x - width / 2.0, area.top() + top),
                 Vec2::new(width, area.height()),
@@ -110,7 +124,10 @@ fn centered(ui: &mut Ui, content: &str, token: &TextToken, color: egui::Color32)
 
 /// The wordmark and the line under it.
 fn wordmark(ui: &mut Ui, theme: &Theme) {
-    ui.add_space(theme.space.xs);
+    let short = short(ui.ctx());
+    if !short {
+        ui.add_space(theme.space.xs);
+    }
     ui.add(Wordmark::new("Monolith"));
     centered(
         ui,
@@ -118,7 +135,11 @@ fn wordmark(ui: &mut Ui, theme: &Theme) {
         &theme.text.body,
         theme.color.text_secondary,
     );
-    ui.add_space(theme.space.xxl);
+    ui.add_space(if short {
+        theme.space.md
+    } else {
+        theme.space.xxl
+    });
 }
 
 /// A progress mark, centred.
@@ -132,7 +153,12 @@ fn progress(ui: &mut Ui, theme: &Theme) {
 
 /// The card around a form.
 fn card(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
-    chrome::card_frame(ui.ctx(), theme.space.xxl).show(ui, |ui| {
+    let padding = if short(ui.ctx()) {
+        theme.space.lg
+    } else {
+        theme.space.xxl
+    };
+    chrome::card_frame(ui.ctx(), padding).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = theme.space.sm;
         add(ui);
@@ -363,7 +389,7 @@ fn welcome(ui: &mut Ui, app: &mut App) {
         text(
             ui,
             "Your identities, contacts and messages are kept encrypted on this device under \
-             this passphrase. If you lose it, nothing can be recovered.",
+             this passphrase. Nothing can be recovered without it.",
             &theme.text.caption,
             theme.color.text_tertiary,
         );

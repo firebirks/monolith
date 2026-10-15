@@ -9,7 +9,8 @@
 use egui::{
     Align, Area, Context, CornerRadius, Frame, Id, Key, Label, Layout, Modifiers, Order, Popup,
     Rect, RichText, ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2,
-    containers::scroll_area::ScrollBarVisibility, emath::TSTransform,
+    containers::scroll_area::ScrollBarVisibility,
+    emath::{GuiRounding as _, TSTransform},
 };
 
 use crate::button::{Button, Size};
@@ -54,6 +55,8 @@ const APPEAR_SCALE: f32 = 0.96;
 struct Drawn {
     pass: u64,
     card: Rect,
+    /// Its title, and the line under it if there is one.
+    head: Rect,
     actions: Rect,
 }
 
@@ -61,19 +64,30 @@ fn drawn_id() -> Id {
     Id::new("monolith-ui-kit/modal-drawn")
 }
 
+/// The modal drawn so far in this pass, if one was.
+fn this_pass(ctx: &Context) -> Option<Drawn> {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|data| data.get_temp::<Drawn>(drawn_id()))
+        .filter(|drawn| drawn.pass == pass)
+}
+
 /// The card of the modal drawn so far in this pass, and the row of its
 /// actions, if one was: what is shown over a modal keeps clear of its
 /// title and its actions.
 pub(crate) fn drawn(ctx: &Context) -> Option<(Rect, Rect)> {
-    let pass = ctx.cumulative_pass_nr();
-    ctx.data(|data| data.get_temp::<Drawn>(drawn_id()))
-        .filter(|drawn| drawn.pass == pass)
-        .map(|drawn| (drawn.card, drawn.actions))
+    this_pass(ctx).map(|drawn| (drawn.card, drawn.actions))
+}
+
+/// Where the title of the modal drawn so far in this pass ends (or the
+/// line under it), if one was.
+pub(crate) fn title_bottom(ctx: &Context) -> Option<f32> {
+    this_pass(ctx).map(|drawn| drawn.head.bottom())
 }
 
 /// Lays out `body` in a scroll area at most `max_height` tall, as wide as
 /// `ui`. The scroll bar floats in the right padding of the card, clear of
-/// the content.
+/// the content. A body taller than that is cut against a hairline, above
+/// the actions.
 fn scrolling_body<R>(
     ui: &mut Ui,
     theme: &Theme,
@@ -108,6 +122,14 @@ fn scrolling_body<R>(
     let height = area_ui.min_rect().height().min(max_height);
     let used = Rect::from_min_size(top, Vec2::new(width, height));
     ui.allocate_rect(used, Sense::hover());
+    if shown.content_size.y > shown.inner_rect.height() + theme.stroke.hairline {
+        let painter = ui.painter();
+        painter.hline(
+            used.x_range(),
+            painter.round_to_pixel_center(used.bottom()),
+            Stroke::new(theme.stroke.hairline, theme.color.border_subtle),
+        );
+    }
     shown.inner
 }
 
@@ -206,12 +228,21 @@ impl<'a> Modal<'a> {
         // scrolls, its title and its actions stay in view.
         let card_max_height = (screen.height() - theme.space.lg * 2.0).max(theme.size.control);
         let card_layer = Area::new(self.card_id()).layer();
+        // In the middle of the window, with its corner on a whole pixel: on
+        // half a pixel its outline is drawn across two and its rounded
+        // corners leave marks.
+        let snap = ctx
+            .memory(|memory| memory.area_rect(self.card_id()))
+            .map_or(Vec2::ZERO, |rect| {
+                let corner = screen.center() - rect.size() / 2.0;
+                corner.round_to_pixels(ctx.pixels_per_point()) - corner
+            });
         let title = self.title;
         let subtitle = self.subtitle;
         let body_id = self.id.with("body");
         let card = Area::new(self.card_id())
             .order(Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .anchor(egui::Align2::CENTER_CENTER, snap)
             .interactable(true)
             .movable(false)
             // Clicks on the card are the card's, not the scrim's; the card
@@ -254,6 +285,7 @@ impl<'a> Modal<'a> {
                                 .wrap(),
                             );
                         }
+                        let head = ui.min_rect();
                         ui.add_space(theme.space.xl);
                         ui.spacing_mut().item_spacing = Vec2::new(theme.space.sm, theme.space.sm);
                         // What is not the body: the title above, the space and
@@ -271,14 +303,15 @@ impl<'a> Modal<'a> {
                             Layout::right_to_left(Align::Center),
                             footer,
                         );
-                        (inner, actions.response.rect)
+                        (inner, head, actions.response.rect)
                     })
                     .inner
             });
-        let (inner, actions) = card.inner;
+        let (inner, head, actions) = card.inner;
         let drawn = Drawn {
             pass: ctx.cumulative_pass_nr(),
             card: card.response.rect,
+            head,
             actions,
         };
         ctx.data_mut(|data| data.insert_temp(drawn_id(), drawn));

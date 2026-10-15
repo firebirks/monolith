@@ -14,10 +14,12 @@ use std::path::{Path, PathBuf};
 use egui::{Context, Pos2, Vec2};
 use monolith_ui_kit::bubble::{DaySeparator, Direction, MessageBubble};
 use monolith_ui_kit::chrome::{self, ContentPanel, TopBar};
+use monolith_ui_kit::fingerprint::Fingerprint;
 use monolith_ui_kit::menu::{self, MenuItem};
 use monolith_ui_kit::message_status::{MessageStatus, Status};
 use monolith_ui_kit::modal::Modal;
 use monolith_ui_kit::qr::{QrCode, QrMatrix};
+use monolith_ui_kit::text::Text;
 use monolith_ui_kit::toast::{Kind, Toasts};
 use monolith_ui_kit::tor_status::{TorState, TorStatus};
 use monolith_ui_kit::{Button, TextField, Theme, fonts, icons, theme};
@@ -103,16 +105,9 @@ fn bubbles(ui: &mut egui::Ui, with_menu: bool) {
                     )),
                 );
             });
+            // As in the client: a message is only copied.
             menu::context_menu(&output.response, |ui| {
                 ui.add(MenuItem::new("Copy text").icon(icons::COPY));
-                ui.add(MenuItem::new("Message details").icon(icons::INFO));
-                ui.add(MenuItem::new("Edit").icon(icons::PENCIL).enabled(false));
-                menu::menu_separator(ui);
-                ui.add(
-                    MenuItem::new("Delete for me")
-                        .icon(icons::TRASH_2)
-                        .danger(true),
-                );
             });
         }
     };
@@ -347,21 +342,32 @@ fn main() {
             Modal::new("details", "Contact").show(
                 ctx,
                 |ui| {
+                    let theme = theme::current(ui.ctx());
                     TextField::new("details-name", name)
                         .label("Name (only you see it)")
                         .show(ui);
-                    for line in [
+                    ui.add(Text::new(
                         "Fingerprint",
-                        "AF3K 72PQ 9XZT M4LB D8EV 61RC",
-                        "5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM",
-                        "Compare this fingerprint with the one your contact sees, in person or on a call you trust, then mark them verified.",
-                    ] {
-                        ui.label(line);
-                    }
+                        &theme.text.caption_strong,
+                        theme.color.text_secondary,
+                    ));
+                    ui.add(Fingerprint::new(
+                        "AF3K 72PQ 9XZT M4LB D8EV 61RC 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM",
+                    ));
+                    ui.add(
+                        Text::new(
+                            "Ask the person to read you the fingerprint under their identity in \
+                             Monolith (Settings\u{a0}>\u{a0}Identities), on a call or in person. \
+                             If it matches this one, mark them verified.",
+                            &theme.text.caption,
+                            theme.color.text_tertiary,
+                        )
+                        .wrap(),
+                    );
                     for _ in 0..3 {
-                        ui.add(Button::ghost("Block").icon(icons::BAN));
-                        ui.add(Button::ghost("Remove").icon(icons::USER_X));
-                        ui.add(Button::ghost("Delete messages").icon(icons::TRASH_2));
+                        ui.add(Button::quiet_danger("Block").icon(icons::BAN));
+                        ui.add(Button::quiet_danger("Remove").icon(icons::USER_X));
+                        ui.add(Button::quiet_danger("Delete messages").icon(icons::TRASH_2));
                     }
                 },
                 |ui| {
@@ -414,7 +420,7 @@ fn main() {
             |matrix, ctx| {
                 dim_backdrop_small(ctx);
                 Modal::new("qr", "Invitation")
-                    .subtitle("Scan it with Monolith on the other device.")
+                    .subtitle("Monolith cannot scan QR codes; send the text.")
                     .show(
                         ctx,
                         |ui| {

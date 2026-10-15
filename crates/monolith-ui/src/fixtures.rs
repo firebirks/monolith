@@ -63,7 +63,7 @@ pub const NAMES: &[&str] = &[
     "invitation-created",
     "toast-banners",
     "toast-dialog",
-    "storage-failed-toast",
+    "storage-failed-command",
     // Every other dialog, over Alice's conversation unless said otherwise.
     "dialog-new-identity",
     "dialog-new-identity-no-tor",
@@ -71,6 +71,8 @@ pub const NAMES: &[&str] = &[
     "dialog-add-contact-read",
     "dialog-own-card",
     "dialog-show-invitation",
+    "dialog-new-invitation-nobody",
+    "dialog-invitation-nobody",
     "dialog-revoke",
     "dialog-contact-error",
     "dialog-contact-gone",
@@ -87,8 +89,17 @@ pub const NAMES: &[&str] = &[
     "dialog-tor-down",
 ];
 
-/// A card as the field of "Add contact" takes it, holding an invitation.
-const INVITATION_CARD: &str = "monolith:card:1:AJQXG43FMNZGK5BAONSWG4TFOQQGS3THEBUW4ZZAMVZXIZLTEBZG65LTMVZGKIDON5ZGOIDCMFWGS43IMFRGGZDFMZTWQ2LKNNWG23TPOBYXE43UOV3HO6DZPJTWC3DJNZSXE5DFPBPXG5LBNZSWCZB2GE3DENBQGIYTCMRRGMZDGNZYHA4DKNJWGU3TSMJZGQYDCOBWGM2TEMBTHE3DSOJTGAZGGMBRGQ3Q";
+/// An invitation of the personal identity, as the runtime gives it: the
+/// card of [`OWN_CARD`] with an invitation, signed again (310 characters).
+const INVITATION_CARD: &str = "MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRVBJA6AEYSMFHKR2IW7O4WQ7POWQNX45A2JRYDL2OXJFJR2VJWTTKAAAAAAAAAAAACAMBHF3Q5KD5C5PVNI2UM3BUY7WMZOGYVENU5Y32EXPWB5NY7SNTSQAVYHUKAPMX6QVW4CSMQE27PMWZNH3Y3L4EIHCSHRC3PVCPQCSVQ7NFSSP3I6GNUZ27VMF6J7LFD3DL3NEP47TSEF3WWBLUD7YE6D5KZOISHXNDMW35JZOPIOH2W53ZKMHQ";
+
+/// An invitation of someone else, as the field of "Add contact" takes it:
+/// the card of I of the vectors of `PROTOCOL.md` section 16.1 with an
+/// invitation, signed again.
+const DANA_INVITATION: &str = "MONOLITH1:AE6UAF6D5BBYSWUSW4FKOTI3P26JZGBMZ4XMJFUMYDGVL4JK6RTAZXU63N6XW7OBWTJVWYOC5TSDKNZ7QNB4QW3YM5G237D6CRXYQK2PAAAAAAAAAAAACAPNJEUMMKGRYLDOV2IDHCIFTFLBFFMSOOS4MP4TMNWBIYKKZBZX2EA2OPYMLYNZ2SHCY32AOGR6LWNSQWC77LLHS54UNW4JBNUNEW6U3SBDYYN3U5YKASB5LNWLHDKHTM5Z73YXPXEKHRWE2J6NPPY64LUR5RNZCQKKWAA56VIOZJFSQMNON4BQ";
+
+/// A card cut short, as a paste that missed its end.
+const CUT_CARD: &str = "MONOLITH1:AE6UAF6D5BBYSWUSW4FKOTI3P26JZGBMZ4XMJFUMYDGVL4JK6RTAZXU63N6XW7OBWTJVWYOC5TSDKNZ7QNB4QW3YM5G237D6CRXYQK2P";
 
 fn identity(n: u8) -> UiIdentityId {
     UiIdentityId::from_bytes([n; 16])
@@ -128,8 +139,22 @@ const LONG_INTRODUCTION: &str = "Hi, it is Frank from the climbing gym. Dana gav
                                  on Sunday; there is room for two more in the car, and the hut \
                                  is already booked for everyone.";
 
+/// The full fingerprint of whoever has the short one `compact`: its six
+/// groups, then seven that are theirs alone.
 fn full(compact: &str) -> String {
-    format!("{compact} 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM")
+    let rest = match compact {
+        ALICE_FP => "5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM",
+        BOB_FP => "3KDV 7QHT 2MXR 9BLE 4WNZ 6PCA 8TJF",
+        CAROL_FP => "9RWE 4LKT 6ZNB 2QMH 7XVD 3PCA 5JTL",
+        DANA_FP => "6NVR 2TKQ 8BWL 5ZEM 3XHD 9QPC 4RJA",
+        ERIN_FP => "2HWQ 8KPT 5MLZ 3RVB 9ENX 6DCT 7QJA",
+        FRANK_FP => "4ZQB 7MHR 2PKT 9WNE 6LXD 3VCA 8TRJ",
+        GREG_FP => "7LTP 3QZN 9KWD 2MRB 5EXH 8VCA 4NJT",
+        OWN_FP => "8XTB 5RQK 2NWL 7ZMD 4PEH 9VCJ 3KAT",
+        WORK_FP => "5QNH 9WTR 3ZLK 7MBE 2XPD 6RCV 4JAT",
+        _ => "3MWK 7TZQ 2RLN 8PXE 5DVB 9HCT 4KQA",
+    };
+    format!("{compact} {rest}")
 }
 
 fn contact_view(
@@ -636,7 +661,8 @@ pub fn fixture(name: &str) -> Option<App> {
             app
         }
         "conversation" => standard().open(contact(1, 10)).app(),
-        "conversation-queued" => queued().open(contact(1, 10)).app(),
+        // In a narrow window these show the conversation, not the list.
+        "conversation-queued" => narrow(queued().open(contact(1, 10)).app()),
         "conversation-deferred" => {
             // The last attempt failed a minute ago; the next is due in four.
             let mut builder = queued().open(contact(1, 10));
@@ -648,18 +674,14 @@ pub fn fixture(name: &str) -> Option<App> {
                     reason: Deferral::Unreachable,
                     retry_in: 300,
                 }));
-            builder.app()
+            narrow(builder.app())
         }
-        "narrow-conversation" => {
-            let mut app = queued().open(contact(1, 10)).app();
-            app.narrow_conversation = true;
-            app
-        }
-        "waiting" => standard().open(contact(1, 12)).app(),
+        "narrow-conversation" => narrow(queued().open(contact(1, 10)).app()),
+        "waiting" => narrow(standard().open(contact(1, 12)).app()),
         "waiting-new" => {
             let mut builder = Builder::new().started(true);
             builder.carol_written = false;
-            builder.ready().open(contact(1, 12)).app()
+            narrow(builder.ready().open(contact(1, 12)).app())
         }
         "waiting-card" => {
             let mut app = card_only().open(contact(1, 12)).app();
@@ -667,7 +689,11 @@ pub fn fixture(name: &str) -> Option<App> {
             app
         }
         "card-added" => {
-            let mut app = card_only().open(contact(1, 12)).app();
+            // Carol was just added: nothing was written to her yet.
+            let mut builder = Builder::new().started(true);
+            builder.carol_invited = false;
+            builder.carol_written = false;
+            let mut app = builder.ready().open(contact(1, 12)).app();
             app.model.open(Dialog::AddContact {
                 identity: identity(1),
                 card: String::new(),
@@ -683,13 +709,13 @@ pub fn fixture(name: &str) -> Option<App> {
             builder.tor = TorCheck::NotRunning;
             builder.service = Service::Unavailable;
             builder.queued_tail = true;
-            builder.ready().open(contact(1, 10)).app()
+            narrow(builder.ready().open(contact(1, 10)).app())
         }
         "tor-connecting" => {
             let mut builder = Builder::new().started(true);
             builder.tor = TorCheck::Connecting { progress: Some(40) };
             builder.service = Service::Publishing;
-            builder.ready().open(contact(1, 10)).app()
+            narrow(builder.ready().open(contact(1, 10)).app())
         }
         "requests" => {
             let mut app = standard().app();
@@ -756,7 +782,7 @@ pub fn fixture(name: &str) -> Option<App> {
             let mut app = standard().open(contact(1, 10)).app();
             app.model.open(Dialog::AddContact {
                 identity: identity(1),
-                card: String::new(),
+                card: CUT_CARD.to_owned(),
                 name: String::new(),
                 busy: None,
                 error: Some(monolith_ui_model::Failure::InvalidCard),
@@ -774,18 +800,11 @@ pub fn fixture(name: &str) -> Option<App> {
             app
         }
         "settings-list" => {
-            let mut app = settings(standard().app(), SettingsPage::Appearance);
+            let mut app = system_theme(settings(standard().app(), SettingsPage::Appearance));
             app.narrow_settings_page = false;
             app
         }
-        "settings-appearance" => {
-            // System, which is right in pictures of either theme.
-            let mut app = settings(standard().app(), SettingsPage::Appearance);
-            let mut preferences = app.preferences().clone();
-            preferences.theme = ThemeChoice::System;
-            app.set_preferences(preferences);
-            app
-        }
+        "settings-appearance" => system_theme(settings(standard().app(), SettingsPage::Appearance)),
         "settings-identities" => settings(standard().app(), SettingsPage::Identities),
         "settings-nobody" => {
             let mut builder = Builder::new().started(true);
@@ -833,7 +852,7 @@ pub fn fixture(name: &str) -> Option<App> {
             app.model.apply(Update::Event(RuntimeEvent::StorageFailed));
             app
         }
-        "long-names" => long().open(contact(1, 10)).app(),
+        "long-names" => narrow(long().open(contact(1, 10)).app()),
         "long-names-requests" => {
             let mut app = long().app();
             app.model.show_requests();
@@ -877,18 +896,18 @@ pub fn fixture(name: &str) -> Option<App> {
             // Over the notice that nothing is sent while Tor is down; in a
             // narrow window, the conversation.
             let mut app = fixture("tor-unavailable")?;
-            app.toasts.push(Kind::Success, "Card copied");
-            app.narrow_conversation = true;
+            app.toasts.push(Kind::Success, "Card copied.");
             app
         }
         "toast-dialog" => {
             // Over a dialog as tall as the smallest window.
             let mut app = fixture("dialog-own-card")?;
-            app.toasts.push(Kind::Success, "Card copied");
+            app.toasts.push(Kind::Success, "Card copied.");
             app
         }
-        "storage-failed-toast" => {
-            // What fails after the store failed says so as well.
+        "storage-failed-command" => {
+            // A command that fails after the store failed: the banner has
+            // said it already, and no toast says it again.
             let mut builder = standard().open(contact(1, 10));
             builder
                 .model
@@ -921,14 +940,14 @@ fn dialog(name: &str) -> Option<App> {
     let personal = identity(1);
     let app = match name {
         "dialog-new-identity" => with_dialog(Dialog::NewIdentity {
-            name: "Work".to_owned(),
+            name: "Travel".to_owned(),
             busy: None,
             error: None,
         }),
         "dialog-new-identity-no-tor" => {
             let mut app = fixture("tor-unavailable")?;
             app.model.open(Dialog::NewIdentity {
-                name: "Work".to_owned(),
+                name: "Travel".to_owned(),
                 busy: None,
                 error: None,
             });
@@ -936,7 +955,7 @@ fn dialog(name: &str) -> Option<App> {
         }
         "dialog-add-contact-filled" => with_dialog(Dialog::AddContact {
             identity: personal,
-            card: INVITATION_CARD.to_owned(),
+            card: DANA_INVITATION.to_owned(),
             name: "Dana".to_owned(),
             busy: None,
             error: None,
@@ -945,7 +964,7 @@ fn dialog(name: &str) -> Option<App> {
         "dialog-add-contact-read" => {
             let mut app = with_dialog(Dialog::AddContact {
                 identity: personal,
-                card: INVITATION_CARD.to_owned(),
+                card: DANA_INVITATION.to_owned(),
                 name: String::new(),
                 busy: None,
                 error: None,
@@ -975,11 +994,29 @@ fn dialog(name: &str) -> Option<App> {
                 busy: None,
                 error: None,
             });
-            // The card the runtime gives back.
-            if let Some(Dialog::ShowInvitation { card, busy, .. }) = app.model.dialog_mut() {
-                *card = Some(Zeroizing::new(INVITATION_CARD.to_owned()));
-                *busy = None;
-            }
+            invitation_given(&mut app);
+            app
+        }
+        "dialog-new-invitation-nobody" => {
+            let mut app = nobody();
+            app.model.open(Dialog::NewInvitation {
+                identity: personal,
+                label: String::new(),
+                created: None,
+                busy: None,
+                error: None,
+            });
+            app
+        }
+        "dialog-invitation-nobody" => {
+            let mut app = nobody();
+            app.model.open(Dialog::ShowInvitation {
+                invitation: UiInvitationId::new(personal, 1),
+                card: None,
+                busy: None,
+                error: None,
+            });
+            invitation_given(&mut app);
             app
         }
         "dialog-revoke" => with_dialog(Dialog::RevokeInvitation {
@@ -990,7 +1027,8 @@ fn dialog(name: &str) -> Option<App> {
         }),
         "dialog-contact-error" => with_dialog(Dialog::ContactDetails {
             contact: contact(1, 10),
-            name: "Alice Martin".to_owned(),
+            // Pasted with an em space, which no name takes.
+            name: "Alice\u{2003}Martin".to_owned(),
             busy: None,
             error: Some(Failure::InvalidText),
         }),
@@ -1057,6 +1095,36 @@ fn dialog(name: &str) -> Option<App> {
         _ => return None,
     };
     Some(app)
+}
+
+/// In a narrow window, `app` shows what is selected, not the list.
+fn narrow(mut app: App) -> App {
+    app.narrow_conversation = true;
+    app
+}
+
+/// The theme follows the system, which is right in pictures of either
+/// theme.
+fn system_theme(mut app: App) -> App {
+    let mut preferences = app.preferences().clone();
+    preferences.theme = ThemeChoice::System;
+    app.set_preferences(preferences);
+    app
+}
+
+/// The invitation shown gets the card the runtime gives back.
+fn invitation_given(app: &mut App) {
+    if let Some(Dialog::ShowInvitation { card, busy, .. }) = app.model.dialog_mut() {
+        *card = Some(Zeroizing::new(INVITATION_CARD.to_owned()));
+        *busy = None;
+    }
+}
+
+/// Alice's conversation, while the personal identity takes no request.
+fn nobody() -> App {
+    let mut builder = Builder::new().started(true);
+    builder.mode = RequestMode::Closed;
+    builder.ready().open(contact(1, 10)).app()
 }
 
 /// The profile open with Alice's last message still queued.

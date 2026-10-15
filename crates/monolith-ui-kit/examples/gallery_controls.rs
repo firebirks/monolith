@@ -416,7 +416,7 @@ fn badges(ui: &mut Ui, _probe: &mut Probe) {
     ui.add_space(12.0);
     caption(ui, "Pills");
     row(ui, |ui| {
-        ui.add(Pill::new(Tone::Neutral, "Offline"));
+        ui.add(Pill::new(Tone::Neutral, "Former contact"));
         ui.add(Pill::new(Tone::Accent, "New"));
         ui.add(Pill::new(Tone::Success, "Connected").dot(true));
         ui.add(Pill::new(Tone::Warning, "Connecting").dot(true));
@@ -439,7 +439,8 @@ fn badges(ui: &mut Ui, _probe: &mut Probe) {
                 .color(theme.color.text),
         );
         ui.add(Badge::new(3));
-        ui.add(Pill::new(Tone::Success, "Online").dot(true));
+        // Monolith never says whether a contact is online.
+        ui.add(Pill::new(Tone::Neutral, "Verified").icon(icons::BADGE_CHECK));
     });
 }
 

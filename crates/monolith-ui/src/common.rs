@@ -60,7 +60,8 @@ pub(crate) fn tor_outdated(check: Option<&TorCheck>) -> Option<String> {
 }
 
 /// What a contact that has not accepted waits for, in a few words: the
-/// same under its name, in the list and in its details.
+/// same under its name in its conversation and in its details, and in the
+/// list while the conversation has no message.
 pub(crate) fn waiting_words(waiting: Waiting) -> &'static str {
     match waiting {
         Waiting::FirstMessage => "Request not sent yet",

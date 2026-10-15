@@ -149,7 +149,7 @@ pub enum SettingsPage {
     Tor,
     /// Where the data is, and what Monolith keeps.
     Data,
-    /// Version and licences.
+    /// What Monolith is, its version once released, and the licences.
     About,
 }
 

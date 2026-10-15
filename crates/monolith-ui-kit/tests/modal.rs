@@ -12,7 +12,8 @@
 mod common;
 
 use common::{Rig, paints};
-use egui::{Context, Event, Id, Key, Modifiers, MouseWheelUnit, Rect, pos2, vec2};
+use egui::epaint::Shape;
+use egui::{Color32, Context, Event, Id, Key, Modifiers, MouseWheelUnit, Rect, pos2, vec2};
 use monolith_ui_kit::modal::{Decision, Modal};
 use monolith_ui_kit::toast::{Kind, Toasts};
 use monolith_ui_kit::{Button, TextField, Theme};
@@ -381,7 +382,8 @@ fn a_toast_over_a_modal_keeps_clear_of_its_title_and_its_actions() {
         .rect;
     assert!(toast(&rig).top() > card.bottom(), "{:?}", toast(&rig));
 
-    // A tall one does not: the toast sits above its actions.
+    // A tall one does not: the toast sits under its title, clear of the
+    // end of its body, where what was just copied or typed is.
     let mut rig = smallest();
     let mut toasts = Toasts::new();
     toasts.push(Kind::Success, "Card copied");
@@ -402,4 +404,72 @@ fn a_toast_over_a_modal_keeps_clear_of_its_title_and_its_actions() {
         "{shown:?} {:?}",
         seen.card
     );
+    let end = actions(seen.card).translate(vec2(0.0, -theme.size.control_lg));
+    assert!(!shown.intersects(end), "{shown:?} {:?}", seen.card);
+}
+
+/// The horizontal lines in the colour of a hairline painted in `output`.
+fn hairlines(output: &egui::FullOutput) -> Vec<[egui::Pos2; 2]> {
+    fn walk(shape: &Shape, colour: Color32, into: &mut Vec<[egui::Pos2; 2]>) {
+        match shape {
+            Shape::Vec(shapes) => {
+                for shape in shapes {
+                    walk(shape, colour, into);
+                }
+            }
+            Shape::LineSegment { points, stroke }
+                if stroke.color == colour && points[0].y == points[1].y =>
+            {
+                into.push(*points);
+            }
+            _ => {}
+        }
+    }
+    let colour = Theme::light().color.border_subtle;
+    let mut found = Vec::new();
+    for clipped in &output.shapes {
+        walk(&clipped.shape, colour, &mut found);
+    }
+    found
+}
+
+#[test]
+fn a_body_that_scrolls_is_cut_against_a_line_above_the_actions() {
+    let mut rig = smallest();
+    let mut seen = Tall::default();
+    let out = rig.settle(4, |ctx| tall(ctx, &mut seen));
+    let lines = hairlines(&out);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let y = lines[0][0].y;
+    assert!(y < seen.save.top() && y > seen.card.center().y, "{y}");
+
+    // A body that fits has none.
+    let mut rig = Rig::new();
+    let mut requested = false;
+    let out = rig.settle(3, |ctx| show(ctx, true, &mut requested));
+    assert!(hairlines(&out).is_empty());
+}
+
+#[test]
+fn a_modal_sits_on_whole_pixels() {
+    // A body half a point taller than a whole number.
+    let shown = |ctx: &Context| {
+        Modal::new("half", "Rename").show(
+            ctx,
+            |ui| {
+                ui.allocate_space(vec2(10.0, 101.5));
+            },
+            |ui| {
+                ui.add(Button::primary("Save"));
+            },
+        );
+    };
+    let mut rig = Rig::new();
+    rig.settle(4, shown);
+    let card = rig
+        .ctx
+        .read_response(Id::new(("monolith-modal", "half")).with("card"))
+        .expect("the card was shown")
+        .rect;
+    assert_eq!(card.min, card.min.round(), "{card:?}");
 }

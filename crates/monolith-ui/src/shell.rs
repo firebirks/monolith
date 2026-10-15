@@ -2,7 +2,7 @@
 //! (sidebar and content, or one of them in a narrow window), the global
 //! notices, the dialogs and the toasts.
 
-use egui::{Context, Key, KeyboardShortcut, Margin, Modifiers, Popup, TopBottomPanel, Vec2};
+use egui::{Context, Key, KeyboardShortcut, Margin, Modifiers, Popup, TopBottomPanel};
 use monolith_ui_kit::banner::{Banner, Tone};
 use monolith_ui_kit::chrome::{self, ContentPanel, SidebarPanel};
 use monolith_ui_kit::theme;
@@ -70,11 +70,9 @@ fn storage_failed(ctx: &Context, app: &App) {
         return;
     }
     let theme = theme::current(ctx);
+    // Inset as the sidebar under it insets its cards.
     TopBottomPanel::top("storage-failed")
-        .frame(chrome::surface_frame(
-            ctx,
-            Margin::from(Vec2::new(theme.space.lg, theme.space.sm)),
-        ))
+        .frame(chrome::surface_frame(ctx, Margin::from(theme.space.sm)))
         .show_separator_line(false)
         .show(ctx, |ui| {
             // The words of the failure, which nothing else says.

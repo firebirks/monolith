@@ -1,7 +1,9 @@
 //! Text in one style of the theme and one of its colours. Screens draw
 //! every line of text with this, or with a component that holds it.
 
-use egui::{Color32, Label, Response, RichText, Ui, Widget};
+use std::sync::Arc;
+
+use egui::{Color32, FontSelection, Label, Response, RichText, Ui, Widget, WidgetText};
 
 use crate::theme::TextToken;
 
@@ -12,6 +14,9 @@ enum Overflow {
     Layout,
     /// It goes on to the next line.
     Wrap,
+    /// It goes on to the next line after any character, not only between
+    /// words.
+    Anywhere,
     /// It is cut with an ellipsis.
     Truncate,
 }
@@ -45,6 +50,14 @@ impl<'a> Text<'a> {
         self
     }
 
+    /// Goes on to the next line where it does not fit, after any
+    /// character: for a long code without spaces, whose lines are then
+    /// filled.
+    pub fn break_anywhere(mut self) -> Self {
+        self.overflow = Overflow::Anywhere;
+        self
+    }
+
     /// Cut with an ellipsis where it does not fit, on one line.
     pub fn truncate(mut self) -> Self {
         self.overflow = Overflow::Truncate;
@@ -66,9 +79,20 @@ impl Widget for Text<'_> {
             .line_height(Some(self.token.line_height))
             .extra_letter_spacing(self.token.letter_spacing)
             .color(self.color);
+        if self.overflow == Overflow::Anywhere {
+            // The label keeps what its job says of breaking; it sets the
+            // width.
+            let mut job = Arc::unwrap_or_clone(WidgetText::from(text).into_layout_job(
+                ui.style(),
+                FontSelection::Default,
+                ui.text_valign(),
+            ));
+            job.wrap.break_anywhere = true;
+            return Label::new(job).selectable(self.selectable).wrap().ui(ui);
+        }
         let label = Label::new(text).selectable(self.selectable);
         match self.overflow {
-            Overflow::Layout => label,
+            Overflow::Layout | Overflow::Anywhere => label,
             Overflow::Wrap => label.wrap(),
             Overflow::Truncate => label.truncate(),
         }

@@ -207,11 +207,14 @@ window switchers, screen recorders and other programs on the same desktop.
   out with the messages and should be seen through that invitation (only
   while the invitation is active and the other side takes requests),
   without a name or a message. What such a contact waits for is said in
-  the same words under its name, in the list and in its details: "Request
-  not sent yet" while nothing was written to it, "Waiting for them to
-  accept your request" once something was, "Waiting for them to add your
-  card" after a card that is not an invitation. Deleting the messages of
-  such a contact says that the request goes out only with a message.
+  the same words under its name, in its conversation and in its details:
+  "Request not sent yet" while nothing was written to it, "Waiting for
+  them to accept your request" once something was, "Waiting for them to
+  add your card" after a card that is not an invitation. The list says
+  them under its name while the conversation has no message; once it has
+  one, the list shows that message with an hourglass, which says the wait
+  under the pointer. Deleting the messages of such a contact says that the
+  request goes out only with a message.
 - An identity without contacts offers to add one and to share its card;
   Invite is in the strip under the list.
 - The user's own card says what a card alone does under the request mode
@@ -238,7 +241,8 @@ window switchers, screen recorders and other programs on the same desktop.
 - Unblocking: Settings > Identities lists, under each identity, the people
   it blocked by their short fingerprint, the only thing the contact store
   keeps of them (P6-14), each with Unblock; an identity that blocked nobody
-  says so in one line. Unblocking asks first, and a toast says what it did.
+  says so in one line. Unblocking asks first, naming them by the same
+  fingerprint, and a toast says what it did.
   Someone unblocked has no record at all (P6-21): not a contact again and
   not declined; a request from them is considered as the request mode
   says, and adding their card makes a new contact with a new conversation.

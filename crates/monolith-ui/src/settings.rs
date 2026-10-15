@@ -82,12 +82,7 @@ const PAGES: [(SettingsPage, &str, Icon, &str); 5] = [
         icons::FOLDER_OPEN,
         "Where your profile is kept, and what is stored",
     ),
-    (
-        SettingsPage::About,
-        "About",
-        icons::INFO,
-        "Version and licences",
-    ),
+    (SettingsPage::About, "About", icons::INFO, "Licences"),
 ];
 
 /// Where the settings go after this frame.
@@ -381,7 +376,7 @@ fn choice_card(ui: &mut Ui, theme: &Theme, title: &str, line: &str, add: impl Fn
 // ---- Appearance ----
 
 fn appearance(ui: &mut Ui, app: &mut App, theme: &Theme) {
-    const THEME_LINE: &str = "Follow the system, or always light or dark.";
+    const THEME_LINE: &str = "System, light or dark.";
     let mut choice = app.draft_preferences.theme;
     let mut reduced = app.draft_preferences.reduced_motion;
     let beside = roomy(ui, theme);
@@ -846,7 +841,7 @@ fn tor(ui: &mut Ui, app: &mut App, theme: &Theme) {
                 ));
                 for (index, name) in names.iter().enumerate() {
                     if ui
-                        .add(Button::ghost(name.as_str()).size(Size::Small))
+                        .add(Button::secondary(name.as_str()).size(Size::Small))
                         .clicked()
                     {
                         picked = Some(index);

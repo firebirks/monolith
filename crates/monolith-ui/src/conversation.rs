@@ -369,7 +369,7 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
             "waiting",
             Tone::Info,
             format!(
-                "Your request goes out with {with}. {name} should see it through the invitation they gave you, with your fingerprint only, and can read your messages after accepting. Tell them it is you."
+                "Your request goes out with {with}. {name} should see it through their invitation, with your fingerprint only, and can read your messages after accepting. Tell them it is you."
             ),
             None,
         ));

@@ -261,7 +261,8 @@ fn switcher(ui: &mut Ui, app: &mut App) {
     }
 }
 
-/// The entry that opens the waiting requests, when there are any.
+/// The entry that opens the waiting requests, when there are any, and
+/// while their page is shown.
 fn requests_entry(ui: &mut Ui, app: &mut App, narrow: bool) {
     let Some(identity) = app.model.current() else {
         return;
@@ -271,7 +272,7 @@ fn requests_entry(ui: &mut Ui, app: &mut App, narrow: bool) {
         .current_slice()
         .map_or(0, |slice| slice.requests.len());
     let selected = app.model.selection() == Some(Selection::Requests);
-    if waiting == 0 {
+    if waiting == 0 && !selected {
         return;
     }
     let theme = theme::current(ui.ctx());
@@ -363,6 +364,15 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
         return;
     }
     let selection = app.model.selection();
+    // The conversation shown is scrolled into view when it changes,
+    // whatever changed it.
+    let seen_id = egui::Id::new("sidebar-list-selection");
+    let seen = ui
+        .ctx()
+        .data(|data| data.get_temp::<Option<Selection>>(seen_id));
+    let reveal = seen != Some(selection);
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(seen_id, selection));
     let theme = theme::current(ui.ctx());
     let mut clicked = None;
     // The list ends a little above the strip at the bottom, so that what
@@ -397,6 +407,7 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
             if row.queued > 0 {
                 statuses.push(RowStatus::Queued);
             }
+            let chosen = selection == Some(Selection::Conversation(row.contact));
             let mut widget =
                 ConversationRow::new(row.contact, &row.name, common::seed(&row.fingerprint))
                     .anonymous(!row.named)
@@ -404,11 +415,15 @@ fn conversations(ui: &mut Ui, app: &mut App, narrow: bool) {
                     .timestamp(&time)
                     .unread(row.unread)
                     .statuses(&statuses)
-                    .selected(selection == Some(Selection::Conversation(row.contact)));
+                    .selected(chosen);
             if outgoing {
                 widget = widget.outgoing("You: ");
             }
-            if ui.add(widget).clicked() {
+            let response = ui.add(widget);
+            if chosen && reveal {
+                response.scroll_to_me(None);
+            }
+            if response.clicked() {
                 clicked = Some(row.contact);
             }
         }

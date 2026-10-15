@@ -97,8 +97,8 @@ const INVITATION: &str = "Anyone who has this invitation can send you a request 
 /// that changes (`PROTOCOL.md` section 12).
 pub(crate) const INVITATIONS_NOBODY: &str = "Requests are set to Nobody: no request arrives, not \
                                              even through an invitation, until you change who \
-                                             can send you requests. Make one for each person, \
-                                             and revoke it once they are your contact.";
+                                             can send you requests. Make an invitation for each \
+                                             person, and revoke it once they are your contact.";
 
 /// What an invitation made or shown again does, under the request mode
 /// of its identity.
@@ -110,19 +110,26 @@ const INVITATION_CARD_NOBODY: &str = "Give this invitation to one person. Reques
                                       Nobody: no request arrives, not even through an \
                                       invitation, until you change who can send you requests.";
 
-/// How to check a fingerprint before accepting.
+/// How to check a fingerprint before accepting. The way to the settings
+/// is kept on one line.
 const CHECK_BEFORE_ACCEPT: &str = "Before you accept, ask the person to read you the fingerprint \
-                                   under their identity in Monolith (Settings > Identities), on a \
-                                   call or in person. It must match this one.";
+                                   under their identity in Monolith \
+                                   (Settings\u{a0}>\u{a0}Identities), on a call or in person. It \
+                                   must match this one.";
 
 /// How to check the fingerprint of a contact.
 const CHECK_CONTACT: &str = "Ask the person to read you the fingerprint under their identity in \
-                             Monolith (Settings > Identities), on a call or in person. If it \
-                             matches this one, mark them verified.";
+                             Monolith (Settings\u{a0}>\u{a0}Identities), on a call or in person. \
+                             If it matches this one, mark them verified.";
 
 /// What blocking the sender of a request does.
 const BLOCK_REQUEST: &str = "They will not be able to send you a request or a message. You can \
-                             unblock them later in Settings > Identities.";
+                             unblock them later in Settings\u{a0}>\u{a0}Identities.";
+
+/// What stays of a contact once it is blocked or removed: the store keeps
+/// no name (`DESIGN_QUESTIONS.md` P6-14).
+const STAYS: &str = "Your conversation stays on this device as \"Former contact\" and the start \
+                     of their fingerprint, until you delete it.";
 
 /// What declining a request does: their later requests are dropped, and
 /// nothing shows whom the identity declined (`PROTOCOL.md` section 12).
@@ -134,10 +141,12 @@ const DECLINE_REQUEST: &str = "Nothing is sent to them. Their later requests are
 
 /// What unblocking does: the store keeps nothing of someone unblocked, so
 /// they can be blocked again only from a request or as a contact
-/// (`DESIGN_QUESTIONS.md` P6-21).
-const UNBLOCK: &str = "They can send you requests again, as \"Who can send you requests\" allows. \
-                       Monolith keeps no record of them after this, so you can block them again \
-                       only from a request they send or once you have added their card.";
+/// (`DESIGN_QUESTIONS.md` P6-21). The name of the setting is kept on one
+/// line, at the start of the first.
+const UNBLOCK: &str = "As \"Who\u{a0}can\u{a0}send\u{a0}you\u{a0}requests\" allows, they can send \
+                       you requests again. Monolith keeps no record of them after this, so you \
+                       can block them again only from a request they send or once you have \
+                       added their card.";
 
 /// What closing a session that saves nothing does.
 const SAVES_NOTHING: &str = "This session saves nothing. Closing Monolith deletes your \
@@ -221,7 +230,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("block", contact),
                     title: "Block contact?",
                     message: format!(
-                        "{name} will not be able to reach you. Messages waiting to be sent to them will not be sent. Your conversation stays on this device, under their fingerprint, until you delete it. You can unblock them later in Settings > Identities."
+                        "{name} will not be able to reach you. Messages not yet delivered to them will not be sent. {STAYS} You can unblock them later in Settings\u{a0}>\u{a0}Identities."
                     ),
                     action: "Block",
                     checkbox: false,
@@ -238,7 +247,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("remove", contact),
                     title: "Remove contact?",
                     message: format!(
-                        "{name} is removed from your contacts. Messages not yet delivered to them will not be sent. The conversation stays on this device as Former contact and their fingerprint until you delete it. To talk again, add their card again; ask them for it if you no longer have it."
+                        "{name} is removed from your contacts. Messages not yet delivered to them will not be sent. {STAYS} To talk again, add their card again; ask them for it if you no longer have it."
                     ),
                     action: "Remove",
                     checkbox: false,
@@ -255,7 +264,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                     salt: ("delete-messages", contact),
                     title: "Delete messages?",
                     message,
-                    action: "Delete",
+                    action: "Delete messages",
                     checkbox: false,
                 },
             );
@@ -394,10 +403,11 @@ fn field_label(ui: &mut Ui, theme: &Theme, text: &str) {
     ));
 }
 
-/// A sunken box across the width, with `add` inside.
+/// A sunken box across the width, its outline included, with `add`
+/// inside.
 fn sunken(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
     let width = ui.available_width();
-    let margin = theme.space.md;
+    let margin = theme.space.md + theme.stroke.hairline;
     Frame::new()
         .fill(theme.color.bg_sunken)
         .stroke(Stroke::new(
@@ -405,20 +415,21 @@ fn sunken(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
             theme.color.border_subtle,
         ))
         .corner_radius(CornerRadius::same(theme.radius.md))
-        .inner_margin(margin)
+        .inner_margin(theme.space.md)
         .show(ui, |ui| {
             ui.set_width(width - margin * 2.0);
             add(ui);
         });
 }
 
-/// Mono text, wrapped and selectable, in a sunken box.
+/// Mono text, selectable, in a sunken box. A card has no spaces: its lines
+/// are broken anywhere, so that each is filled.
 fn mono_box(ui: &mut Ui, theme: &Theme, text: &str) {
     sunken(ui, theme, |ui| {
         ui.add(
             Text::new(text, &theme.text.mono, theme.color.text)
                 .selectable(true)
-                .wrap(),
+                .break_anywhere(),
         );
     });
 }
@@ -1224,8 +1235,10 @@ fn decline_request(ctx: &Context, app: &mut App) {
 }
 
 /// Asks before someone is unblocked: nothing is kept of them afterwards.
-/// The question holds whom it was asked for, and goes away once they are
-/// no longer listed or are being unblocked.
+/// The question holds whom it was asked for, names them by their short
+/// fingerprint as the list does, and goes away once they are no longer
+/// listed or are being unblocked. Unblocking destroys nothing: it is
+/// confirmed with the main action, with Cancel focused all the same.
 fn unblock_question(ctx: &Context, app: &mut App) {
     let Some(blocked) = app.unblock else {
         return;
@@ -1233,20 +1246,38 @@ fn unblock_question(ctx: &Context, app: &mut App) {
     let listed = app
         .model
         .slice(blocked.identity())
-        .is_some_and(|slice| slice.blocked.iter().any(|view| view.id == blocked));
-    if !listed || app.model.unblocking(blocked) {
+        .and_then(|slice| slice.blocked.iter().find(|view| view.id == blocked))
+        .map(|view| view.fingerprint.clone());
+    let Some(fingerprint) = listed.filter(|_| !app.model.unblocking(blocked)) else {
         app.unblock = None;
         return;
-    }
-    let decision = Modal::new(("unblock", blocked), "Unblock this person?")
-        .confirm(ctx, UNBLOCK, "Cancel", "Unblock", false);
-    match decision {
-        Some(Decision::Confirm) => {
-            app.unblock = None;
-            app.model.unblock(blocked);
-        }
-        Some(Decision::Cancel) => app.unblock = None,
-        None => {}
+    };
+    let theme = theme::current(ctx);
+    let focus = nothing_focused(ctx);
+    let (mut confirmed, mut cancelled) = (false, false);
+    let out = Modal::new(("unblock", blocked), "Unblock this person?").show(
+        ctx,
+        |ui| {
+            ui.add(Text::new(&fingerprint, &theme.text.mono, theme.color.text));
+            paragraph(ui, &theme, UNBLOCK);
+        },
+        |ui| {
+            confirmed = ui
+                .add(Button::primary("Unblock").min_width(theme.size.control_lg))
+                .clicked();
+            let cancel = ui.add(Button::secondary("Cancel"));
+            if focus {
+                // Enter keeps the block.
+                cancel.request_focus();
+            }
+            cancelled = cancel.clicked();
+        },
+    );
+    if confirmed {
+        app.unblock = None;
+        app.model.unblock(blocked);
+    } else if cancelled || out.close_requested {
+        app.unblock = None;
     }
 }
 
@@ -1397,17 +1428,28 @@ fn contact_details(ctx: &Context, app: &mut App) {
             submitted = output.submitted;
 
             ui.add_space(theme.space.sm);
-            ui.horizontal(|ui| {
-                field_label(ui, &theme, "Fingerprint");
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let copy = Button::ghost("Copy fingerprint")
-                        .icon(icons::COPY)
-                        .size(Size::Small);
-                    if ui.add(copy).clicked() {
-                        ctx.copy_text(info.full_fingerprint.clone());
-                    }
-                });
-            });
+            // The label, and at its right a quiet button whose words end
+            // where the box under it ends: its padding is beyond, outside
+            // the column, which it does not widen.
+            let (_, row) =
+                ui.allocate_space(Vec2::new(ui.available_width(), theme.size.control_sm));
+            let mut left = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(row)
+                    .layout(Layout::left_to_right(Align::Center)),
+            );
+            field_label(&mut left, &theme, "Fingerprint");
+            let mut right = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(row.with_max_x(row.right() + theme.space.sm))
+                    .layout(Layout::right_to_left(Align::Center)),
+            );
+            let copy = Button::ghost("Copy fingerprint")
+                .icon(icons::COPY)
+                .size(Size::Small);
+            if right.add(copy).clicked() {
+                ctx.copy_text(info.full_fingerprint.clone());
+            }
             fingerprint_box(ui, &theme, &info.full_fingerprint);
             caption(ui, &theme, CHECK_CONTACT);
 
@@ -1423,11 +1465,7 @@ fn contact_details(ctx: &Context, app: &mut App) {
                 verified_change = Some(verified);
             }
             // The name waits for Save; the toggle does not.
-            caption(
-                ui,
-                &theme,
-                "Changes to Verified are saved at once; the name when you press Save.",
-            );
+            caption(ui, &theme, "Verified is saved at once; the name with Save.");
 
             ui.add_space(theme.space.md);
             ui.add(Divider::horizontal());
@@ -1601,10 +1639,8 @@ fn tor_details(ctx: &Context, app: &mut App) {
             );
         },
         |ui| {
-            // Tor works: nothing is left to do but close.
-            if ready {
-                close_clicked = ui.add(Button::primary("Close")).clicked();
-            }
+            // Close at the left, as in the other dialogs. While Tor works
+            // nothing is left to do, and no action is the main one.
             let again = if ready {
                 Button::secondary("Check again")
             } else {
@@ -1612,9 +1648,7 @@ fn tor_details(ctx: &Context, app: &mut App) {
             };
             check = ui.add(again.busy(checking)).clicked();
             settings = ui.add(Button::secondary("Connection settings")).clicked();
-            if !ready {
-                close_clicked = ui.add(Button::secondary("Close")).clicked();
-            }
+            close_clicked = ui.add(Button::secondary("Close")).clicked();
         },
     );
     if settings {
@@ -1641,7 +1675,7 @@ mod tests {
     use super::*;
     use crate::fixtures::{NAMES, fixture};
 
-    const CARD: &str = "monolith:card:1:AJQXG43FMNZGK5BAONSWG4TFOQQGS3THEBUW4ZZAMVZXIZLTEBZG65LTMVZGKIDON5ZGOIDCMFWGS43IMFRGGZDFMZTWQ2LKNNWG23TPOBYXE43UOV3HO6DZPJTWC3DJNZSXE5DFPBPXG5LBNZSWCZB2GE3DENBQGIYTCMRRGMZDGNZYHA4DKNJWGU3TSMJZGQYDCOBWGM2TEMBTHE3DSOJTGAZGGMBRGQ3Q";
+    const CARD: &str = "MONOLITH1:AHLVVGABQKYQVN6VJP7NHSLEA45A5YLS6PNKMIZFV4BBU2HXA5IRVBJA6AEYSMFHKR2IW7O4WQ7POWQNX45A2JRYDL2OXJFJR2VJWTTKAAAAAAAAAAAACAMBHF3Q5KD5C5PVNI2UM3BUY7WMZOGYVENU5Y32EXPWB5NY7SNTSQAVYHUKAPMX6QVW4CSMQE27PMWZNH3Y3L4EIHCSHRC3PVCPQCSVQ7NFSSP3I6GNUZ27VMF6J7LFD3DL3NEP47TSEF3WWBLUD7YE6D5KZOISHXNDMW35JZOPIOH2W53ZKMHQ";
 
     fn identity() -> UiIdentityId {
         UiIdentityId::from_bytes([1; 16])
@@ -2035,6 +2069,45 @@ mod tests {
                 "2WRK 8MZP 3XEL 6VDB 9HCA Q4KM"
             ]
         );
+    }
+
+    #[test]
+    fn a_card_fills_its_lines() {
+        // A card has no spaces: its prefix does not stand on a line alone,
+        // and every line but the last is full.
+        let mut app = base();
+        open(
+            &mut app,
+            Dialog::OwnCard {
+                identity: identity(),
+                card: None,
+                busy: None,
+                error: None,
+            },
+        );
+        let ctx = Context::default();
+        fonts::install(&ctx, &[]);
+        theme::install(&ctx, Theme::light().with_reduced_motion(true));
+        let mut rows = Vec::new();
+        for frame in 0..3 {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    Pos2::ZERO,
+                    Theme::light().size.window_min,
+                )),
+                time: Some(f64::from(frame)),
+                ..RawInput::default()
+            };
+            let output = ctx.run(input, |ctx| crate::show(ctx, &mut app));
+            rows = rows_of(&output.shapes, "MONOLITH1:");
+        }
+        let Some((last, full)) = rows.split_last() else {
+            panic!("the card is not shown");
+        };
+        let width = full.first().map_or(0, String::len);
+        assert!(width > "MONOLITH1:".len(), "{rows:?}");
+        assert!(full.iter().all(|row| row.len() == width), "{rows:?}");
+        assert!(last.len() <= width, "{rows:?}");
     }
 
     #[test]

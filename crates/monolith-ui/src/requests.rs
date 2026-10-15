@@ -16,12 +16,13 @@ use crate::common;
 /// What a request without a name or an introduction says: Monolith sends
 /// none (`DESIGN_QUESTIONS.md` P6-5). How to check the fingerprint is said
 /// once, under the list.
-const NOTHING_SENT: &str = "This request came without a name or a message.";
+const NOTHING_SENT: &str = "No name or message came with it.";
 
-/// How to check who sent a request.
+/// How to check who sent a request. The way to the settings is kept on one
+/// line.
 const CHECK: &str = "Before you accept, ask the person to read you the fingerprint under their \
-                     identity in Monolith (Settings > Identities), on a call or in person. It \
-                     must match the one on the request.";
+                     identity in Monolith (Settings\u{a0}>\u{a0}Identities), on a call or in \
+                     person. It must match the one on the request.";
 
 /// The queue of requests is in memory (`DESIGN_QUESTIONS.md` P4-12).
 const KEPT: &str = "Requests are kept only while Monolith is open. One you have not answered \

@@ -120,7 +120,7 @@ impl Failure {
             Self::InvalidCard => "This is not a valid Monolith card.",
             Self::OwnCard => "This is the card of one of your own identities.",
             Self::Blocked => {
-                "You blocked this person. Unblock them in Settings > Identities first."
+                "You blocked this person. Unblock them in Settings\u{a0}>\u{a0}Identities first."
             }
             Self::Full => {
                 "A limit is reached (for example 16 active invitations). Remove one first."

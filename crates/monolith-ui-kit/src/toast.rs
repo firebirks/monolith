@@ -5,9 +5,10 @@
 //! Errors stay until the user dismisses them; the others go by
 //! themselves. At most three are shown, at the top of the window under the
 //! top bar (or of the part of a view under its notices), clear of the
-//! composer; over a modal, clear of its title and its actions. The newest
-//! is at the bottom of the stack. The others wait their turn, with their
-//! timers not yet started. A screen reader is told of each as it comes.
+//! composer; over a modal, clear of its title and its actions, and with a
+//! stronger outline than the modal's. The newest is at the bottom of the
+//! stack. The others wait their turn, with their timers not yet started. A
+//! screen reader is told of each as it comes.
 
 use std::time::Duration;
 
@@ -190,8 +191,9 @@ impl Toasts {
 
     /// Shows the notices centred in `area`, from `top` down. Over a modal
     /// they keep clear of its title and its actions: under the card where
-    /// there is room, above it otherwise, and in the last resort just above
-    /// its actions.
+    /// there is room, above it otherwise, then just under its title, over
+    /// the start of its body, so that its end (where a card copied is)
+    /// stays in sight; in the last resort just above its actions.
     fn place(&mut self, ctx: &Context, area: Rect, top: f32) -> ToastsOutput {
         let theme = theme::current(ctx);
         let now = ctx.input(|input| input.time);
@@ -257,6 +259,7 @@ impl Toasts {
         let (origin, pivot) = match modal {
             None => (egui::pos2(left, top + gap), Align2::LEFT_TOP),
             Some((card, actions)) => {
+                let title = crate::modal::title_bottom(ctx).unwrap_or(card.top());
                 // As tall as the stack was in the last frame, or one notice.
                 let height = ctx
                     .memory(|memory| memory.area_rect(id))
@@ -268,11 +271,14 @@ impl Toasts {
                     (egui::pos2(left, card.bottom() + gap), Align2::LEFT_TOP)
                 } else if card.top() - gap - height >= screen.top() + gap {
                     (egui::pos2(left, card.top() - gap), Align2::LEFT_BOTTOM)
+                } else if title + gap + height <= actions.top() - gap {
+                    (egui::pos2(left, title + gap), Align2::LEFT_TOP)
                 } else {
                     (egui::pos2(left, actions.top() - gap), Align2::LEFT_BOTTOM)
                 }
             }
         };
+        let over_modal = modal.is_some();
         Area::new(id)
             .order(Order::Foreground)
             .pivot(pivot)
@@ -297,7 +303,13 @@ impl Toasts {
                     let level = (ease(appear) * (1.0 - ease(disappear))) as f32;
                     let slide = (1.0 - level) * SLIDE;
                     let moving = appear < 1.0 || toast.leaving_at.is_some();
-                    let drawn = draw(ui, &theme, toast, width, level, slide, &dismiss_label);
+                    let look = Look {
+                        width,
+                        level,
+                        slide,
+                        over_modal,
+                    };
+                    let drawn = draw(ui, &theme, toast, look, &dismiss_label);
                     toast.hovered = drawn.hovered;
                     if drawn.action {
                         output.action = Some(toast.id);
@@ -343,15 +355,26 @@ struct Drawn {
     dismissed: bool,
 }
 
-fn draw(
-    ui: &mut egui::Ui,
-    theme: &Theme,
-    toast: &Toast,
+/// How a notice is drawn in this frame.
+#[derive(Clone, Copy)]
+struct Look {
     width: f32,
+    /// How far it has come in, from 0 to 1.
     level: f32,
+    /// How far above its place it is, in points.
     slide: f32,
-    dismiss_label: &str,
-) -> Drawn {
+    /// It is over a modal, which has the same fill: it takes a stronger
+    /// outline and shadow, in both themes.
+    over_modal: bool,
+}
+
+fn draw(ui: &mut egui::Ui, theme: &Theme, toast: &Toast, look: Look, dismiss_label: &str) -> Drawn {
+    let Look {
+        width,
+        level,
+        slide,
+        over_modal,
+    } = look;
     let c = &theme.color;
     let pad = theme.space.md;
     let icon_size = theme.size.icon_md;
@@ -397,14 +420,18 @@ fn draw(
 
     let radius = CornerRadius::same(theme.radius.lg);
     let painter = ui.painter();
-    let mut shadow = theme.shadow.md;
+    let (mut shadow, outline) = if over_modal {
+        (theme.shadow.lg, c.border_strong)
+    } else {
+        (theme.shadow.md, c.border_subtle)
+    };
     shadow.color = fade(shadow.color);
     painter.add(shadow.as_shape(rect, radius));
     painter.rect(
         rect,
         radius,
         fade(c.bg_raised),
-        Stroke::new(theme.stroke.hairline, fade(c.border_subtle)),
+        Stroke::new(theme.stroke.hairline, fade(outline)),
         StrokeKind::Inside,
     );
 

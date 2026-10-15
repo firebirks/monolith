@@ -21,7 +21,7 @@ use egui::{
     Color32, Context, Event, FullOutput, Id, Key, Modifiers, OutputCommand, PointerButton, Pos2,
     RawInput, Rect, Vec2, ViewportCommand, ViewportId, pos2,
 };
-use monolith_ui::fixtures::{NOW, conversation_window, fixture, long_text};
+use monolith_ui::fixtures::{NOW, conversation_window, fixture, long_text, many_contacts};
 use monolith_ui::{App, Effect, EffectResult};
 use monolith_ui_kit::avatar::color_index;
 use monolith_ui_kit::{TextField, Theme, fonts, icons, theme};
@@ -364,6 +364,31 @@ impl Window {
             .find_map(|toast| self.ctx.read_response(Id::new(("monolith-toast", toast))))
             .expect("a toast is shown")
             .rect
+    }
+
+    /// The part in view of the first text that holds `part`: where it was
+    /// drawn, within its clip.
+    fn visible_rect_of(&self, part: &str) -> Rect {
+        let mut found = None;
+        each_shape(&self.shapes, &mut |shape, clip| {
+            if let Shape::Text(text) = shape {
+                if found.is_none() && text.galley.text().contains(part) {
+                    let drawn = text.galley.rect.translate(text.pos.to_vec2());
+                    found = Some(drawn.intersect(clip));
+                }
+            }
+        });
+        found.unwrap_or_else(|| panic!("{part:?} is not shown"))
+    }
+
+    /// Where the first text that reads `text` was drawn: the words of a
+    /// button, not a sentence that names it.
+    fn rect_of_whole(&self, text: &str) -> Rect {
+        self.texts
+            .iter()
+            .find(|(shown, _)| shown == text)
+            .map(|(_, rect)| *rect)
+            .unwrap_or_else(|| panic!("{text:?} is not shown: {:#?}", self.shown()))
     }
 
     /// Where the first text that holds `part` was drawn.
@@ -804,7 +829,11 @@ fn a_narrow_list_says_the_state_of_tor() {
         ("tor-unavailable", "Tor unavailable"),
         ("tor-connecting", "Connecting to Tor"),
     ] {
-        let window = Window::new(name, NARROW);
+        let mut window = Window::new(name, NARROW);
+        if !window.shows("Filter contacts") {
+            // The fixture shows the conversation: back to the list.
+            window.click(&back());
+        }
         assert!(window.shows("Filter contacts"), "{name} shows no list");
         assert!(window.shows(words), "{name} does not say {words:?}");
     }
@@ -940,15 +969,15 @@ const CARD_ADDED: &str = "This is their card, not an invitation. Contact C7TQ mu
 const WAITING_CARD: &str = "You added their card, not an invitation. Contact C7TQ must add \
                             your card too before your messages can arrive.";
 const WAITING_INVITATION: &str = "Your request goes out with your messages. Contact C7TQ should \
-                                  see it through the invitation they gave you, with your \
-                                  fingerprint only, and can read your messages after \
-                                  accepting. Tell them it is you.";
+                                  see it through their invitation, with your fingerprint only, \
+                                  and can read your messages after accepting. Tell them it is \
+                                  you.";
 
 /// The fixture `name`, with the conversation of Carol shown also in a
-/// narrow window.
+/// narrow window: chosen in the list, if the window shows the list.
 fn conversation_of_carol(name: &str, size: Vec2) -> Window {
     let mut window = Window::new(name, size);
-    if size != WIDE {
+    if size != WIDE && window.shows("Filter contacts") {
         window.click("Contact C7TQ");
     }
     window
@@ -1213,10 +1242,10 @@ fn what_is_typed_while_a_message_is_queued_stays_in_the_composer() {
 
 /// What the question before unblocking says: what it lets them do, and
 /// that nothing is kept of them to block them by.
-const UNBLOCK: &str = "They can send you requests again, as \"Who can send you requests\" \
-                       allows. Monolith keeps no record of them after this, so you can block \
-                       them again only from a request they send or once you have added their \
-                       card.";
+const UNBLOCK: &str = "As \"Who\u{a0}can\u{a0}send\u{a0}you\u{a0}requests\" allows, they can send \
+                       you requests again. Monolith keeps no record of them after this, so you \
+                       can block them again only from a request they send or once you have \
+                       added their card.";
 
 #[test]
 fn the_identities_page_lists_who_is_blocked_and_unblocks_after_asking() {
@@ -1241,6 +1270,10 @@ fn the_identities_page_lists_who_is_blocked_and_unblocks_after_asking() {
             window.shown()
         );
         assert!(window.shows(UNBLOCK));
+        // It names whom, as the row does; unblocking destroys nothing, so
+        // nothing is in the colour of danger.
+        assert_eq!(window.count(DANA), 2, "{:#?}", window.shown());
+        assert!(!window.fills().contains(&Theme::light().color.danger_fill));
         assert!(window.app.model.take_commands().is_empty());
         window.press(Key::Enter);
         assert!(!window.shows("Unblock this person?"));
@@ -1633,7 +1666,7 @@ fn the_data_and_about_pages_say_what_is_kept_apart_and_nothing_twice() {
 #[test]
 fn the_details_of_a_contact_say_what_is_saved_when() {
     let window = Window::new("contact-details", WIDE);
-    assert!(window.shows("Changes to Verified are saved at once; the name when you press Save."));
+    assert!(window.shows("Verified is saved at once; the name with Save."));
     assert!(!window.shows("Saved at once"));
 }
 
@@ -1869,7 +1902,7 @@ fn an_identity_has_the_same_colour_in_the_list_and_in_the_settings() {
     let theme = Theme::light();
     let colour = |fingerprint: &str| theme.color.avatar[color_index(fingerprint.as_bytes())];
     // The full fingerprint would give Personal another colour.
-    let full = format!("{PERSONAL} 5TQN 2WRK 8MZP 3XEL 6VDB 9HCA Q4KM");
+    let full = format!("{PERSONAL} 8XTB 5RQK 2NWL 7ZMD 4PEH 9VCJ 3KAT");
     assert_ne!(colour(&full), colour(PERSONAL));
     // Identities are drawn as rounded squares, contacts as circles.
     let identities = |window: &Window| -> Vec<Color32> {
@@ -1889,7 +1922,7 @@ fn an_identity_has_the_same_colour_in_the_list_and_in_the_settings() {
 fn a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_actions_of_a_dialog() {
     for size in [WIDE, SMALLEST] {
         let window = Window::new("toast-banners", size);
-        assert!(window.shows("Card copied"));
+        assert!(window.shows("Card copied."));
         let notices = window.filled(Theme::light().color.accent_subtle);
         assert!(!notices.is_empty(), "at {size:?} no notice is shown");
         for notice in notices {
@@ -1901,7 +1934,7 @@ fn a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_action
         }
 
         let window = Window::new("toast-dialog", size);
-        assert!(window.shows("Card copied"));
+        assert!(window.shows("Card copied."));
         for part in ["Your card", "Copy card", "Save card", "Close"] {
             let covered = window.rect_of(part);
             assert!(
@@ -1910,6 +1943,30 @@ fn a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_action
                 window.toast()
             );
         }
+        // Nor the card it says was copied, where it is in view.
+        let card = window.visible_rect_of("MONOLITH1:");
+        assert!(
+            !window.toast().intersects(card),
+            "at {size:?} the toast {:?} covers the card at {card:?}",
+            window.toast()
+        );
+    }
+}
+
+#[test]
+fn a_toast_over_a_dialog_is_outlined_more_strongly_than_the_dialog() {
+    let theme = Theme::light();
+    for size in [WIDE, SMALLEST] {
+        let window = Window::new("toast-dialog", size);
+        let toast = window.toast();
+        assert!(
+            window
+                .outlines
+                .iter()
+                .any(|(rect, color)| *rect == toast && *color == theme.color.border_strong),
+            "at {size:?}: {:?}",
+            window.outlines
+        );
     }
 }
 
@@ -1928,5 +1985,110 @@ fn the_first_screens_show_the_mark_beside_the_name() {
         let window = Window::new(name, WIDE);
         assert!(window.shows("Monolith"), "{name}");
         assert!(window.fills().contains(&accent), "{name} has no mark");
+    }
+}
+
+#[test]
+fn the_first_start_has_its_actions_in_view_in_short_windows() {
+    let theme = Theme::light();
+    // The main action in the smallest window; both in one 600 points high.
+    for (size, actions) in [
+        (SMALLEST, &["Create profile"][..]),
+        (
+            Vec2::new(820.0, 600.0),
+            &["Create profile", "Use without saving"][..],
+        ),
+    ] {
+        let window = Window::new("welcome", size);
+        for action in actions {
+            // The words are in the middle of their button.
+            let words = window.rect_of(action);
+            let bottom = words.center().y + theme.size.control_lg / 2.0;
+            assert!(bottom <= size.y, "{action:?} at {size:?} ends at {bottom}");
+        }
+    }
+}
+
+#[test]
+fn the_requests_stay_in_the_list_while_their_page_is_shown() {
+    // None waits: the entry is there for the page it opened.
+    let window = Window::new("requests-empty", WIDE);
+    assert!(window.shows("No requests waiting"));
+    assert_eq!(window.count("Requests"), 2, "{:#?}", window.shown());
+    // Another view: the entry goes.
+    let window = Window::new("empty-identity", WIDE);
+    assert!(!window.shows("Requests"), "{:#?}", window.shown());
+}
+
+#[test]
+fn the_list_brings_the_conversation_shown_into_view() {
+    // The last of forty conversations, chosen while the list was not drawn.
+    let mut app = many_contacts(40, 40);
+    let mut record = [0x80; 16];
+    for (slot, byte) in record.iter_mut().zip(39_u64.to_be_bytes()) {
+        *slot = byte;
+    }
+    let last = UiContactId::new(UiIdentityId::from_bytes([1; 16]), record);
+    app.model.select_conversation(last);
+    let window = Window::with(app, SMALLEST);
+    let row = window.rect_of("Person 0039");
+    assert!(row.bottom() <= SMALLEST.y, "{row:?}: {:#?}", window.shown());
+}
+
+#[test]
+fn the_boxes_of_a_dialog_end_where_its_actions_end() {
+    let theme = Theme::light();
+    // What `window` filled with `color` under the text that holds `part`.
+    let around = |window: &Window, part: &str, color: Color32| {
+        let shown = window.rect_of(part);
+        window
+            .filled(color)
+            .into_iter()
+            .find(|rect| rect.contains(shown.center()))
+            .unwrap_or_else(|| panic!("{part:?} is in nothing of {color:?}"))
+    };
+    let window = Window::new("dialog-own-card", WIDE);
+    let edge = around(&window, "Copy card", theme.color.accent).right();
+    // The card under the code, and the fingerprint beside it.
+    for part in ["MONOLITH1:", "M0N0 L1TH"] {
+        let sunken = around(&window, part, theme.color.bg_sunken);
+        assert!(
+            (sunken.right() - edge).abs() < 0.5,
+            "the box of {part:?} ends at {}, the actions at {edge}",
+            sunken.right()
+        );
+    }
+
+    // The words of a quiet button over a box end where the box ends, and
+    // the box where the actions end.
+    let window = Window::new("contact-details", WIDE);
+    let sunken = around(&window, "AF3K", theme.color.bg_sunken);
+    let words = window.rect_of_whole("Copy fingerprint");
+    assert!(
+        (words.right() - sunken.right()).abs() <= 1.5,
+        "{words:?} {sunken:?}"
+    );
+    let save = window.rect_of_whole("Save");
+    let edge = window
+        .outlines
+        .iter()
+        .map(|(rect, _)| *rect)
+        .filter(|rect| rect.contains(save.center()))
+        .map(|rect| rect.right())
+        .fold(f32::INFINITY, f32::min);
+    assert!((sunken.right() - edge).abs() < 0.5, "{sunken:?} {edge}");
+}
+
+#[test]
+fn the_tor_details_close_at_the_left_whether_tor_works_or_not() {
+    for name in ["dialog-tor", "dialog-tor-down"] {
+        let window = Window::new(name, WIDE);
+        let close = window.rect_of_whole("Close");
+        for other in ["Check again", "Connection settings"] {
+            assert!(
+                close.right() < window.rect_of_whole(other).left(),
+                "{name}: Close is not left of {other}"
+            );
+        }
     }
 }
