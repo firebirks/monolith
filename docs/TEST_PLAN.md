@@ -796,6 +796,12 @@ cannot be told apart by what is sent.
 4. File descriptors stay under their bound under a connection flood.
 5. Notifications and pending requests stay at their bounds under a request
    flood.
+6. Rates (since Phase 7): each message rate of a contact gives its burst
+   and then one per interval, and another contact sending meanwhile is
+   not slowed; the rate holds across the sessions of a contact; a session
+   above `CONTACT_SESSION_RATE` is closed before it is confirmed; a
+   session waiting for a token ends when it is closed (`tests/runtime.rs`,
+   `rates::tests`).
 
 ## 9. Tails matrix (T-PLAT-TAILS, manual)
 

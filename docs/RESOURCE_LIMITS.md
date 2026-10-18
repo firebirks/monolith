@@ -337,30 +337,63 @@ the windows, is not set yet; it comes with the session manager
 
 Token buckets. "Burst" is the capacity, "per minute" the refill.
 
-| Constant | Burst | Per minute | Scope |
-| --- | --- | --- | --- |
-| `INBOUND_CONNECTION_RATE` | 32 | 120 | All inbound streams. |
-| `UNKNOWN_SESSION_RATE` | 8 | 12 | All unknown identities together. |
-| `CHAT_MESSAGE_RATE` | 60 | 300 | Per contact. |
-| `CONTROL_MESSAGE_RATE` | 120 | 600 | Per contact. Ping, Pong, MessageAck, EndpointUpdate, file control messages, and ContactRequest or ContactAccept received after confirmation. |
-| `FILE_OFFER_RATE` | 4 | 6 | Per contact. |
-| `PROFILE_UPDATE_RATE` | 8 | 8 | Per contact. Not below the session rate, because a profile is sent once per session. |
-| `CONTACT_SESSION_RATE` | 6 | 6 | New authenticated sessions per identity. |
+| Constant | Burst | Per minute | Scope | Enforced |
+| --- | --- | --- | --- | --- |
+| `INBOUND_CONNECTION_RATE` | 32 | 120 | All inbound streams. | no, see below |
+| `UNKNOWN_SESSION_RATE` | 8 | 12 | All unknown identities together. | no, see below |
+| `CHAT_MESSAGE_RATE` | 60 | 300 | Per contact. | since Phase 7 |
+| `CONTROL_MESSAGE_RATE` | 120 | 600 | Per contact. Ping, Pong, MessageAck, EndpointUpdate, file control messages, and ContactRequest or ContactAccept received after confirmation. | since Phase 7 |
+| `FILE_OFFER_RATE` | 4 | 6 | Per contact. | since Phase 7 |
+| `PROFILE_UPDATE_RATE` | 8 | 8 | Per contact. Not below the session rate, because a profile is sent once per session. | since Phase 7 |
+| `CONTACT_SESSION_RATE` | 6 | 6 | New authenticated sessions per identity. | since Phase 7, inbound sessions |
 
 FileChunk is not rate limited by count. It is limited by the declared size
 of an accepted transfer and by backpressure: Monolith stops reading from a
 session while the disk writer or the UI queue is behind.
 
-Rates for unknown peers are global because neither a Tor circuit nor a fresh
-identity key costs an attacker anything. A stream over the inbound rate is
-closed right after accept. A session opened above `CONTACT_SESSION_RATE` is
-closed.
+How the rates are enforced since Phase 7 (`crate::rates` in the core,
+`DESIGN_QUESTIONS.md` P7-8):
 
-The per-contact message rates are enforced by waiting, not by
-disconnecting: when a bucket is empty, Monolith stops reading from that
-session until it has a token again. A conforming sender therefore does not
-need to know the rates, and a sender that resends a full queue after a
-reconnect is slowed down, not cut off.
+- A bucket starts full, gives its burst at once and then one token every
+  60 s divided by its rate per minute. It is kept as one instant, the
+  moment it would be full again, so it needs no timer; a bucket that is
+  full holds nothing and is dropped.
+- The four message rates are per contact record, across all its
+  sessions, so a contact that reconnects does not start over, and count
+  what arrives on a confirmed session. `CONTACT_SESSION_RATE` is per
+  remote identity and counts inbound sessions whose standing is that of a
+  contact record; a session this side dialed is not counted. Every bucket
+  belongs to one local identity, and none is keyed by anything but what a
+  session authenticated: under Tor there is no address to key by, and
+  none is used.
+- The message rates are enforced by waiting, not by disconnecting: when a
+  bucket is empty, the session waits for its token before it handles the
+  message and reads nothing meanwhile. A conforming sender therefore does
+  not need to know the rates, and a sender that resends a full queue
+  after a reconnect is slowed down, not cut off. A session that is closed
+  while it waits ends at once, and the message is not handled; its
+  sender keeps it. A session opened above `CONTACT_SESSION_RATE` is closed
+  with Close once it is admitted, before its first message.
+- What one contact sends or opens never slows another: no bucket is
+  shared between contacts.
+- The buckets live in memory. A restart starts every one full, which
+  gives a contact one burst more; a peer cannot make Monolith restart.
+- Memory: one instant for each bucket that is not full. When those of
+  `MAX_CONTACTS` contacts are held, the full ones are dropped before
+  another is added; a record that ends drops its buckets.
+
+The rates of streams and of strangers, `INBOUND_CONNECTION_RATE` and
+`UNKNOWN_SESSION_RATE`, are not enforced. Before authentication nothing
+tells one peer from another, and after it a fresh identity key costs a
+stranger nothing, so each could only be one bucket for everyone, which a
+single peer that keeps it empty would close to every other: for streams
+that is every contact that dials in as well. What they would bound is
+bounded already: streams by the handshake budget of section 5 and
+`HANDSHAKE_TIMEOUT`, at the cost of section 11.1; strangers by their
+budget, the eviction of the oldest silent one and the quotas of the
+request queue, which keep requests with a capability apart from those
+without (one bucket for all strangers would let requests without a
+capability shut out every invitation).
 
 While Monolith is not reading from a session it cannot answer that peer's
 Pings and does not see its Pongs. Its own Pong timer is suspended for that
@@ -529,8 +562,9 @@ Other resources:
   again while it runs.
 - CPU: an inbound handshake costs three X25519 operations, two fixed-base
   multiplications and the validation of one contact card, about 0.3 ms
-  (section 11.1). At the inbound rate limit that is a
-  fraction of a percent of one core.
+  (section 11.1). Streams are not rate limited (section 6); the
+  handshake budget bounds how many are under way, and at 120 a minute a
+  stream would cost a fraction of a percent of one core.
 
 ### 11.1 Cost of a handshake
 
@@ -573,17 +607,18 @@ Memory and bytes:
 Consequences:
 
 - A caller without the contact card can cost a responder one X25519
-  operation per stream, 0.06 ms, and gets no protocol response. At
-  `INBOUND_CONNECTION_RATE`, 120 per minute, that is under 10 ms of
-  processor time per minute.
+  operation per stream, 0.06 ms, and gets no protocol response. At 120
+  streams a minute that would be under 10 ms of processor time a minute;
+  no inbound rate is enforced (section 6), so the bound is how fast Tor
+  brings streams, 16 at a time at most.
 - A caller with the contact card can make the responder do the full
   handshake, about 0.3 ms, and can hold a pending handshake of 2.7 KiB for
   30 seconds. `MAX_INBOUND_HANDSHAKES` bounds the second at 16 x 2.7 KiB.
 - The invitation capability is looked at only inside a ContactRequest,
   after a complete handshake. A holder of a card who tries capabilities
   pays a full handshake and one request per attempt, and is bounded by
-  `UNKNOWN_SESSION_RATE`, 12 per minute, and by the budget for unknown
-  sessions. Every attempt is answered with the same Close.
+  the budget for unknown sessions; a capability has 128 bits and is not
+  found by trying. Every attempt is answered with the same Close.
 - The responder does no signature and no work proportional to anything in
   a message.
 
@@ -627,9 +662,10 @@ measurements:
 
 ## 12. What the limits do not prevent
 
-An attacker who knows the Onion Service address can keep the inbound rate
-limit exhausted. Legitimate inbound connections then fail until the flood
-stops. Tor's proof-of-work defense, where it is active, and the cap on
+An attacker who knows the Onion Service address can keep the handshake
+budget full. Legitimate inbound connections then get through only when
+they find a free slot, until the flood stops; dials of this side are not
+affected (section 5). Tor's proof-of-work defense, where it is active, and the cap on
 streams per circuit act before Monolith sees a stream; see
 `docs/TOR_INTEGRATION.md`. Monolith does not claim to defeat targeted denial
 of service against an Onion Service.
@@ -647,19 +683,23 @@ An accept loop survives listener errors such as too many open files: it
 pauses for `ACCEPT_BACKOFF` and goes on while the service is published.
 Phase 4 adds the policies that need contacts: closing the oldest silent
 stranger for a new one and the contact session budget, per identity and
-for the process. Closing the oldest handshake for a new one and the rate
-buckets of section 6 are not implemented yet: a stream that finds the
-handshake budget full is closed and the accept loop pauses for
+for the process. Phase 7 adds the rates of contacts (section 6).
+Closing the oldest handshake for a new one is not implemented yet, and
+the rates of streams and strangers are not enforced: a stream that finds
+the handshake budget full is closed and the accept loop pauses for
 `ACCEPT_BACKOFF`. The
 session layer enforces what belongs to one stream: the message sizes, the
 handshake timeout, the frame ceiling of the state, and the session limits
 of section 3.
 
 An attacker who also holds a contact card can complete handshakes with
-throwaway identities and keep `UNKNOWN_SESSION_RATE` exhausted. Contact
-requests from real strangers are then refused for as long as it lasts.
-Sessions with identities the user holds as accepted or requested are
-counted separately and are not affected. The remedy is to rotate the
+throwaway identities, compete with real strangers for the budget for
+strangers, and fill the share of the pending-request queue that requests
+without a capability have (section 5). Real requests without a
+capability are then dropped until the user handles the queue; requests
+that carry an invitation have shares of their own. Sessions with
+identities the user holds as accepted or requested are counted
+separately and are not affected. The remedy is to rotate the
 endpoint, which invalidates the leaked card.
 
 A contact can fill its conversation, `MAX_CONVERSATION_STORE_LEN`, and
@@ -667,8 +707,27 @@ several contacts the whole message store. Messages that do not fit are
 not taken in and not acknowledged: their senders keep them and try again
 later, and the user is told (`Event::MessageRefused`). Room is made only
 by the user deleting conversations; nothing stored is dropped by itself.
-The per-contact rates of section 6 are not enforced yet, so a contact is
-bounded by these limits and not by a rate.
+Since Phase 7 the rates of section 6 bound how fast a contact does so.
+
+Every message taken in rewrites the whole message store (`STORAGE.md`
+section 5), up to `MAX_MESSAGE_STORE_FILE_LEN`, 16 MiB, encrypted, and is
+acknowledged only once that write is done; a session takes its messages
+in one at a time. One contact can so cause one write of the store per
+message: after a burst of 60, at most 5 a second at `CHAT_MESSAGE_RATE`,
+about 80 MiB of writes a second with a full store, until its
+conversation is full. A message takes at least 36 bytes of it
+(`ENTRY_OVERHEAD_LEN` and one byte of text), so that is at most about
+116 000 writes, about 1.8 TiB with a full store, over six and a half
+hours at the rate; what it sends past that is refused and costs no
+write. Writes do not add up across contacts: a change made while a write
+is under way is carried by the next one, so however many contacts send,
+the store is written back to back at most, as fast as the disk takes
+it. An EndpointUpdate that brings a newer card writes the vault the same
+way, within `CONTROL_MESSAGE_RATE`. The rates bound how fast a contact
+writes; they do not make a write cheaper. A store that writes only what
+changed (an append-only log, `DESIGN_QUESTIONS.md` 12.3) would, and is a
+redesign of the store left for later (P7-9). Blocking the contact stops
+it at once.
 
 Whoever copied a contact's identity key, without its active transport key,
 can make sessions that present new keys. Each is a pending-key session,

@@ -1920,7 +1920,7 @@ P5-15 Test tooling: `dev-runtime` in the CLI, a node on the runtime for the
 - The per-contact rates of `RESOURCE_LIMITS.md` section 6
   (`CHAT_MESSAGE_RATE` and the others) are not enforced: a contact is
   bounded by the limits of its conversation and of the store, not by a
-  rate.
+  rate. (Enforced since Phase 7, P7-8.)
 - A message store for long histories (an append-only log, or SQLCipher
   with a higher minimum Rust version).
 - Several messages in flight per contact, for throughput on slow
@@ -2669,6 +2669,47 @@ P7-7 Records that end under a command (BL28, BL29). The scheduler
     The other commands that name a record (`set_record_alias`,
     `set_record_verified`, `delete_conversation`, `connect`) look at it
     with the change, or before each dial (P7-1). Faults HR31 to HR34.
+
+P7-8 Rates (BL13). None of the seven rates of `RESOURCE_LIMITS.md`
+    section 6 was enforced. Five are now (`crate::rates`), the four of
+    what a contact sends and `CONTACT_SESSION_RATE`. Each is a token
+    bucket of its burst and rate, held as the instant it would be full
+    again (the generic cell rate algorithm), dropped once full, in
+    memory, so a restart starts it full. The message rates are per
+    contact record across its sessions and count what arrives on a
+    confirmed session; above one the session waits for its token before
+    it handles the message and reads nothing meanwhile, which the probe
+    and the Ping do not count (P7-6), and a session closed meanwhile
+    ends at once. The rate of sessions is per remote identity and counts
+    inbound sessions of a contact record; one above it is closed with
+    Close once admitted, before its first message. Every bucket is keyed
+    by what a session authenticated, never by an address, which Tor does
+    not give; no bucket is shared between contacts, so one contact never
+    slows another; at most `MAX_CONTACTS` buckets that are not full are
+    held per kind and local identity, and a record that ends drops its
+    own. `INBOUND_CONNECTION_RATE` and `UNKNOWN_SESSION_RATE` are not
+    enforced, as section 17 of the brief allows ("where justified"):
+    nothing tells one of those peers from another, so each could only be
+    one bucket for all, which one peer could keep empty, for streams
+    against every contact that dials in, which the brief rules out; what
+    they would bound is bounded by the handshake budget and its timeout,
+    the budget for strangers with its eviction, and the quotas of the
+    request queue, which one bucket for strangers would undo by letting
+    requests without a capability shut out every invitation. A FileChunk
+    is not counted (section 6), and with no transfer accepted it is
+    discarded or a violation (P7-4). Faults HR35 to HR43.
+
+P7-9 Writes of the message store (BL10). Every message taken in
+    rewrites the whole store. `RESOURCE_LIMITS.md` section 12 now gives
+    the cost: after a burst, at most 5 writes a second per contact at
+    `CHAT_MESSAGE_RATE`, about 80 MiB a second with a full store of
+    16 MiB; at most about 116 000 writes, 1.8 TiB, until the
+    conversation of the contact is full, after which nothing it sends is
+    written; writes coalesce across contacts, so the store is written
+    back to back at most. The rate bounds how fast, not how much. A store
+    that writes only what changed is a redesign of the store, left for
+    later with the store for long histories of 12.3; blocking the
+    contact stops it.
 
 ### 14.2 Not part of Phase 7
 

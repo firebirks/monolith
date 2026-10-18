@@ -424,7 +424,8 @@ time, looked at only after the Close has been sent. It is not an identity
 or a key and authenticates nobody. It can be checked only after a complete
 handshake, which costs a responder three X25519 operations, one key
 generation and the validation of one card. The inbound rate limits and
-the budget for unknown sessions bound that. No challenge is placed in
+the budget for unknown sessions bound that. (Since Phase 7 the budgets
+do: the inbound rates are not enforced, `RESOURCE_LIMITS.md` section 6.) No challenge is placed in
 front of the handshake, and the Noise pre-shared key is not used.
 
 Transport and replay. Frames are Noise transport messages, as Phase 1

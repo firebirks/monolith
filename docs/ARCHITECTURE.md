@@ -53,7 +53,9 @@ end depends on. Since Phase 6 the desktop client is four crates: the
 state of its window (`monolith-ui-model`), its design system
 (`monolith-ui-kit`) and its screens (`monolith-ui`) depend on no other
 Monolith crate, and `monolith-desktop` joins them to the runtime
-(`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
+(`DESKTOP.md`, `adr/0011-ui-security-boundary.md`). Since Phase 7 the core
+answers the file messages of a session (`transfers`) and enforces the
+rates of contacts (`rates`).
 
 | Crate | Owns | Must not |
 | --- | --- | --- |

@@ -489,7 +489,8 @@ requested or accepted counts against `MAX_CONTACT_SESSIONS`. Every other
 session, that of a contact with a stale card or a pending key included,
 counts against
 `MAX_UNKNOWN_SESSIONS` and `UNKNOWN_SESSION_RATE`; if the rate is
-exhausted, the local side closes. Holders of a contact card who are not
+exhausted, the local side closes. (Monolith does not enforce that rate:
+`RESOURCE_LIMITS.md` section 6.) Holders of a contact card who are not
 contacts therefore cannot use up the room that contacts need, and the
 holder of a retired key cannot use up the room or the rate of the identity
 it belongs to. They can use up the room for other strangers; see
@@ -1882,7 +1883,8 @@ declined or blocked, may have one `AuthenticatedUnknown` session; a second
 one is closed. An identity held as requested or accepted may have one
 unconfirmed session per direction, so that a simultaneous dial reaches
 confirmation on both and the rule above decides. New authenticated sessions
-per identity are rate limited (`CONTACT_SESSION_RATE`).
+per identity are rate limited (`CONTACT_SESSION_RATE`; Monolith counts
+the inbound ones, `RESOURCE_LIMITS.md` section 6).
 
 These slots and this rate are those of sessions whose standing is
 requested or accepted. A session of a contact that presented a stale or

@@ -110,6 +110,10 @@ rate limits, see the profile the user shares, see when a session is up,
 send an endpoint update.
 
 - Cannot exceed the per-contact limits; exceeding them ends the session.
+  Above its rates it is slowed, not cut off, and never slows another
+  contact (since Phase 7). Each message it sends that is taken in
+  rewrites the message store; the rate bounds how often
+  (`RESOURCE_LIMITS.md` section 12).
 - Cannot make a file arrive without acceptance (S13), choose where it is
   written (S14), or have it opened (S16).
 - Cannot change its own pinned identity (S9), and cannot roll back its
@@ -142,9 +146,10 @@ Residual: everything a conversation partner can do by nature.
   one key generation and one pending handshake for one that verifies,
   which needs the contact card; one signature verification after a valid
   third message. A pending handshake ends at `HANDSHAKE_TIMEOUT`.
-- The inbound rate is to be capped globally, with streams beyond the cap
-  closed at accept; the rate buckets are not implemented yet
-  (`RESOURCE_LIMITS.md` section 12).
+- The inbound rate is not capped: before authentication nothing tells
+  one peer from another, so a global cap would let one peer shut the
+  contacts out (`RESOURCE_LIMITS.md` section 6); the handshake budget
+  bounds what streams hold.
 - Tor's proof-of-work defense and a per-circuit stream cap are requested
   where available.
 

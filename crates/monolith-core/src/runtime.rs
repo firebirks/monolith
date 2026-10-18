@@ -58,6 +58,7 @@ use crate::contacts::StoreError;
 use crate::identity::{Installation, InstallationError, LocalIdentity, MessageError};
 use crate::link::{Established, Link, LinkError, answer, dial_plan};
 use crate::messages::{Receipt, Refusal};
+use crate::rates::{ContactRates, Kind};
 use crate::requests::{InvitationId, RequestId};
 use crate::sessions::{SessionControl, SessionManager};
 use crate::supervisor::{Backoff, Publication, supervise};
@@ -136,6 +137,9 @@ struct IdentityRuntime {
     /// The state of the Onion Service last reported, for a front end that
     /// asks instead of following the events.
     service: Mutex<ServiceState>,
+    /// What the contacts sent and opened, against their rates
+    /// (`crate::rates`).
+    rates: Mutex<ContactRates>,
 }
 
 impl fmt::Debug for IdentityRuntime {
@@ -579,6 +583,7 @@ impl<B: TorBackend + 'static> Inner<B> {
             timed_out: Mutex::new(HashSet::new()),
             available: Mutex::new(HashSet::new()),
             service: Mutex::new(ServiceState::Publishing),
+            rates: Mutex::new(ContactRates::default()),
         });
         lock(&self.identities).insert(identity.id(), runtime.clone());
         let inner = self.clone();
@@ -689,6 +694,15 @@ impl<B: TorBackend + 'static> Inner<B> {
                     let answered = answer(stream, &inner.budgets, &runtime.identity).await;
                     drop(permit);
                     if let Ok(established) = answered {
+                        // A contact that opens sessions above its rate has
+                        // this one closed once it is admitted.
+                        let session = established.link.session();
+                        if session.standing().is_contact_record()
+                            && !lock(&runtime.rates).session(*session.peer(), Instant::now())
+                        {
+                            let _ = established.link.close().await;
+                            return;
+                        }
                         let _ = inner.run_session(&runtime, established).await;
                     }
                 }
@@ -1152,6 +1166,9 @@ impl<B: TorBackend + 'static> Inner<B> {
                 }
                 Next::Received(Err(error)) => return Err(error),
                 Next::Received(Ok(arrived)) => {
+                    if self.pace(runtime, running, &arrived).await == Waited::Stop {
+                        return link_close(link).await.map(|()| Ended::Other);
+                    }
                     self.handle(runtime, link, running, &arrived).await?;
                 }
             }
@@ -1208,6 +1225,43 @@ impl<B: TorBackend + 'static> Inner<B> {
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
         self.idle(runtime, link, running) && now >= after(running.activity, SESSION_LINGER)
+    }
+
+    /// Waits until what arrived on a confirmed session has its token
+    /// (`crate::rates`), reading nothing meanwhile: a contact above its rate
+    /// is slowed, and the time is not spent of its probe or of its Ping.
+    /// `Waited::Stop` if the session is to end first; the message is then
+    /// not handled.
+    async fn pace(
+        &self,
+        runtime: &IdentityRuntime,
+        running: &Running,
+        arrived: &crate::link::Arrived,
+    ) -> Waited {
+        let (Some(contact), Some(kind)) = (running.record, Kind::of(&arrived.received().message))
+        else {
+            return Waited::Done;
+        };
+        loop {
+            let at = match lock(&runtime.rates).message(contact, kind, Instant::now()) {
+                Ok(()) => return Waited::Done,
+                Err(at) => at,
+            };
+            {
+                let mut woken = pin!(running.control.woken());
+                let mut timer = pin!(tokio::time::sleep_until(at));
+                poll_fn(|cx| {
+                    if woken.as_mut().poll(cx).is_ready() || timer.as_mut().poll(cx).is_ready() {
+                        return Poll::Ready(());
+                    }
+                    Poll::Pending
+                })
+                .await;
+            }
+            if running.control.closing() || self.stopping() || runtime.identity.is_closed() {
+                return Waited::Stop;
+            }
+        }
     }
 
     /// Handles one message that arrived on the session.
@@ -1762,6 +1816,7 @@ impl<B: TorBackend + 'static> Runtime<B> {
                 }
                 .map_err(store_error)?;
                 held.manager.close(&contact);
+                lock(&held.rates).ended(&contact);
                 Ok(())
             })
             .await

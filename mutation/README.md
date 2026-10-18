@@ -312,7 +312,12 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
 - records that end under a command (P7-7): a retry announced after a
   session or a dial when none follows, a block or a deletion that names
   its contact before its work runs, a send that queues for a record that
-  ended while it waited for the vault (HR31 to HR34).
+  ended while it waited for the vault (HR31 to HR34);
+- rates (P7-8): each message rate of a contact not paced, a bucket of
+  twice its burst, a new session that gives back what the last one took,
+  the sessions a contact opens not counted, a session waiting for a token
+  that does not end when it is closed, an ended record whose buckets stay
+  (HR35 to HR43).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

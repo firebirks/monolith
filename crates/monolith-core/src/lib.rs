@@ -17,6 +17,7 @@ pub mod identity;
 pub mod link;
 pub mod messages;
 pub mod persist;
+mod rates;
 pub mod requests;
 pub mod runtime;
 pub mod sessions;

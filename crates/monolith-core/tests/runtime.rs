@@ -36,8 +36,9 @@ use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_protocol::body::{FileChunk, Message, MessageId, TransferId};
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
-    DUPLICATE_PROBE_TIMEOUT, HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT,
-    PONG_TIMEOUT, SESSION_LINGER,
+    CHAT_MESSAGE_RATE, CONTACT_SESSION_RATE, CONTROL_MESSAGE_RATE, DUPLICATE_PROBE_TIMEOUT,
+    FILE_OFFER_RATE, HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT, PONG_TIMEOUT,
+    PROFILE_UPDATE_RATE, RateLimit, SESSION_LINGER,
 };
 use monolith_protocol::session::Action;
 use monolith_protocol::text::{ChatText, DisplayName, Filename, ProfileText};
@@ -2061,6 +2062,187 @@ fn a_dial_that_fails_once_the_vault_failed_announces_no_retry() {
         // The dial failed, and no attempt follows: none is announced.
         no_deferral(&mut events);
         assert_eq!(network.dials(), dials + 1);
+        a.stop().await;
+    });
+}
+
+/// A, with two accepted contacts B and C that dial it by hand, as
+/// [`dialed_by_hand`] makes B: their links.
+async fn two_by_hand(
+    network: &MockNetwork,
+) -> (Peer, Peer, Peer, Link<DuplexStream>, Link<DuplexStream>) {
+    let (mut a, mut b, at_a, _) = pair(network).await;
+    let mut c = Peer::new(3).await;
+    let c_at_a = a.add(&c).await;
+    c.add(&a).await;
+    a.start(network, options()).await;
+    b.start(network, options()).await;
+    c.start(network, options()).await;
+    for contact in [at_a, c_at_a] {
+        a.runtime()
+            .send_message(&a.id(), &contact, "before")
+            .await
+            .unwrap();
+    }
+    for contact in [at_a, c_at_a] {
+        until(|| a.statuses(&contact) == vec![MessageStatus::Delivered]).await;
+        until(|| a.runtime().sessions(&a.id(), &contact).unwrap() == 0).await;
+    }
+    b.stop().await;
+    c.stop().await;
+    let b_link = hand_link(network, &a, &b).await;
+    let c_link = hand_link(network, &a, &c).await;
+    (a, b, c, b_link, c_link)
+}
+
+/// The time one token of `limit` takes to come back.
+fn interval(limit: RateLimit) -> Duration {
+    Duration::from_secs(60) / limit.per_minute
+}
+
+fn profile() -> Message {
+    Message::Profile {
+        display_name: DisplayName::new("Sam").unwrap(),
+        profile_text: ProfileText::new("Hello").unwrap(),
+    }
+}
+
+/// Sends `messages` on `link`, then a Ping, and reads until its Pong: how
+/// long A took to handle them, and what it answered.
+async fn flood(link: &mut Link<DuplexStream>, messages: &[Message]) -> (Duration, Vec<Message>) {
+    let start = Instant::now();
+    for message in messages {
+        link.send(message).await.unwrap();
+    }
+    let answers = before_pong(link, 255).await;
+    (start.elapsed(), answers)
+}
+
+/// A rate, and how to make the n-th message it counts.
+type Counted = (RateLimit, fn(u8) -> Message);
+
+#[test]
+fn a_contact_above_a_rate_is_slowed_and_no_other_contact_is() {
+    // For each rate of what a contact sends: its burst at once, then one
+    // per interval. Another contact sending the same meanwhile is not
+    // slowed (P7-8).
+    let cases: [Counted; 4] = [
+        (CHAT_MESSAGE_RATE, chat),
+        (CONTROL_MESSAGE_RATE, |n| Message::Ping([n; 8])),
+        (FILE_OFFER_RATE, offer),
+        (PROFILE_UPDATE_RATE, |_| profile()),
+    ];
+    for (limit, make) in cases {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, _b, _c, mut link, mut other) = two_by_hand(&network).await;
+            let over = 3;
+            let messages: Vec<Message> = (0..limit.burst + over)
+                .map(|n| make(u8::try_from(n).unwrap()))
+                .collect();
+            let flooding = tokio::spawn(async move { flood(&mut link, &messages).await });
+            let (took, _) = flood(&mut other, &[make(250)]).await;
+            assert!(took < interval(limit), "{limit:?} {took:?}");
+            let (took, answers) = flooding.await.unwrap();
+            // The Ping that ends the flood is a control message too.
+            let waited = if limit == CONTROL_MESSAGE_RATE {
+                over + 1
+            } else {
+                over
+            };
+            assert!(took >= interval(limit) * waited, "{limit:?} {took:?}");
+            assert!(took < interval(limit) * (waited + 1), "{limit:?} {took:?}");
+            let answered = if limit == PROFILE_UPDATE_RATE {
+                0
+            } else {
+                limit.burst + over
+            };
+            assert_eq!(
+                answers.len(),
+                usize::try_from(answered).unwrap(),
+                "{limit:?}"
+            );
+            a.stop().await;
+        });
+    }
+}
+
+#[test]
+fn the_rate_of_a_contact_holds_across_its_sessions() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, _, mut link) = dialed_by_hand(&network).await;
+        let burst: Vec<Message> = (0..CHAT_MESSAGE_RATE.burst)
+            .map(|n| chat(u8::try_from(n).unwrap()))
+            .collect();
+        let (took, _) = flood(&mut link, &burst).await;
+        assert!(took < interval(CHAT_MESSAGE_RATE));
+        link.close().await.unwrap();
+        // A new session of B: what the first took is not given back.
+        let mut again = hand_link(&network, &a, &b).await;
+        let (took, answers) = flood(&mut again, &[chat(200)]).await;
+        assert!(took >= interval(CHAT_MESSAGE_RATE), "{took:?}");
+        assert_eq!(
+            answers,
+            vec![Message::MessageAck(MessageId::from_bytes([200; 16]))]
+        );
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_contact_that_opens_sessions_above_its_rate_has_them_closed() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        // `dialed_by_hand` opens one; the rest of the burst follows.
+        let (mut a, b, _, link) = dialed_by_hand(&network).await;
+        drop(link);
+        for _ in 1..CONTACT_SESSION_RATE.burst {
+            let mut link = hand_link(&network, &a, &b).await;
+            assert_eq!(answered(&mut link, 1).await, Some(Vec::new()));
+        }
+        // The next one is closed once it is admitted: never confirmed.
+        let established = dial(
+            &network.backend(),
+            &Budgets::new(),
+            &b.identity,
+            &a.identity.card(),
+        )
+        .await
+        .unwrap();
+        let mut link = established.link;
+        for action in established.first {
+            assert_eq!(action, Action::SendContactAccept);
+            link.send(&Message::ContactAccept).await.unwrap();
+        }
+        let mut confirmed = false;
+        while let Ok(arrived) = link.receive().await {
+            confirmed |= arrived.received().actions.contains(&Action::Confirmed);
+        }
+        assert!(!confirmed);
+        // One interval later, one more is taken.
+        tokio::time::sleep(interval(CONTACT_SESSION_RATE)).await;
+        let mut link = hand_link(&network, &a, &b).await;
+        assert_eq!(answered(&mut link, 2).await, Some(Vec::new()));
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_session_that_waits_for_a_token_ends_when_it_is_closed() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, mut link) = dialed_by_hand(&network).await;
+        for n in 0..=FILE_OFFER_RATE.burst {
+            link.send(&offer(u8::try_from(n).unwrap())).await.unwrap();
+        }
+        // The last offer waits for its token; the session is closed
+        // meanwhile, and ends at once.
+        tokio::time::sleep(interval(FILE_OFFER_RATE) / 10).await;
+        let start = Instant::now();
+        a.runtime().close_sessions(&a.id(), &at_a).unwrap();
+        while link.receive().await.is_ok() {}
+        assert!(start.elapsed() < interval(FILE_OFFER_RATE) / 2);
         a.stop().await;
     });
 }

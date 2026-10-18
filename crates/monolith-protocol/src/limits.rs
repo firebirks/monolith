@@ -435,12 +435,15 @@ pub struct RateLimit {
 }
 
 /// Inbound streams accepted from the Onion Service, all peers together.
+/// Not enforced: one bucket for every peer would let one peer shut out
+/// the others (`docs/RESOURCE_LIMITS.md` section 6).
 pub const INBOUND_CONNECTION_RATE: RateLimit = RateLimit {
     burst: 32,
     per_minute: 120,
 };
 
 /// Unknown peers allowed past authentication, all identities together.
+/// Not enforced, for the same reason (`docs/RESOURCE_LIMITS.md` section 6).
 pub const UNKNOWN_SESSION_RATE: RateLimit = RateLimit {
     burst: 8,
     per_minute: 12,
