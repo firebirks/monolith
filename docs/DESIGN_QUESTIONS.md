@@ -2595,9 +2595,13 @@ P7-4 File messages and profiles (BL3). The runtime ignored every file
     a session remembers dies with it, so a later session, of the same
     contact or another, treats a replayed file message as a violation.
     Nothing of a file is stored or shown, no event is raised and no
-    message or contact changes. A Profile is taken and dropped: this
-    version keeps no profile of a contact, and the display name of a
-    request stays the only name a sender suggests (`PROTOCOL.md` 8.7).
+    message or contact changes. A Profile is a message of this version
+    that is accepted and not used, not one let through unchecked: the
+    session permits it only from an accepted contact on a confirmed
+    session, its texts are checked when it is decoded, and one that fails
+    is a violation; a valid one is dropped. This version keeps no profile
+    of a contact, and the display name of a request stays the only name a
+    sender suggests (`PROTOCOL.md` 8.7).
     The rates of these messages are BL13. Faults HR17 to HR20.
 
 P7-5 Limits that a later build lowers (BL26). `RESOURCE_LIMITS.md` says
@@ -2618,6 +2622,32 @@ P7-5 Limits that a later build lowers (BL26). `RESOURCE_LIMITS.md` says
     that does not validate. Raising a limit above its ceiling needs a new
     version of the format. The unit tests lower the limits of a
     `MessageState` to show it; faults HR21 to HR23.
+
+P7-6 Activity, probes and Pings (BL1, BL4, BL30). Three defects of
+    liveness. The activity that keeps a session from lingering was
+    refreshed by any MessageAck and any ChatMessage, so a contact could
+    keep an idle session open up to `MAX_SESSION_LIFETIME` with
+    acknowledgements of nothing or a message sent again. It is now
+    refreshed by a ChatMessage sent, by one taken in (stored, not held
+    already) and by a MessageAck that delivered a message. The deadline
+    of a probe ran while the session waited for its store or before an
+    acknowledgement, when it reads nothing (R5-28), so a live preferred
+    session could lose its probe. The probe and the Ping now keep what is
+    left of their timeouts and spend it only while the task reads, as
+    `RESOURCE_LIMITS.md` section 6 says of the Pong timer. A Pong that
+    came after its probe was decided was a violation, which ended a live
+    session that had stayed for want of a newer one. A Ping stays
+    outstanding until its Pong comes: one that comes late is taken and
+    dropped. To keep that bounded, a session has one Ping outstanding at
+    most; a probe asked while one is outstanding sends no other and is
+    answered by its Pong, which shows the session alive within the
+    probe. A Ping not answered within `PONG_TIMEOUT` ends the session
+    with Close, as section 8.2 of `PROTOCOL.md` asks, which this version
+    did not do. When a probe ends, the duplicate rule looks at the
+    credentials again, as `duplicate::after_probe` asks of its caller: a
+    probed session whose key was retired meanwhile loses, answered or
+    not. The serial of a session names it, so a record made again during
+    a probe is never taken for the one probed. Faults HR24 to HR30.
 
 ### 14.2 Not part of Phase 7
 

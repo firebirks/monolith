@@ -301,9 +301,9 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(240);
 /// again on a later one.
 pub const MESSAGE_ACK_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// A session on which no ChatMessage or MessageAck was sent or received
-/// for this long, with nothing queued or in flight, is closed by the local
-/// side.
+/// A session on which, for this long, no ChatMessage was sent or taken in
+/// and no MessageAck delivered a message, with nothing queued or in
+/// flight, is closed by the local side.
 pub const SESSION_LINGER: Duration = Duration::from_secs(120);
 
 /// Time allowed to receive the rest of a frame once its length prefix has

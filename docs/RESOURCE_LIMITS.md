@@ -136,12 +136,12 @@ extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | `HANDSHAKE_TIMEOUT` | 30 s | From stream open to an authenticated state. Covers three messages over an established circuit. This is the slowloris bound for unauthenticated streams: a handshake message that arrives later is refused, and a peer that sends a valid first message and then nothing holds its pending handshake for this long. |
 | `UNKNOWN_SESSION_TIMEOUT` | 20 s | Longest time in `AuthenticatedUnknown`, measured from authentication. Then the session is closed with Close. |
 | `UNKNOWN_FIRST_MESSAGE_TIMEOUT` | 10 s | A peer that is not a contact for the session must send its first message within this time, measured from authentication. Then the session is closed with Close. |
-| `DUPLICATE_PROBE_TIMEOUT` | 10 s | Liveness probe of an older session during duplicate resolution. |
+| `DUPLICATE_PROBE_TIMEOUT` | 10 s | Liveness probe of an older session during duplicate resolution. Counts only while the session is read (section 6). |
 | `PING_INTERVAL_MIN` / `MAX` | 90 s / 150 s | Each interval is drawn uniformly from this range. |
-| `PONG_TIMEOUT` | 60 s | |
+| `PONG_TIMEOUT` | 60 s | A Ping not answered for this long ends the session. Counts only while the session is read (section 6). |
 | `IDLE_TIMEOUT` | 240 s | No complete frame received, measured from the last complete frame or, before the first, from authentication. Bytes of a frame that is not complete do not count. The session ends without a Close. |
 | `MESSAGE_ACK_TIMEOUT` | 60 s | A sender waits this long for the MessageAck of the message in flight. Then delivery is uncertain: the session is closed and the message is sent again on a later one (`adr/0007-delivery-semantics.md`). |
-| `SESSION_LINGER` | 120 s | A confirmed session on which no ChatMessage or MessageAck was sent or received for this long, with nothing queued or in flight, is closed by the local side with Close (`adr/0009-session-manager.md`). |
+| `SESSION_LINGER` | 120 s | A confirmed session on which, for this long, no ChatMessage was sent or taken in and no MessageAck delivered a message, with nothing queued or in flight, is closed by the local side with Close (`adr/0009-session-manager.md`). A message held already and an acknowledgement of nothing do not count. |
 | `FRAME_READ_TIMEOUT` | 60 s | From the first byte of a frame's length prefix to its last byte, an absolute deadline: later bytes of the same frame do not move it. The session ends without a Close. |
 | `FRAME_WRITE_TIMEOUT` | 60 s | One frame write. |
 | `FILE_OFFER_TIMEOUT` | 10 min | An unanswered file offer is dropped. |

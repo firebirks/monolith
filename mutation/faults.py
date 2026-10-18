@@ -1861,6 +1861,28 @@ PHASE7 = [
     fault("HR23", CORE + "messages.rs", "a lowered window of forgotten messages is not applied",
           ("            while conversation.forgotten.len() > forgotten {\n",
            "            while conversation.forgotten.len() > MESSAGE_DEDUP_WINDOW {\n")),
+    # The activity of a session, and its probe and Ping (BL1, BL4, BL30).
+    fault("HR24", CORE + "runtime.rs", "an acknowledgement of nothing keeps a session open",
+          ("            Message::MessageAck(id) => {\n                match identity.acknowledged(arrived).await {\n",
+           "            Message::MessageAck(id) => {\n                running.activity = Instant::now();\n                match identity.acknowledged(arrived).await {\n")),
+    fault("HR25", CORE + "runtime.rs", "a message held already keeps a session open",
+          ("                if matches!(taken.receipt, Receipt::Stored(_)) {\n",
+           "                if matches!(taken.receipt, Receipt::Stored(_) | Receipt::Duplicate) {\n")),
+    fault("HR26", CORE + "runtime.rs", "the time a message is handled counts against the probe",
+          ("                Next::Received(Ok(arrived)) => {\n                    self.handle(runtime, link, running, &arrived).await?;\n",
+           "                Next::Received(Ok(arrived)) => {\n                    let handling = Instant::now();\n                    self.handle(runtime, link, running, &arrived).await?;\n                    running.read_for(handling.elapsed());\n")),
+    fault("HR27", CORE + "runtime.rs", "the Ping of a probe decided is forgotten: its Pong is a violation",
+          ("                        if left.is_zero() {\n                            running.probe = None;\n",
+           "                        if left.is_zero() {\n                            running.probe = None;\n                            running.ping = None;\n")),
+    fault("HR28", CORE + "runtime.rs", "a Ping never answered does not end the session",
+          ("                    running.ping = Some((nonce, PONG_TIMEOUT));\n",
+           "                    running.ping = Some((nonce, PONG_TIMEOUT * 10));\n")),
+    fault("HR29", CORE + "runtime.rs", "a probe sends a second Ping while one is outstanding",
+          ("                if running.ping.is_none() {\n                    link.send(&Message::Ping(nonce)).await?;\n",
+           "                {\n                    link.send(&Message::Ping(nonce)).await?;\n")),
+    fault("HR30", CORE + "sessions.rs", "a probed session whose key was retired meanwhile wins",
+          ("            match duplicate::after_probe(answered && current) {\n",
+           "            match duplicate::after_probe(answered) {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

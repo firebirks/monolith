@@ -87,8 +87,9 @@ In production there is no way to supply any of them from outside. A
 value that is not secret falls back to a fixed one when the source
 fails: the middle of the jitter, half the startup spread, a fixed probe
 nonce. They only spread attempts in time or tell a live session from a
-dead one; a Pong for an older probe is refused by the state of the
-probe, not by its nonce. Every other value fails its operation.
+dead one; a session has at most one Ping outstanding, so its Pong is
+told apart by the state of the session, not by its nonce. Every other
+value fails its operation.
 
 Tests that need a reproducible handshake fix the ephemeral keys. The means
 to do that is a second random source in the resolver that returns fixed

@@ -131,8 +131,9 @@ impl fmt::Debug for SessionManager {
 }
 
 /// A random nonce for a probe. A failing random source gives a fixed one:
-/// the probe only tells a live session from a dead one, and a Pong for an
-/// older probe is refused by the state, not by the nonce.
+/// the probe only tells a live session from a dead one, and a session has
+/// at most one Ping outstanding, so its Pong is told apart by the state,
+/// not by the nonce.
 fn nonce() -> [u8; PING_NONCE_LEN] {
     let mut bytes = [0_u8; PING_NONCE_LEN];
     if getrandom::fill(&mut bytes).is_err() {
@@ -261,14 +262,18 @@ impl SessionManager {
     }
 
     /// The probe `nonce` of the preferred session `serial` of `contact`
-    /// ended: answered, or not in time. Applies the outcome of the
-    /// duplicate rule.
+    /// ended: answered, or not in time. `current` tells whether the
+    /// transport key of that session is still the active credential of
+    /// the contact. Applies the outcome of the duplicate rule. The serial
+    /// names the session, so a record made again meanwhile is never taken
+    /// for the one probed.
     pub(crate) fn probe_ended(
         &self,
         contact: &ContactId,
         serial: u64,
         nonce: [u8; PING_NONCE_LEN],
         answered: bool,
+        current: bool,
     ) {
         {
             let mut records = lock(&self.records);
@@ -283,7 +288,12 @@ impl SessionManager {
                 return;
             }
             contenders.probe = None;
-            match duplicate::after_probe(answered) {
+            // Credentials come first (`PROTOCOL.md` section 14): a session
+            // whose key was retired while it was probed loses, answered or
+            // not, as `duplicate::resolve` decides for one that is not
+            // current. The waiting one was current when it registered; if
+            // its key was retired since, it was withdrawn and is leaving.
+            match duplicate::after_probe(answered && current) {
                 ProbeOutcome::CloseNewer => {
                     if let Some(pending) = contenders.pending.take() {
                         pending.control.close();
@@ -489,7 +499,8 @@ mod tests {
                     // are alive.
                     for (serial, control) in controls.values() {
                         if let Some(nonce) = control.take_probe() {
-                            side.manager.probe_ended(&record(), *serial, nonce, true);
+                            side.manager
+                                .probe_ended(&record(), *serial, nonce, true, true);
                         }
                     }
                     let open: Vec<&str> = controls
@@ -521,10 +532,23 @@ mod tests {
         assert!(side.manager.is_preferred(&record(), 1));
         // A wrong nonce, or another session, changes nothing.
         side.manager
-            .probe_ended(&record(), 1, [0; PING_NONCE_LEN], false);
-        side.manager.probe_ended(&record(), 2, nonce, false);
+            .probe_ended(&record(), 1, [0; PING_NONCE_LEN], false, true);
+        side.manager.probe_ended(&record(), 2, nonce, false, true);
         assert!(side.manager.is_preferred(&record(), 1));
-        side.manager.probe_ended(&record(), 1, nonce, false);
+        side.manager.probe_ended(&record(), 1, nonce, false, true);
+        assert!(older.closing());
+        assert!(!newer.closing());
+        assert!(side.manager.is_preferred(&record(), 2));
+    }
+
+    #[test]
+    fn a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered() {
+        let (small, large) = pair();
+        let side = Side::new(large, small);
+        let (_, older) = side.register(1, Initiator::Remote);
+        let (_, newer) = side.register(2, Initiator::Local);
+        let nonce = older.take_probe().unwrap();
+        side.manager.probe_ended(&record(), 1, nonce, true, false);
         assert!(older.closing());
         assert!(!newer.closing());
         assert!(side.manager.is_preferred(&record(), 2));

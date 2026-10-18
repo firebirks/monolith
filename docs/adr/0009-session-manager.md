@@ -51,9 +51,12 @@ key is still the active credential:
   smaller identity key is preferred. If it is the newer, the older is
   closed. If it is the older, it is probed with a Ping with a fresh random
   nonce; a Pong with that nonce within `DUPLICATE_PROBE_TIMEOUT` keeps it
-  and the newer is closed, otherwise the older is closed;
+  and the newer is closed, otherwise the older is closed. The timeout
+  counts only while the session is read, so a wait for the store does not
+  use it up;
 - a session whose key is no longer the active one loses; if neither is,
-  both are closed.
+  both are closed. That is looked at again when a probe ends: a session
+  whose key was retired while it was probed loses, answered or not.
 
 When both sessions are alive, both sides keep the same one, because the
 choice depends only on the two identity keys and on who initiated each
@@ -69,13 +72,20 @@ contact record take part, and a stranger never reaches the manager.
 Monolith sends no Ping to keep a session alive. A Ping is sent only as
 the probe of a duplicate session. A Ping from the peer is answered with a
 Pong carrying its nonce. A Pong that answers no outstanding Ping is a
-violation and ends the session without a Close.
+violation and ends the session without a Close. One Ping is outstanding
+at most; a probe asked while it is waits for its Pong, and a Pong that
+comes after its probe was decided is taken and dropped. A Ping not
+answered within `PONG_TIMEOUT` ends the session with Close; like the
+probe, that time counts only while the session is read.
 
 A session is kept while it has a reason: a message queued or in flight
-for its contact, in either direction. When neither side sent or received
-a ChatMessage or a MessageAck on it for `SESSION_LINGER`, the local side
-closes it with Close. `IDLE_TIMEOUT` stays the bound of the session
-layer.
+for its contact, in either direction. When for `SESSION_LINGER` no
+ChatMessage was sent or taken in on it and no MessageAck on it delivered
+a message, the local side closes it with Close. A message held already,
+which is acknowledged again, and an acknowledgement that delivers
+nothing do not count: a contact cannot keep an idle session open with
+them (`DESIGN_QUESTIONS.md` P7-6). `IDLE_TIMEOUT` stays the bound of the
+session layer.
 
 ### Reconnecting
 

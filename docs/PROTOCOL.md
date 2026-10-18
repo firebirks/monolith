@@ -700,6 +700,14 @@ Monolith keeps no idle session (ADR 0009): it closes a session with
 nothing to carry after `SESSION_LINGER`, and sends a Ping only to probe a
 duplicate session (section 14), with `DUPLICATE_PROBE_TIMEOUT` for its
 Pong. A session neither side uses ends at `IDLE_TIMEOUT` at the latest.
+A session has at most one Ping of Monolith outstanding: a probe asked
+while one is sends none, and the Pong of that one answers it. A Pong that
+comes once the probe was decided still answers its Ping: it is taken and
+dropped, and the decision stands. A Ping not answered within
+`PONG_TIMEOUT` ends the session with Close. Both timeouts count only the
+time the session is read (`RESOURCE_LIMITS.md` section 6): a wait of the
+local side, for its store or before an acknowledgement, does not use them
+up (`DESIGN_QUESTIONS.md` P7-6).
 
 ### 8.3 ContactRequest (0x0010)
 
@@ -793,8 +801,12 @@ sender's profile changes. The display name is a suggestion; it never
 replaces the fingerprint and never overrides a name the local user
 assigned. A Profile equal to the stored one causes no event.
 
-Monolith keeps no profile of a contact so far: a valid Profile is taken
-and dropped, with no event (`DESIGN_QUESTIONS.md` P7-4).
+Monolith does not use Profile yet. It is a message of this version that
+Monolith accepts and does not act on, not one it lets through unchecked:
+it is permitted only on a confirmed session of an accepted contact, its
+texts must satisfy section 9, and one that fails either is a violation.
+A valid one is then dropped: nothing is stored or shown, and no event is
+raised (`DESIGN_QUESTIONS.md` P7-4).
 
 ### 8.8 EndpointUpdate (0x0031)
 

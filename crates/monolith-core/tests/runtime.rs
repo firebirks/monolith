@@ -28,13 +28,14 @@ use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::link::{Link, dial};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
-use monolith_protocol::body::{FileChunk, Message, TransferId};
+use monolith_protocol::body::{FileChunk, Message, MessageId, TransferId};
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
-    HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT, SESSION_LINGER,
+    DUPLICATE_PROBE_TIMEOUT, HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT,
+    PONG_TIMEOUT, SESSION_LINGER,
 };
 use monolith_protocol::session::Action;
-use monolith_protocol::text::{DisplayName, Filename, ProfileText};
+use monolith_protocol::text::{ChatText, DisplayName, Filename, ProfileText};
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{
@@ -42,6 +43,7 @@ use monolith_tor::{
 };
 use tokio::io::DuplexStream;
 use tokio::sync::broadcast;
+use tokio::time::Instant;
 
 fn passphrase() -> Passphrase {
     Passphrase::new("correct horse battery staple").unwrap()
@@ -1654,5 +1656,245 @@ fn what_one_session_rejected_is_unknown_to_the_next() {
         later.send(&Message::FileAbort(transfer(5))).await.unwrap();
         assert!(later.receive().await.is_err());
         a.stop().await;
+    });
+}
+
+/// Like [`before_pong`], but `None` if the session ended instead.
+async fn answered(link: &mut Link<DuplexStream>, nonce: u8) -> Option<Vec<Message>> {
+    link.send(&Message::Ping([nonce; 8])).await.ok()?;
+    let mut before = Vec::new();
+    loop {
+        let arrived = link.receive().await.ok()?;
+        match &arrived.received().message {
+            Message::Pong(answer) if *answer == [nonce; 8] => return Some(before),
+            other => before.push(other.clone()),
+        }
+    }
+}
+
+fn chat(byte: u8) -> Message {
+    Message::ChatMessage {
+        id: MessageId::from_bytes([byte; 16]),
+        text: ChatText::new("hi").unwrap(),
+    }
+}
+
+#[test]
+fn a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing() {
+    // A message A holds already, or an acknowledgement of nothing A sent,
+    // every little while: neither is activity, and the session lingers
+    // from the last message taken in, and closes.
+    let interval = SESSION_LINGER * 2 / 5;
+    for repeated in [chat(9), Message::MessageAck(MessageId::from_bytes([7; 16]))] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, _b, _, mut link) = dialed_by_hand(&network).await;
+            link.send(&chat(9)).await.unwrap();
+            assert_eq!(
+                answered(&mut link, 1).await,
+                Some(vec![Message::MessageAck(MessageId::from_bytes([9; 16]))])
+            );
+            let taken = Instant::now();
+            let mut nonce = 2;
+            let ended = loop {
+                tokio::time::sleep(interval).await;
+                if link.send(&repeated).await.is_err() || answered(&mut link, nonce).await.is_none()
+                {
+                    break taken.elapsed();
+                }
+                nonce += 1;
+                assert!(taken.elapsed() < SESSION_LINGER * 4, "{repeated:?}");
+            };
+            assert!(ended >= SESSION_LINGER, "{ended:?}");
+            assert!(ended <= SESSION_LINGER + interval, "{ended:?}");
+            a.stop().await;
+        });
+    }
+}
+
+/// A and B, accepted contacts, both running; B's identity key is the
+/// smaller, so a session B initiated is the preferred one
+/// (`PROTOCOL.md` section 14).
+async fn b_preferred(
+    network: &MockNetwork,
+    a_options: RuntimeOptions,
+) -> (Peer, Peer, ContactId, ContactId) {
+    let (mut a, mut b) = (Peer::new(1).await, Peer::new(2).await);
+    if a.identity.identity() < b.identity.identity() {
+        core::mem::swap(&mut a, &mut b);
+    }
+    let at_a = a.add(&b).await;
+    let at_b = b.add(&a).await;
+    a.start(network, a_options).await;
+    b.start(network, options()).await;
+    a.runtime()
+        .send_message(&a.id(), &at_a, "before")
+        .await
+        .unwrap();
+    until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered]).await;
+    until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 0).await;
+    until(|| b.runtime().sessions(&b.id(), &at_b).unwrap() == 0).await;
+    (a, b, at_a, at_b)
+}
+
+/// B dials A by hand and A registers that session; then a session A
+/// dialed, which B's runtime answers, registers after it. The one of B is
+/// the preferred one, and older: A probes it. Returns its link and the
+/// nonce of the Ping.
+async fn probed(
+    network: &MockNetwork,
+    a: &Peer,
+    b: &Peer,
+    at_a: ContactId,
+) -> (Link<DuplexStream>, [u8; 8]) {
+    let dials = network.dials();
+    let hold = network.hold_dial(dials + 1);
+    a.runtime().connect(&a.id(), &at_a).unwrap();
+    until(|| network.dials() == dials + 1).await;
+    let mut link = hand_link(network, a, b).await;
+    until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+    hold.release();
+    until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 2).await;
+    let arrived = link.receive().await.unwrap();
+    let Message::Ping(nonce) = arrived.received().message else {
+        panic!("{:?}", arrived.received().message);
+    };
+    (link, nonce)
+}
+
+#[test]
+fn a_probed_session_that_answers_while_it_is_not_read_is_kept() {
+    // A takes the message B sends before its Pong, and waits a long time
+    // before it acknowledges it: the time the session is not read does not
+    // count against the probe (BL4).
+    run_paused(async {
+        let network = MockNetwork::new();
+        let slow = RuntimeOptions {
+            acknowledgement_delay: DUPLICATE_PROBE_TIMEOUT * 3,
+            ..options()
+        };
+        let (mut a, mut b, at_a, at_b) = b_preferred(&network, slow).await;
+        let (mut link, nonce) = probed(&network, &a, &b, at_a).await;
+        link.send(&chat(4)).await.unwrap();
+        link.send(&Message::Pong(nonce)).await.unwrap();
+        // The session of B stays, the newer one is closed.
+        assert_eq!(
+            answered(&mut link, 1).await,
+            Some(vec![Message::MessageAck(MessageId::from_bytes([4; 16]))])
+        );
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+        until(|| b.runtime().sessions(&b.id(), &at_b).unwrap() == 0).await;
+        assert_eq!(answered(&mut link, 2).await, Some(Vec::new()));
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_pong_after_the_probe_was_decided_keeps_the_session() {
+    // The newer session ends while the probe runs, and the probe is not
+    // answered in time: the older one stays, the only one. Its Pong comes
+    // late; it answers a Ping A sent, and is no violation (BL30).
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = b_preferred(&network, options()).await;
+        let (mut link, nonce) = probed(&network, &a, &b, at_a).await;
+        b.runtime().close_sessions(&b.id(), &at_b).unwrap();
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+        tokio::time::sleep(DUPLICATE_PROBE_TIMEOUT * 2).await;
+        link.send(&Message::Pong(nonce)).await.unwrap();
+        assert_eq!(answered(&mut link, 1).await, Some(Vec::new()));
+        // A second one answers nothing.
+        link.send(&Message::Pong(nonce)).await.unwrap();
+        assert_eq!(answered(&mut link, 2).await, None);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_ping_not_answered_within_its_timeout_ends_the_session() {
+    // The probe is not answered and the session stays, the only one; B
+    // keeps it in use, and never answers the Ping. A ends it once the Ping
+    // waited `PONG_TIMEOUT` (`PROTOCOL.md` section 8.2).
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = b_preferred(&network, options()).await;
+        let (mut link, _) = probed(&network, &a, &b, at_a).await;
+        let pinged = Instant::now();
+        b.runtime().close_sessions(&b.id(), &at_b).unwrap();
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+        let interval = PONG_TIMEOUT / 6;
+        let mut byte = 10;
+        let ended = loop {
+            if link.send(&chat(byte)).await.is_err() || answered(&mut link, byte).await.is_none() {
+                break pinged.elapsed();
+            }
+            byte += 1;
+            assert!(pinged.elapsed() < PONG_TIMEOUT * 4, "the session was kept");
+            tokio::time::sleep(interval).await;
+        };
+        assert!(ended >= PONG_TIMEOUT, "{ended:?}");
+        assert!(ended <= PONG_TIMEOUT + interval, "{ended:?}");
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_probed_session_that_does_not_answer_loses_to_the_newer_one() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = b_preferred(&network, options()).await;
+        let (mut link, _) = probed(&network, &a, &b, at_a).await;
+        tokio::time::sleep(DUPLICATE_PROBE_TIMEOUT * 2).await;
+        assert_eq!(answered(&mut link, 1).await, None);
+        assert_eq!(a.runtime().sessions(&a.id(), &at_a).unwrap(), 1);
+        assert_eq!(b.runtime().sessions(&b.id(), &at_b).unwrap(), 1);
+        // The newer one carries the queue now.
+        a.runtime()
+            .send_message(&a.id(), &at_a, "after")
+            .await
+            .unwrap();
+        until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered; 2]).await;
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong() {
+    // The first probe is not answered in time, and the session stays, the
+    // only one. A newer session makes A probe it again: no second Ping is
+    // sent, and the late Pong of the first answers the second probe.
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = b_preferred(&network, options()).await;
+        let dials = network.dials();
+        let first = network.hold_dial(dials + 1);
+        let second = network.hold_dial(dials + 2);
+        a.runtime().connect(&a.id(), &at_a).unwrap();
+        a.runtime().connect(&a.id(), &at_a).unwrap();
+        until(|| network.dials() == dials + 2).await;
+        let mut link = hand_link(&network, &a, &b).await;
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+        first.release();
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 2).await;
+        let arrived = link.receive().await.unwrap();
+        let Message::Ping(nonce) = arrived.received().message else {
+            panic!("{:?}", arrived.received().message);
+        };
+        b.runtime().close_sessions(&b.id(), &at_b).unwrap();
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+        tokio::time::sleep(DUPLICATE_PROBE_TIMEOUT * 2).await;
+        second.release();
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 2).await;
+        link.send(&Message::Pong(nonce)).await.unwrap();
+        assert_eq!(answered(&mut link, 1).await, Some(Vec::new()));
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 1).await;
+        until(|| b.runtime().sessions(&b.id(), &at_b).unwrap() == 0).await;
+        assert_eq!(answered(&mut link, 2).await, Some(Vec::new()));
+        a.stop().await;
+        b.stop().await;
     });
 }

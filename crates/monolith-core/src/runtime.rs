@@ -35,7 +35,7 @@ use monolith_protocol::SessionState;
 use monolith_protocol::body::{ContactRequest, Message, MessageId};
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
-    DUPLICATE_PROBE_TIMEOUT, MAX_UI_EVENTS, MESSAGE_ACK_TIMEOUT, PING_NONCE_LEN,
+    DUPLICATE_PROBE_TIMEOUT, MAX_UI_EVENTS, MESSAGE_ACK_TIMEOUT, PING_NONCE_LEN, PONG_TIMEOUT,
     RECONNECT_RESET_AFTER, SESSION_LINGER, STARTUP_DIAL_SPREAD,
 };
 use monolith_protocol::session::Action;
@@ -234,13 +234,30 @@ struct Running {
     /// The message sent and not acknowledged, with the deadline of its
     /// acknowledgement. Local to the task; never evidence of delivery.
     in_flight: Option<(MessageId, Instant)>,
-    /// The probe sent, with its deadline.
-    probe: Option<([u8; PING_NONCE_LEN], Instant)>,
-    /// The last ChatMessage or MessageAck sent or received.
+    /// The probe of a duplicate session that runs: its nonce, and what is
+    /// left of `DUPLICATE_PROBE_TIMEOUT`. Like that of `ping`, the time
+    /// counts only while the task reads (`RESOURCE_LIMITS.md` section 6).
+    probe: Option<([u8; PING_NONCE_LEN], Duration)>,
+    /// The Ping sent and not answered, and what is left of
+    /// `PONG_TIMEOUT`. One at a time: a probe asked while one is
+    /// outstanding waits for its Pong.
+    ping: Option<([u8; PING_NONCE_LEN], Duration)>,
+    /// The last ChatMessage sent or taken in, or acknowledgement that
+    /// delivered one.
     activity: Instant,
     /// The file offers of the peer that this session rejected
     /// (`crate::transfers`).
     transfers: Transfers,
+}
+
+impl Running {
+    /// The task read for `elapsed`: that much of the probe and of the
+    /// Ping is gone.
+    fn read_for(&mut self, elapsed: Duration) {
+        for (_, left) in self.probe.iter_mut().chain(self.ping.iter_mut()) {
+            *left = left.saturating_sub(elapsed);
+        }
+    }
 }
 
 /// The task of one session as the runtime holds it. Its end is handled
@@ -900,6 +917,7 @@ impl<B: TorBackend + 'static> Inner<B> {
                 record: None,
                 in_flight: None,
                 probe: None,
+                ping: None,
                 activity: Instant::now(),
                 transfers: Transfers::default(),
             },
@@ -1033,8 +1051,11 @@ impl<B: TorBackend + 'static> Inner<B> {
                 }
             }
             if let Some(nonce) = running.control.take_probe() {
-                link.send(&Message::Ping(nonce)).await?;
-                running.probe = Some((nonce, after(Instant::now(), DUPLICATE_PROBE_TIMEOUT)));
+                if running.ping.is_none() {
+                    link.send(&Message::Ping(nonce)).await?;
+                    running.ping = Some((nonce, PONG_TIMEOUT));
+                }
+                running.probe = Some((nonce, DUPLICATE_PROBE_TIMEOUT));
             }
             // The preferred session sends the head of the queue, one
             // message at a time.
@@ -1055,7 +1076,8 @@ impl<B: TorBackend + 'static> Inner<B> {
                     }
                 }
             }
-            let deadline = self.deadline(runtime, link, running);
+            let reading = Instant::now();
+            let deadline = self.deadline(runtime, link, running, reading);
             let next = {
                 let control = running.control.clone();
                 let mut woken = pin!(control.woken());
@@ -1091,19 +1113,29 @@ impl<B: TorBackend + 'static> Inner<B> {
                 })
                 .await
             };
+            running.read_for(reading.elapsed());
             match next {
                 Next::Woken | Next::Changed => {}
                 Next::Deadline => {
                     let now = Instant::now();
-                    if let Some((nonce, due)) = running.probe {
-                        if now >= due {
+                    if let Some((nonce, left)) = running.probe {
+                        if left.is_zero() {
                             running.probe = None;
                             if let Some(contact) = running.record {
-                                runtime
-                                    .manager
-                                    .probe_ended(&contact, running.serial, nonce, false);
+                                runtime.manager.probe_ended(
+                                    &contact,
+                                    running.serial,
+                                    nonce,
+                                    false,
+                                    identity.is_active_key(link.session().peer_card()),
+                                );
                             }
                         }
+                    }
+                    if running.ping.is_some_and(|(_, left)| left.is_zero()) {
+                        // A Ping not answered in time ends the session
+                        // (`PROTOCOL.md` section 8.2).
+                        return link_close(link).await.map(|()| Ended::Other);
                     }
                     if running.in_flight.is_some_and(|(_, due)| now >= due) {
                         // No acknowledgement in time: delivery is uncertain.
@@ -1123,23 +1155,24 @@ impl<B: TorBackend + 'static> Inner<B> {
         }
     }
 
-    /// The earliest deadline of the task: an acknowledgement, a probe, the
-    /// linger of an idle session.
+    /// The earliest deadline of the task, which reads from `now`: an
+    /// acknowledgement, a probe, a Pong, the linger of an idle session.
     fn deadline<S>(
         &self,
         runtime: &IdentityRuntime,
         link: &Link<S>,
         running: &Running,
+        now: Instant,
     ) -> Option<Instant>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        let mut deadlines = Vec::with_capacity(3);
+        let mut deadlines = Vec::with_capacity(4);
         if let Some((_, due)) = running.in_flight {
             deadlines.push(due);
         }
-        if let Some((_, due)) = running.probe {
-            deadlines.push(due);
+        for (_, left) in running.probe.iter().chain(running.ping.iter()) {
+            deadlines.push(after(now, *left));
         }
         if self.idle(runtime, link, running) {
             deadlines.push(after(running.activity, SESSION_LINGER));
@@ -1228,9 +1261,11 @@ impl<B: TorBackend + 'static> Inner<B> {
         match &received.message {
             Message::ChatMessage { .. } => self.take_in(runtime, link, running, arrived).await,
             Message::MessageAck(id) => {
-                running.activity = Instant::now();
                 match identity.acknowledged(arrived).await {
                     Ok(Some((contact, sequence))) => {
+                        // Only an acknowledgement that delivered a message
+                        // is activity.
+                        running.activity = Instant::now();
                         self.emit(Event::MessageDelivered(MessageRef {
                             identity: identity.id(),
                             contact,
@@ -1246,24 +1281,33 @@ impl<B: TorBackend + 'static> Inner<B> {
                 Ok(())
             }
             Message::Ping(nonce) => link.send(&Message::Pong(*nonce)).await,
-            Message::Pong(nonce) => match running.probe {
+            Message::Pong(nonce) => match running.ping {
                 Some((sent, _)) if sent == *nonce => {
-                    running.probe = None;
-                    if let Some(contact) = running.record {
-                        runtime
-                            .manager
-                            .probe_ended(&contact, running.serial, *nonce, true);
+                    running.ping = None;
+                    // It answers the probe that runs, if one does; one
+                    // decided before it came stands.
+                    if let (Some((probe, _)), Some(contact)) =
+                        (running.probe.take(), running.record)
+                    {
+                        runtime.manager.probe_ended(
+                            &contact,
+                            running.serial,
+                            probe,
+                            true,
+                            identity.is_active_key(link.session().peer_card()),
+                        );
                     }
                     Ok(())
                 }
-                // A Pong that answers no Ping of this side is a violation:
-                // the session ends without a Close.
+                // A Pong that answers no outstanding Ping of this side is a
+                // violation: the session ends without a Close.
                 _ => Err(LinkError::Session(
                     monolith_session::SessionError::Protocol(ProtocolError::MessageNotPermitted),
                 )),
             },
-            // A profile is taken and dropped: this version keeps none of a
-            // contact (`PROTOCOL.md` 8.7). An endpoint update was for the
+            // A profile is a message of this version that is not used:
+            // the session admitted it, its texts were checked, and it is
+            // dropped (`PROTOCOL.md` 8.7). An endpoint update was for the
             // store, which saw it.
             Message::Profile { .. } | Message::EndpointUpdate(_) => Ok(()),
             // No file is transferred; what section 13.1 asks of a
@@ -1331,7 +1375,6 @@ impl<B: TorBackend + 'static> Inner<B> {
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
         let identity = runtime.identity.clone();
-        running.activity = Instant::now();
         match identity.take_in(arrived).await {
             Ok(taken) => {
                 // Durable: it is reported, and only now acknowledged.
@@ -1346,7 +1389,11 @@ impl<B: TorBackend + 'static> Inner<B> {
                     tokio::time::sleep(self.options.acknowledgement_delay).await;
                 }
                 link.send(&Message::MessageAck(taken.id)).await?;
-                running.activity = Instant::now();
+                // Only a message taken in is activity: one held already is
+                // acknowledged again, and keeps no session open.
+                if matches!(taken.receipt, Receipt::Stored(_)) {
+                    running.activity = Instant::now();
+                }
                 Ok(())
             }
             Err(MessageError::Refused(_)) => {

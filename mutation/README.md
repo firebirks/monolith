@@ -302,7 +302,13 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   (HR17 to HR20);
 - a store above a limit a later build lowered (P7-5): a queue or the
   store that ignores the lowered limit, a lowered window of forgotten
-  messages not applied (HR21 to HR23).
+  messages not applied (HR21 to HR23);
+- activity, probes and Pings (P7-6): an acknowledgement of nothing or a
+  message held already that keeps a session open, the time a message is
+  handled counted against the probe, the Ping of a probe decided
+  forgotten, a Ping never answered that does not end the session, a
+  second Ping while one is outstanding, a probed session whose key was
+  retired meanwhile that wins (HR24 to HR30).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 
