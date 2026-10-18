@@ -1,0 +1,43 @@
+commit 68ac655bb82f4d423d46581bdc9a1816f8f87161, 41 faults, 2 workers, unmodified run 504s, timeout 2016s
+H4    caught    392s  initiator expects its own transport key
+H3    caught    438s  a card of the local identity may be dialed
+H5    caught    489s  a second message that fails is ignored
+H6    caught    469s  a first message that fails is ignored
+H7    caught    445s  the card need not state the authenticated transport key
+H8    caught    464s  an initiator may present the responder's own card
+H9    caught    442s  a third message that fails is ignored
+H10   caught    444s  no handshake timeout
+H11   caught    447s  the timeout fires at exactly the limit
+H12   caught    454s  the third message is not checked against the deadline
+H13   caught    435s  outbound request carries no invitation
+H14   caught    446s  inbound request carries no invitation
+H15   caught    525s  OutboundPeer::admit ignores its record
+H16   caught    867s  outbound admission uses what was held when the dial began
+H17   caught    449s  MessageBuffer takes more than its size
+S1    caught    473s  no grace after the age limit on receive
+S2    caught    447s  a frame at exactly the end of the grace is taken
+S3    caught    462s  no age limit on receive
+S4    caught    449s  no frame limit on receive
+S6    caught    466s  a frame that fails authentication is decoded
+S5    caught    468s  no byte limit on receive
+S8    caught    454s  the transfer lifetime never applies
+S7    caught    484s  a transfer extends an expired session
+S9    caught    452s  send ignores the age limit
+S10   caught    464s  send ignores the frame and byte limits
+S11   caught    488s  no room kept for a Close
+S12   caught    483s  the frame limit is off by one
+S13   caught    535s  application messages before the local ContactAccept
+S14   caught    565s  more than one ContactRequest on a session
+S15   survived  782s  may_send ignores a failed or closed session
+S16   caught    769s  a request may carry another invitation
+S17   caught    468s  a request may carry another card
+S18   caught    462s  an EndpointUpdate may carry another identity's card
+S19   caught    430s  send skips the local-side check
+S20   caught    456s  keys kept after a violation
+S21   caught    425s  keys kept after the peer's Close
+S22   caught    473s  keys kept after the local Close
+S23   caught    500s  keys kept after the stream closed
+S24   survived  464s  keys kept after an internal failure of seal
+S26   caught    364s  a failed session keeps receiving
+S25   caught    940s  end() keeps the keys
+done: {'caught': 39, 'survived': 2}; written to <repo>/mutation/results-phase2-68ac655.json

@@ -1,0 +1,33 @@
+   Compiling monolith-desktop v0.0.0 (<repo>\crates\monolith-desktop)
+    Finished `release` profile [optimized] target(s) in 7.71s
+     Running `<work>\win-target\release\examples\tor_smoke.exe`
+  b: started (0.0 s)
+  a: started (0.0 s)
+  a: the profile is open (0.5 s)
+  b: the profile is open (0.5 s)
+a: the Tor check says Tor works (0.4.9.13)
+b: the Tor check says Tor works (0.4.9.13)
+  a: identity A is made and shown (0.0 s)
+  a: Tor connected is shown (0.0 s)
+  b: identity B is made and shown (0.0 s)
+  b: Tor connected is shown (0.0 s)
+  b: the invitation is made (0.0 s)
+  b: the card is saved (0.0 s)
+b: the invitation card is saved and handed over
+  a: B's invitation card is there (0.1 s)
+  a: the card file is read into the dialog (0.0 s)
+  a: the contact is added and shown (0.0 s)
+  b: a request arrives (0.1 s)
+  a: "Hello B, this is A." is queued (0.0 s)
+  b: the request is accepted and shown (0.0 s)
+  a: "Hello B, this is A." is Delivered (0.1 s)
+  a: "Hello A, this is B." is Received (0.0 s)
+  b: "Hello A, this is B." is queued (0.0 s)
+  b: "Hello B, this is A." is Received (0.0 s)
+  b: "Hello A, this is B." is Delivered (0.0 s)
+  b: the other client is done (0.0 s)
+  a: the other client is done (0.0 s)
+  b: the runtime stopped (0.0 s)
+b: passed in 1 s
+  a: the runtime stopped (0.0 s)
+a: passed in 1 s

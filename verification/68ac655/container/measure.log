@@ -1,0 +1,36 @@
+   Compiling ahash v0.8.12
+   Compiling smallvec v1.16.3
+   Compiling once_cell v1.21.4
+   Compiling emath v0.32.3
+   Compiling bitflags v2.13.2
+   Compiling parking_lot_core v0.9.12
+   Compiling parking_lot v0.12.5
+   Compiling ecolor v0.32.3
+   Compiling png v0.18.1
+   Compiling epaint v0.32.3
+   Compiling egui v0.32.3
+   Compiling monolith-ui-kit v0.0.0 (/home/verifier/work/crates/monolith-ui-kit)
+   Compiling monolith-ui-snapshot v0.0.0 (/home/verifier/work/crates/monolith-ui-snapshot)
+   Compiling monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui)
+    Finished `release` profile [optimized] target(s) in 14.65s
+     Running `/vol/target/release/examples/measure`
+start: context, fonts and first frame 2.8 ms (the frame alone 2.5 ms)
+welcome                                      median    0.03 ms   slowest    0.06 ms      2368 vertices
+conversation of 8 messages                   median    0.14 ms   slowest    0.23 ms      5100 vertices
+requests                                     median    0.07 ms   slowest    0.19 ms      5028 vertices
+settings, identities                         median    0.08 ms   slowest    0.12 ms      4628 vertices
+conversation of 100 messages                 median    0.12 ms   slowest    0.19 ms      5956 vertices
+conversation of 500 messages                 median    0.11 ms   slowest    0.16 ms      5960 vertices
+conversation of 2000 messages                median    0.12 ms   slowest    0.18 ms      5960 vertices
+conversation of 2000 messages of 1.5 KB      median    0.09 ms   slowest    0.16 ms      8804 vertices
+conversation of 2000 messages of 16 KB       median    0.14 ms   slowest    0.20 ms      9192 vertices
+sidebar of 500 contacts, 16 KB previews      median    0.28 ms   slowest    0.56 ms      4056 vertices
+opening 2000 messages                        median    0.43 ms   slowest    0.43 ms      5958 vertices
+opening 2000 messages of 1.5 KB              median    0.67 ms   slowest    0.67 ms      8802 vertices
+opening 2000 messages of 16 KB               median    0.75 ms   slowest    0.75 ms      9190 vertices
+scrolling 2000 messages                      median    0.14 ms   slowest    0.24 ms      5652 vertices
+scrolling 2000 messages of 1.5 KB            median    0.12 ms   slowest    0.50 ms      9128 vertices
+scrolling 2000 messages of 16 KB             median    0.10 ms   slowest    0.70 ms      9500 vertices
+scrolling the sidebar of 500 contacts        median    0.29 ms   slowest    0.43 ms      4128 vertices
+identity switch a frame (500 messages)       median    0.18 ms   slowest    0.58 ms      5952 vertices
+burst of 1000 events: applied in 0.03 ms, 2 reads asked, next frame 0.11 ms

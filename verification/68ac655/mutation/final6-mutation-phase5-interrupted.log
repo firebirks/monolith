@@ -1,0 +1,17 @@
+commit 68ac655bb82f4d423d46581bdc9a1816f8f87161, 57 faults, 2 workers, unmodified run 440s, timeout 1760s
+MR2   caught    313s  a message is recorded delivered when it is queued, before any acknowledgement
+MR1   caught    404s  a received message is acknowledged before it is durable
+MR3   caught    327s  a message received again is stored again
+MR4   caught    388s  an acknowledgement delivers a message of another conversation
+MR5   caught    383s  an acknowledgement delivers a message of another local identity
+MR6   caught    407s  queued messages are not written to the message store
+MR7   caught    389s  a contact made again gets the identifier of its earlier record
+MR8   caught    393s  the scheduler of a record takes no notice of the record ending
+MR10  caught    401s  a newer session of the same side keeps the older one open
+MR11  caught    389s  the session of the side with the larger key is preferred
+MR12  caught    374s  a conversation grows past its bound in bytes
+MR13  caught    384s  the queue of a contact holds one message more
+MR9   caught   1760s  a failed attempt is followed by the next at once (timeout)
+MR14  caught    347s  the queue of an identity holds one message more
+MR15  caught    581s  a queued message is reported before it is durable
+MR16  caught    370s  a delivered message is written as queued

@@ -1,0 +1,7 @@
+commit 68ac655bb82f4d423d46581bdc9a1816f8f87161, 123 faults, 2 workers, unmodified run 439s, timeout 1756s
+CS1   caught    568s  an older card of the active key rolls the contact back
+CS2   caught    593s  a stale card is promoted
+CS4   caught    580s  the retired key is accepted again
+CS3   caught    606s  a conflicting card is silently taken
+CS5   caught    547s  an import judges a card older than the successor apart from an admission
+CS6   caught    618s  a newer key without an authorized successor is stale

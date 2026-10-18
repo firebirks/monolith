@@ -1,0 +1,1165 @@
+{
+ "commit": "68ac655bb82f4d423d46581bdc9a1816f8f87161",
+ "unmodified_seconds": 441,
+ "timeout": 1764,
+ "results": [
+  {
+   "id": "N1",
+   "path": "crates/monolith-identity/src/onion.rs",
+   "what": "a ServiceID with a wrong checksum or version is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "onion::tests::a_version_other_than_three_is_refused_even_with_a_matching_checksum",
+    "onion::tests::a_wrong_checksum_version_case_or_length_is_refused"
+   ],
+   "seconds": 614
+  },
+  {
+   "id": "N2",
+   "path": "crates/monolith-identity/src/onion.rs",
+   "what": "an upper-case or out-of-alphabet ServiceID is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "onion::tests::a_wrong_checksum_version_case_or_length_is_refused"
+   ],
+   "seconds": 604
+  },
+  {
+   "id": "Q1",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "the stream to the SOCKS endpoint is used without SOCKS",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)",
+    "a_failure_of_tor_ends_the_proof",
+    "a_proof_lets_dials_through_for_its_lifetime_only",
+    "with_the_check_off_a_dial_asks_the_control_endpoint_nothing",
+    "without_a_socks_endpoint_there_is_no_connection_at_all"
+   ],
+   "seconds": 1764
+  },
+  {
+   "id": "Q2",
+   "path": "crates/monolith-tor/src/socks.rs",
+   "what": "another host name than the onion name is requested",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes",
+    "socks::tests::a_successful_exchange_leaves_the_peer_bytes_on_the_stream",
+    "socks::tests::requests_are_byte_for_byte_those_of_the_specification"
+   ],
+   "seconds": 422
+  },
+  {
+   "id": "Q3",
+   "path": "crates/monolith-tor/src/config.rs",
+   "what": "a TCP endpoint that is not loopback is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "config::tests::only_loopback_tcp_and_absolute_socket_paths_are_endpoints"
+   ],
+   "seconds": 303
+  },
+  {
+   "id": "Q4",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "the listener binds every interface",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_del_onion_is_reported_and_the_service_still_ends",
+    "a_published_service_is_owned_by_its_control_connection",
+    "losing_a_published_service_ends_the_proof",
+    "losing_the_control_connection_unpublishes_the_service",
+    "malformed_add_onion_replies_publish_nothing",
+    "two_published_services_coexist_and_each_owns_its_listener"
+   ],
+   "seconds": 303
+  },
+  {
+   "id": "Q5",
+   "path": "crates/monolith-tor/src/socks.rs",
+   "what": "the greeting offers no authentication",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "socks::tests::requests_are_byte_for_byte_those_of_the_specification"
+   ],
+   "seconds": 310
+  },
+  {
+   "id": "Q6",
+   "path": "crates/monolith-tor/src/socks.rs",
+   "what": "a proxy that skips authentication is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "socks::tests::every_failure_of_the_proxy_is_an_error",
+    "socks::tests::method_and_auth_replies_are_checked"
+   ],
+   "seconds": 315
+  },
+  {
+   "id": "Q7",
+   "path": "crates/monolith-tor/src/socks.rs",
+   "what": "every group sends the same isolation token",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "socks::tests::requests_are_byte_for_byte_those_of_the_specification",
+    "socks::tests::the_isolation_token_names_nothing_about_the_target"
+   ],
+   "seconds": 359
+  },
+  {
+   "id": "Q8",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "the SAFECOOKIE server hash is not checked",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_server_that_does_not_know_the_cookie_never_gets_the_client_hash",
+    "dials_at_the_same_time_share_one_proof",
+    "without_a_proof_nothing_reaches_the_socks_endpoint"
+   ],
+   "seconds": 399
+  },
+  {
+   "id": "Q9",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "SAFECOOKIE is tried when the server does not offer it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "authentication_follows_the_configuration_not_the_server"
+   ],
+   "seconds": 397
+  },
+  {
+   "id": "Q10",
+   "path": "crates/monolith-tor/src/control/reply.rs",
+   "what": "a control line is not bounded while it is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::reply::tests::every_limit_is_enforced"
+   ],
+   "seconds": 396
+  },
+  {
+   "id": "Q11",
+   "path": "crates/monolith-tor/src/control/reply.rs",
+   "what": "a control reply is not bounded in size",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::reply::tests::every_limit_is_enforced"
+   ],
+   "seconds": 380
+  },
+  {
+   "id": "Q12",
+   "path": "crates/monolith-tor/src/control/reply.rs",
+   "what": "a control reply is not bounded in lines",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::reply::tests::every_limit_is_enforced"
+   ],
+   "seconds": 382
+  },
+  {
+   "id": "Q13",
+   "path": "crates/monolith-tor/src/control/reply.rs",
+   "what": "asynchronous events are taken as replies",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::reply::tests::malformed_lines_end_the_parser"
+   ],
+   "seconds": 401
+  },
+  {
+   "id": "Q14",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "bytes after a reply are accepted",
+   "group": "",
+   "expect": "survives: equivalent. Tor sends nothing unasked; bytes that follow a reply stay in the socket and make the next reply fail to parse, so the connection fails either way, one command later",
+   "verdict": "survived",
+   "seeds_only": false,
+   "failed": [],
+   "seconds": 391
+  },
+  {
+   "id": "Q15",
+   "path": "crates/monolith-tor/src/control/command.rs",
+   "what": "another GETINFO key is sent",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_bootstrapping_tor_is_not_ready_and_a_filter_hides_progress",
+    "authentication_follows_the_configuration_not_the_server",
+    "control::command::tests::every_command_is_byte_for_byte_the_documented_one",
+    "status_reports_a_ready_tor_and_sends_only_the_allowed_commands",
+    "with_the_check_on_status_reports_a_socks_endpoint_tor_does_not_list"
+   ],
+   "seconds": 396
+  },
+  {
+   "id": "Q16",
+   "path": "crates/monolith-tor/src/control/command.rs",
+   "what": "ADD_ONION asks for a detached service",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_published_service_is_owned_by_its_control_connection",
+    "control::command::tests::add_onion_never_carries_a_forbidden_flag_or_option",
+    "control::command::tests::every_command_is_byte_for_byte_the_documented_one"
+   ],
+   "seconds": 410
+  },
+  {
+   "id": "Q17",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "non-anonymous mode is reported as an ordinary failure",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::tests::add_onion_errors_are_told_apart",
+    "malformed_add_onion_replies_publish_nothing"
+   ],
+   "seconds": 411
+  },
+  {
+   "id": "Q18",
+   "path": "crates/monolith-tor/src/secret.rs",
+   "what": "a returned key of the wrong length is used",
+   "group": "",
+   "expect": "survives: equivalent. 88 characters ending in '==' always decode to 21 groups of three bytes and one more, 64 bytes; the length check is a second line",
+   "verdict": "survived",
+   "seeds_only": false,
+   "failed": [],
+   "seconds": 404
+  },
+  {
+   "id": "Q19",
+   "path": "crates/monolith-tor/src/secret.rs",
+   "what": "a returned key without padding is accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::tests::add_onion_replies_are_read_strictly",
+    "secret::tests::base64_that_is_not_exactly_tor_s_form_is_refused"
+   ],
+   "seconds": 390
+  },
+  {
+   "id": "Q20",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a service published from a key need not be that key's",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "malformed_add_onion_replies_publish_nothing"
+   ],
+   "seconds": 416
+  },
+  {
+   "id": "Q21",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a Tor below the baseline may publish",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_old_tor_is_refused"
+   ],
+   "seconds": 395
+  },
+  {
+   "id": "Q22",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a lost control connection still counts as published",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "losing_a_published_service_ends_the_proof",
+    "losing_the_control_connection_unpublishes_the_service"
+   ],
+   "seconds": 390
+  },
+  {
+   "id": "Q23",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "a control connection with data or at its end counts as alive",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "losing_a_published_service_ends_the_proof",
+    "losing_the_control_connection_unpublishes_the_service"
+   ],
+   "seconds": 394
+  },
+  {
+   "id": "Q24",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "close does not send DEL_ONION",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_del_onion_is_reported_and_the_service_still_ends",
+    "a_published_service_is_owned_by_its_control_connection",
+    "two_published_services_coexist_and_each_owns_its_listener"
+   ],
+   "seconds": 398
+  },
+  {
+   "id": "Q25",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "the inbound handshake budget of an identity is larger",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_accept_loop_bounds_handshakes_owns_its_tasks_and_ends_with_the_service"
+   ],
+   "seconds": 403
+  },
+  {
+   "id": "Q26",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "an inbound handshake waits longer than HANDSHAKE_TIMEOUT",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_silent_peer_is_dropped_after_the_handshake_timeout"
+   ],
+   "seconds": 399
+  },
+  {
+   "id": "Q27",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "an endpoint naming another cookie file is used",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "hostile_control_replies_fail_cleanly"
+   ],
+   "seconds": 382
+  },
+  {
+   "id": "Q28",
+   "path": "crates/monolith-tor/src/control/auth.rs",
+   "what": "a cookie file others can write is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::auth::tests::only_a_regular_file_of_exactly_32_bytes_is_a_cookie"
+   ],
+   "seconds": 412
+  },
+  {
+   "id": "Q29",
+   "path": "crates/monolith-tor/src/stream.rs",
+   "what": "the connection code does not check the endpoint again",
+   "group": "",
+   "expect": "survives: unreachable. Endpoint is opaque and only its validating constructors make one, so no test can hand the connection code an endpoint that is not local; the check is a second line",
+   "verdict": "survived",
+   "seeds_only": false,
+   "failed": [],
+   "seconds": 397
+  },
+  {
+   "id": "Q30",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a stranger is answered without an unknown-session slot",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_stranger_finds_no_slot_while_evicted_strangers_drain",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart"
+   ],
+   "seconds": 385
+  },
+  {
+   "id": "Q31",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a dial takes no dial slot",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_that_waited_for_its_slot_while_the_identity_was_deleted_opens_no_stream",
+    "dials_beyond_the_dial_budget_wait_for_a_slot"
+   ],
+   "seconds": 420
+  },
+  {
+   "id": "CR1",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a newer key without continuity takes over at once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_pending_key_does_not_receive_message_3",
+    "committed_seeds_are_current",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_newer_active_card_drops_successors_it_supersedes",
+    "credential::tests::a_newer_key_without_continuity_is_only_pending",
+    "credential::tests::a_pending_card_of_a_peer_does_not_keep_out_the_users_own",
+    "credential::tests::a_pending_successor_takes_over_only_when_confirmed",
+    "credential::tests::a_presented_card_does_not_displace_the_users_pending_card",
+    "credential::tests::a_proven_key_older_than_the_announced_successor_is_stale",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::rotation_without_the_old_keys_fails_safely",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "dialplan::tests::a_pending_successor_is_never_dialed",
+    "record::tests::stored_credentials_keep_their_invariants",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike",
+    "tests::contacts::a_new_key_shown_without_continuity_does_not_lock_out_the_active_one",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason",
+    "tests::credentials::simultaneous_rotation_without_the_old_keys_fails_safely",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "the_standing_of_an_inbound_peer_follows_the_table",
+    "what_a_refused_dial_recorded_survives_a_restart",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart"
+   ],
+   "seconds": 565
+  },
+  {
+   "id": "CR2",
+   "path": "crates/monolith-protocol/src/contact.rs",
+   "what": "a pending successor gets the standing of the record",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_pending_key_does_not_receive_message_3",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike",
+    "tests::contacts::a_new_key_shown_without_continuity_does_not_lock_out_the_active_one",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason",
+    "tests::credentials::simultaneous_rotation_without_the_old_keys_fails_safely",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "the_standing_of_an_inbound_peer_follows_the_table",
+    "what_a_refused_dial_recorded_survives_a_restart",
+    "what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart"
+   ],
+   "seconds": 587
+  },
+  {
+   "id": "CR3",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "an EndpointUpdate from a session of another key authorizes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "tests::credentials::an_announcement_on_a_session_of_a_retired_key_proves_nothing"
+   ],
+   "seconds": 544
+  },
+  {
+   "id": "CR4",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a promotion keeps the old key active",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_is_admitted_against_the_contact_state_after_the_handshake",
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed",
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_promotion_stands_when_message_3_cannot_be_written",
+    "a_restart_reproduces_the_durable_state_exactly",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "contact::tests::the_pending_card_is_confirmed_and_nothing_else",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "credential::tests::a_pending_card_of_a_peer_does_not_keep_out_the_users_own",
+    "credential::tests::a_pending_successor_takes_over_only_when_confirmed",
+    "credential::tests::a_presented_card_does_not_displace_the_users_pending_card",
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::a_successor_card_older_than_the_announced_one_is_stale",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::rotation_without_the_old_keys_fails_safely",
+    "credential::tests::simultaneous_rotation_on_both_sides_completes",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "deleting_is_atomic",
+    "dialplan::tests::after_a_promotion_the_retired_key_is_never_dialed",
+    "dialplan::tests::every_planned_card_states_the_active_key_or_its_successor",
+    "promoting_a_successor_is_atomic",
+    "session::tests::importing_a_card_depends_on_the_relationship",
+    "tests::contacts::a_new_key_shown_without_continuity_does_not_lock_out_the_active_one",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions",
+    "tests::credentials::an_announcement_on_a_session_of_a_retired_key_proves_nothing",
+    "tests::credentials::crossing_dials_of_two_rotations_complete",
+    "tests::credentials::simultaneous_rotation_completes_while_the_old_keys_answer",
+    "tests::credentials::simultaneous_rotation_without_the_old_keys_fails_safely",
+    "tests::credentials::the_duplicate_rule_never_keeps_a_session_of_a_retired_key",
+    "updating_a_card_is_atomic"
+   ],
+   "seconds": 621
+  },
+  {
+   "id": "CR5",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a promotion does not record the retired key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_promotion_stands_when_message_3_cannot_be_written",
+    "credential::tests::a_pending_successor_takes_over_only_when_confirmed",
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::simultaneous_rotation_on_both_sides_completes",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions",
+    "tests::credentials::simultaneous_rotation_completes_while_the_old_keys_answer"
+   ],
+   "seconds": 548
+  },
+  {
+   "id": "CR6",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a card with the retired key is not refused",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one"
+   ],
+   "seconds": 522
+  },
+  {
+   "id": "CR7",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a session of another key still stands for the contact",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed",
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "credential::tests::a_newer_key_without_continuity_is_only_pending",
+    "credential::tests::a_pending_successor_takes_over_only_when_confirmed",
+    "credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired",
+    "credential::tests::the_card_of_a_new_contact_is_active",
+    "dialplan::tests::after_a_promotion_the_retired_key_is_never_dialed",
+    "dialplan::tests::every_planned_card_states_the_active_key_or_its_successor",
+    "tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions",
+    "tests::credentials::crossing_dials_of_two_rotations_complete",
+    "tests::credentials::the_duplicate_rule_never_keeps_a_session_of_a_retired_key"
+   ],
+   "seconds": 653
+  },
+  {
+   "id": "CR8",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a pending successor other than the one shown is confirmed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_pending_card_of_a_peer_does_not_keep_out_the_users_own",
+    "credential::tests::a_pending_successor_takes_over_only_when_confirmed",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user"
+   ],
+   "seconds": 580
+  },
+  {
+   "id": "CR9",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "an import for an accepted contact replaces the key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_restart_reproduces_the_durable_state_exactly",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "contact::tests::import_and_admission_agree_on_every_card",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "credential::tests::a_pending_card_of_a_peer_does_not_keep_out_the_users_own",
+    "credential::tests::a_presented_card_does_not_displace_the_users_pending_card",
+    "credential::tests::importing_for_an_accepted_contact_never_replaces_the_key",
+    "credential::tests::rotation_without_the_old_keys_fails_safely",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_changes_only_through_continuity_or_the_user",
+    "deleting_is_atomic",
+    "dialplan::tests::a_pending_successor_is_never_dialed",
+    "dialplan::tests::after_a_promotion_the_retired_key_is_never_dialed",
+    "promoting_a_successor_is_atomic",
+    "session::tests::importing_a_card_depends_on_the_relationship",
+    "tests::contacts::a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::credentials::an_announcement_on_a_session_of_a_retired_key_proves_nothing",
+    "tests::credentials::simultaneous_rotation_without_the_old_keys_fails_safely",
+    "tests::credentials::the_duplicate_rule_never_keeps_a_session_of_a_retired_key",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "updating_a_card_is_atomic"
+   ],
+   "seconds": 480
+  },
+  {
+   "id": "CR10",
+   "path": "crates/monolith-protocol/src/session.rs",
+   "what": "a withdrawn session keeps its standing and stays open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "a_withdrawal_first_seen_by_send_writes_the_close",
+    "a_withdrawn_link_fails_at_once_every_time",
+    "blocking_or_deleting_a_contact_withdraws_its_open_links",
+    "session::tests::a_withdrawn_session_ends_and_delivers_nothing",
+    "t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger",
+    "tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions"
+   ],
+   "seconds": 558
+  },
+  {
+   "id": "CR11",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "the duplicate rule does not look at credentials",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "duplicate::tests::a_session_of_a_retired_key_never_wins",
+    "sessions::tests::a_session_of_a_retired_key_loses",
+    "tests::credentials::the_duplicate_rule_never_keeps_a_session_of_a_retired_key"
+   ],
+   "seconds": 565
+  },
+  {
+   "id": "CR12",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a withdrawn link delivers what is in its buffer",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_rotation_withdraws_the_link_of_the_retired_key"
+   ],
+   "seconds": 412
+  },
+  {
+   "id": "CR13",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a withdrawn link still sends",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_withdrawal_first_seen_by_send_writes_the_close"
+   ],
+   "seconds": 379
+  },
+  {
+   "id": "CR14",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a withdrawal does not wake a waiting link",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn"
+   ],
+   "seconds": 497
+  },
+  {
+   "id": "CR15",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "a withdrawn session sends no Close",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn",
+    "a_rotation_withdraws_the_link_of_the_retired_key",
+    "a_withdrawal_first_seen_by_send_writes_the_close",
+    "a_withdrawn_link_fails_at_once_every_time",
+    "blocking_or_deleting_a_contact_withdraws_its_open_links",
+    "t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger",
+    "tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions"
+   ],
+   "seconds": 441
+  },
+  {
+   "id": "CR16",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a link that is over waits for the peer on a later call",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_failed_link_waits_for_its_stream_once",
+    "link::tests::a_frame_sent_a_byte_at_a_time_ends_at_the_frame_deadline",
+    "link::tests::a_message_taken_before_a_receive_was_dropped_is_still_delivered",
+    "link::tests::a_read_error_ends_the_link",
+    "link::tests::a_send_dropped_while_it_writes_leaves_the_link_terminal",
+    "link::tests::a_stranger_gets_the_close_after_its_first_message_and_frees_its_slot",
+    "link::tests::a_withdrawal_at_the_moment_a_write_times_out_leaves_the_link_terminal",
+    "link::tests::a_write_error_ends_the_link"
+   ],
+   "seconds": 412
+  },
+  {
+   "id": "CR17",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a dropped link does not report that it ended",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_refused_for_the_contact_budget_leaves_no_session_behind",
+    "a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session",
+    "a_dial_without_a_contact_slot_writes_no_message_3",
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "blocking_or_deleting_a_contact_withdraws_its_open_links",
+    "the_store_forgets_the_links_that_are_gone",
+    "what_arrived_on_a_link_that_ended_counts_for_nothing"
+   ],
+   "seconds": 394
+  },
+  {
+   "id": "CR18",
+   "path": "crates/monolith-session/src/handshake.rs",
+   "what": "message 3 is made for a peer that may not learn the local identity",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3",
+    "a_contact_deleted_or_blocked_during_the_dial_gets_no_message_3",
+    "a_dial_is_admitted_against_the_contact_state_after_the_handshake",
+    "a_key_older_than_the_announced_successor_gets_nothing",
+    "a_pending_key_does_not_receive_message_3",
+    "tests::contacts::a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session",
+    "tests::contacts::every_pair_of_records_ends_consistently",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity",
+    "what_a_refused_dial_recorded_survives_a_restart"
+   ],
+   "seconds": 425
+  },
+  {
+   "id": "CR19",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a contact refused for the budget does not report that its link ended",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_refused_for_the_contact_budget_leaves_no_session_behind"
+   ],
+   "seconds": 413
+  },
+  {
+   "id": "CR20",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a presented card displaces the pending card the user imported",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "credential::tests::a_presented_card_does_not_displace_the_users_pending_card",
+    "credential::tests::table::every_card_from_every_source_in_every_state"
+   ],
+   "seconds": 584
+  },
+  {
+   "id": "CR21",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a card at the epoch of the successor that says otherwise is taken",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_card_at_the_epoch_of_the_successor_that_says_otherwise_is_a_conflict",
+    "credential::tests::a_successor_announced_through_the_active_key_is_authorized",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::table::every_card_from_every_source_in_every_state"
+   ],
+   "seconds": 590
+  },
+  {
+   "id": "CR22",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "the write of message 3 ignores the withdrawal",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_key_retired_while_the_admission_is_made_durable_gets_no_message_3",
+    "link::tests::a_withdrawal_ends_a_send_that_is_pending",
+    "link::tests::a_withdrawal_ends_a_write_of_message_3_that_is_pending",
+    "link::tests::message_3_is_not_written_once_the_session_is_withdrawn",
+    "link::tests::nothing_is_written_after_a_withdrawal_that_comes_between_two_writes"
+   ],
+   "seconds": 389
+  },
+  {
+   "id": "CR23",
+   "path": "crates/monolith-protocol/src/session.rs",
+   "what": "the identity predicate uses the stale-card shortcut",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_deleted_or_blocked_during_the_dial_gets_no_message_3",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "tests::contacts::a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session",
+    "tests::contacts::every_pair_of_records_ends_consistently",
+    "tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity"
+   ],
+   "seconds": 552
+  },
+  {
+   "id": "CR24",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "an older card of the active key is stale",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_older_card_of_the_active_key_still_receives_message_3",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_newer_card_with_the_active_key_advances_it",
+    "credential::tests::an_older_card_with_the_active_key_is_the_contact",
+    "credential::tests::importing_for_a_requested_contact_replaces_the_card",
+    "credential::tests::importing_for_an_accepted_contact_never_replaces_the_key",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::the_active_key_is_admitted_and_older_cards_of_other_keys_are_not",
+    "session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card",
+    "tests::contacts::a_card_older_than_the_active_one_opens_a_contact_session_only_with_the_active_key",
+    "the_standing_of_an_inbound_peer_follows_the_table"
+   ],
+   "seconds": 585
+  },
+  {
+   "id": "CR25",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "every byte of a frame restarts its deadline",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_frame_sent_a_byte_at_a_time_ends_at_the_frame_deadline",
+    "tests::deadlines::a_frame_sent_a_byte_at_a_time_does_not_hold_the_session"
+   ],
+   "seconds": 434
+  },
+  {
+   "id": "CR26",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "UNKNOWN_FIRST_MESSAGE_TIMEOUT is not applied",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_stranger_that_sends_nothing_is_closed_and_frees_its_slot",
+    "tests::deadlines::a_peer_that_is_not_a_contact_has_to_send_its_first_message_in_time"
+   ],
+   "seconds": 426
+  },
+  {
+   "id": "CR27",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "UNKNOWN_SESSION_TIMEOUT is not applied",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::an_unconfirmed_session_ends_in_time",
+    "tests::deadlines::a_session_leaves_authenticated_unknown_in_time"
+   ],
+   "seconds": 440
+  },
+  {
+   "id": "CR28",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "the age limit waits for a complete frame",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tests::deadlines::the_age_limit_ends_a_session_that_only_receives_part_of_a_frame"
+   ],
+   "seconds": 430
+  },
+  {
+   "id": "CR29",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a deadline ends the session and keeps the slot",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_stranger_that_sends_nothing_is_closed_and_frees_its_slot"
+   ],
+   "seconds": 412
+  },
+  {
+   "id": "CR30",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a read error leaves the session usable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_failed_link_waits_for_its_stream_once",
+    "link::tests::a_read_error_ends_the_link"
+   ],
+   "seconds": 409
+  },
+  {
+   "id": "CR31",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "bytes of an incomplete frame move the idle limit",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tests::deadlines::bytes_of_an_incomplete_frame_do_not_move_the_idle_limit"
+   ],
+   "seconds": 436
+  },
+  {
+   "id": "CR32",
+   "path": "crates/monolith-session/src/session.rs",
+   "what": "a Close the session decided waits for the caller",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tests::deadlines::the_close_after_a_strangers_first_message_is_due_at_once"
+   ],
+   "seconds": 436
+  },
+  {
+   "id": "CR33",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a message that ends the session leaves the link open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_full_stranger_budget_evicts_the_oldest_silent_stranger",
+    "a_stranger_through_a_valid_tor_stream_gets_only_a_close",
+    "link::tests::a_close_from_the_peer_ends_the_link_and_frees_its_slot",
+    "link::tests::a_message_taken_before_a_receive_was_dropped_is_still_delivered",
+    "link::tests::a_stranger_gets_the_close_after_its_first_message_and_frees_its_slot",
+    "request_modes_decide_what_a_stranger_can_ask",
+    "t_confirm_1_every_fate_of_a_request_looks_the_same",
+    "t_contact_1_a_flood_of_requests_leaves_the_vault_as_it_was",
+    "t_inv_1_to_4_cards_with_capabilities_admit_requests_until_revoked",
+    "t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike",
+    "t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger"
+   ],
+   "seconds": 501
+  },
+  {
+   "id": "CR34",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a withdrawal does not end a pending send",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_send_dropped_while_it_writes_leaves_the_link_terminal",
+    "link::tests::a_withdrawal_ends_a_send_that_is_pending",
+    "link::tests::a_write_error_ends_the_link",
+    "link::tests::nothing_is_written_after_a_withdrawal_that_comes_between_two_writes"
+   ],
+   "seconds": 398
+  },
+  {
+   "id": "CR35",
+   "path": "crates/monolith-protocol/src/credential.rs",
+   "what": "a proven key older than the announced successor is held pending",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_key_older_than_the_announced_successor_gets_nothing",
+    "contact::tests::every_kind_of_record_in_every_context",
+    "credential::tests::a_proven_key_older_than_the_announced_successor_is_stale",
+    "credential::tests::a_successor_announced_through_the_active_key_is_authorized",
+    "credential::tests::an_announcement_needs_a_session_made_with_the_active_key",
+    "credential::tests::table::every_card_from_every_source_in_every_state",
+    "credential::tests::table::the_same_card_has_the_same_relation_whatever_its_source"
+   ],
+   "seconds": 580
+  },
+  {
+   "id": "CR39",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a link that ended waits for its stream again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::a_failed_link_waits_for_its_stream_once",
+    "link::tests::a_withdrawn_link_waits_for_its_stream_once"
+   ],
+   "seconds": 440
+  },
+  {
+   "id": "CR40",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a dial refused before message 3 loses its admission",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3",
+    "a_contact_deleted_or_blocked_during_the_dial_gets_no_message_3",
+    "a_dial_is_admitted_against_the_contact_state_after_the_handshake",
+    "a_key_older_than_the_announced_successor_gets_nothing",
+    "a_pending_key_does_not_receive_message_3",
+    "what_a_refused_dial_recorded_survives_a_restart"
+   ],
+   "seconds": 384
+  },
+  {
+   "id": "Q32",
+   "path": "crates/monolith-core/src/budget.rs",
+   "what": "a listener error ends the accept loop",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "listener_errors_do_not_end_the_accept_loop"
+   ],
+   "seconds": 407
+  }
+ ]
+}

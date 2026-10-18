@@ -1,0 +1,59 @@
+commit 68ac655bb82f4d423d46581bdc9a1816f8f87161, 99 faults, 2 workers, unmodified run 452s, timeout 1808s
+T1    caught    609s  the field prime itself counts as canonical
+T2    caught    611s  points of small order accepted
+T4    caught    397s  canonical check compares from the least significant byte
+T3    caught    565s  non-canonical encodings accepted
+T5    caught    608s  p - 1 missing from the small-order list
+T7    caught    711s  Montgomery form never detected
+K1    caught    580s  32 zero bytes accepted as a transport secret key
+T6    caught   1808s  Montgomery form comparison inverted (timeout)
+K2    caught    162s  local card signed by another identity than the local one
+K3    caught    339s  local card states a transport key the party does not hold
+K4    caught    421s  a card from outside can be adopted as the local card
+C1    caught    625s  transport key may be the identity key in Montgomery form
+C2    caught    590s  transport key may be an endpoint key in Montgomery form
+C3    caught    604s  decoder skips the transport key separation check
+C4    caught    607s  signer skips the transport key separation check
+C5    caught    654s  decoder accepts an endpoint that is the identity key
+C6    caught    639s  evaluate_card ignores the identity
+C7    caught    653s  a lower epoch counts as newer
+C8    caught    601s  same epoch with another transport key is unchanged
+C9    caught    580s  same epoch with another endpoint set is unchanged
+C10   caught    598s  a stale card is unchanged
+C11   caught    552s  a conflicting card is unchanged
+C12   caught    575s  signature does not cover the transport key
+CAP1  caught    579s  zeroize leaves the capability bytes
+CAP2  survived  577s  a dropped capability is not erased
+CAP3  survived  574s  capabilities compared with an early exit
+P1    caught    579s  a conflicting card keeps the recorded standing
+P2    caught    600s  a stale card keeps the recorded standing
+P3    caught    557s  a record of another identity is accepted
+P4    caught    581s  the local identity is accepted as the peer
+P5    caught    580s  an outbound session accepts an identity that was not dialed
+P6    caught    578s  an inbound handshake card may carry an invitation
+P7    caught    576s  cards inside messages are not checked against the peer
+P8    caught    572s  a card of another identity passes inside a message
+P9    caught    588s  an inbound request may carry another card of the peer
+P10   caught    564s  an outbound request may state another transport key
+P11   caught    579s  a second request on a session is taken
+P12   caught    598s  a contact with a stale card takes the contact path
+P13   caught    581s  requests from known non-contacts are considered
+P14   caught    654s  ContactAccept may be sent to a non-contact
+P15   caught    635s  ContactRequest may be sent to a non-contact
+R1    caught    485s  DH skips the public key validity check
+P16   caught    626s  ContactRequest may be sent on a confirmed session
+R2    caught    497s  DH hands out an all-zero result
+R3    caught    491s  resolver serves any DH
+R4    caught    500s  resolver serves any hash
+R5    caught    536s  resolver serves any cipher
+R6    caught    606s  nonce counter in big-endian order
+R7    caught    666s  nonce counter at the front
+R8    caught    547s  a message that fails authentication is opened
+R9    caught    569s  a rejected message is left in the output
+R10   caught    555s  a failed encryption leaves the plaintext
+R11   caught    426s  DH takes the key from the end of the buffer
+R12   caught    526s  a private key of the wrong length keeps the old key
+R13   caught    575s  a failed generation keeps the old key
+R14   caught    556s  the operating system source is replaced by fixed bytes
+H1    caught    540s  prologue without the responder identity
+H2    caught    334s  initiator binds its own identity in the prologue

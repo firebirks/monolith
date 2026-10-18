@@ -1,0 +1,3 @@
+commit 68ac655bb82f4d423d46581bdc9a1816f8f87161, 1 faults, 1 workers, unmodified run 551s, timeout 1200s
+T6    caught   1200s  Montgomery form comparison inverted (timeout)
+done: {'caught': 1}; written to <repo>/mutation/results-phase2-68ac655.json

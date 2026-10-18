@@ -1,0 +1,19 @@
+frozen 68ac655bb82f4d423d46581bdc9a1816f8f87161 2026-10-15T06:44:02
+exported 68ac655bb82f4d423d46581bdc9a1816f8f87161 2026-10-15T07:27:08
+container started 2026-10-15T07:27:08
+exported 68ac655bb82f4d423d46581bdc9a1816f8f87161 2026-10-15T07:28:16
+container started 2026-10-15T07:28:16
+container exit  2026-10-15T07:52:13
+Stopping Docker Desktop
+docker desktop stopped 2026-10-15T07:57:32
+restart 2026-10-15T07:58:26: the engine stopped at 07:52 (docker-desktop distro interrupted), container lost
+container stage postponed 2026-10-15T08:18:32: Docker Desktop cannot start until the VM releases its data disk (wsl --shutdown)
+phase 5 list interrupted at 11:05 (WSL restarted by someone else); container stage started again 2026-10-15T11:05:57
+exported 68ac655bb82f4d423d46581bdc9a1816f8f87161 2026-10-15T11:06:01
+container started 2026-10-15T11:06:01
+container stage stopped 2026-10-15T11:41:18: fail-closed needs --cap-add SYS_PTRACE --security-opt seccomp=unconfined; started again with them
+exported 68ac655bb82f4d423d46581bdc9a1816f8f87161 2026-10-15T11:41:26
+container started 2026-10-15T11:41:26
+container exit 0 2026-10-15T12:27:59
+Stopping Docker Desktop
+docker desktop stopped 2026-10-15T12:28:16

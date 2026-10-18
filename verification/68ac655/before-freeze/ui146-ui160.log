@@ -1,0 +1,19 @@
+head 68ac655, faults: UI146 UI147 UI148 UI149 UI150 UI151 UI152 UI153 UI154 UI155 UI156 UI157 UI158 UI159 UI160, 2026-10-15T06:19:47+02:00
+commit 68ac655bb82f4d423d46581bdc9a1816f8f87161, 15 faults, 2 workers, unmodified run 564s, timeout 2256s
+UI147 caught     66s  Share my card in the switcher opens nothing
+UI146 caught     78s  the card entry of the switcher reports nothing
+UI148 caught     36s  a toast over a tall dialog covers the end of its body
+UI149 caught     37s  a toast over a dialog has the outline of the dialog
+UI150 caught     32s  a modal sits on half a pixel
+UI151 caught     30s  a body that scrolls is cut against nothing
+UI152 caught     24s  unblocking is confirmed in the colour of danger
+UI153 caught     25s  the question before unblocking does not say whom
+UI154 caught     25s  the list does not bring the conversation shown into view
+UI155 caught     24s  the requests leave the list while their page is shown
+UI156 caught     23s  the first start keeps its room in a short window
+UI157 caught     26s  the Tor details close at the right while Tor works
+UI158 caught     29s  a card leaves its lines half empty
+UI159 caught     24s  a sunken box is wider than the column by its outline
+UI160 caught     20s  Copy fingerprint ends inside the box by its padding
+done: {'caught': 15}; written to <repo>/mutation/results-phase6-68ac655.json
+exit 0 2026-10-15T06:43:20+02:00

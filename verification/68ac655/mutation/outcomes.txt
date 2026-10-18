@@ -1,0 +1,7 @@
+phase6: 160 ids, 160 with outcome, {'caught': 160}, missing [], twice {}, extra [], against expectation [], timeout []
+phase5: 57 ids, 57 with outcome, {'caught': 57}, missing [], twice {}, extra [], against expectation [], timeout ['MR9', 'MR25', 'MR26']
+phase4: 123 ids, 123 with outcome, {'caught': 123}, missing [], twice {}, extra [], against expectation [], timeout ['CS29', 'CS30']
+phase3: 71 ids, 71 with outcome, {'caught': 68, 'survived': 3}, missing [], twice {}, extra [], against expectation [], timeout ['Q1']
+phase2: 99 ids, 99 with outcome, {'caught': 95, 'survived': 4}, missing [], twice {}, extra [], against expectation [], timeout ['T6']
+phase1: 45 ids, 45 with outcome, {'caught': 43, 'survived': 2}, missing [], twice {}, extra [], against expectation [], timeout []
+total outcomes 555
