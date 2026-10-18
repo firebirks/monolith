@@ -232,8 +232,8 @@ Nothing below is settled. Each is described in the document named.
 | C1 | `MaxStreams` value and semantics | TOR_CONTROL_SURFACE.md 6 |
 | C2 | Proof-of-work queue parameters | TOR_CONTROL_SURFACE.md 6 |
 | C3 | Confirming reachability on Tails and Whonix without `HS_DESC` | TOR_CONTROL_SURFACE.md 6 |
-| T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks Phase 6. | PLATFORM_TAILS.md 3.4, 7 |
-| W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks Phase 7), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
+| T1 to T5 | Tails: the experimental preconditions (sandbox, OnionShare's path, required profile, packaging), profile matching, AppArmor, namespaces, Debian packaging. T1 blocks the Tails adapter. | PLATFORM_TAILS.md 3.4, 7 |
+| W1 to W7 | Whonix: profile test, Qubes addressing, the two-Workstation isolation test (blocks the Whonix adapter), upstreaming the profile, SocksPort choice, a supported per-source port opening, KVM network design | PLATFORM_WHONIX.md 9 |
 | ST3, ST5, ST6 | Previous generation, passphrase policy, Argon2id defaults (measured on the development machine only; the four targets of STORAGE.md 3.3 remain) | STORAGE.md 9 |
 | ST1 | A message store for long histories; the store of version 1 is decided (ADR 0008) | DESIGN_QUESTIONS.md 12.3 |
 | - | Whether history may be kept less: a "history off" mode, automatic retention, deleting single messages | DESIGN_QUESTIONS.md 12.3 |

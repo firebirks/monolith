@@ -7,7 +7,7 @@ runs a Tor of its own.
 Status: provisional. Nothing here has been run on Whonix. The isolation of
 the listener from other Workstations (section 4.5) is specified but not
 tested, and is not claimed to work until it has been tested with one Gateway
-and two Workstations. That test is a precondition for Phase 7.
+and two Workstations. That test is a precondition for the Whonix adapter.
 
 Statements about Whonix come from the sources in section 10, read on
 2026-10-01, mostly from the Whonix source repositories. Items that could
@@ -365,7 +365,8 @@ W3. Test section 4.5 with one Gateway and two Workstations, on VirtualBox
     service restart; that the second Workstation cannot connect; that
     Monolith's source check closes a connection that gets past the
     firewall; what a Workstation that takes the Gateway's address achieves.
-    Precondition for Phase 7. Until then the isolation is a plan.
+    Precondition for the Whonix adapter. Until then the isolation is a
+    plan.
 
 W4. Offer the profile to the Whonix project once the command shapes are
     frozen.

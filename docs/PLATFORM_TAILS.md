@@ -9,8 +9,9 @@ central assumption, that Monolith can create an Onion Service through
 Tails' filtered control port, has not been tested and is contradicted by a
 statement in Tor's own manual (section 3.3). Section 3.4 lists what has to
 be verified by experiment on a current supported Tails release. Those
-checks are a precondition for Phase 3 (Tor integration) and Phase 6
-(Tails): neither starts before the results are recorded in this document.
+checks are a precondition for the Tails adapter: it does not start before
+the results are recorded in this document. They do not gate the generic
+system Tor backend of Phase 3 (`DESIGN_QUESTIONS.md` T3-1).
 
 Statements about Tails come from the sources in section 9, read on
 2026-10-01. Configuration quotes are from the Tails source at tag 7.11; the
@@ -142,10 +143,10 @@ not known. It has to be found out by experiment, not by reading.
 
 ### 3.4 Preconditions to verify on Tails
 
-To be done on a current supported Tails release, before Phase 6 and before
-Monolith claims to work on Tails. They do not gate the generic system Tor
-backend of Phase 3 (`DESIGN_QUESTIONS.md` T3-1). Each result is recorded here with the Tails version
-and date.
+To be done on a current supported Tails release, before the Tails adapter
+and before Monolith claims to work on Tails. They do not gate the generic
+system Tor backend of Phase 3 (`DESIGN_QUESTIONS.md` T3-1). Each result is
+recorded here with the Tails version and date.
 
 1. Whether `ADD_ONION` works through the filtered control interface on port
    951 while Tor runs with `Sandbox 1`.
@@ -281,7 +282,8 @@ suspend). Monolith does not claim more than Tails does. Tails uses no swap.
 
 ## 7. Open items
 
-T1. The preconditions of section 3.4. Blocking for Phase 3 and Phase 6.
+T1. The preconditions of section 3.4. Blocking for the Tails adapter, not
+    for the generic backend of Phase 3 (`DESIGN_QUESTIONS.md` T3-1).
     Beyond the basic question they include whether `ADD_ONION` with
     `MaxStreams`, `MaxStreamsCloseCircuit` and `PoWDefensesEnabled` is
     accepted.

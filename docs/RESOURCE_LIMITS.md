@@ -8,7 +8,7 @@ Rule for all sizes: compare the declared size with the limit first, allocate
 second. No allocation is sized by peer input that has not passed that
 comparison.
 
-The values are starting points chosen by analysis, not measurement. Phase 9
+The values are starting points chosen by analysis, not measurement. Later
 benchmarks may move them. Lowering a limit is a compatible change only for
 limits marked "local"; the others are part of the wire protocol. The cost
 of the handshake in section 11.1 is measured.

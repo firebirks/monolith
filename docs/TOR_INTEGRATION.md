@@ -7,9 +7,9 @@ talks to that Tor. Platform specifics are in `PLATFORM_TAILS.md` and
 
 Status: the generic system Tor backend was built and verified in Phase 3,
 including a test over a private Tor network. The Tails checks of
-`PLATFORM_TAILS.md` section 3.4 gate Phase 6 and any claim that Monolith
-works on Tails; they do not gate the generic backend (`DESIGN_QUESTIONS.md`
-T3-1). Tails and Whonix are not supported yet.
+`PLATFORM_TAILS.md` section 3.4 gate the Tails adapter and any claim that
+Monolith works on Tails; they do not gate the generic backend
+(`DESIGN_QUESTIONS.md` T3-1). Tails and Whonix are not supported yet.
 
 Facts about Tor below were checked against the sources listed in section 11
 on 2026-10-02.

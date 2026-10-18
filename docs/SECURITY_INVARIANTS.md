@@ -50,7 +50,7 @@ Test area names refer to `docs/TEST_PLAN.md`.
   to the configured control endpoint, and binds one listener per
   published service, on 127.0.0.1. An `Endpoint` is a loopback address or an absolute socket
   path; anything else is refused when the configuration is read (the
-  Whonix-Gateway address belongs to the platform adapter of Phase 7).
+  Whonix-Gateway address belongs to the platform adapter of Whonix).
   `Endpoint` is opaque: only its validating constructors make one, and the
   connection code checks the rule again. A failed SOCKS connection is an
   error, never a trigger for another transport.

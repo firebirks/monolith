@@ -168,8 +168,8 @@ Exactly two forms. They differ only in the key.
 | Platform | `<target>` sent | What Tor connects to |
 | --- | --- | --- |
 | Linux, Tor on the same host | `127.0.0.1:<port>`, port chosen by the OS at bind time | Monolith's loopback listener |
-| Tails (Phase 6) | `29170` | `127.0.0.1:29170`, Monolith's loopback listener. The profile fixes the port, so it cannot be chosen at bind time. |
-| Whonix (Phase 7) | `29170` | onion-grater rewrites it to `<workstation address>:29170` |
+| Tails | `29170` | `127.0.0.1:29170`, Monolith's loopback listener. The profile fixes the port, so it cannot be chosen at bind time. |
+| Whonix | `29170` | onion-grater rewrites it to `<workstation address>:29170` |
 
 Phase 3 implements the first row only. On Tails and Whonix the complete
 argument string is fixed by the profile regex, and Monolith emits the

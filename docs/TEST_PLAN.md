@@ -836,8 +836,9 @@ Per release, on the current Tails:
 
 ## 10. Whonix matrix (T-PLAT-WHONIX, manual)
 
-Before Phase 7, with one Gateway and two Workstations (W1 runs Monolith, W2
-is the attacker), on VirtualBox or KVM, and separately on Qubes-Whonix:
+Before the Whonix adapter, with one Gateway and two Workstations (W1 runs
+Monolith, W2 is the attacker), on VirtualBox or KVM, and separately on
+Qubes-Whonix:
 
 | Id | Check | Expectation |
 | --- | --- | --- |

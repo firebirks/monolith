@@ -1,7 +1,7 @@
 # ADR 0006: GUI toolkit
 
-Status: undecided. To be decided before Phase 8. This records the
-evaluation so far.
+Status: superseded by ADR 0010 (Phase 6: egui and eframe). It was never
+decided; this records the evaluation as it stood.
 Date: 2026-10-01
 
 ## Context

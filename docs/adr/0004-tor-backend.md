@@ -1,8 +1,8 @@
 # ADR 0004: Tor backend
 
 Status: accepted for the generic system Tor backend, which Phase 3
-implements. The Tails checks in `PLATFORM_TAILS.md` section 3.4 gate Phase 6
-and any claim of Tails support, not the generic backend
+implements. The Tails checks in `PLATFORM_TAILS.md` section 3.4 gate the
+Tails adapter and any claim of Tails support, not the generic backend
 (`DESIGN_QUESTIONS.md` T3-1).
 Date: 2026-10-01; revised 2026-10-02 after the Phase 3 design review
 (`DESIGN_QUESTIONS.md` section 5). Phase 4 added the supervisor that
@@ -128,8 +128,7 @@ to work there.
   (`DESIGN_QUESTIONS.md` section 11.3).
 - Proof-of-work queue parameters (C2).
 - Behavior of `ADD_ONION` under `Sandbox 1` on Tails. This blocks Tails
-  support, Phase 6 (PLATFORM_TAILS.md section 3.4), not the generic
-  backend.
+  support (PLATFORM_TAILS.md section 3.4), not the generic backend.
 - A target port per local identity in the Tails and Whonix profiles, so
   that several identities can receive streams there
   (`DESIGN_QUESTIONS.md` MI-1).
