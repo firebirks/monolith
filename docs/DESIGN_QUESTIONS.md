@@ -2425,3 +2425,84 @@ Left for the next phase (item 35 of the report), besides section 13.2:
   dial; reading the Tor cookie by name; installers and signing; the
   client on Tails and Whonix, tested by hand; bounding the publication
   wait of `Peer::start` in `tests/runtime.rs` (12.8).
+
+### 13.4 A review after the completion
+
+On 2026-10-18, after the tag `phase-6-complete`, the code of `68ac655`
+was read again against its documents, area by area: the message store,
+delivery, the session manager and its scheduler, what Phase 6 added
+below the window, the boundary and the files of the desktop client, and
+its screens. Nothing was built or run for it. It found no way around
+authentication, the contact rules or the delivery semantics, and nothing
+that changes a result of the verification. Its findings are follow-up
+work for the next phase, with those of 13.3; neither phase is reopened.
+
+Medium:
+
+- Dialing during a rotation of the peer's key: the scheduler and
+  `Runtime::connect` (`runtime.rs`) dial only the first card of the dial
+  plan. While an authorized successor is held that is the successor, and
+  the active card is never dialed when the successor does not answer, as
+  `PROTOCOL.md` sections 4 and 11.4 require; the development node of
+  Phase 4 tries each card. A peer that announced a successor but still
+  answers with its active key is not reached until it switches. No test
+  of the runtime covers a rotation.
+- A sender's display name can close its quotes: the request card
+  (`monolith-ui`, `requests.rs`) and the Accept dialog (`dialogs.rs`)
+  put the name inside a sentence of the client's own, and `PROTOCOL.md`
+  section 9 allows `"` in a display name. The name
+  `Sam". Through your invitation "Family` makes a request without an
+  invitation read like one through the invitation "Family" (P6-5). The
+  name belongs in an element of its own, apart from what the client says.
+- Lowering a limit of the message store is not compatible:
+  `RESOURCE_LIMITS.md` says lowering a local limit is a compatible
+  change, but the decoder of the store refuses counts above the limits of
+  its section 5, so an installation whose store holds more no longer
+  opens. Either the document says so, or the limits are checked on
+  writing only.
+
+Low:
+
+- Phase 5: `send_message` reports a shutdown as
+  `SendError::UnknownIdentity`, and a failed random source or a send cut
+  short at shutdown as `SendError::Storage`. `end_record` names the peer
+  before its detached task starts, so "No await separates them" in 12.5
+  no longer holds; `queue_message` does not look at the record again
+  after its wait for the vault either (the outcome is that of the other
+  order). After its session ends because the contact was blocked or
+  deleted, the scheduler still raises `DeliveryDeferred` with a retry
+  that never comes. A Pong that arrives after the probe's deadline ends
+  a live preferred session as a violation. `ServiceState::NoKey` is never
+  reported: `Stopped` replaces it at once. The jitter `u8 % 101` is not
+  uniform, as `RESOURCE_LIMITS.md` section 7 says it is. Decoded message
+  texts are not erased from memory; no document promises it.
+- Documents of the store: ADR 0008 "Writing" contradicts itself on
+  removing a `messages.new` without a `messages`, and `STORAGE.md` 3.5
+  leaves that case out; the comment of `MessageFile::recreate` is stale;
+  `OpenError::AuthenticationFailed` says a wrong passphrase and a change
+  cannot be told apart, but the store is opened only after the vault
+  authenticated; `RESOURCE_LIMITS.md` section 11 probably understates the
+  memory of a write of the store (not measured).
+- Tor and Windows: with the SOCKS proof on, "Check Tor" says Tor is not
+  running when only the control endpoint fails. The cookie file Tor
+  names is compared with the configured one case-sensitively on Windows,
+  so a path typed in another case is refused (it fails closed). The
+  rename of `vault.new` is tried once, so a scanner that holds the file
+  stops the installation until a restart (whether that happens was not
+  established).
+- Desktop: a card path that names a device (`C:\COM3`) is opened by the
+  look at its metadata before it is refused (not established on Windows
+  11). A cookie path, `--data-dir` or `--config` on a network share
+  (`\\host\share`) is accepted, and reading it reaches that host outside
+  Tor. The saved size of the window is divided by the zoom. The window
+  thread looks at the disk for the folder of a saved card and for the
+  marks of Tails and Whonix. A contact of another identity accepting
+  shows a toast over the identity shown (ADR 0011, State). On Tails a
+  refused `--data-dir` is explained as storage to unlock, and a refused
+  `--config` is not explained.
+- Screens: `MAX_RENDERED_UNBROKEN_RUN` is not applied. White initials on
+  five of the eight light colours of avatars are below 4.5 to 1 (P6-19),
+  and no test looks at them. `present::MAX_NAME_BYTES` is documented as
+  `MAX_DISPLAY_NAME_LEN` (64 against 128) and is not used.
+- Not established: whether an Enter during the composition of an input
+  method reaches the composer before the text is committed.
