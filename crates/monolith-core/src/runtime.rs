@@ -61,6 +61,7 @@ use crate::messages::{Receipt, Refusal};
 use crate::requests::{InvitationId, RequestId};
 use crate::sessions::{SessionControl, SessionManager};
 use crate::supervisor::{Backoff, Publication, supervise};
+use crate::transfers::{Answer, Transfers};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -237,6 +238,9 @@ struct Running {
     probe: Option<([u8; PING_NONCE_LEN], Instant)>,
     /// The last ChatMessage or MessageAck sent or received.
     activity: Instant,
+    /// The file offers of the peer that this session rejected
+    /// (`crate::transfers`).
+    transfers: Transfers,
 }
 
 /// The task of one session as the runtime holds it. Its end is handled
@@ -897,6 +901,7 @@ impl<B: TorBackend + 'static> Inner<B> {
                 in_flight: None,
                 probe: None,
                 activity: Instant::now(),
+                transfers: Transfers::default(),
             },
             ended: Ended::Other,
         };
@@ -1257,9 +1262,19 @@ impl<B: TorBackend + 'static> Inner<B> {
                     monolith_session::SessionError::Protocol(ProtocolError::MessageNotPermitted),
                 )),
             },
-            // Profiles, file transfer and the rest are not part of this
-            // version of the runtime. What the store had to see it saw.
-            _ => Ok(()),
+            // A profile is taken and dropped: this version keeps none of a
+            // contact (`PROTOCOL.md` 8.7). An endpoint update was for the
+            // store, which saw it.
+            Message::Profile { .. } | Message::EndpointUpdate(_) => Ok(()),
+            // No file is transferred; what section 13.1 asks of a
+            // receiver is kept (`crate::transfers`).
+            message => match running.transfers.receive(message) {
+                Some(Answer::Reject(transfer)) => link.send(&Message::FileReject(transfer)).await,
+                Some(Answer::Violation) => Err(LinkError::Session(
+                    monolith_session::SessionError::Protocol(ProtocolError::MessageNotPermitted),
+                )),
+                Some(Answer::Discard) | None => Ok(()),
+            },
         }
     }
 

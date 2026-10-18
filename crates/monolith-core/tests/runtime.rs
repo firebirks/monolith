@@ -26,16 +26,21 @@ use common::{Released, fixed_endpoint, keys, run, run_paused};
 use monolith_core::api::{ContactId, DeferReason, Event, IdentityId, MessageStatus, SendError};
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
+use monolith_core::link::{Link, dial};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
+use monolith_protocol::body::{FileChunk, Message, TransferId};
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
     HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT, SESSION_LINGER,
 };
+use monolith_protocol::session::Action;
+use monolith_protocol::text::{DisplayName, Filename, ProfileText};
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{
     Bootstrap, KeySource, MockNetwork, MockTorBackend, OnionService, OnionServiceSecret, TorBackend,
 };
+use tokio::io::DuplexStream;
 use tokio::sync::broadcast;
 
 fn passphrase() -> Passphrase {
@@ -1488,5 +1493,166 @@ fn a_connect_for_a_record_made_again_between_its_cards_dials_no_further() {
         assert_eq!(a.runtime().sessions(&a.id(), &again).unwrap(), 0);
         a.stop().await;
         b.stop().await;
+    });
+}
+
+/// A and B are accepted contacts. A runs; B's runtime is stopped, and B
+/// dials A by hand: the link of B, on which the test sends what it wants
+/// and reads what A answers.
+async fn dialed_by_hand(network: &MockNetwork) -> (Peer, Peer, ContactId, Link<DuplexStream>) {
+    let (mut a, mut b, at_a, _) = pair(network).await;
+    a.start(network, options()).await;
+    b.start(network, options()).await;
+    a.runtime()
+        .send_message(&a.id(), &at_a, "before")
+        .await
+        .unwrap();
+    until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered]).await;
+    until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 0).await;
+    b.stop().await;
+    let link = hand_link(network, &a, &b).await;
+    (a, b, at_a, link)
+}
+
+/// A session from B to A, which B drives by hand.
+async fn hand_link(network: &MockNetwork, a: &Peer, b: &Peer) -> Link<DuplexStream> {
+    let established = dial(
+        &network.backend(),
+        &Budgets::new(),
+        &b.identity,
+        &a.identity.card(),
+    )
+    .await
+    .unwrap();
+    let mut link = established.link;
+    // What a session of two accepted contacts begins with.
+    for action in established.first {
+        assert_eq!(action, Action::SendContactAccept);
+        link.send(&Message::ContactAccept).await.unwrap();
+    }
+    // A's accept confirms the session at B.
+    loop {
+        let arrived = link.receive().await.unwrap();
+        if arrived.received().actions.contains(&Action::Confirmed) {
+            return link;
+        }
+    }
+}
+
+/// Sends a Ping on `link` and returns the messages that arrive before its
+/// Pong, which ends them: what A sent in answer to what came before.
+async fn before_pong(link: &mut Link<DuplexStream>, nonce: u8) -> Vec<Message> {
+    link.send(&Message::Ping([nonce; 8])).await.unwrap();
+    let mut before = Vec::new();
+    loop {
+        let arrived = link.receive().await.unwrap();
+        match &arrived.received().message {
+            Message::Pong(answer) if *answer == [nonce; 8] => return before,
+            other => before.push(other.clone()),
+        }
+    }
+}
+
+fn transfer(byte: u8) -> TransferId {
+    TransferId::from_bytes([byte; 16])
+}
+
+fn offer(byte: u8) -> Message {
+    Message::FileOffer {
+        transfer: transfer(byte),
+        size: 100,
+        filename: Filename::new("photo.jpg").unwrap(),
+    }
+}
+
+/// Every file message but an offer, for the transfer `byte`.
+fn file_messages(byte: u8) -> Vec<Message> {
+    vec![
+        Message::FileAccept(transfer(byte)),
+        Message::FileReject(transfer(byte)),
+        Message::FileChunk(FileChunk::new(transfer(byte), vec![7; 10]).unwrap()),
+        Message::FileComplete {
+            transfer: transfer(byte),
+            digest: [0; 32],
+        },
+        Message::FileAbort(transfer(byte)),
+    ]
+}
+
+#[test]
+fn a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, mut link) = dialed_by_hand(&network).await;
+        link.send(&offer(1)).await.unwrap();
+        assert_eq!(
+            before_pong(&mut link, 1).await,
+            vec![Message::FileReject(transfer(1))]
+        );
+        // The same offer again, and everything else for that transfer:
+        // discarded, the session goes on, nothing is answered.
+        link.send(&offer(1)).await.unwrap();
+        for message in file_messages(1) {
+            link.send(&message).await.unwrap();
+        }
+        assert_eq!(before_pong(&mut link, 2).await, Vec::<Message>::new());
+        // A profile is taken and dropped.
+        link.send(&Message::Profile {
+            display_name: DisplayName::new("Sam").unwrap(),
+            profile_text: ProfileText::new("Hello").unwrap(),
+        })
+        .await
+        .unwrap();
+        assert_eq!(before_pong(&mut link, 3).await, Vec::<Message>::new());
+        // Nothing of it reached the conversation.
+        assert_eq!(a.statuses(&at_a), vec![MessageStatus::Delivered]);
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_file_message_for_a_transfer_never_offered_ends_the_session() {
+    for message in file_messages(9) {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, b, at_a, mut link) = dialed_by_hand(&network).await;
+            assert_eq!(before_pong(&mut link, 1).await, Vec::<Message>::new());
+            link.send(&message).await.unwrap();
+            // A ends the session without a Close: the link ends.
+            assert!(link.receive().await.is_err(), "{message:?}");
+            // Nothing else changed: the contact and the conversation stay.
+            assert_eq!(a.statuses(&at_a), vec![MessageStatus::Delivered]);
+            assert!(
+                a.runtime()
+                    .contacts(&a.id())
+                    .unwrap()
+                    .iter()
+                    .any(|contact| contact.contact == at_a)
+            );
+            // And another session goes on as before.
+            let mut again = hand_link(&network, &a, &b).await;
+            assert_eq!(before_pong(&mut again, 2).await, Vec::<Message>::new());
+            a.stop().await;
+        });
+    }
+}
+
+#[test]
+fn what_one_session_rejected_is_unknown_to_the_next() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, _, mut link) = dialed_by_hand(&network).await;
+        link.send(&offer(5)).await.unwrap();
+        assert_eq!(
+            before_pong(&mut link, 1).await,
+            vec![Message::FileReject(transfer(5))]
+        );
+        link.close().await.unwrap();
+        // A later session that names it, a replay of the first: a
+        // violation.
+        let mut later = hand_link(&network, &a, &b).await;
+        later.send(&Message::FileAbort(transfer(5))).await.unwrap();
+        assert!(later.receive().await.is_err());
+        a.stop().await;
     });
 }

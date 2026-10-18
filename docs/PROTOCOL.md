@@ -793,6 +793,9 @@ sender's profile changes. The display name is a suggestion; it never
 replaces the fingerprint and never overrides a name the local user
 assigned. A Profile equal to the stored one causes no event.
 
+Monolith keeps no profile of a contact so far: a valid Profile is taken
+and dropped, with no event (`DESIGN_QUESTIONS.md` P7-4).
+
 ### 8.8 EndpointUpdate (0x0031)
 
     [171] card   the sender's contact card, no capability
@@ -1742,6 +1745,14 @@ set of the identity whose service it reached.
 
 Only between accepted contacts. Nothing is transferred that the receiving
 user did not accept.
+
+Monolith transfers no file so far, and offers none. As a receiver it
+keeps the rules of section 13.1 and nothing more: each FileOffer is
+answered at once with FileReject, as an offer above the pending limits
+is, and its identifier is remembered as that of a transfer that ended on
+the session. A file message that names a remembered identifier is
+discarded; any other is a violation, since this side has no offer and
+none pending or active (`DESIGN_QUESTIONS.md` P7-4).
 
 ### 13.1 Exchange
 

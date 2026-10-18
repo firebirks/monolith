@@ -2582,6 +2582,24 @@ P7-3 Files of this computer (BL2, BL41, BL42). Every path the client
     HR11, and HR12 to HR16, whose tests run on Windows only (the list
     `PHASE7_WINDOWS`).
 
+P7-4 File messages and profiles (BL3). The runtime ignored every file
+    message and Profile. `PROTOCOL.md` section 13.1 makes a file message
+    for an identifier that is neither pending, active nor remembered a
+    violation. Without file transfer, and without making any: each
+    session answers a FileOffer at once with FileReject, as an offer
+    above the pending limits is answered, and remembers its identifier
+    among the last `MAX_ENDED_TRANSFER_IDS` ended on the session; a file
+    message that names one is discarded, as one that crossed the
+    rejection; any other file message ends the session without a Close.
+    The same offer again names an ended transfer and is discarded. What
+    a session remembers dies with it, so a later session, of the same
+    contact or another, treats a replayed file message as a violation.
+    Nothing of a file is stored or shown, no event is raised and no
+    message or contact changes. A Profile is taken and dropped: this
+    version keeps no profile of a contact, and the display name of a
+    request stays the only name a sender suggests (`PROTOCOL.md` 8.7).
+    The rates of these messages are BL13. Faults HR17 to HR20.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

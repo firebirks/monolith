@@ -1831,6 +1831,18 @@ PHASE7 = [
     fault("HR11", DK + "local.rs", "a path resolved on a share counts as one on a drive",
           ("        (Some(letter), Some(':'), Some('\\\\')) if letter.is_ascii_alphabetic()",
            "        (Some(letter), _, _) if letter.is_ascii_alphabetic()")),
+    # File messages on a runtime that transfers no file (P7-4).
+    fault("HR17", CORE + "runtime.rs", "a file offer is ignored, not rejected",
+          ("                Some(Answer::Reject(transfer)) => link.send(&Message::FileReject(transfer)).await,",
+           "                Some(Answer::Reject(_)) => Ok(()),")),
+    fault("HR18", CORE + "transfers.rs", "a file message for a transfer never offered is ignored",
+          ("        if !offer {\n            return Some(Answer::Violation);\n        }\n",
+           "        if !offer {\n            return Some(Answer::Discard);\n        }\n")),
+    fault("HR19", CORE + "transfers.rs", "a rejected offer is not remembered",
+          ("        self.ended.push_back(transfer);\n", "")),
+    fault("HR20", CORE + "transfers.rs", "the ended transfers of a session are remembered without bound",
+          ("        if self.ended.len() >= MAX_ENDED_TRANSFER_IDS {\n            self.ended.pop_front();\n        }\n",
+           "")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

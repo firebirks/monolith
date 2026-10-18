@@ -295,7 +295,11 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   only and run there as the list `phase7w`: a link on the way followed, a
   card file not compared with the one looked at, a device name taken as a
   file, a cookie file or a data directory on another computer taken
-  (HR12 to HR16).
+  (HR12 to HR16);
+- file messages on a runtime that transfers no file (P7-4): an offer
+  ignored, a file message for a transfer never offered ignored, a
+  rejected offer not remembered, the ended transfers kept without bound
+  (HR17 to HR20).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

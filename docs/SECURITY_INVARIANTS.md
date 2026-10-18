@@ -882,7 +882,13 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
   the `Accepted` state, and that state is entered only by a user command.
   A chunk for a transfer that was never accepted is a violation and closes
   the session. A chunk for a transfer that has already ended is discarded.
-- Tests: T-FILE-1, T-FILE-2.
+  Since Phase 7 (P7-4) the runtime, which transfers no file, rejects every
+  offer at once and remembers it as ended on its session; every other
+  file message for an identifier the session did not reject ends the
+  session, and nothing of a file is stored.
+- Tests: T-FILE-1, T-FILE-2; `transfers::tests`, `tests/runtime.rs`
+  (`a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded`
+  and the two after it); mutation faults HR17 to HR20.
 
 ## Data handling
 
