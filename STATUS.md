@@ -122,6 +122,7 @@ mutation fault, the document changed, the final status.
 | --- | --- | --- | --- | --- | --- | --- |
 | BL24 | fix (P7-1) | see git log | runtime tests `a_successor_that_does_not_answer_is_followed_by_the_active_key` and five more; `link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next` | HR1 to HR4 | ADR 0009, ARCHITECTURE 1.1, DESIGN_QUESTIONS P7-1, mutation/README | fixed |
 | BL25 | fix (P7-2) | see git log | `requests::tests::the_name_a_sender_chose_is_in_no_sentence_of_the_card`, views `the_name_a_sender_chose_is_in_no_sentence_of_the_screen_or_its_dialog`, kit `a_name_a_sender_chose_stays_in_the_box_of_their_words`, `prose::tests` | HR5 to HR8 | DESKTOP 6, S15, TEST_PLAN T-UI-7, DESIGN_QUESTIONS P7-2, mutation/README | fixed |
+| BL2, BL41, BL42 | fix (P7-3) | see git log | `local::tests`, `files::tests` (junction, symbolic link, offline, device names, a file swapped on Windows), `config::tests`, `tests` of `lib.rs` | HR9 to HR11; HR12 to HR16 (Windows) | DESKTOP 10, DESIGN_QUESTIONS P7-3, mutation/README | fixed; the Windows list waits for the runner on Windows |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

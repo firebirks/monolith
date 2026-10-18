@@ -388,15 +388,35 @@ link and without waiting (`O_NOFOLLOW | O_NONBLOCK`) and read only if it is
 the file looked at, the same device and inode (`fstat`); a name given to
 something else between the two steps is refused unread. What is put there
 in that moment, by someone who can write to the folder, is still opened
-before it is refused. On Windows its path must be an absolute path on a
-drive (`C:\...`): a share (`\\server\...`), a device path (`\\?\`, `\\.\`)
-or a relative path is refused, so that naming a share does not make
-Windows reach another computer over SMB, outside Tor; the file opened is
-checked again to be a regular file. A path on a drive can still reach the
-network, and the client cannot tell: a drive letter mapped to a share, a
-link or junction to a share, and a file of a cloud folder kept online only
-(downloaded when it is read) are read over the network, outside Tor, as
-Windows reads them.
+before it is refused.
+
+On Windows (`DESIGN_QUESTIONS.md` P7-3) a path is first checked by its
+name alone, with no call to the system: an absolute path on a drive
+(`C:\...`), every part a plain name, none a name Windows reserves for a
+device (`CON`, `NUL`, `COM3` and the rest, with any extension), none with
+a colon or ending in a dot or a space. A share (`\\server\...`), a device
+path (`\\?\`, `\\.\`), a relative path and a device name are refused
+before anything is opened. Then, from the root down, each folder on the
+way and the file itself is looked at as itself: none may be a link or a
+junction, and none offline or kept in the cloud only. Then the path
+Windows resolves for the file must be on a drive, not on a share, which
+is what a drive letter mapped to a share resolves to. The file is opened
+without following a reparse point and without fetching it from remote
+storage, and read only if it is still a regular file held on the disk
+with the size and the creation and write times it had when looked at:
+the standard library tells no file ID there. A card is saved only into a
+folder that passes the same checks, the Tor cookie file and the places
+given with `--data-dir` and `--config` likewise; a cookie file that does
+not is never read.
+
+What this does not cover, and is not claimed: to resolve the path,
+Windows opens the file, so a file on a drive mapped to a share is looked
+up on that share, over the connection the user's mapping made, before it
+is refused unread; the checks of the folders and the open are separate
+steps, so a process of the user that puts a junction on the way between
+them is not defended against; and a file that a sync client keeps on the
+disk is read as any other. On Unix a file on a network file system
+mounted on the computer is read as any other file.
 
 ## 11. No network in the client
 

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use monolith_runtime::{ControlAuth, Endpoint, SocksProof, SystemTorConfig};
 use monolith_ui::{Preferences, ThemeChoice, TorSettings};
 
-use crate::places;
+use crate::{local, places};
 
 /// The largest settings file read.
 const MAX_FILE: u64 = 64 * 1024;
@@ -215,7 +215,9 @@ fn create_private_dir(path: &Path) -> std::io::Result<()> {
 
 /// The Tor configuration of `settings`, if they are complete: endpoints on
 /// the loopback or a socket path, and the absolute path of the cookie of
-/// SAFECOOKIE authentication. No setting turns authentication off.
+/// SAFECOOKIE authentication, named as a file of this computer
+/// (`crate::local`, by its name alone: this runs on the window's
+/// thread). No setting turns authentication off.
 pub fn tor_config(settings: &TorSettings) -> Option<SystemTorConfig> {
     tor_config_on(settings, places::filtered_tor())
 }
@@ -226,7 +228,7 @@ pub(crate) fn tor_config_on(settings: &TorSettings, filtered: bool) -> Option<Sy
     let socks = Endpoint::parse(settings.socks.trim()).ok()?;
     let control = Endpoint::parse(settings.control.trim()).ok()?;
     let cookie_file = PathBuf::from(settings.cookie_file.trim());
-    if !cookie_file.is_absolute() {
+    if !cookie_file.is_absolute() || !local::named_here(&cookie_file) {
         return None;
     }
     Some(SystemTorConfig {
@@ -327,6 +329,12 @@ mod tests {
         assert!(tor_config(&settings).is_none());
         settings.cookie_file = "relative/cookie".to_owned();
         assert!(tor_config(&settings).is_none());
+        // A cookie on another computer, or named as a device (P7-3).
+        #[cfg(windows)]
+        for cookie in [r"\\server\share\control_auth_cookie", r"C:\Tor\COM1"] {
+            settings.cookie_file = cookie.to_owned();
+            assert!(tor_config(&settings).is_none(), "{cookie}");
+        }
         settings.cookie_file = COOKIE.to_owned();
         settings.socks = "192.168.1.1:9050".to_owned();
         assert!(tor_config(&settings).is_none());

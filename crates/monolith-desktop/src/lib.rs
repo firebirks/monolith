@@ -15,12 +15,13 @@ pub mod calendar;
 pub mod config;
 mod convert;
 pub mod files;
+mod local;
 pub mod places;
 pub mod system_fonts;
 pub mod window;
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -100,11 +101,17 @@ impl Options {
         let mut options = Self::default();
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
+            // A place on another computer would be reached outside Tor
+            // (`local`, P7-3).
             let mut path = |name: &str| {
                 args.next()
                     .map(PathBuf::from)
-                    .filter(|path| path.is_absolute())
-                    .ok_or_else(|| format!("{name} needs an absolute path\n{USAGE}"))
+                    .filter(|path| path.is_absolute() && local::would_be_here(path))
+                    .ok_or_else(|| {
+                        format!(
+                            "{name} needs an absolute path on a drive of this computer\n{USAGE}"
+                        )
+                    })
             };
             match arg.to_str() {
                 Some("--data-dir") => options.data_dir = Some(path("--data-dir")?),
@@ -123,17 +130,33 @@ impl Options {
 /// system's Tor is the platform's own behind a filter (`filtered`), as
 /// [`config::socks_proof`] explains.
 fn backend_config(settings: &TorSettings, filtered: bool) -> Option<SystemTorConfig> {
-    if let Some(config) = config::tor_config_on(settings, filtered) {
-        return Some(config);
+    let cookie_file = PathBuf::from(settings.cookie_file.trim());
+    if cookie_here(&cookie_file) {
+        if let Some(config) = config::tor_config_on(settings, filtered) {
+            return Some(config);
+        }
     }
+    // A cookie file that is not one of this computer is never read: the
+    // path is left empty, and Tor refuses Monolith.
     Some(SystemTorConfig {
         socks: Endpoint::parse(settings.socks.trim()).ok()?,
         control: Endpoint::parse(settings.control.trim()).ok()?,
         auth: ControlAuth::SafeCookie {
-            cookie_file: PathBuf::from(settings.cookie_file.trim()),
+            cookie_file: if cookie_here(&cookie_file) {
+                cookie_file
+            } else {
+                PathBuf::new()
+            },
         },
         socks_proof: config::socks_proof(filtered),
     })
+}
+
+/// Whether the cookie file `path` is one of this computer, or would be
+/// once Tor writes it (`local::would_be_here`): looked at once, at the
+/// start, since the Tor settings take effect then.
+fn cookie_here(path: &Path) -> bool {
+    path.is_absolute() && local::would_be_here(path)
 }
 
 /// Runs the client until its window closes.
@@ -160,7 +183,8 @@ pub fn run(options: Options) -> ExitCode {
         Some(path) => config::read(path, defaults),
         None => defaults,
     };
-    let tor_settings_refused = config::tor_config(&config.preferences.tor).is_none()
+    let tor_settings_refused = (config::tor_config(&config.preferences.tor).is_none()
+        || !cookie_here(Path::new(config.preferences.tor.cookie_file.trim())))
         && config.preferences.tor != default_tor;
     if tor_settings_refused {
         config.preferences.tor = default_tor;
@@ -258,6 +282,42 @@ mod tests {
         assert!(Options::parse(args(&["--data-dir", "relative"])).is_err());
         assert!(Options::parse(args(&["--config"])).is_err());
         assert!(Options::parse(args(&["--open", "https://example.com"])).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_place_on_another_computer_is_not_taken() {
+        // It would be reached over SMB, outside Tor (P7-3).
+        for path in [
+            r"\\server\share\monolith",
+            "//server/share/monolith",
+            r"\\?\UNC\server\share\monolith",
+            r"C:\NUL\monolith",
+        ] {
+            for option in ["--data-dir", "--config"] {
+                assert!(
+                    Options::parse(args(&[option, path])).is_err(),
+                    "{option} {path}"
+                );
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_cookie_on_another_computer_is_never_read() {
+        let settings = TorSettings {
+            socks: "127.0.0.1:9150".to_owned(),
+            control: "127.0.0.1:9151".to_owned(),
+            cookie_file: r"\\server\share\control_auth_cookie".to_owned(),
+        };
+        let config = backend_config(&settings, false).unwrap();
+        assert_eq!(
+            config.auth,
+            ControlAuth::SafeCookie {
+                cookie_file: PathBuf::new()
+            }
+        );
     }
 
     #[test]

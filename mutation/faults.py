@@ -1405,9 +1405,12 @@ PHASE6 = [
     fault("UI22", DK + "config.rs", "a value of the settings file can add a line",
           ("    (value.len() <= MAX_VALUE && !value.chars().any(char::is_control)).then(|| value.to_owned())",
            "    (value.len() <= MAX_VALUE).then(|| value.to_owned())")),
+    # Since Phase 7 the line also checks the path by its name (P7-3), which
+    # on Linux passes every path: removing the check of an absolute path is
+    # the same fault there.
     fault("UI23", DK + "config.rs", "Tor settings without the path of a cookie file are used",
-          ("    if !cookie_file.is_absolute() {\n        return None;\n    }\n",
-           "")),
+          ("    if !cookie_file.is_absolute() || !local::named_here(&cookie_file) {\n",
+           "    if !local::named_here(&cookie_file) {\n")),
     fault("UI24", DK + "files.rs", "a saved card replaces a file",
           ("        options.write(true).create_new(true);",
            "        options.write(true).create(true).truncate(true);")),
@@ -1819,4 +1822,33 @@ PHASE7 = [
            "                paragraph(ui, &theme, &format!(\"They chose the name \\\"{display_name}\\\".\"));\n")),
     fault("HR8", UM + "prose.rs", "a name in a sentence of the model becomes words of the client",
           ("            self.spans.push(Span::Name(name));", "            self.spans.push(Span::Said(name));")),
+    # What is a file of this computer (P7-3): the parts every build tests.
+    fault("HR9", DK + "local.rs", "a file offline or in the cloud only counts as held on the disk",
+          ("    attributes & NOT_HERE == 0\n", "    true\n")),
+    fault("HR10", DK + "local.rs", "a name of a device with an extension or spaces is a file name",
+          ("    let stem = name.split('.').next().unwrap_or(\"\").trim_end_matches(' ');",
+           "    let stem = name;")),
+    fault("HR11", DK + "local.rs", "a path resolved on a share counts as one on a drive",
+          ("        (Some(letter), Some(':'), Some('\\\\')) if letter.is_ascii_alphabetic()",
+           "        (Some(letter), _, _) if letter.is_ascii_alphabetic()")),
+]
+
+# Phase 7 faults in code built on Windows only (P7-3). The tests that
+# catch them run on Windows, so this list is run there, by itself
+# ("phase7w"); every other list runs on Linux.
+PHASE7_WINDOWS = [
+    fault("HR12", DK + "local.rs", "a link or a junction on the way is followed",
+          ("        if looked.file_type().is_symlink() || !held_here(looked.file_attributes()) {",
+           "        if !held_here(looked.file_attributes()) {")),
+    fault("HR13", DK + "files.rs", "a card file opened is not compared with the one looked at",
+          ("        && opened.file_size() == looked_at.file_size()\n"
+           "        && opened.creation_time() == looked_at.creation_time()\n"
+           "        && opened.last_write_time() == looked_at.last_write_time()\n", "")),
+    fault("HR14", DK + "local.rs", "a name of a device is taken as a file of this computer",
+          ("                    && !names_a_device(name)\n", "")),
+    fault("HR15", DK + "lib.rs", "a cookie file on another computer is read",
+          ("    path.is_absolute() && local::would_be_here(path)\n", "    path.is_absolute()\n")),
+    fault("HR16", DK + "lib.rs", "a data directory or settings file on another computer is taken",
+          (".filter(|path| path.is_absolute() && local::would_be_here(path))",
+           ".filter(|path| path.is_absolute())")),
 ]

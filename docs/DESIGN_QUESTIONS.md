@@ -2558,6 +2558,30 @@ P7-2 Words of a sender and names in sentences of the client (BL25).
     conversation and toasts alike. The name of a card file read is shown
     in a mark of its own. Faults HR5 to HR8.
 
+P7-3 Files of this computer (BL2, BL41, BL42). Every path the client
+    reads or writes because the user gave it (a card file, the folder a
+    card is saved in, the Tor cookie file, `--data-dir`, `--config`) is
+    checked on Windows by `monolith-desktop::local`: by its name alone
+    (a plain absolute path on a drive, no device name, no colon, no
+    trailing dot or space), then each part from the root down (no link
+    or junction, nothing offline or in the cloud only), then where it
+    resolves (a drive, not a share). A card file is then opened without
+    following a reparse point and without recall, and read only if it is
+    the regular file looked at, held on the disk. The workspace allows no
+    code that is not safe Rust, so the checks use what the standard
+    library offers: it cannot ask what a drive is before opening a file
+    on it, nor give a file ID, nor open a file relative to a folder held
+    open. A drive mapped to a share is therefore found when the path is
+    resolved, after Windows looked the file up on the user's own mapped
+    share; the identity of a card file is its size and its creation and
+    write times; a junction put on the way by a process of the user
+    between the checks and the open is not defended against
+    (`DESKTOP.md` section 10). The cookie file is checked once at the
+    start, since the Tor settings take effect then; while the settings
+    are edited, on the window's thread, only by its name. Faults HR9 to
+    HR11, and HR12 to HR16, whose tests run on Windows only (the list
+    `PHASE7_WINDOWS`).
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

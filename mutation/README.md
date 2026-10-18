@@ -288,7 +288,14 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
 - the words of a sender and names in sentences of the client (P7-2): the
   name a sender chose put in the caption of a request or in the sentence
   of the Accept dialog, a name drawn as the client's words, a name of the
-  model made words of the client (HR5 to HR8).
+  model made words of the client (HR5 to HR8);
+- files of this computer (P7-3): an offline or cloud-only file held on
+  the disk, a device name with an extension, a path resolved on a share
+  taken as one on a drive (HR9 to HR11); and, in code built on Windows
+  only and run there as the list `phase7w`: a link on the way followed, a
+  card file not compared with the one looked at, a device name taken as a
+  file, a cookie file or a data directory on another computer taken
+  (HR12 to HR16).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

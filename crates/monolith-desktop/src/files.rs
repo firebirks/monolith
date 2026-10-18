@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 use crate::Join;
 use crate::bridge::Wake;
 use crate::config::{self, Config};
+use crate::local;
 
 /// The largest card file read (`docs/adr/0011-ui-security-boundary.md`).
 pub const MAX_CARD_FILE: u64 = 64 * 1024;
@@ -189,8 +190,12 @@ fn file_name(name: &str) -> String {
 
 /// Saves `contents` in `dir` as a new file named after `name`, readable
 /// by the user alone. An existing file is never replaced: the name gets a
-/// number instead.
+/// number instead. A folder that is not one of this computer
+/// ([`local::here`]) is refused before anything is written.
 pub fn save_card(dir: &Path, name: &str, contents: &[u8]) -> std::io::Result<PathBuf> {
+    if !local::here(dir) {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
     let name = file_name(name);
     let (stem, extension) = match name.rsplit_once('.') {
         Some((stem, extension)) if !stem.is_empty() => (stem.to_owned(), format!(".{extension}")),
@@ -222,13 +227,20 @@ pub fn save_card(dir: &Path, name: &str, contents: &[u8]) -> std::io::Result<Pat
 /// Reads a card file: a regular file of at most [`MAX_CARD_FILE`] bytes of
 /// UTF-8. What it says is checked like pasted text.
 ///
-/// The name is looked at before anything is opened, and anything but a
-/// regular file is refused unopened, a link included: opening a device can
-/// do something of its own (rewind a tape, raise a line of a modem), and a
-/// pipe or a device could block or never end. The file is then opened, on
-/// Unix without following a link and without waiting, and read only if it
-/// is still a regular file, on Unix the same one (device and inode): a name
-/// given to something else in between is refused, unread.
+/// The path must name a file of this computer ([`local::here`]): on
+/// Windows, a path that names a device, or that leads to a share, through a
+/// link or a mapped drive, or to a file kept only in the cloud, is refused
+/// before it is read, a device before anything is opened. The name is
+/// looked at before anything is opened, and anything but a regular file is
+/// refused unopened, a link included: opening a device can do something of
+/// its own (rewind a tape, raise a line of a modem), and a pipe or a device
+/// could block or never end. The file is then opened without following a
+/// link, on Unix without waiting and on Windows without fetching it from
+/// remote storage, and read only if it is still a regular file held on the
+/// disk, the same one: on Unix the same device and inode, on Windows the
+/// same size and creation and write times, which is what the standard
+/// library tells of a file there. A name given to something else in
+/// between is refused, unread.
 pub fn read_card(path: &Path) -> Result<Zeroizing<String>, Failure> {
     read_card_with(path, open)
 }
@@ -238,7 +250,7 @@ fn read_card_with(
     path: &Path,
     open: impl FnOnce(&Path) -> std::io::Result<File>,
 ) -> Result<Zeroizing<String>, Failure> {
-    if !local(path) {
+    if !local::here(path) {
         return Err(Failure::File);
     }
     let metadata = std::fs::symlink_metadata(path).map_err(|_| Failure::File)?;
@@ -267,27 +279,6 @@ fn read_card_with(
     Ok(Zeroizing::new(text.to_owned()))
 }
 
-/// Whether `path` names a file of this computer. On Windows that is an
-/// absolute path on a drive (`C:\...`): a path that starts with two
-/// separators (`\\server\share`, `//server/share`, `\\?\`, `\\.\`), an NT
-/// path or a path relative to a current directory, which can itself be a
-/// share, could make Windows reach another computer over SMB, outside
-/// Tor, or open a device.
-#[cfg(windows)]
-fn local(path: &Path) -> bool {
-    use std::path::{Component, Prefix};
-    let on_a_drive = matches!(
-        path.components().next(),
-        Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::Disk(_))
-    );
-    on_a_drive && path.is_absolute()
-}
-
-#[cfg(not(windows))]
-fn local(_: &Path) -> bool {
-    true
-}
-
 /// Opens `path` to read it. On Unix a link is not followed, and the file is
 /// opened without waiting, so that a pipe without a writer does not block
 /// the thread.
@@ -299,7 +290,24 @@ fn open(path: &Path) -> std::io::Result<File> {
     Ok(File::from(rustix::fs::open(path, flags, Mode::empty())?))
 }
 
-#[cfg(not(unix))]
+/// Opens `path` to read it. On Windows a reparse point is opened as itself,
+/// not followed (`FILE_FLAG_OPEN_REPARSE_POINT`), and a file in remote
+/// storage is not brought back to the disk (`FILE_FLAG_OPEN_NO_RECALL`);
+/// others may read it meanwhile, but not write it.
+#[cfg(windows)]
+fn open(path: &Path) -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_FLAG_OPEN_NO_RECALL: u32 = 0x0010_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL)
+        .open(path)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn open(path: &Path) -> std::io::Result<File> {
     File::open(path)
 }
@@ -312,7 +320,21 @@ fn same_file(looked_at: &Metadata, opened: &Metadata) -> bool {
     opened.is_file() && opened.dev() == looked_at.dev() && opened.ino() == looked_at.ino()
 }
 
-#[cfg(not(unix))]
+/// Whether the file opened is a regular file held on the disk, not a link,
+/// and the one looked at, as far as the standard library tells: the same
+/// size, creation time and last write time.
+#[cfg(windows)]
+fn same_file(looked_at: &Metadata, opened: &Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    opened.is_file()
+        && !opened.file_type().is_symlink()
+        && local::held_here(opened.file_attributes())
+        && opened.file_size() == looked_at.file_size()
+        && opened.creation_time() == looked_at.creation_time()
+        && opened.last_write_time() == looked_at.last_write_time()
+}
+
+#[cfg(not(any(unix, windows)))]
 fn same_file(_: &Metadata, opened: &Metadata) -> bool {
     opened.is_file()
 }
@@ -553,6 +575,118 @@ mod tests {
             receiver.recv_timeout(Duration::from_secs(10)).unwrap(),
             Err(Failure::File)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Makes `link` a junction to the folder `target`, as `mklink /J` does,
+    /// which needs no privilege.
+    #[cfg(windows)]
+    fn junction(link: &Path, target: &Path) {
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_card_behind_a_junction_is_never_read() {
+        // A junction on the way could lead anywhere, a share included: the
+        // file behind it is refused, and the same file by its own path is
+        // read.
+        let dir = scratch("junction");
+        let real = dir.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("card.txt"), "MONOLITH card").unwrap();
+        let link = dir.join("link");
+        junction(&link, &real);
+        assert_eq!(
+            read_card(&real.join("card.txt")).unwrap().as_str(),
+            "MONOLITH card"
+        );
+        assert_eq!(read_card(&link.join("card.txt")), Err(Failure::File));
+        // Nor is a card saved into it.
+        assert!(save_card(&link, "monolith-card.txt", b"card").is_err());
+        assert!(!real.join("monolith-card.txt").exists());
+        assert!(save_card(&real, "monolith-card.txt", b"card").is_ok());
+        let _ = std::fs::remove_dir(&link);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_card_linked_to_is_never_read_when_links_can_be_made() {
+        let dir = scratch("symlink");
+        let card = dir.join("card.txt");
+        std::fs::write(&card, "MONOLITH card").unwrap();
+        let link = dir.join("link.txt");
+        // Making a symbolic link needs a privilege or the developer mode;
+        // without either there is nothing to read through one.
+        if std::os::windows::fs::symlink_file(&card, &link).is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        assert_eq!(read_card(&link), Err(Failure::File));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_card_that_is_not_on_the_disk_is_never_read() {
+        // Offline: Windows would fetch it from remote storage.
+        let dir = scratch("offline");
+        let card = dir.join("card.txt");
+        std::fs::write(&card, "MONOLITH card").unwrap();
+        let marked = std::process::Command::new("attrib")
+            .arg("+O")
+            .arg(&card)
+            .output()
+            .unwrap();
+        assert!(marked.status.success(), "{marked:?}");
+        assert_eq!(read_card(&card), Err(Failure::File));
+        let _ = std::process::Command::new("attrib")
+            .arg("-O")
+            .arg(&card)
+            .output();
+        assert_eq!(read_card(&card).unwrap().as_str(), "MONOLITH card");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_name_of_a_device_is_refused_before_anything_is_opened() {
+        let dir = scratch("devices");
+        for name in ["COM3", "NUL.txt", "conout$", "LPT1.card", "aux .txt"] {
+            assert_eq!(read_card(&dir.join(name)), Err(Failure::File), "{name}");
+        }
+        for path in [r"C:\COM3", r"C:\NUL"] {
+            assert_eq!(read_card(Path::new(path)), Err(Failure::File), "{path}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_name_given_to_another_file_once_looked_at_is_not_read_on_windows() {
+        let dir = scratch("swapped-windows");
+        let card = dir.join("card.txt");
+        let other = dir.join("other.txt");
+        std::fs::write(&card, "MONOLITH card").unwrap();
+        assert_eq!(
+            read_card_with(&card, open).unwrap().as_str(),
+            "MONOLITH card"
+        );
+        let swapped = read_card_with(&card, |path| {
+            std::thread::sleep(Duration::from_millis(20));
+            std::fs::write(&other, "MONOLITH other card").unwrap();
+            std::fs::remove_file(path).unwrap();
+            std::fs::rename(&other, path).unwrap();
+            open(path)
+        });
+        assert_eq!(swapped, Err(Failure::File));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
