@@ -2506,3 +2506,26 @@ Low:
   `MAX_DISPLAY_NAME_LEN` (64 against 128) and is not used.
 - Not established: whether an Enter during the composition of an input
   method reaches the composer before the text is committed.
+
+## 14. Phase 7: security and protocol hardening
+
+Phase 7 began on 2026-10-18 from `main` at `20a6779` (`phase-6-complete`
+and two documentation commits; the verified commits of Phases 5 and 6 are
+`91bf22c` and `68ac655`), on the branch `phase-7-security-hardening`. Its
+brief: close the backlog of sections 13.3 and 13.4 and the deferred items
+of earlier phases they name, preserving every invariant verified before.
+No new user-facing feature. Each item ends fixed, shown not to be a
+defect, or deferred with the owner's approval. The inventory, BL1 to
+BL53, is in the status file of the phase.
+
+### 14.1 Decisions
+
+None yet.
+
+### 14.2 Not part of Phase 7
+
+File transfer and attachments, the Double Ratchet, groups, a mobile
+client, voice and video, read receipts, typing indicators, presence, push
+notifications, cloud sync, a new transport, a new identity model. Where a
+fix needs Monolith to refuse a message it does not support, it does only
+that.
