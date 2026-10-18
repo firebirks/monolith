@@ -80,21 +80,21 @@ for a front end; two more fuzz targets (`message_store`,
 state machine); the Phase 5 mutation list (MR1 to MR57); and the private
 Tor network test extended to the runtime. Covered now: T-MSG-1 to 13.
 
-What Phase 6 added: the desktop client's tests (section 3c): its UI model
-against the stale-instance scenarios of the brief and in property tests
-against a separate model of the runtime, the components of its design
-system driven by input, the contrast of its palette, the screens (a source
-scan, the smallest window, an idle window, the keyboard), its bridge
-against the runtime on the in-memory Tor, its crate boundary, its files;
-two more fuzz targets (`ui_present`, `ui_model_sequence`); the Phase 6
-mutation list (UI1 and on); the workflows of the brief run by script
-against the runtime; frame measurements; and the private Tor network test
-extended to the client: two clients driven through their window code
-become contacts through an invitation and exchange a message each way
-over Tor. The networking itself stays proved by the runtime steps of
-Phase 5; this step shows that the client's commands and events drive that
-runtime, with the configuration the client makes of its Tor settings.
-Covered now: T-UI-1 to 16.
+What Phase 6 added, verified on `68ac655`: the desktop client's tests
+(section 3c): its UI model against the stale-instance scenarios of the
+brief and in property tests against a separate model of the runtime, the
+components of its design system driven by input, the contrast of its
+palette, the screens (a source scan, the smallest window, an idle window,
+the keyboard), its bridge against the runtime on the in-memory Tor, its
+crate boundary, its files; two more fuzz targets (`ui_present`,
+`ui_model_sequence`); the Phase 6 mutation list (UI1 to UI160); the
+workflows of the brief run by script against the runtime; frame
+measurements; and the private Tor network test extended to the client: two
+clients driven through their window code become contacts through an
+invitation and exchange a message each way over Tor. The networking itself
+stays proved by the runtime steps of Phase 5; this step shows that the
+client's commands and events drive that runtime, with the configuration
+the client makes of its Tor settings. Covered now: T-UI-1 to 16.
 
 The rest need file transfer, and are not written yet.
 

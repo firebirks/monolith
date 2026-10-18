@@ -1,13 +1,14 @@
 # Architecture
 
-Status: Phase 5 complete (tag `phase-5-complete`). The protocol core,
+Status: Phase 6 complete (tag `phase-6-complete`). The protocol core,
 the session layer, the integration with a Tor the system runs, the
-contact store, the vault, the publication supervisor and, since Phase 5,
-the message store, the session manager, the reconnect scheduler and the
-runtime with its command and event interface are implemented and
-verified. The user interface is still design. `DESIGN_QUESTIONS.md`
-sections 11.6 and 12.8 record the final verifications of Phases 4 and 5.
-This document describes the structure the phases build.
+contact store, the vault, the publication supervisor, the messaging
+runtime of Phase 5 (the message store, the session manager, the
+reconnect scheduler, the command and event interface) and, since Phase
+6, the desktop client for Linux and Windows are implemented and
+verified. `DESIGN_QUESTIONS.md` sections 12.8 and 13.3 record the final
+verifications of Phases 5 and 6. This document describes the structure
+the phases build.
 
 ## 1. Shape
 
@@ -525,18 +526,18 @@ the platform's packaging.
 | 3 | System Tor: SOCKS5, control client, mock backend, two-node CLI chat. |
 | 4 | Contact store and persistence: acceptance, pinning, one decision about a card, per-contact serialization, retirement of live sessions, the vault, invitations, several identities, the budget for strangers, the publication supervisor, rotation and dialing. |
 | 5 | Messaging runtime: the message store, durable delivery with acknowledgements and deduplication, the session manager with duplicate resolution, the reconnect scheduler, the command and event interface (`DESIGN_QUESTIONS.md` section 12). |
-| 6 | Tails. |
-| 7 | Whonix. |
-| 8 | GUI. |
-| 9 | Hardening: attack simulation, fuzzing corpus, benchmarks, dependency audit. |
-| 10 | Audit candidate: protocol freeze. |
+| 6 | Desktop client for Linux and Windows: egui and eframe over the runtime, with a design system of its own (`DESIGN_QUESTIONS.md` section 13). |
+| later | Tails. |
+| later | Whonix. |
+| later | Hardening: attack simulation, fuzzing corpus, benchmarks, dependency audit. |
+| later | Audit candidate: protocol freeze. |
 
-A phase starts after the previous one has been reviewed. The brief of
-Phase 5 names the GUI on the runtime as Phase 6, and the owner's brief of
-Phase 6 made it so: the desktop client, for Linux and Windows
-(`DESIGN_QUESTIONS.md` section 13). The rows after 5 are the earlier plan;
-the owner's next brief sets the order of what remains. File transfer, which was
-Phase 5 in the earlier plan, is not part of the messaging runtime.
+A phase starts after the previous one has been reviewed. In the earlier
+plan Tails was Phase 6, Whonix Phase 7 and the GUI Phase 8; the brief of
+Phase 5 named the GUI on the runtime as Phase 6, and the owner's brief of
+Phase 6 made it so. The rows marked "later" are what remains of the
+earlier plan; the owner's briefs set their order. File transfer, which
+was Phase 5 in the earlier plan, is not part of the messaging runtime.
 
 Preconditions beyond review:
 

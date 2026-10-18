@@ -5,28 +5,29 @@ communication over Tor Onion Services. Two people who have exchanged contact
 cards talk to each other directly, each running an Onion Service. There is
 no server and no account.
 
-Status: early development. There is no working messenger in this repository
-yet. The protocol core (encoding, contact cards, session state logic) and
-the session layer (the handshake and the encrypted frames) are implemented
-as libraries that do no I/O. The integration with a Tor the system runs is
-implemented and was verified at the end of Phase 3 (tag `phase-3-complete`),
-including a two-node test over a private Tor network: a SOCKS5 client, a
-control client for status and for publishing an Onion Service, sessions
-over Tor streams with their budgets and deadlines. Phase 4, complete and
-verified (tag `phase-4-complete`), adds the contact store of each local
-identity, the encrypted vault that keeps it, invitations, several local
-identities, the publication supervisor and the rotation of a transport
-key, with a development node in the command-line binary. Phase 5,
-complete and verified (tag `phase-5-complete`), adds the messaging
-runtime without a user interface: an encrypted message store, delivery
-acknowledged only once the receiver stored a message, the session
-manager, reconnecting, and commands and events for a later interface.
-Phase 6, in progress, adds the desktop client for Linux and Windows
+Status: early development. The protocol core (encoding, contact cards,
+session state logic) and the session layer (the handshake and the
+encrypted frames) are implemented as libraries that do no I/O. The
+integration with a Tor the system runs is implemented and was verified at
+the end of Phase 3 (tag `phase-3-complete`), including a two-node test
+over a private Tor network: a SOCKS5 client, a control client for status
+and for publishing an Onion Service, sessions over Tor streams with their
+budgets and deadlines. Phase 4, complete and verified (tag
+`phase-4-complete`), adds the contact store of each local identity, the
+encrypted vault that keeps it, invitations, several local identities, the
+publication supervisor and the rotation of a transport key, with a
+development node in the command-line binary. Phase 5, complete and
+verified (tag `phase-5-complete`), adds the messaging runtime without a
+user interface: an encrypted message store, delivery acknowledged only
+once the receiver stored a message, the session manager, reconnecting, and
+commands and events for a later interface. Phase 6, complete and verified
+(tag `phase-6-complete`), adds the desktop client for Linux and Windows
 (`docs/DESKTOP.md`): one window over that runtime, with a design system of
-its own. The Tails and Whonix integrations (control port filters, the
-firewall rule) are drafts. `docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6 and
-12.8 record the final verifications of Phases 3, 4 and 5.
-Nothing here has been audited. Do not rely on it for anything.
+its own. File transfer is not implemented. The Tails and Whonix
+integrations (control port filters, the firewall rule) are drafts.
+`docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6, 12.8 and 13.3 record the
+final verifications of Phases 3, 4, 5 and 6. Nothing here has been
+audited. Do not rely on it for anything.
 
 ## What it is
 

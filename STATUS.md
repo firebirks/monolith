@@ -88,15 +88,21 @@ section 6.
 
 ## 5. What is left, in order
 
-1. The owner's review of the final report (section 6).
-2. On the owner's instruction only: whether the outputs of the
-   verification go on a branch of their own, as for Phases 4 and 5; the
-   push, the merge into `main` and the tag. Then this file is removed.
-3. The follow-up work of section 6, item 35, in the next phase, or before
-   the merge if the owner wants it there. A change before the merge needs
-   a new frozen commit and the stages of the verification it affects.
+The owner accepted the final report and its verdict on 2026-10-18 and
+declared Phase 6 complete on `68ac655`, the verified implementation. On
+the owner's instruction: the names of the Tails and Whonix adapters in
+place of the phase numbers of the earlier plan (`8091073`), the record
+of the completion (`docs/DESIGN_QUESTIONS.md` 13.3), the outputs of the
+verification with the pictures of every screen on the branch
+`verification-68ac655`, not on `main`; then the push, the merge into
+`main`, the removal of this file there, and the tag `phase-6-complete`,
+whose message names `68ac655` as the verified commit. The follow-up
+work of item 35 is left to the next phase.
 
 ## 6. Final report
+
+Accepted by the owner on 2026-10-18. The code that went through the final
+verification is `68ac655`; the commits after it change documents only.
 
 Written on 2026-10-18, after the final verification of `68ac655`. Each
 result comes from an output of that verification, named where it is used,

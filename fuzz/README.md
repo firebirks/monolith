@@ -104,27 +104,31 @@ To check that the targets compile without running them:
 
 All twenty targets build (`fuzz_targets/session_fixtures.rs` holds
 fixtures they share and is not one); Phase 4 added `vault_payload` and
-`contact_store` and extended `credential_sequence`, and Phase 5 added
-`message_store` and `message_sequence`. In the final verification of
-Phase 5 (on `91bf22c`) each of the eighteen ran for 25 seconds, and
-`message_store`, `message_sequence`, `vault_payload` and
+`contact_store` and extended `credential_sequence`, Phase 5 added
+`message_store` and `message_sequence`, and Phase 6 `ui_present` and
+`ui_model_sequence`. In the final verification of Phase 6 (on `68ac655`)
+each of the twenty ran for 26 seconds, and `ui_present` and
+`ui_model_sequence` for 600 seconds each (1.2 and 2.4 million
+executions), without a failure (`docs/DESIGN_QUESTIONS.md` 13.3). In
+that of Phase 5 (on `91bf22c`) each of the eighteen ran for 25 seconds,
+and `message_store`, `message_sequence`, `vault_payload` and
 `contact_store` for 600 seconds each, without a failure
-(`docs/DESIGN_QUESTIONS.md` 12.8). During Phase 4 the
-three ran for 60 seconds each from their seeds; `contact_store` found a
-confirmation for a blocked identity that was reported as the wrong card
-instead of not found, fixed in `1897a71`. In the final verification of
-Phase 4 (on `970316f`) each of the sixteen ran for 25 seconds, and
+(`docs/DESIGN_QUESTIONS.md` 12.8). During Phase 4 the three ran for 60
+seconds each from their seeds; `contact_store` found a confirmation for
+a blocked identity that was reported as the wrong card instead of not
+found, fixed in `1897a71`. In the final verification of Phase 4 (on
+`970316f`) each of the sixteen ran for 25 seconds, and
 `credential_sequence`, `contact_store`, `vault_payload`,
 `session_frames`, the two handshake targets and the two Tor parsers for
 600 seconds each, without a failure (`docs/DESIGN_QUESTIONS.md` 11.6).
 In that of Phase 3 (on `2f27dcb`) the fourteen targets of then ran for
 25 seconds each and six of them for 900 seconds, without a failure
-(`docs/DESIGN_QUESTIONS.md` 10.4). Before that, the targets were run from
-their seeds for short smoke tests only, last for all of them at the end
-of Phase 2. The eight targets of the protocol core make between 77 thousand
-and 12 million executions in that time. The three session targets make
-between 4 thousand and 16 thousand, because every execution runs a
-handshake under the address sanitizer. After they gained time and
+(`docs/DESIGN_QUESTIONS.md` 10.4). Before that, the targets were run
+from their seeds for short smoke tests only, last for all of them at the
+end of Phase 2. The eight targets of the protocol core make between 77
+thousand and 12 million executions in that time. The three session
+targets make between 4 thousand and 16 thousand, because every execution
+runs a handshake under the address sanitizer. After they gained time and
 records, `session_frames` and `handshake_responder` also ran for 150
 seconds each (25 thousand and 94 thousand executions), without a
 failure. That shows the targets work. It is not a fuzzing campaign.
@@ -133,13 +137,14 @@ Phase 6 added `ui_present` and `ui_model_sequence`. Each ran for 60
 seconds from its seeds on Linux under the address sanitizer (about 105
 thousand executions for `ui_present`, 225 thousand for `ui_model_sequence`
 in the last run, after the fixes below). The first runs of `ui_present`
-found three faults in `monolith-ui-model`, all fixed with a regression test
-in `present.rs`: a preview cut at a space had no ellipsis, a preview with
-only white space after its last word had one, and a text whose lines end in
-carriage return and line feed was never collapsed, because the two form one
-grapheme cluster that was not counted as a line. `ui_model_sequence` found
-nothing in its runs. The other targets were not run again for Phase 6.
-That shows the two targets work. It is not a fuzzing campaign.
+found three faults in `monolith-ui-model`, all fixed with a regression
+test in `present.rs`: a preview cut at a space had no ellipsis, a preview
+with only white space after its last word had one, and a text whose lines
+end in carriage return and line feed was never collapsed, because the two
+form one grapheme cluster that was not counted as a line.
+`ui_model_sequence` found nothing in its runs. Before the final
+verification of Phase 6 the other targets were not run again for it. That
+shows the two targets work. It is not a fuzzing campaign.
 
 Not done yet:
 

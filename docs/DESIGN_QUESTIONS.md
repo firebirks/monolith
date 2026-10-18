@@ -2312,3 +2312,116 @@ notifications, cloud sync, a mobile client, a server, telemetry,
 analytics, plugins, themes to download, scripting and remote updates.
 Also not here: message search (only contacts and conversations can be
 filtered), scanning QR codes, the platform adapters of Tails and Whonix.
+
+### 13.3 Final verification and completion
+
+The final verification ran on `68ac655bb82f4d423d46581bdc9a1816f8f87161`
+from 2026-10-15 06:44 to 2026-10-18 00:44, with no file of that commit
+changed while it ran: the Windows stage (Windows 11, Rust 1.95.0 and
+1.85.1) in a worktree at the commit; the WSL stage (Debian 13.4) and the
+Linux package in a clone at the commit; the container stage (Debian 12,
+Rust 1.95.0, 1.85.1 and 1.99.0, Tor 0.4.9.13, Chutney `ae3a33c`) on an
+export of the commit; and the mutation lists, two workers, in copies made
+from a clone at the commit. The outputs, the pictures of every screen
+among them, are on the branch `verification-68ac655`, not on `main`; the
+two packages are not, and their sizes and SHA-256 are in the report. The
+final report is section 6 of the status file of Phase 6 (`STATUS.md`,
+removed when Phase 6 was merged), kept in the history at `6180f06`.
+Results:
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check`; clippy on all targets, with and without `monolith-ui/fixtures`, warnings denied | clean, on Windows and in the container |
+| `cargo test --workspace --locked --features monolith-ui/fixtures` | Windows, Rust 1.95.0 and 1.85.1: 76 test runs (64 binaries and 12 of doctests), 1165 passed, 0 failed, 2 ignored, on each; Linux, Rust 1.95.0, 1.85.1 and stable 1.99.0: 76 test runs, 1167 passed, 0 failed, 2 ignored, on each. The ignored ones are the test that the private network test runs and the KDF measurement; Linux runs seven Unix-only tests, Windows five Windows-only ones |
+| Rust 1.85.1: `check --workspace --all-targets` | clean, on Windows and in the container |
+| `cargo deny check` 0.20.2 | advisories, bans, licenses and sources ok |
+| `cargo audit` 0.22.2 | no advisory for the 445 crates |
+| `cargo tree -d` | the second versions of the window stack, which `deny.toml` accepts by exact version, and `rand_core` 0.9.5 (tests only) and 0.10.1, as on `91bf22c` |
+| `monolith-protocol`, `monolith-session`, `monolith-identity` | unchanged since `phase-5-complete`; no wire change |
+| Fuzz, 20 targets, 26 seconds each | no crash |
+| Fuzz, 600 seconds each: `ui_present` (1,218,306 runs), `ui_model_sequence` (2,407,157 runs) | no crash |
+| Mutation suite, 555 faults | 546 caught, the nine expected survivors (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29), none unexpected, none invalid; the 160 faults of Phase 6, UI1 to UI160, all caught |
+| `tests/network/fail-closed.sh` (T-NET-1) | pass |
+| `tests/tor-network/two-node.sh`, Tor 0.4.9.13, Chutney `ae3a33c`, `RESTART_CYCLES=3` | pass, steps 1 to 21, in 790 seconds; step 21 drives two desktop clients through their window code over Tor |
+| Workflows A to G by script, through the window code, the bridge and the runtime on the in-memory Tor | pass, on Windows and in the container |
+| Frames | after the first, at most 1.17 ms a frame on Windows and 0.75 ms in the container; no frame drawn while nothing happens; the packaged client, idle on Windows, used 0 ms of CPU over 10 seconds |
+| Packages | the Linux tar.gz and the Windows zip, each with its third-party notices, built from the commit |
+| Identities of `phase-5-complete..68ac655` | 60 commits, all with `firebirks <336470935+firebirks@users.noreply.github.com>` as author and committer, no trailers |
+
+The mutation run was interrupted four times on the same commit: by a
+restart of the WSL VM from outside the verification, twice for the
+owner, and once when the process that held it ended. Each time it went on
+with the faults that had not ended; the Phase 5 list, stopped after 16
+faults, was run again whole. Seven faults reached the runner's timeout:
+MR25 and MR26, which turn a loop into one that never waits (section
+12.7); MR9, CS29, CS30 and Q1, whose result files name the tests that
+failed before it; and T6, which fell in a part of its list whose failing
+tests were not recorded and, run again alone with one worker, made 340
+named tests fail. CS29, caught by the timeout alone on `91bf22c`, now
+also makes twelve tests of `tests/front_end.rs` fail, which Phase 6 added
+and which runs before `tests/runtime.rs`.
+
+After the freeze, a review of Phases 5 and 6 was checked against the code
+on 2026-10-16. It found no way around authentication or the contact
+rules, and nothing that changes a result of the verification. The owner
+chose to close the phase on `68ac655` and to leave its findings to the
+next phase (below).
+
+The owner accepted the report and its verdict on 2026-10-18 and declared
+Phase 6 complete on `68ac655`. The commits after it, up to the tag
+`phase-6-complete`, change documents only and do not change the verified
+code: the report (`6180f06`); the names of the Tails and Whonix adapters
+in place of the phase numbers of the earlier plan (`8091073`); this
+record; and the removal of the status file. From then on the mutation
+faults and the regression tests of Phases 1 to 5, and UI1 to UI160, are a
+baseline to preserve: none is weakened without an explicit design
+decision.
+
+Left for the next phase (item 35 of the report), besides section 13.2:
+
+- The `activity` of a session is refreshed before the message is checked
+  (`runtime.rs`): for a MessageAck before `acknowledged()`, and for a
+  ChatMessage even when it is refused or is a duplicate, so a contact can
+  keep an idle session open up to `MAX_SESSION_LIFETIME` (24 hours). It
+  should be refreshed only by an acknowledgement that names a message in
+  flight and by a message taken in.
+- Reading a card file on Windows (`monolith-desktop`, `files.rs`): mapped
+  network drives pass the local path check, links in intermediate
+  directories are followed, online-only cloud files are read over the
+  network, and the check that the opened file is the one looked at
+  compares no file ID. Remote drives, reparse points along the path and
+  files that are not on the disk are to be refused, the opened handle
+  checked, and the save directory checked the same way (`DESKTOP.md`
+  section 10).
+- The runtime ignores every file message and `Profile` (the catch-all arm
+  in `runtime.rs`), while `PROTOCOL.md` 13.1 makes a file message for an
+  unknown id a violation. Without transfers: refuse each `FileOffer` at
+  once, remember its id, and treat any other file message on an unknown
+  id as a violation.
+- The probe of a duplicate session: the Ping is sent just before the store
+  wait of `next_to_send` (R5-28), so a live preferred session can lose its
+  10-second probe; `probe_ended` does not check the credentials again.
+  Liveness only.
+- `is_invisible` (`monolith-ui-model`, `present.rs`) misses the tag
+  characters (U+E0001, U+E0020 to U+E007F) and other format characters.
+- A stale comment in `monolith-ui`, `app.rs`; and the literal at
+  `monolith-ui-kit/src/theme.rs:662` that Rust 1.99.0 warns about
+  (`float_literal_f32_fallback`, a lint of future incompatibility), to be
+  written `2.0_f32`.
+- Documents: ADR 0009 says "a fresh random nonce" where the code falls
+  back to a fixed nonce if the system's random source fails, and
+  describes two branches of the duplicate rule that production never
+  reaches; `RESOURCE_LIMITS.md` 12 should name the write amplification a
+  hostile contact can cause (each stored message rewrites the whole
+  store); section 12.3 should say that ended queues also count toward
+  `MAX_QUEUED_MESSAGE_BYTES`; 12.6 (R5-28) calls the store "a small
+  file".
+- None of the seven rates of `RESOURCE_LIMITS.md` section 6 is enforced
+  yet. The per-contact rates come first; the rates of the accept path are
+  hardening.
+- Deferred before: tests with screen readers; shaping and bidi; a message
+  list reachable by keyboard; keeping unread counts and declines; blocking
+  a key without a record; the cost of the SOCKS proof for each failed
+  dial; reading the Tor cookie by name; installers and signing; the
+  client on Tails and Whonix, tested by hand; bounding the publication
+  wait of `Peer::start` in `tests/runtime.rs` (12.8).

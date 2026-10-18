@@ -76,7 +76,7 @@ stays the same fault.
 
 ## Expected results
 
-With Phase 5; the final verification on `91bf22c` gave exactly this,
+With Phase 6; the final verification on `68ac655` gave exactly this,
 every fault with the outcome its entry expects:
 
 | List | Faults | Caught | Expected to survive |
@@ -86,21 +86,24 @@ every fault with the outcome its entry expects:
 | Phase 3 | 71 | 68 | Q14, Q18, Q29 |
 | Phase 4 | 123 | 123 | none |
 | Phase 5 | 57 | 57 | none |
+| Phase 6 | 160 | 160 | none |
 
-395 faults, 386 to be caught, 9 expected to survive. The first four
-lists gave the same on `970316f`, the verification of Phase 4.
+555 faults, 546 to be caught, 9 expected to survive. The first five
+lists gave the same on `91bf22c`, the verification of Phase 5, and the
+first four on `970316f`, that of Phase 4.
 
-Phase 4 was closed on 2026-10-11 and Phase 5 on 2026-10-14. From then on
-the faults and the regression tests of Phases 1 to 4, and MR1 to MR57,
-are a baseline to preserve: none is weakened without an explicit design
-decision.
+Phase 4 was closed on 2026-10-11, Phase 5 on 2026-10-14 and Phase 6 on
+2026-10-18. From then on the faults and the regression tests of Phases
+1 to 5, and UI1 to UI160, are a baseline to preserve: none is weakened
+without an explicit design decision.
 
-In that run CS29 was caught by the timeout alone: under it the wait for
-publication of `Peer::start` in `tests/runtime.rs`, which runs first,
-lasts hours, so its four supervisor tests were not reached (they fail
-when run on their own). Bounding that wait, so that CS29 is killed
-quickly and by name, is left for later (`docs/DESIGN_QUESTIONS.md`
-12.8).
+On `91bf22c` CS29 was caught by the timeout alone: under it the wait for
+publication of `Peer::start` in `tests/runtime.rs` lasts hours, so its
+four supervisor tests were not reached (they fail when run on their
+own). On `68ac655` it still reached the timeout, but twelve tests of
+`tests/front_end.rs`, which runs before `tests/runtime.rs`, failed
+first. Bounding that wait, so that CS29 is killed quickly, is left for
+later (`docs/DESIGN_QUESTIONS.md` 12.8 and 13.3).
 
 The Phase 5 list, MR1 to MR57, covers the messaging runtime
 (`docs/adr/0007-delivery-semantics.md` to `0009-session-manager.md`):
@@ -166,7 +169,7 @@ and looked at when the session ended. It is caught since by a test
 written for it
 (`docs/DESIGN_QUESTIONS.md` section 12.7).
 
-The Phase 6 list, UI1 and up, covers the desktop client
+The Phase 6 list, UI1 to UI160, covers the desktop client
 (`docs/adr/0010-gui-toolkit-egui.md` to `0012-design-system.md`) and
 what its reviews added:
 
