@@ -414,7 +414,8 @@ buffer.
 | `STARTUP_DIAL_SPREAD` | 60 s |
 
 Delay sequence before jitter: 10 s, 20 s, 40 s, ... capped at 30 min. Each
-delay is multiplied by a uniform random factor in [0.5, 1.5]. The delay is
+delay is multiplied by a uniform random factor in [0.5, 1.5], in steps of
+0.01, each as likely as the others (since Phase 7, P7-12). The delay is
 reset after a session has stayed authenticated for 60 s.
 
 Since Phase 4 the publication supervisor uses the same schedule to publish

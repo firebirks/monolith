@@ -209,6 +209,9 @@ pub(crate) fn send_error(error: SendError) -> Failure {
         SendError::QueueFull => Failure::QueueFull,
         SendError::StoreFull => Failure::StoreFull,
         SendError::Storage => Failure::Storage,
+        SendError::ShuttingDown => Failure::ShuttingDown,
+        // Said where it was met, unlike a failed store, which the window
+        // says once from its event.
         _ => Failure::Unexpected,
     }
 }
@@ -234,6 +237,16 @@ mod tests {
         assert_eq!(seconds(Duration::from_millis(1)), 1);
         assert_eq!(seconds(Duration::from_secs(30)), 30);
         assert_eq!(seconds(Duration::from_millis(30_500)), 31);
+    }
+
+    #[test]
+    fn a_failed_send_is_said_where_it_was_met_unless_the_store_failed() {
+        assert_eq!(send_error(SendError::ShuttingDown), Failure::ShuttingDown);
+        assert_eq!(send_error(SendError::Randomness), Failure::Unexpected);
+        assert_eq!(send_error(SendError::Storage), Failure::Storage);
+        for error in [SendError::ShuttingDown, SendError::Randomness] {
+            assert!(send_error(error).said_in_place(), "{error:?}");
+        }
     }
 
     #[test]

@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use common::{Released, fixed_endpoint, keys, run, run_paused};
 use monolith_core::api::{
-    CommandError, ContactId, DeferReason, Event, IdentityId, MessageStatus, SendError,
+    CommandError, ContactId, DeferReason, Event, IdentityId, MessageStatus, SendError, ServiceState,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
@@ -90,7 +90,9 @@ impl Peer {
         self.runtime.as_ref().expect("started")
     }
 
-    /// Starts the runtime and waits until its service is published.
+    /// Starts the runtime and waits until its service is published: a
+    /// minute of test time, far more than it takes, so that a service that
+    /// is never published fails the test at once instead of after a day.
     async fn start(&mut self, network: &MockNetwork, options: RuntimeOptions) {
         self.runtime = Some(Runtime::start(
             self.installation.clone(),
@@ -98,7 +100,13 @@ impl Peer {
             Budgets::new(),
             options,
         ));
-        until(|| network.is_published(&fixed_endpoint(self.seed))).await;
+        let endpoint = fixed_endpoint(self.seed);
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            until(|| network.is_published(&endpoint)),
+        )
+        .await
+        .expect("the service was published");
     }
 
     /// Stops the runtime as a crash of the process would: every task ends
@@ -2244,5 +2252,85 @@ fn a_session_that_waits_for_a_token_ends_when_it_is_closed() {
         while link.receive().await.is_ok() {}
         assert!(start.elapsed() < interval(FILE_OFFER_RATE) / 2);
         a.stop().await;
+    });
+}
+
+#[test]
+fn an_identity_without_a_key_is_reported_so_and_stays_so() {
+    // Its service cannot be published: the runtime says so, and that
+    // stays what it says (BL31).
+    run_paused(async {
+        let network = MockNetwork::new();
+        let installation = Installation::ephemeral();
+        let mut held = keys(5, 5, 1, fixed_endpoint(5));
+        held.onion = None;
+        let identity = installation.restore_identity(held, None).await.unwrap();
+        let runtime = Runtime::start(installation, network.backend(), Budgets::new(), options());
+        let mut events = runtime.subscribe();
+        let id = identity.id();
+        event(&mut events, |event| {
+            matches!(
+                event,
+                Event::Service {
+                    state: ServiceState::NoKey,
+                    ..
+                }
+            )
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        assert_eq!(runtime.service_state(&id), Ok(ServiceState::NoKey));
+        while let Ok(event) = events.try_recv() {
+            assert!(!matches!(event, Event::Service { .. }), "{event:?}");
+        }
+        assert!(!network.is_published(&fixed_endpoint(5)));
+        runtime.shutdown(Duration::ZERO).await;
+    });
+}
+
+#[test]
+fn a_send_once_the_runtime_shuts_down_says_so() {
+    // Nothing was stored; it is neither a store that failed nor an
+    // identity that is gone (BL27).
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, _) = pair(&network).await;
+        a.start(&network, options()).await;
+        let runtime = a.runtime().clone();
+        a.stop().await;
+        assert_eq!(
+            runtime.send_message(&a.id(), &at_a, "late").await,
+            Err(SendError::ShuttingDown)
+        );
+    });
+}
+
+#[test]
+fn a_send_a_shutdown_cuts_short_says_so() {
+    // In real time: writes are held on a thread of their own. The send
+    // waits for the vault when the runtime shuts down (BL27).
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        a.start(&network, options()).await;
+        dir.hold_writes();
+        let released = Released(&dir);
+        let identity = a.identity.clone();
+        let peer = *b.identity.identity();
+        let verifying = tokio::spawn(async move { identity.set_verified(&peer, true).await });
+        common::held(&dir).await;
+        let runtime = a.runtime().clone();
+        let id = a.id();
+        let sending = tokio::spawn(async move { runtime.send_message(&id, &at_a, "x").await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        a.stop().await;
+        assert_eq!(sending.await.unwrap(), Err(SendError::ShuttingDown));
+        drop(released);
+        let _ = verifying.await.unwrap();
     });
 }

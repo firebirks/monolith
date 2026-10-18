@@ -61,7 +61,7 @@ use crate::messages::{Receipt, Refusal};
 use crate::rates::{ContactRates, Kind};
 use crate::requests::{InvitationId, RequestId};
 use crate::sessions::{SessionControl, SessionManager};
-use crate::supervisor::{Backoff, Publication, supervise};
+use crate::supervisor::{Backoff, Publication, jitter, supervise};
 use crate::transfers::{Answer, Transfers};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -72,16 +72,6 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// The most messages one page of a conversation holds.
 pub const MAX_PAGE: usize = 500;
-
-/// A number in `0..=100` from the random source, for the jitter of a delay.
-/// A failing source gives the middle: the jitter only spreads attempts.
-fn jitter() -> u32 {
-    let mut byte = [0_u8; 1];
-    match getrandom::fill(&mut byte) {
-        Ok(()) => u32::from(u8::from_be_bytes(byte)) % 101,
-        Err(_) => 50,
-    }
-}
 
 /// A random delay in `0..spread`, to spread the first attempts at startup.
 fn spread(spread: Duration) -> Duration {
@@ -301,6 +291,7 @@ fn send_error(error: MessageError) -> SendError {
         MessageError::Closed => SendError::UnknownIdentity,
         MessageError::NotAContact => SendError::NotAContact,
         MessageError::Refused(refusal) => refused(refusal),
+        MessageError::Randomness => SendError::Randomness,
         _ => SendError::Storage,
     }
 }
@@ -709,7 +700,8 @@ impl<B: TorBackend + 'static> Inner<B> {
             },
         )
         .await;
-        state.send_replace(Publication::Stopped);
+        // The supervisor reported how it ended, `Stopped` or `NoKey`, and
+        // that stands.
     }
 
     /// Starts the scheduler of the conversation of `contact` unless it
@@ -1685,15 +1677,17 @@ impl<B: TorBackend + 'static> Runtime<B> {
             ProtocolError::FieldTooLong => SendError::TooLong,
             _ => SendError::InvalidText,
         })?;
-        let held = self
-            .held(identity)
-            .map_err(|_| SendError::UnknownIdentity)?;
+        let held = self.held(identity).map_err(|error| match error {
+            CommandError::ShuttingDown => SendError::ShuttingDown,
+            _ => SendError::UnknownIdentity,
+        })?;
         let inner = self.inner.clone();
         let (identity, contact) = (*identity, *contact);
+        // A send the shutdown cut short stored nothing, as at once.
         self.inner
             .detached(async move { inner.send(&held, identity, contact, text).await })
             .await
-            .unwrap_or(Err(SendError::Storage))
+            .unwrap_or(Err(SendError::ShuttingDown))
     }
 
     /// Deletes the messages of the conversation of `contact`, queued ones
@@ -2262,5 +2256,30 @@ impl<B: TorBackend + 'static> Runtime<B> {
             tasks.abort_all();
             while tasks.join_next().await.is_some() {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persist::CommitError;
+
+    #[test]
+    fn a_failed_send_says_what_failed() {
+        assert_eq!(send_error(MessageError::Closed), SendError::UnknownIdentity);
+        assert_eq!(
+            send_error(MessageError::NotAContact),
+            SendError::NotAContact
+        );
+        assert_eq!(
+            send_error(MessageError::Refused(Refusal::ContactQueueFull)),
+            SendError::QueueFull
+        );
+        assert_eq!(
+            send_error(MessageError::Storage(CommitError::Failed)),
+            SendError::Storage
+        );
+        // A failed random source is not a failed store.
+        assert_eq!(send_error(MessageError::Randomness), SendError::Randomness);
     }
 }

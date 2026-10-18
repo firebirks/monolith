@@ -157,6 +157,12 @@ pub enum SendError {
     /// The message store could not be written. Nothing more is stored until
     /// the process starts again.
     Storage,
+    /// The runtime is shutting down: the send was refused, or cut short
+    /// before it was stored.
+    ShuttingDown,
+    /// The random source failed: the message has no identifier. Nothing
+    /// was stored, and the store goes on.
+    Randomness,
 }
 
 impl fmt::Display for SendError {
@@ -169,6 +175,8 @@ impl fmt::Display for SendError {
             Self::QueueFull => "queue full",
             Self::StoreFull => "message store full",
             Self::Storage => "message store failed",
+            Self::ShuttingDown => "shutting down",
+            Self::Randomness => "random source failed",
         })
     }
 }

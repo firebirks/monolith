@@ -134,6 +134,10 @@ mutation fault, the document changed, the final status.
 | BL10 | documented (P7-9): cost and bound; the rate bounds it; a store that writes what changed left for later | see git log | as BL13 | - | RESOURCE_LIMITS 12, THREAT_MODEL B, DESIGN_QUESTIONS P7-9 | fixed |
 | BL40 | fix (P7-10): bounded retry on a sharing violation or a denied access | see git log | `disk_windows::tests::a_rename_waits_a_little_for_a_file_another_process_holds`, `a_rename_of_a_file_held_for_good_fails_in_bounded_time` (Windows) | HR44 (Windows list) | STORAGE 3.8, `disk_windows.rs`, DESIGN_QUESTIONS P7-10 | fixed |
 | BL39 | fix (P7-11): ASCII case folded on Windows only; anything else still refused | see git log | `control::tests::a_cookie_file_is_named_without_case_only_where_files_are`, `a_windows_cookie_file_is_named_without_case` (Windows); `tests/system.rs` `a_cookie_file_named_in_another_case_is_that_file_only_on_windows` | HR45; HR46 (Windows list) | THREAT_MODEL, DESIGN_QUESTIONS P7-11 | fixed |
+| BL31 | fix (P7-12) | see git log | `tests/runtime.rs` `an_identity_without_a_key_is_reported_so_and_stays_so` | HR47 | DESIGN_QUESTIONS P7-12, TEST_PLAN T-MSG-8 | fixed |
+| BL32 | fix (P7-12): rejection sampling, one function | see git log | `supervisor::tests::every_jitter_is_as_likely_as_any_other` | HR48 | RESOURCE_LIMITS 7, DESIGN_QUESTIONS P7-12 | fixed |
+| BL27 | fix (P7-12): `SendError::ShuttingDown`, `SendError::Randomness`; desktop says them in place | see git log | `a_send_once_the_runtime_shuts_down_says_so`, `a_send_a_shutdown_cuts_short_says_so`, `runtime::tests::a_failed_send_says_what_failed`, desktop `convert::tests::a_failed_send_is_said_where_it_was_met_unless_the_store_failed` | HR49 to HR52; MR49 retargeted | `api.rs`, DESIGN_QUESTIONS P7-12 | fixed |
+| BL23 | fix (P7-13), tooling only | see git log | CS29 now fails `tests/runtime.rs` in about a minute | - | mutation/README, DESIGN_QUESTIONS P7-13 | fixed |
 | BL3 (note) | PROTOCOL 8.7 and P7-4: Profile stated as accepted and not used, checked like any other | see git log | as BL3 | - | PROTOCOL 8.7, DESIGN_QUESTIONS P7-4 | fixed |
 | the rest | | | | | | open |
 

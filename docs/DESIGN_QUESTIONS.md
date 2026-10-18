@@ -2742,6 +2742,34 @@ P7-11 The cookie file Tor names, on Windows (BL39). The endpoint must
     for the configured one still reads the configured one. Elsewhere the
     comparison is unchanged. Faults HR45, and HR46 (Windows).
 
+P7-12 What the runtime says (BL31, BL32, BL27). `ServiceState::NoKey`
+    was never reported: the runtime set `Stopped` as soon as the
+    supervisor returned, which it does at once for an identity without a
+    key, so the front end saw a service stopped at shutdown. The
+    supervisor reports how it ended itself, `Stopped` or `NoKey`, and the
+    runtime no longer writes over it. The jitter of the delays, a byte
+    modulo 101, made the values 0 to 53 one and a half times as likely as
+    the others, where `RESOURCE_LIMITS.md` section 7 says uniform; a byte
+    is now taken only below 202 and drawn again otherwise, at most 32
+    times, then the middle (one function for the runtime and the
+    supervisor, which each had a copy). A send was reported
+    `UnknownIdentity` once the runtime shut down and `Storage` when a
+    shutdown cut it short or the random source failed, and a front end
+    says a failed store only from its event, so such a send failed
+    without a word. `SendError` (non-exhaustive) gains `ShuttingDown` and
+    `Randomness`; the desktop says the first as "Monolith is closing."
+    and the second as an unexpected failure, both where they were met.
+    The other commands already said `ShuttingDown`. Faults HR47 to HR52.
+
+P7-13 A wait of the tests that a fault made last hours (BL23). Under
+    CS29 the service of a peer is never published at its fixed key, and
+    `Peer::start` of `tests/runtime.rs` waited for it up to a day of test
+    time, which took hours, so the runner's timeout caught it before any
+    test did (section 12.6). The wait is now a minute of test time, far
+    more than a publication takes, and fails the test: with CS29 applied
+    the tests of `tests/runtime.rs` fail within about a minute, the build
+    included. Only the tooling changed.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

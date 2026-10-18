@@ -114,15 +114,36 @@ impl Backoff {
 }
 
 /// A number in `0..=100` from the random source of the operating system,
-/// for the jitter of a delay. A failing source gives the middle, which is
-/// the delay without jitter: the jitter only spreads attempts, and a
-/// failure here must not make them faster.
-fn jitter() -> u32 {
-    let mut byte = [0_u8; 1];
-    match getrandom::fill(&mut byte) {
-        Ok(()) => u32::from(u8::from_be_bytes(byte)) % 101,
-        Err(_) => 50,
+/// for the jitter of a delay, each as likely as the others. A failing
+/// source gives the middle, which is the delay without jitter: the jitter
+/// only spreads attempts, and a failure here must not make them faster.
+pub(crate) fn jitter() -> u32 {
+    jitter_from(|| {
+        let mut byte = [0_u8; 1];
+        getrandom::fill(&mut byte)
+            .ok()
+            .map(|()| u8::from_be_bytes(byte))
+    })
+}
+
+/// Draws of a byte a jitter takes at most before it gives the middle: the
+/// chance that all of them are refused is under one in 2^70.
+const JITTER_DRAWS: usize = 32;
+
+/// The jitter from the bytes `draw` gives, `None` when the source fails.
+/// A byte is taken only below 202, the largest multiple of the 101 values
+/// a byte can reach, and drawn again otherwise, so that no value is more
+/// likely than another (taking every byte modulo 101 made 0 to 53 one and
+/// a half times as likely as the rest).
+fn jitter_from(mut draw: impl FnMut() -> Option<u8>) -> u32 {
+    for _ in 0..JITTER_DRAWS {
+        match draw() {
+            Some(byte) if byte < 202 => return u32::from(byte % 101),
+            Some(_) => {}
+            None => break,
+        }
     }
+    50
 }
 
 /// How a wait that `shutdown` can cut short ended.
@@ -293,6 +314,29 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_jitter_is_as_likely_as_any_other() {
+        // Every byte the source can give, once: each value of 0..=100 is
+        // taken from as many of them, and a byte above them is drawn
+        // again, here followed by a 7.
+        let mut counts = [0_u32; 101];
+        for byte in 0..=u8::MAX {
+            let mut draws = [byte, 7].into_iter();
+            let value = jitter_from(|| draws.next());
+            if byte < 202 {
+                counts[usize::try_from(value).unwrap()] += 1;
+            } else {
+                assert_eq!(value, 7, "{byte}");
+            }
+        }
+        assert!(counts.iter().all(|count| *count == 2), "{counts:?}");
+        // A failing source, or one that gives nothing it can take, gives
+        // the middle.
+        assert_eq!(jitter_from(|| None), 50);
+        assert_eq!(jitter_from(|| Some(255)), 50);
+        assert!(jitter() <= 100);
+    }
 
     #[test]
     fn the_delays_follow_the_reconnect_schedule() {

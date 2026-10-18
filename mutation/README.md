@@ -320,7 +320,16 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   (HR35 to HR43);
 - a cookie file named in another case refused where files have no case
   (P7-11, HR45); on Windows only, a rename another process blocks tried
-  once (P7-10, HR44) and the cookie file compared with case (HR46).
+  once (P7-10, HR44) and the cookie file compared with case (HR46);
+- what the runtime says (P7-12): an identity without a key reported
+  stopped, a jitter that takes every byte, a send at shutdown said to
+  have no identity, a send a shutdown cuts short or a failed random
+  source said to be a failed store, a send at shutdown said nowhere by
+  the desktop (HR47 to HR52).
+
+Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
+of test time for the publication, so CS29 fails those tests within
+about a minute instead of reaching the timeout.
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 
