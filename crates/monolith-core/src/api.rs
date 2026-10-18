@@ -485,7 +485,8 @@ pub enum Event {
         reason: RefusedReason,
     },
     /// An attempt to deliver the queue of a conversation failed; the next
-    /// follows after `retry_in`.
+    /// follows after `retry_in`. Raised only when it does: not for a
+    /// record that ended, an identity that closed or a store that failed.
     DeliveryDeferred {
         /// The local identity.
         identity: IdentityId,

@@ -308,7 +308,11 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   handled counted against the probe, the Ping of a probe decided
   forgotten, a Ping never answered that does not end the session, a
   second Ping while one is outstanding, a probed session whose key was
-  retired meanwhile that wins (HR24 to HR30).
+  retired meanwhile that wins (HR24 to HR30);
+- records that end under a command (P7-7): a retry announced after a
+  session or a dial when none follows, a block or a deletion that names
+  its contact before its work runs, a send that queues for a record that
+  ended while it waited for the vault (HR31 to HR34).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

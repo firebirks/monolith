@@ -19,11 +19,16 @@
 
 mod common;
 
+use core::future::Future;
+use core::pin::{Pin, pin};
+use core::task::{Context, Poll, Waker};
 use core::time::Duration;
 use std::sync::Arc;
 
 use common::{Released, fixed_endpoint, keys, run, run_paused};
-use monolith_core::api::{ContactId, DeferReason, Event, IdentityId, MessageStatus, SendError};
+use monolith_core::api::{
+    CommandError, ContactId, DeferReason, Event, IdentityId, MessageStatus, SendError,
+};
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::link::{Link, dial};
@@ -1896,5 +1901,166 @@ fn a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong() {
         assert_eq!(answered(&mut link, 2).await, Some(Vec::new()));
         a.stop().await;
         b.stop().await;
+    });
+}
+
+#[test]
+fn a_session_that_ends_with_its_record_announces_no_retry() {
+    // B takes A's message in and waits before it acknowledges it; the
+    // record ends while the session runs. The message stays queued for a
+    // record that is gone: no retry is announced, since none comes (BL29).
+    for ending in [
+        Ending::Block,
+        Ending::DeleteAndAddAgain,
+        Ending::DeleteIdentity,
+    ] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, mut b, at_a, at_b) = pair(&network).await;
+            a.start(&network, options()).await;
+            let slow = RuntimeOptions {
+                acknowledgement_delay: MESSAGE_ACK_TIMEOUT / 2,
+                ..options()
+            };
+            b.start(&network, slow).await;
+            a.runtime()
+                .send_message(&a.id(), &at_a, "unanswered")
+                .await
+                .unwrap();
+            until(|| b.statuses(&at_b) == vec![MessageStatus::Received]).await;
+            let mut events = a.runtime().subscribe();
+            match ending {
+                Ending::Block => {
+                    a.runtime().block_contact(&a.id(), &at_a).await.unwrap();
+                }
+                Ending::DeleteAndAddAgain => {
+                    a.runtime().delete_contact(&a.id(), &at_a).await.unwrap();
+                    a.add(&b).await;
+                }
+                Ending::DeleteIdentity => {
+                    a.runtime().delete_identity(&a.id()).await.unwrap();
+                }
+            }
+            tokio::time::sleep(MESSAGE_ACK_TIMEOUT * 4).await;
+            no_deferral(&mut events);
+            a.stop().await;
+            b.stop().await;
+        });
+    }
+}
+
+/// Polls `future` once, letting no other task run.
+fn poll_now<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
+    future.poll(&mut Context::from_waker(Waker::noop()))
+}
+
+#[test]
+fn a_block_for_a_record_made_again_before_it_runs_ends_nothing() {
+    // The command for the record names its contact once its work runs, not
+    // before: the record deleted and made again in between, it finds the
+    // record gone and ends nothing of the new one (BL28).
+    for block in [true, false] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, b, at_a, _) = pair(&network).await;
+            a.start(&network, options()).await;
+            let runtime = a.runtime().clone();
+            let id = a.id();
+            let mut ending = pin!(async move {
+                if block {
+                    runtime.block_contact(&id, &at_a).await
+                } else {
+                    runtime.delete_contact(&id, &at_a).await
+                }
+            });
+            assert!(poll_now(ending.as_mut()).is_pending());
+            let peer = *b.identity.identity();
+            assert!(matches!(
+                poll_now(pin!(a.identity.delete(&peer))),
+                Poll::Ready(Ok(()))
+            ));
+            assert!(matches!(
+                poll_now(pin!(a.identity.import(&b.identity.card()))),
+                Poll::Ready(Ok(_))
+            ));
+            let again = a.identity.contact_id(&peer).unwrap();
+            assert_ne!(again, at_a);
+            assert_eq!(ending.await, Err(CommandError::UnknownContact));
+            assert_eq!(a.identity.current_record(&again), Some(peer));
+            assert!(a.identity.blocked().is_empty());
+            a.stop().await;
+        });
+    }
+}
+
+#[test]
+fn a_send_for_a_record_deleted_while_it_waits_for_the_vault_queues_nothing() {
+    // In real time: writes are held on a thread of their own. The record
+    // is looked at again once the vault is durable (BL28).
+    run(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        a.start(&network, options()).await;
+        // A change of the vault waits for its write.
+        dir.hold_writes();
+        let released = Released(&dir);
+        let identity = a.identity.clone();
+        let peer = *b.identity.identity();
+        let verifying = tokio::spawn(async move { identity.set_verified(&peer, true).await });
+        common::held(&dir).await;
+        // A send waits for the vault, and the record is deleted.
+        let runtime = a.runtime().clone();
+        let id = a.id();
+        let sending = tokio::spawn(async move { runtime.send_message(&id, &at_a, "x").await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let identity = a.identity.clone();
+        let deleting = tokio::spawn(async move { identity.delete(&peer).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        drop(released);
+        assert_eq!(sending.await.unwrap(), Err(SendError::NotAContact));
+        deleting.await.unwrap().unwrap();
+        verifying.await.unwrap().unwrap();
+        // Nothing was queued for the record that is gone.
+        assert!(a.statuses(&at_a).is_empty());
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_dial_that_fails_once_the_vault_failed_announces_no_retry() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let dir = MemoryDir::new();
+        let installation =
+            Installation::create(Box::new(dir.clone()), &passphrase(), KdfParams::FLOOR).unwrap();
+        let mut a = Peer::in_installation(installation, 1).await;
+        let b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        a.start(&network, options()).await;
+        // B is away. The dial is held while a change of the vault fails.
+        let dials = network.dials();
+        let hold = network.hold_dial(dials + 1);
+        a.runtime().send_message(&a.id(), &at_a, "x").await.unwrap();
+        until(|| network.dials() == dials + 1).await;
+        let mut events = a.runtime().subscribe();
+        dir.crash_at(dir.steps() + 1);
+        assert!(
+            a.identity
+                .set_verified(b.identity.identity(), true)
+                .await
+                .is_err()
+        );
+        event(&mut events, |event| matches!(event, Event::StorageFailed)).await;
+        hold.release();
+        tokio::time::sleep(HANDSHAKE_TIMEOUT * 10).await;
+        // The dial failed, and no attempt follows: none is announced.
+        no_deferral(&mut events);
+        assert_eq!(network.dials(), dials + 1);
+        a.stop().await;
     });
 }

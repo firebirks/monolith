@@ -1883,6 +1883,22 @@ PHASE7 = [
     fault("HR30", CORE + "sessions.rs", "a probed session whose key was retired meanwhile wins",
           ("            match duplicate::after_probe(answered && current) {\n",
            "            match duplicate::after_probe(answered) {\n")),
+    # A retry announced that never comes, and a record named before the
+    # change (BL29, BL28).
+    fault("HR31", CORE + "runtime.rs", "a session that ended with its record announces a retry",
+          ("                    if self.needs_scheduler(runtime, &contact, &peer) {\n                        delay = backoff.delay(jitter());\n",
+           "                    if identity.next_queued(&contact).is_some()\n                        && !runtime.manager.has_session(&contact)\n                    {\n                        delay = backoff.delay(jitter());\n")),
+    fault("HR32", CORE + "runtime.rs", "a dial that failed once no attempt follows announces a retry",
+          ("                    if self.needs_scheduler(runtime, &contact, &peer) {\n                        self.emit(Event::DeliveryDeferred {\n",
+           "                    {\n                        self.emit(Event::DeliveryDeferred {\n")),
+    fault("HR33", CORE + "runtime.rs", "a block or a deletion names its contact before its work runs",
+          ("        Self::peer_of(&held, contact)?;\n        let contact = *contact;\n",
+           "        let named = Self::peer_of(&held, contact)?;\n        let contact = *contact;\n"),
+          ("                let peer = Self::peer_of(&held, &contact)?;\n",
+           "                let peer = named;\n")),
+    fault("HR34", CORE + "identity.rs", "a send queues for a record that ended while it waited for the vault",
+          ("        if !self.is_current(&contact, &peer) {\n            return Err(if self.is_closed() {\n",
+           "        if self.is_closed() {\n            return Err(if self.is_closed() {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

@@ -1994,7 +1994,8 @@ Not changed, with the reason:
   record; a deletion and a new import of the same identity between the
   two steps of one command, on another thread, would act on the new
   record (A). No await separates them; the outcome is that of the other
-  order.
+  order. (That stopped holding once the commands ran detached, and holds
+  again since Phase 7, P7-7.)
 - The queued messages of ended conversations count toward the limits of
   the identity (B): section 12.3.
 - Two sessions of the same initiator registered in different orders at
@@ -2648,6 +2649,26 @@ P7-6 Activity, probes and Pings (BL1, BL4, BL30). Three defects of
     probed session whose key was retired meanwhile loses, answered or
     not. The serial of a session names it, so a record made again during
     a probe is never taken for the one probed. Faults HR24 to HR30.
+
+P7-7 Records that end under a command (BL28, BL29). The scheduler
+    reported `DeliveryDeferred` with a delay after a session that ended
+    because its record was blocked or deleted, and then ended: the retry
+    it announced never came. A deferral is now reported only when the
+    scheduler goes on (`needs_scheduler`): the record current, the
+    identity open, no store failed, messages queued and no session; the
+    same holds for a dial that failed, which a store that failed
+    meanwhile ends as well. Blocking and deleting named the remote
+    identity of the record before their work ran detached, so a record
+    deleted and made again in between was ended for the new one; the
+    work now names it, with nothing awaited before the change, and fails
+    with `UnknownContact` for a record that is gone, so 12.5 holds again.
+    A send looked at its record before its wait for the vault and not
+    after, so a message could be queued for a record that ended
+    meanwhile; it is looked at again after the wait, with nothing
+    awaited before the change, and the send fails with `NotAContact`.
+    The other commands that name a record (`set_record_alias`,
+    `set_record_verified`, `delete_conversation`, `connect`) look at it
+    with the change, or before each dial (P7-1). Faults HR31 to HR34.
 
 ### 14.2 Not part of Phase 7
 

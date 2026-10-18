@@ -861,9 +861,10 @@ impl<B: TorBackend + 'static> Inner<B> {
                     if ended == Ended::Other && started.elapsed() >= RECONNECT_RESET_AFTER {
                         backoff.reset();
                     }
-                    if identity.next_queued(&contact).is_some()
-                        && !runtime.manager.has_session(&contact)
-                    {
+                    // Announced only if it comes: not for a record that
+                    // ended, an identity that closed, or a store that
+                    // failed.
+                    if self.needs_scheduler(runtime, &contact, &peer) {
                         delay = backoff.delay(jitter());
                         self.emit(Event::DeliveryDeferred {
                             identity: identity.id(),
@@ -878,12 +879,14 @@ impl<B: TorBackend + 'static> Inner<B> {
                 }
                 Ok(Err(error)) => {
                     delay = backoff.delay(jitter());
-                    self.emit(Event::DeliveryDeferred {
-                        identity: identity.id(),
-                        contact,
-                        reason: defer_reason(error),
-                        retry_in: delay,
-                    });
+                    if self.needs_scheduler(runtime, &contact, &peer) {
+                        self.emit(Event::DeliveryDeferred {
+                            identity: identity.id(),
+                            contact,
+                            reason: defer_reason(error),
+                            retry_in: delay,
+                        });
+                    }
                 }
             }
         }
@@ -1744,10 +1747,14 @@ impl<B: TorBackend + 'static> Runtime<B> {
         block: bool,
     ) -> Result<(), CommandError> {
         let held = self.held(identity)?;
-        let peer = Self::peer_of(&held, contact)?;
+        Self::peer_of(&held, contact)?;
         let contact = *contact;
         self.inner
             .detached(async move {
+                // The contact is named here, where nothing awaited
+                // separates it from the change: a record ended and made
+                // again before the work runs is not taken for this one.
+                let peer = Self::peer_of(&held, &contact)?;
                 if block {
                     held.identity.block(&peer).await
                 } else {

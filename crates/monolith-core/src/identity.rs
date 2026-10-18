@@ -893,6 +893,16 @@ impl LocalIdentity {
                 MessageError::Storage(error)
             }
         })?;
+        // The record is looked at again once the wait is over, with no
+        // await before the change: a record that ended meanwhile gets no
+        // message.
+        if !self.is_current(&contact, &peer) {
+            return Err(if self.is_closed() {
+                MessageError::Closed
+            } else {
+                MessageError::NotAContact
+            });
+        }
         let messages = self.messages()?;
         let time = now_seconds();
         let mut attempts = 0_u8;

@@ -112,8 +112,10 @@ is registered.
   through the Tor backend, within `MAX_CONCURRENT_DIALS`. A failure of
   Tor, SOCKS or the handshake changes nothing in the queue; the attempt
   is reported as deferred once, with the failure of its last card, and
-  tried again later. There is no other path: no direct connection, no
-  name resolution.
+  tried again later. A deferral is reported only when another attempt
+  follows: not when the record ended, the identity closed or a store
+  failed meanwhile (since Phase 7, P7-7). There is no other path: no
+  direct connection, no name resolution.
 - The scheduler checks before every attempt that its `ContactId` is still
   the current record and that the identity is open, and ends otherwise.
   A dial in progress is dropped when a session of the record registers
@@ -129,9 +131,13 @@ is registered.
 
 Blocking or deleting a contact withdraws its sessions (Phase 4); the
 manager drops them, the scheduler of the record ends, and its queue stays
-stored, ended. An identity that closes ends its supervisor, its sessions
-and its schedulers; commands for it fail. Old tasks find their record or
-identity gone and change nothing.
+stored, ended. The command names the remote identity of the record in
+its work, with nothing awaited before the change, so a record ended and
+made again before the work runs is not taken for the one it names; a
+send looks at its record again once its wait for the vault is over, and
+queues nothing for one that ended meanwhile. An identity that closes
+ends its supervisor, its sessions and its schedulers; commands for it
+fail. Old tasks find their record or identity gone and change nothing.
 
 A session leaves the manager when its task ends, however it ends: the
 end is handled when the task is dropped, also when the accept loop of a
