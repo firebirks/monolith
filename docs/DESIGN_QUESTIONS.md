@@ -2711,6 +2711,37 @@ P7-9 Writes of the message store (BL10). Every message taken in
     later with the store for long histories of 12.3; blocking the
     contact stops it.
 
+P7-10 A rename on Windows that another process blocks (BL40). The
+    rename of `vault.new`, and of `messages.new`, was tried once, so a
+    scanner or an indexer that held either file, or its target, without
+    the sharing that lets it be renamed failed the store until the
+    process started again. On Windows such a rename fails with
+    `ERROR_SHARING_VIOLATION` (the source held) or `ERROR_ACCESS_DENIED`
+    (the target held), as a probe on Windows 11 showed. The rename is now
+    tried again after pauses of 10, 20, 50, 100, 200, 400 and 800 ms,
+    about 1.6 s in all, on those two errors only, and fails as before
+    after that; any other error fails at once. The write runs on a
+    thread of the blocking pool, so the pauses hold nothing else, and
+    the recovery of `STORAGE.md` section 3.5 is unchanged: until the
+    rename is done the old file is the store. Whether a scanner does
+    hold these files was not established; the retry costs nothing when
+    none does. Fault HR44 (Windows).
+
+P7-11 The cookie file Tor names, on Windows (BL39). The endpoint must
+    name the configured cookie file, and the two names were compared as
+    paths, which on Windows is case-sensitive: a path typed in another
+    case than Tor's was refused, though it is the same file. On Windows
+    the components are now compared without the case of ASCII letters
+    (`control::names_cookie_file`); any other difference, the case of
+    a letter beyond ASCII, another prefix or a short name, is still
+    another name and refused, so a mismatch fails closed as before.
+    Nothing is weakened: only the configured file is ever read, and the
+    endpoint still has to prove it knows that cookie before Monolith
+    does. A directory that Windows was told to treat case-sensitively
+    could hold two files whose names differ only in case; a name taken
+    for the configured one still reads the configured one. Elsewhere the
+    comparison is unchanged. Faults HR45, and HR46 (Windows).
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

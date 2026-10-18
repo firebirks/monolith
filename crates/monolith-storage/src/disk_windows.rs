@@ -19,7 +19,10 @@
 //!   `MOVEFILE_WRITE_THROUGH`, and only if that is refused with
 //!   `ERROR_ACCESS_DENIED`, `SetFileInformationByHandle` with
 //!   `FileRenameInfoEx` and POSIX semantics (as in the source of Rust
-//!   1.95); a second name is a hard link.
+//!   1.95). One that another process blocks for the moment, holding the
+//!   file without the sharing that lets it be renamed, as a scanner may,
+//!   is tried again for at most [`RENAME_WAITS`] together; a second name
+//!   is a hard link.
 //!
 //! What Unix checks and this does not: who owns the directory and who
 //! else may read it. Windows keeps that in access control lists, which
@@ -35,6 +38,7 @@
 //! names its file by the path of the directory joined with the file name,
 //! which Windows resolves again each time.
 
+use core::time::Duration;
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
@@ -55,6 +59,20 @@ const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x0000_0010;
 const FILE_SHARE_READ_WRITE: u32 = 0x0000_0001 | 0x0000_0002;
 /// `ERROR_SHARING_VIOLATION`: another process holds the file.
 const ERROR_SHARING_VIOLATION: i32 = 32;
+/// `ERROR_ACCESS_DENIED`: what a rename gets when another process holds
+/// its target.
+const ERROR_ACCESS_DENIED: i32 = 5;
+/// The pauses before a rename is tried again, while another process holds
+/// its file: about 1.6 s in all, then the rename fails.
+const RENAME_WAITS: [Duration; 7] = [
+    Duration::from_millis(10),
+    Duration::from_millis(20),
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(400),
+    Duration::from_millis(800),
+];
 
 fn std_io(_: std::io::Error) -> StorageError {
     StorageError::Io
@@ -214,7 +232,25 @@ impl VaultDir for DiskDir {
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        std::fs::rename(self.file(from)?, self.file(to)?).map_err(std_io)
+        let (from, to) = (self.file(from)?, self.file(to)?);
+        let mut waits = RENAME_WAITS.iter();
+        loop {
+            match std::fs::rename(&from, &to) {
+                Ok(()) => return Ok(()),
+                Err(error)
+                    if matches!(
+                        error.raw_os_error(),
+                        Some(ERROR_SHARING_VIOLATION | ERROR_ACCESS_DENIED)
+                    ) =>
+                {
+                    // Held by another process for the moment, or for
+                    // good: a few pauses tell which.
+                    let wait = waits.next().ok_or(StorageError::Io)?;
+                    std::thread::sleep(*wait);
+                }
+                Err(_) => return Err(StorageError::Io),
+            }
+        }
     }
 
     fn link(&self, from: &str, to: &str) -> Result<(), StorageError> {
@@ -275,6 +311,59 @@ mod tests {
         dir.sync().unwrap();
         assert_eq!(dir.read(VAULT, 4).unwrap(), Some(b"defg".to_vec()));
         assert_eq!(dir.read(VAULT_NEW, 4).unwrap(), None);
+        drop(dir);
+        std::fs::remove_dir_all(&path).unwrap();
+    }
+
+    /// Opens `path` as a scanner may: for reading, without the sharing
+    /// that lets the file be renamed or deleted.
+    fn held(path: &Path) -> File {
+        OpenOptions::new()
+            .read(true)
+            .share_mode(0x0000_0001)
+            .open(path)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_rename_waits_a_little_for_a_file_another_process_holds() {
+        let path = temp("rename-held");
+        let dir = DiskDir::open(&path, true).unwrap();
+        for name in [VAULT_NEW, VAULT] {
+            dir.write_new(VAULT_NEW, b"new").unwrap();
+            if !path.join(VAULT).exists() {
+                std::fs::write(path.join(VAULT), b"old").unwrap();
+            }
+            // The source or the target, held for a moment.
+            let file = held(&path.join(name));
+            let releasing = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(150));
+                drop(file);
+            });
+            assert_eq!(dir.rename(VAULT_NEW, VAULT), Ok(()), "{name}");
+            releasing.join().unwrap();
+            assert_eq!(dir.read(VAULT, 3).unwrap(), Some(b"new".to_vec()));
+        }
+        drop(dir);
+        std::fs::remove_dir_all(&path).unwrap();
+    }
+
+    #[test]
+    fn a_rename_of_a_file_held_for_good_fails_in_bounded_time() {
+        let path = temp("rename-held-long");
+        let dir = DiskDir::open(&path, true).unwrap();
+        dir.write_new(VAULT_NEW, b"new").unwrap();
+        let file = held(&path.join(VAULT_NEW));
+        let start = std::time::Instant::now();
+        assert_eq!(dir.rename(VAULT_NEW, VAULT), Err(StorageError::Io));
+        let waited = start.elapsed();
+        let all: Duration = RENAME_WAITS.iter().sum();
+        assert!(waited >= all, "{waited:?}");
+        assert!(waited < all * 3, "{waited:?}");
+        // Nothing changed.
+        drop(file);
+        assert_eq!(dir.read(VAULT, 3).unwrap(), None);
+        assert_eq!(dir.read(VAULT_NEW, 3).unwrap(), Some(b"new".to_vec()));
         drop(dir);
         std::fs::remove_dir_all(&path).unwrap();
     }

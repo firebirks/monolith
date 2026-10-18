@@ -10,6 +10,7 @@ pub(crate) mod command;
 mod reply;
 
 use core::net::{SocketAddr, SocketAddrV4};
+use std::path::Path;
 
 use monolith_identity::{OnionServiceKey, ServiceId};
 use monolith_protocol::limits::{CONTROL_COMMAND_TIMEOUT, CONTROL_CONNECT_TIMEOUT};
@@ -66,7 +67,7 @@ impl ControlConnection {
                 let named = info
                     .cookie_file
                     .ok_or(TorError::ControlAuthenticationUnavailable)?;
-                if named != *cookie_file {
+                if !names_cookie_file(&named, cookie_file, cfg!(windows)) {
                     return Err(TorError::ControlAuthentication);
                 }
                 let cookie = read_cookie(cookie_file)?;
@@ -368,6 +369,31 @@ pub(crate) fn parse_add_onion(
     Ok((key, secret))
 }
 
+/// Whether `named`, the cookie file the endpoint names, is `configured`,
+/// compared component by component. With `fold_case`, as on Windows,
+/// where a file is named without regard to case, two names that differ
+/// only in the case of ASCII letters are one; any other difference, in
+/// the case of another letter too, is another name, and refused. Only
+/// the configured file is ever read, so a name taken for it reads nothing
+/// the endpoint chose.
+fn names_cookie_file(named: &Path, configured: &Path, fold_case: bool) -> bool {
+    if !fold_case {
+        return named == configured;
+    }
+    let (mut named, mut configured) = (named.components(), configured.components());
+    loop {
+        match (named.next(), configured.next()) {
+            (None, None) => return true,
+            (Some(one), Some(other)) => {
+                if !one.as_os_str().eq_ignore_ascii_case(other.as_os_str()) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,5 +641,57 @@ mod tests {
             expect_ok(&reply(b"552 Unknown Onion Service id\r\n")),
             Err(TorError::CommandRefused)
         );
+    }
+
+    #[test]
+    fn a_cookie_file_is_named_without_case_only_where_files_are() {
+        let configured = Path::new("/run/tor/control.authcookie");
+        for fold_case in [false, true] {
+            assert!(names_cookie_file(configured, configured, fold_case));
+            for other in [
+                "/run/tor/other.authcookie",
+                "/run/tor/control.authcookie/x",
+                "/run/control.authcookie",
+                "run/tor/control.authcookie",
+                "/run/tor/c\u{f6}ntrol.authcookie",
+            ] {
+                assert!(
+                    !names_cookie_file(Path::new(other), configured, fold_case),
+                    "{other}"
+                );
+            }
+        }
+        // Another case of ASCII letters: one file only without case.
+        let upper = Path::new("/RUN/Tor/CONTROL.authcookie");
+        assert!(!names_cookie_file(upper, configured, false));
+        assert!(names_cookie_file(upper, configured, true));
+        // Letters beyond ASCII are compared as they are.
+        let accented = Path::new("/run/tor/c\u{f6}ntrol");
+        assert!(!names_cookie_file(
+            Path::new("/run/tor/c\u{d6}ntrol"),
+            accented,
+            true
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_cookie_file_is_named_without_case() {
+        let configured = Path::new(r"C:\Users\Someone\AppData\Roaming\tor\control_auth_cookie");
+        assert!(names_cookie_file(
+            Path::new(r"c:\users\someone\appdata\roaming\TOR\Control_Auth_Cookie"),
+            configured,
+            true
+        ));
+        assert!(!names_cookie_file(
+            Path::new(r"\\?\C:\Users\Someone\AppData\Roaming\tor\control_auth_cookie"),
+            configured,
+            true
+        ));
+        assert!(!names_cookie_file(
+            Path::new(r"D:\Users\Someone\AppData\Roaming\tor\control_auth_cookie"),
+            configured,
+            true
+        ));
     }
 }

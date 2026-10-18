@@ -341,7 +341,9 @@ backpressure. Peer-influenced memory has a computed ceiling.
   Tor: name a cookie file it wrote itself, pass SAFECOOKIE for it, receive
   an existing onion key and hand back a service of its own. Monolith
   therefore reads only the configured cookie file, refuses an endpoint
-  that names another, and refuses a cookie file that its group or others
+  that names another (on Windows, where a file is named without case, a
+  name that differs only in the case of ASCII letters is the same file),
+  and refuses a cookie file that its group or others
   can write or that is not a regular file. Such a process cannot then
   prove knowledge of the real cookie and gets nothing beyond
   `PROTOCOLINFO`; it can still refuse service. Left over: a process that

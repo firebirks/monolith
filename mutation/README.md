@@ -317,7 +317,10 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   twice its burst, a new session that gives back what the last one took,
   the sessions a contact opens not counted, a session waiting for a token
   that does not end when it is closed, an ended record whose buckets stay
-  (HR35 to HR43).
+  (HR35 to HR43);
+- a cookie file named in another case refused where files have no case
+  (P7-11, HR45); on Windows only, a rename another process blocks tried
+  once (P7-10, HR44) and the cookie file compared with case (HR46).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

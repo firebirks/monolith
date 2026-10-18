@@ -599,8 +599,10 @@ PHASE3 = [
           ("        .map_err(|_| LinkError::Storage(CommitError::Failed))?;\n    tokio::time::timeout(HANDSHAKE_TIMEOUT, async {",
            "        .map_err(|_| LinkError::Storage(CommitError::Failed))?;\n    tokio::time::timeout(core::time::Duration::from_secs(240), async {")),
     # Checks added after the two Phase 3 reviews.
+    # Since Phase 7 the names are compared by names_cookie_file (P7-11); the
+    # fault is the same.
     fault("Q27", TOR + "control/mod.rs", "an endpoint naming another cookie file is used",
-          ("                if named != *cookie_file {", "                if false {")),
+          ("                if !names_cookie_file(&named, cookie_file, cfg!(windows)) {", "                if false {")),
     fault("Q28", TOR + "control/auth.rs", "a cookie file others can write is read",
           ("        if before.permissions().mode() & 0o022 != 0 {", "        if false {")),
     fault("Q29", TOR + "stream.rs", "the connection code does not check the endpoint again",
@@ -1924,6 +1926,10 @@ PHASE7 = [
     fault("HR42", CORE + "runtime.rs", "a session that waits for a token does not end when it is closed",
           ("            if running.control.closing() || self.stopping() || runtime.identity.is_closed() {\n",
            "            if self.stopping() || runtime.identity.is_closed() {\n")),
+    # The cookie file Tor names, compared without case (BL39).
+    fault("HR45", TOR + "control/mod.rs", "a cookie file named in another case is refused where files have no case",
+          ("                if !one.as_os_str().eq_ignore_ascii_case(other.as_os_str()) {\n",
+           "                if one.as_os_str() != other.as_os_str() {\n")),
     fault("HR43", CORE + "rates.rs", "what an ended record took is not forgotten",
           ("    pub(crate) fn ended(&mut self, contact: &ContactId) {\n        self.chat.remove(contact);\n",
            "    pub(crate) fn ended(&mut self, contact: &ContactId) {\n        let _ = contact;\n        return;\n        self.chat.remove(contact);\n")),
@@ -1947,4 +1953,12 @@ PHASE7_WINDOWS = [
     fault("HR16", DK + "lib.rs", "a data directory or settings file on another computer is taken",
           (".filter(|path| path.is_absolute() && local::would_be_here(path))",
            ".filter(|path| path.is_absolute())")),
+    # A rename another process blocks, and the cookie file without case
+    # (BL40, BL39).
+    fault("HR44", ST + "disk_windows.rs", "a rename another process blocks is tried once",
+          ("        let mut waits = RENAME_WAITS.iter();\n",
+           "        let mut waits = RENAME_WAITS[..0].iter();\n")),
+    fault("HR46", TOR + "control/mod.rs", "the cookie file Tor names is compared with case on Windows",
+          ("                if !names_cookie_file(&named, cookie_file, cfg!(windows)) {\n",
+           "                if !names_cookie_file(&named, cookie_file, false) {\n")),
 ]

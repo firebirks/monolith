@@ -424,7 +424,12 @@ Unix; what differs is how the operations are made:
   `MOVEFILE_REPLACE_EXISTING` and without `MOVEFILE_WRITE_THROUGH`; only
   if that is refused with `ERROR_ACCESS_DENIED` does it rename through
   `SetFileInformationByHandle` with `FileRenameInfoEx` and POSIX
-  semantics. A second name is a hard link.
+  semantics. A rename refused with `ERROR_SHARING_VIOLATION` or
+  `ERROR_ACCESS_DENIED`, which is what another process that holds the
+  file or its target without the sharing that allows it (a scanner, an
+  indexer) causes, is tried again after pauses of 10 ms to 800 ms, about
+  1.6 s in all, and only then fails the store (since Phase 7,
+  `DESIGN_QUESTIONS.md` P7-10). A second name is a hard link.
 
 What Unix checks and Windows does not: who owns the directory and who else
 may read it. Windows keeps that in access control lists, which the

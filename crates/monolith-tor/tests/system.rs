@@ -882,6 +882,30 @@ fn a_control_endpoint_that_names_another_cookie_file_is_refused() {
     });
 }
 
+#[test]
+fn a_cookie_file_named_in_another_case_is_that_file_only_on_windows() {
+    run(async {
+        // The endpoint names the configured file with other capitals. On
+        // Windows a file is named without case: it is the same file, and
+        // SAFECOOKIE goes on. Elsewhere it is another, and refused.
+        let control = FakeControl::start(Script::good()).await;
+        let auth = ControlAuth::SafeCookie {
+            cookie_file: control.cookie_dir.join("CONTROL.AuthCookie"),
+        };
+        let backend = system(closed_port().await, control.address, auth);
+        let status = backend.status().await.control;
+        if cfg!(windows) {
+            assert!(
+                matches!(status, ControlStatus::Reachable { .. }),
+                "{status:?}"
+            );
+        } else {
+            assert_eq!(status, ControlStatus::AuthenticationFailed);
+            assert_eq!(control.lines(), vec!["PROTOCOLINFO 1\r\n".to_owned()]);
+        }
+    });
+}
+
 // The listener check of the SOCKS endpoint (SocksProof::ControlListeners).
 
 /// Dials once with `backend` and checks that the dial failed without a
