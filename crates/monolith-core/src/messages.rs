@@ -227,6 +227,8 @@ struct IdentityMessages {
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct MessageState {
     identities: BTreeMap<IdentityId, IdentityMessages>,
+    /// What bounds what is added.
+    limits: Limits,
     /// Messages stored.
     entries: usize,
     /// Bytes of text queued.
@@ -241,6 +243,40 @@ impl fmt::Debug for MessageState {
             .field("identities", &self.identities.len())
             .field("entries", &self.entries)
             .finish_non_exhaustive()
+    }
+}
+
+/// The limits of `RESOURCE_LIMITS.md` section 5 that bound what is added
+/// to the store. What it holds is bounded by the ceilings of its format
+/// (`monolith_storage::message_records::ceiling`), which are at least
+/// these: a store above a limit, as one written before a later build
+/// lowered it, is read and kept, and nothing is added past the limit until
+/// it is below it again (`DESIGN_QUESTIONS.md` P7-5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Limits {
+    pub(crate) local_identities: usize,
+    pub(crate) conversations_per_identity: usize,
+    pub(crate) queued_per_identity: usize,
+    pub(crate) queued_per_contact: usize,
+    pub(crate) queued_bytes: usize,
+    pub(crate) forgotten: usize,
+    pub(crate) conversation_len: usize,
+    pub(crate) messages: usize,
+}
+
+impl Default for Limits {
+    /// The limits of this build.
+    fn default() -> Self {
+        Self {
+            local_identities: MAX_LOCAL_IDENTITIES,
+            conversations_per_identity: MAX_CONVERSATIONS_PER_IDENTITY,
+            queued_per_identity: MAX_QUEUED_MESSAGES_PER_IDENTITY,
+            queued_per_contact: MAX_QUEUED_MESSAGES_PER_CONTACT,
+            queued_bytes: MAX_QUEUED_MESSAGE_BYTES,
+            forgotten: MESSAGE_DEDUP_WINDOW,
+            conversation_len: MAX_CONVERSATION_STORE_LEN,
+            messages: MAX_STORED_MESSAGES,
+        }
     }
 }
 
@@ -259,6 +295,14 @@ impl MessageState {
             payload_len: PAYLOAD_OVERHEAD_LEN,
             ..Self::default()
         }
+    }
+
+    /// The same state, with `limits` for what is added: those a later
+    /// build could have.
+    #[cfg(test)]
+    pub(crate) fn with_limits(mut self, limits: Limits) -> Self {
+        self.limits = limits;
+        self
     }
 
     /// The state of a message store as read. The payload was validated
@@ -363,7 +407,7 @@ impl MessageState {
 
     /// Checks that a new entry fits every limit of the whole store.
     fn fits(&self, room: &Room) -> Result<(), Refusal> {
-        if self.entries >= MAX_STORED_MESSAGES {
+        if self.entries >= self.limits.messages {
             return Err(Refusal::StoreFull);
         }
         let mut grows = room.entry;
@@ -391,7 +435,7 @@ impl MessageState {
         let held = self.identities.get(identity);
         // A payload holds the messages of at most `MAX_LOCAL_IDENTITIES`
         // identities; the state never holds what it could not write.
-        if held.is_none() && self.identities.len() >= MAX_LOCAL_IDENTITIES {
+        if held.is_none() && self.identities.len() >= self.limits.local_identities {
             return Err(Refusal::StoreFull);
         }
         let conversation = held.and_then(|held| held.conversations.get(contact));
@@ -404,13 +448,13 @@ impl MessageState {
                 return Err(Refusal::ConversationFull);
             }
         } else if held
-            .is_some_and(|held| held.conversations.len() >= MAX_CONVERSATIONS_PER_IDENTITY)
+            .is_some_and(|held| held.conversations.len() >= self.limits.conversations_per_identity)
         {
             return Err(Refusal::TooManyConversations);
         }
         let entry = entry_len(len);
         let used = conversation.map_or(0, |conversation| conversation.entries_len);
-        if used.saturating_add(entry) > MAX_CONVERSATION_STORE_LEN {
+        if used.saturating_add(entry) > self.limits.conversation_len {
             return Err(Refusal::ConversationFull);
         }
         let room = Room {
@@ -487,18 +531,18 @@ impl MessageState {
             if conversation.outbound.contains_key(&id) {
                 return Err(Refusal::IdTaken);
             }
-            if conversation.queued.len() >= MAX_QUEUED_MESSAGES_PER_CONTACT {
+            if conversation.queued.len() >= self.limits.queued_per_contact {
                 return Err(Refusal::ContactQueueFull);
             }
         }
         if self
             .identities
             .get(&identity)
-            .is_some_and(|held| held.queued >= MAX_QUEUED_MESSAGES_PER_IDENTITY)
+            .is_some_and(|held| held.queued >= self.limits.queued_per_identity)
         {
             return Err(Refusal::IdentityQueueFull);
         }
-        if self.queued_bytes.saturating_add(len) > MAX_QUEUED_MESSAGE_BYTES {
+        if self.queued_bytes.saturating_add(len) > self.limits.queued_bytes {
             return Err(Refusal::QueueBytesFull);
         }
         let room = self.room_for(&identity, &contact, &peer, len)?;
@@ -630,6 +674,7 @@ impl MessageState {
         contact: &ContactId,
         keep: bool,
     ) -> bool {
+        let forgotten = self.limits.forgotten;
         let Some(held) = self.identities.get_mut(identity) else {
             return false;
         };
@@ -649,7 +694,7 @@ impl MessageState {
                 .map(|entry| entry.id)
                 .collect();
             conversation.forgotten.extend(received);
-            while conversation.forgotten.len() > MESSAGE_DEDUP_WINDOW {
+            while conversation.forgotten.len() > forgotten {
                 conversation.forgotten.pop_front();
             }
             conversation.entries.clear();
@@ -1264,5 +1309,102 @@ mod tests {
             .unwrap();
         assert_eq!(queued, Ok(1));
         assert!(changes.has_changed().unwrap());
+    }
+
+    /// Limits a later build could have, each lowered to `lowered` where it
+    /// is named, the others as now.
+    fn lowered(change: impl FnOnce(&mut Limits)) -> Limits {
+        let mut limits = Limits::default();
+        change(&mut limits);
+        limits
+    }
+
+    #[test]
+    fn a_store_above_a_lowered_limit_is_read_and_kept_and_grows_no_further() {
+        // Ten messages queued under the limits of now; a later build lowers
+        // the queue of a contact to five (P7-5).
+        let (a, c) = (identity(1), contact(2));
+        let mut state = MessageState::new();
+        for n in 0..10 {
+            state.queue(a, c, peer(3), id(n), text("m"), 0).unwrap();
+        }
+        let bytes = state.contents().encode().unwrap();
+        let mut later = MessageState::load(MessageContents::decode(&bytes).unwrap())
+            .with_limits(lowered(|limits| limits.queued_per_contact = 5));
+        // Read whole, written back whole.
+        assert_eq!(later.queued(&a, &c), 10);
+        assert_eq!(later.contents().encode().unwrap(), bytes);
+        // Nothing more is queued until the queue is below the new limit.
+        assert_eq!(
+            later.queue(a, c, peer(3), id(100), text("m"), 0),
+            Err(Refusal::ContactQueueFull)
+        );
+        for n in 0..5 {
+            later.acknowledge(&a, &c, &id(n));
+        }
+        assert_eq!(
+            later.queue(a, c, peer(3), id(100), text("m"), 0),
+            Err(Refusal::ContactQueueFull)
+        );
+        later.acknowledge(&a, &c, &id(5));
+        assert!(later.queue(a, c, peer(3), id(100), text("m"), 0).is_ok());
+    }
+
+    #[test]
+    fn a_store_with_more_messages_than_a_lowered_limit_takes_none_in() {
+        let (a, c) = (identity(1), contact(2));
+        let mut state = MessageState::new();
+        for n in 0..8 {
+            assert!(matches!(
+                state.receive(a, c, peer(3), id(n), text("m"), 0),
+                Ok(Receipt::Stored(_))
+            ));
+        }
+        let bytes = state.contents().encode().unwrap();
+        let mut later = MessageState::load(MessageContents::decode(&bytes).unwrap())
+            .with_limits(lowered(|limits| limits.messages = 4));
+        let before = later.clone();
+        // Refused, and the sender keeps it; nothing held is dropped.
+        assert_eq!(
+            later.receive(a, c, peer(3), id(50), text("m"), 0),
+            Err(Refusal::StoreFull)
+        );
+        assert_eq!(later, before);
+        // A message already held is still known as one.
+        assert_eq!(
+            later.receive(a, c, peer(3), id(1), text("m"), 0),
+            Ok(Receipt::Duplicate)
+        );
+    }
+
+    #[test]
+    fn a_lowered_window_of_forgotten_messages_holds_from_the_next_deletion() {
+        let (a, c) = (identity(1), contact(2));
+        let mut state = MessageState::new();
+        for n in 0..6 {
+            state.receive(a, c, peer(3), id(n), text("m"), 0).unwrap();
+        }
+        state.delete_conversation(&a, &c, true);
+        let bytes = state.contents().encode().unwrap();
+        let mut later = MessageState::load(MessageContents::decode(&bytes).unwrap())
+            .with_limits(lowered(|limits| limits.forgotten = 2));
+        // All six are still remembered as read.
+        for n in 0..6 {
+            assert_eq!(
+                later.receive(a, c, peer(3), id(n), text("m"), 0),
+                Ok(Receipt::Duplicate)
+            );
+        }
+        later.receive(a, c, peer(3), id(10), text("m"), 0).unwrap();
+        later.delete_conversation(&a, &c, true);
+        // The newest two, the one just deleted among them, are kept.
+        assert_eq!(
+            later.receive(a, c, peer(3), id(10), text("m"), 0),
+            Ok(Receipt::Duplicate)
+        );
+        assert!(matches!(
+            later.receive(a, c, peer(3), id(0), text("m"), 0),
+            Ok(Receipt::Stored(_))
+        ));
     }
 }

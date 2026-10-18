@@ -323,8 +323,10 @@ Rules that are fixed now:
 - A reader that meets a record type or payload version it does not know
   refuses to open the vault. It does not skip and continue.
 - The payload is bounded: the file is at most `MAX_VAULT_FILE_LEN`, and
-  every count in it is checked against the limits in `limits.rs` before
-  anything is allocated for it.
+  every count in it is checked against the ceiling of the format before
+  anything is allocated for it: the limit of `limits.rs` it was made with,
+  which a later build may lower without making a vault above it
+  unreadable (`DESIGN_QUESTIONS.md` P7-5).
 - Everything read is validated again: cards are decoded and their
   signatures verified, credentials are rebuilt with `Credentials::restore`,
   which refuses any state no transition could have produced, labels pass

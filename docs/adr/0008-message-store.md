@@ -89,11 +89,12 @@ Payload, version 1, in the style of the vault records:
   locally, at most `MESSAGE_DEDUP_WINDOW`, newest kept, so that a late
   retry of one is acknowledged and not shown again.
 - Reading checks everything before it is used: the version, zero padding,
-  every count against its limit before anything is allocated, non-zero
+  every count against the ceiling of the format before anything is
+  allocated (the limit it was made with; since Phase 7, P7-5), non-zero
   and unique identifiers, entries in increasing sequence below the next
   sequence, known kinds, identifiers unique per direction in a
   conversation, every text against the rules of `ChatText`, the queue
-  limits. A store that fails any check, or does not authenticate, is not
+  ceilings. A store that fails any check, or does not authenticate, is not
   opened, and the installation is not opened with it. Nothing is
   repaired by guessing.
 
@@ -154,7 +155,10 @@ and nothing is written.
 (`MAX_MESSAGE_STORE_FILE_LEN`). A send above a limit fails and stores
 nothing. A received message above a limit is not stored and not
 acknowledged; the sender keeps it. Nothing accepted is dropped to make
-room.
+room. The limits bound what is added; what is read and written is
+bounded by the ceilings of the format, the limits it was made with, so
+that a store above a limit a later build lowered still opens and grows
+no further (`DESIGN_QUESTIONS.md` P7-5).
 
 ## Consequences
 

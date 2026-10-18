@@ -54,6 +54,45 @@ pub const CONVERSATION_OVERHEAD_LEN: usize = RECORD_ID_LEN + 32 + 8 + 2 + 4;
 /// Bytes an identity takes in the payload besides its conversations.
 pub const IDENTITY_OVERHEAD_LEN: usize = RECORD_ID_LEN + 2;
 
+/// The most of each count that payload version 1 of the message store
+/// holds (`docs/DESIGN_QUESTIONS.md` P7-5): the limits of
+/// `RESOURCE_LIMITS.md` section 5 that the format was made with. A store is
+/// read and written up to these, whatever the limits are in the build that
+/// reads it; the limits bound only what is added to it. A later build may
+/// lower a limit: a store above it is then still read, and nothing more is
+/// added past it. A limit above its ceiling needs a new payload version.
+pub mod ceiling {
+    /// Local identities with a section in the store.
+    pub const LOCAL_IDENTITIES: usize = 8;
+    /// Conversations of one local identity.
+    pub const CONVERSATIONS_PER_IDENTITY: usize = 2048;
+    /// Queued messages of one local identity.
+    pub const QUEUED_PER_IDENTITY: usize = 1024;
+    /// Queued messages of one conversation.
+    pub const QUEUED_PER_CONTACT: usize = 256;
+    /// Bytes of queued text, all identities together.
+    pub const QUEUED_BYTES: usize = 8 * 1024 * 1024;
+    /// Identifiers of deleted received messages kept for one conversation.
+    pub const FORGOTTEN_PER_CONVERSATION: usize = 1024;
+    /// Bytes the entries of one conversation take.
+    pub const CONVERSATION_LEN: usize = 4 * 1024 * 1024;
+    /// Messages, all conversations together.
+    pub const MESSAGES: usize = 262_144;
+}
+
+// A limit may be lowered by a later build, never raised above what the
+// format holds.
+const _: () = assert!(
+    MAX_LOCAL_IDENTITIES <= ceiling::LOCAL_IDENTITIES
+        && MAX_CONVERSATIONS_PER_IDENTITY <= ceiling::CONVERSATIONS_PER_IDENTITY
+        && MAX_QUEUED_MESSAGES_PER_IDENTITY <= ceiling::QUEUED_PER_IDENTITY
+        && MAX_QUEUED_MESSAGES_PER_CONTACT <= ceiling::QUEUED_PER_CONTACT
+        && MAX_QUEUED_MESSAGE_BYTES <= ceiling::QUEUED_BYTES
+        && MESSAGE_DEDUP_WINDOW <= ceiling::FORGOTTEN_PER_CONVERSATION
+        && MAX_CONVERSATION_STORE_LEN <= ceiling::CONVERSATION_LEN
+        && MAX_STORED_MESSAGES <= ceiling::MESSAGES
+);
+
 /// Bytes the payload takes besides its identities: the version, the
 /// records length and the identity count.
 pub const PAYLOAD_OVERHEAD_LEN: usize = 2 + 4 + 1;
@@ -172,11 +211,11 @@ impl MessageContents {
         let mut records = Writer::with_capacity(1024);
         records.u8(u8::try_from(self.identities.len())
             .ok()
-            .filter(|count| usize::from(*count) <= MAX_LOCAL_IDENTITIES)
+            .filter(|count| usize::from(*count) <= ceiling::LOCAL_IDENTITIES)
             .ok_or(StorageError::TooLarge)?);
         for identity in &self.identities {
             records.raw(identity.identity.as_bytes());
-            if identity.conversations.len() > MAX_CONVERSATIONS_PER_IDENTITY {
+            if identity.conversations.len() > ceiling::CONVERSATIONS_PER_IDENTITY {
                 return Err(StorageError::TooLarge);
             }
             records.u16(u16::try_from(identity.conversations.len()).map_err(too_large)?);
@@ -214,7 +253,7 @@ impl MessageContents {
         }
         let mut reader = Reader::new(records);
         let count = usize::from(reader.u8().map_err(format)?);
-        if count > MAX_LOCAL_IDENTITIES {
+        if count > ceiling::LOCAL_IDENTITIES {
             return Err(StorageError::BadFormat);
         }
         let mut totals = Totals::default();
@@ -230,7 +269,7 @@ impl MessageContents {
                 return Err(StorageError::BadFormat);
             }
             let conversations = usize::from(reader.u16().map_err(format)?);
-            if conversations > MAX_CONVERSATIONS_PER_IDENTITY {
+            if conversations > ceiling::CONVERSATIONS_PER_IDENTITY {
                 return Err(StorageError::BadFormat);
             }
             let mut held = Vec::with_capacity(capacity(
@@ -250,7 +289,7 @@ impl MessageContents {
                 queued = queued.saturating_add(conversation.queued());
                 held.push(conversation);
             }
-            if queued > MAX_QUEUED_MESSAGES_PER_IDENTITY {
+            if queued > ceiling::QUEUED_PER_IDENTITY {
                 return Err(StorageError::BadFormat);
             }
             identities.push(StoredMessages {
@@ -280,7 +319,7 @@ impl StoredConversation {
     }
 
     /// The bytes the entries take in the payload, which
-    /// `MAX_CONVERSATION_STORE_LEN` bounds.
+    /// `ceiling::CONVERSATION_LEN` bounds.
     pub fn entries_len(&self) -> usize {
         self.entries
             .iter()
@@ -292,14 +331,14 @@ impl StoredConversation {
         writer.raw(self.contact.as_bytes());
         writer.raw(self.peer.as_bytes());
         writer.u64(self.next_sequence);
-        if self.forgotten.len() > MESSAGE_DEDUP_WINDOW {
+        if self.forgotten.len() > ceiling::FORGOTTEN_PER_CONVERSATION {
             return Err(StorageError::TooLarge);
         }
         writer.u16(u16::try_from(self.forgotten.len()).map_err(too_large)?);
         for id in &self.forgotten {
             writer.raw(id.as_bytes());
         }
-        if self.entries.len() > MAX_STORED_MESSAGES {
+        if self.entries.len() > ceiling::MESSAGES {
             return Err(StorageError::TooLarge);
         }
         writer.raw(
@@ -325,7 +364,7 @@ impl StoredConversation {
             .map_err(|_| StorageError::BadFormat)?;
         let next_sequence = reader.u64().map_err(format)?;
         let count = usize::from(reader.u16().map_err(format)?);
-        if count > MESSAGE_DEDUP_WINDOW {
+        if count > ceiling::FORGOTTEN_PER_CONVERSATION {
             return Err(StorageError::BadFormat);
         }
         let mut inbound = HashSet::new();
@@ -341,7 +380,7 @@ impl StoredConversation {
         let count = u32::from_be_bytes(reader.array().map_err(format)?);
         let count = usize::try_from(count).map_err(|_| StorageError::BadFormat)?;
         totals.entries = totals.entries.saturating_add(count);
-        if totals.entries > MAX_STORED_MESSAGES {
+        if totals.entries > ceiling::MESSAGES {
             return Err(StorageError::BadFormat);
         }
         let mut outbound = HashSet::new();
@@ -385,9 +424,9 @@ impl StoredConversation {
                 text,
             });
         }
-        if queued > MAX_QUEUED_MESSAGES_PER_CONTACT
-            || bytes > MAX_CONVERSATION_STORE_LEN
-            || totals.queued_bytes > MAX_QUEUED_MESSAGE_BYTES
+        if queued > ceiling::QUEUED_PER_CONTACT
+            || bytes > ceiling::CONVERSATION_LEN
+            || totals.queued_bytes > ceiling::QUEUED_BYTES
         {
             return Err(StorageError::BadFormat);
         }
@@ -589,7 +628,7 @@ mod tests {
         let bytes = MessageContents::default().encode().unwrap().to_vec();
         // The identity count.
         let mut changed = bytes.clone();
-        changed[6] = u8::try_from(MAX_LOCAL_IDENTITIES + 1).unwrap();
+        changed[6] = u8::try_from(ceiling::LOCAL_IDENTITIES + 1).unwrap();
         assert_eq!(
             MessageContents::decode(&changed),
             Err(StorageError::BadFormat)
@@ -611,7 +650,7 @@ mod tests {
     fn queue_limits_hold_when_read() {
         let identity = IdentityId::from_bytes([1; RECORD_ID_LEN]).unwrap();
         let mut queued = conversation(0x10);
-        queued.entries = (0..=MAX_QUEUED_MESSAGES_PER_CONTACT as u64)
+        queued.entries = (0..=ceiling::QUEUED_PER_CONTACT as u64)
             .map(|n| StoredEntry {
                 sequence: n,
                 kind: EntryKind::Queued,
@@ -620,7 +659,7 @@ mod tests {
                 text: ChatText::new("x").unwrap(),
             })
             .collect();
-        queued.next_sequence = MAX_QUEUED_MESSAGES_PER_CONTACT as u64 + 1;
+        queued.next_sequence = ceiling::QUEUED_PER_CONTACT as u64 + 1;
         let contents = MessageContents {
             identities: vec![StoredMessages {
                 identity,

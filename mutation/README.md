@@ -299,7 +299,10 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
 - file messages on a runtime that transfers no file (P7-4): an offer
   ignored, a file message for a transfer never offered ignored, a
   rejected offer not remembered, the ended transfers kept without bound
-  (HR17 to HR20).
+  (HR17 to HR20);
+- a store above a limit a later build lowered (P7-5): a queue or the
+  store that ignores the lowered limit, a lowered window of forgotten
+  messages not applied (HR21 to HR23).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

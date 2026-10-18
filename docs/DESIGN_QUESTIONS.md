@@ -2600,6 +2600,25 @@ P7-4 File messages and profiles (BL3). The runtime ignored every file
     request stays the only name a sender suggests (`PROTOCOL.md` 8.7).
     The rates of these messages are BL13. Faults HR17 to HR20.
 
+P7-5 Limits that a later build lowers (BL26). `RESOURCE_LIMITS.md` says
+    lowering a local limit is compatible, but the decoders of the message
+    store and of the vault refused every count above the limits of the
+    build, so a store above a lowered limit would never open again. Each
+    format now has its ceilings (`message_records::ceiling`,
+    `record::ceiling` in `monolith-storage`): the counts its version
+    holds, equal to the limits it was made with. Reading and writing use
+    the ceilings; what is added uses the limits of the build, which a
+    compile-time assertion keeps at or below them. A store above a
+    lowered limit is read, written back whole and kept; nothing more is
+    added past the limit (a queue refuses until delivery brings it below,
+    the store takes no message in, which its sender keeps; the window of
+    forgotten identifiers shrinks at the next deletion). The ceilings are
+    not larger than the limits were, so they bound what a decoder
+    allocates as the limits did, and a count above one is still a store
+    that does not validate. Raising a limit above its ceiling needs a new
+    version of the format. The unit tests lower the limits of a
+    `MessageState` to show it; faults HR21 to HR23.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

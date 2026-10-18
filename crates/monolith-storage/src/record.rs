@@ -62,6 +62,36 @@ use zeroize::Zeroizing;
 
 use crate::StorageError;
 
+/// The most of each count that the vault payload holds
+/// (`docs/DESIGN_QUESTIONS.md` P7-5): the limits of `RESOURCE_LIMITS.md`
+/// section 5 that the format was made with. A vault is read and written up
+/// to these, whatever the limits are in the build that reads it; the limits
+/// bound only what is added to it. A later build may lower a limit: a vault
+/// above it is then still read, and nothing more is added past it. A limit
+/// above its ceiling needs a new payload version.
+pub mod ceiling {
+    /// Local identities.
+    pub const LOCAL_IDENTITIES: usize = 8;
+    /// Members of the active set of invitations of one identity.
+    pub const ACTIVE_INVITATIONS: usize = 16;
+    /// Contacts of one identity.
+    pub const CONTACTS: usize = 1000;
+    /// Identities one identity blocked.
+    pub const BLOCKED_IDENTITIES: usize = 10_000;
+    /// Identities one identity declined.
+    pub const DECLINED_IDENTITIES: usize = 1024;
+}
+
+// A limit may be lowered by a later build, never raised above what the
+// format holds.
+const _: () = assert!(
+    MAX_LOCAL_IDENTITIES <= ceiling::LOCAL_IDENTITIES
+        && MAX_ACTIVE_INVITATIONS <= ceiling::ACTIVE_INVITATIONS
+        && MAX_CONTACTS <= ceiling::CONTACTS
+        && MAX_BLOCKED_IDENTITIES <= ceiling::BLOCKED_IDENTITIES
+        && MAX_DECLINED_IDENTITIES <= ceiling::DECLINED_IDENTITIES
+);
+
 /// The payload version this build writes for records with identifiers.
 pub const PAYLOAD_VERSION: u16 = 2;
 
@@ -391,7 +421,7 @@ impl Contents {
     pub fn encode(&self) -> Result<Zeroizing<Vec<u8>>, StorageError> {
         let with_ids = self.version == PayloadVersion::V2;
         let mut records = Writer::with_capacity(1024);
-        records.u16(count_u16(self.identities.len(), MAX_LOCAL_IDENTITIES)?);
+        records.u16(count_u16(self.identities.len(), ceiling::LOCAL_IDENTITIES)?);
         for identity in &self.identities {
             identity.encode(&mut records, with_ids)?;
         }
@@ -432,7 +462,7 @@ impl Contents {
         let mut reader = Reader::new(records);
         let count = get_count(
             usize::from(reader.u16().map_err(format)?),
-            MAX_LOCAL_IDENTITIES,
+            ceiling::LOCAL_IDENTITIES,
         )?;
         let mut identities: Vec<StoredIdentity> = Vec::with_capacity(count);
         let mut contact_ids = HashSet::new();
@@ -505,21 +535,24 @@ impl StoredIdentity {
         put_label(writer, self.label.as_ref())?;
         writer.u8(u8::try_from(self.invitations.len())
             .ok()
-            .filter(|count| usize::from(*count) <= MAX_ACTIVE_INVITATIONS)
+            .filter(|count| usize::from(*count) <= ceiling::ACTIVE_INVITATIONS)
             .ok_or(StorageError::TooLarge)?);
         for invitation in &self.invitations {
             writer.raw(invitation.capability.expose());
             put_label(writer, invitation.label.as_ref())?;
         }
-        writer.u16(count_u16(self.contacts.len(), MAX_CONTACTS)?);
+        writer.u16(count_u16(self.contacts.len(), ceiling::CONTACTS)?);
         for contact in &self.contacts {
             contact.encode(writer, with_ids)?;
         }
-        writer.u16(count_u16(self.blocked.len(), MAX_BLOCKED_IDENTITIES)?);
+        writer.u16(count_u16(self.blocked.len(), ceiling::BLOCKED_IDENTITIES)?);
         for identity in &self.blocked {
             writer.raw(identity.as_bytes());
         }
-        writer.u16(count_u16(self.declined.len(), MAX_DECLINED_IDENTITIES)?);
+        writer.u16(count_u16(
+            self.declined.len(),
+            ceiling::DECLINED_IDENTITIES,
+        )?);
         for identity in &self.declined {
             writer.raw(identity.as_bytes());
         }
@@ -568,7 +601,7 @@ impl StoredIdentity {
         let label = get_label(reader)?;
         let count = get_count(
             usize::from(reader.u8().map_err(format)?),
-            MAX_ACTIVE_INVITATIONS,
+            ceiling::ACTIVE_INVITATIONS,
         )?;
         let mut invitations: Vec<StoredInvitation> = Vec::with_capacity(count);
         for _ in 0..count {
@@ -589,7 +622,10 @@ impl StoredIdentity {
             });
         }
         let mut seen = HashSet::new();
-        let count = get_count(usize::from(reader.u16().map_err(format)?), MAX_CONTACTS)?;
+        let count = get_count(
+            usize::from(reader.u16().map_err(format)?),
+            ceiling::CONTACTS,
+        )?;
         let mut contacts = Vec::with_capacity(count);
         for _ in 0..count {
             let contact = StoredContact::decode(reader, with_ids)?;
@@ -601,7 +637,7 @@ impl StoredIdentity {
         let mut lists = [Vec::new(), Vec::new()];
         for (list, max) in lists
             .iter_mut()
-            .zip([MAX_BLOCKED_IDENTITIES, MAX_DECLINED_IDENTITIES])
+            .zip([ceiling::BLOCKED_IDENTITIES, ceiling::DECLINED_IDENTITIES])
         {
             let count = get_count(usize::from(reader.u16().map_err(format)?), max)?;
             list.reserve(count);
@@ -847,7 +883,7 @@ mod tests {
     #[test]
     fn limits_are_checked_both_ways() {
         let mut too_many = Contents::default();
-        for seed in 0..=u8::try_from(MAX_LOCAL_IDENTITIES).unwrap() {
+        for seed in 0..=u8::try_from(ceiling::LOCAL_IDENTITIES).unwrap() {
             too_many.identities.push(StoredIdentity {
                 contacts: Vec::new(),
                 ..identity(seed.wrapping_add(1))
@@ -855,7 +891,7 @@ mod tests {
         }
         assert_eq!(too_many.encode().err(), Some(StorageError::TooLarge));
         let mut invitations = identity(1);
-        invitations.invitations = (0..=u8::try_from(MAX_ACTIVE_INVITATIONS).unwrap())
+        invitations.invitations = (0..=u8::try_from(ceiling::ACTIVE_INVITATIONS).unwrap())
             .map(|byte| StoredInvitation {
                 capability: InvitationCapability::from_bytes([byte; 16]),
                 label: None,
@@ -873,7 +909,7 @@ mod tests {
         // A count above the limit in a stored payload is refused before
         // anything is allocated for it.
         let mut bytes = Contents::default().encode().unwrap().to_vec();
-        let max = u16::try_from(MAX_LOCAL_IDENTITIES + 1)
+        let max = u16::try_from(ceiling::LOCAL_IDENTITIES + 1)
             .unwrap()
             .to_be_bytes();
         bytes[6] = max[0];

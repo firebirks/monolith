@@ -1181,15 +1181,21 @@ PHASE5 = [
           ("                    let resolution = duplicate::resolve(\n                        &self.local,\n                        remote,",
            "                    let resolution = duplicate::resolve(\n                        remote,\n                        &self.local,")),
     # Bounds.
+    # Since Phase 7 the limits are read from the state (P7-5); the fault
+    # is the same.
     fault("MR12", CORE + "messages.rs", "a conversation grows past its bound in bytes",
-          ("        if used.saturating_add(entry) > MAX_CONVERSATION_STORE_LEN {",
-           "        if used.saturating_add(entry) > MAX_CONVERSATION_STORE_LEN * 2 {")),
+          ("        if used.saturating_add(entry) > self.limits.conversation_len {",
+           "        if used.saturating_add(entry) > self.limits.conversation_len * 2 {")),
+    # Since Phase 7 the limits are read from the state (P7-5); the fault
+    # is the same.
     fault("MR13", CORE + "messages.rs", "the queue of a contact holds one message more",
-          ("            if conversation.queued.len() >= MAX_QUEUED_MESSAGES_PER_CONTACT {",
-           "            if conversation.queued.len() > MAX_QUEUED_MESSAGES_PER_CONTACT {")),
+          ("            if conversation.queued.len() >= self.limits.queued_per_contact {",
+           "            if conversation.queued.len() > self.limits.queued_per_contact {")),
+    # Since Phase 7 the limits are read from the state (P7-5); the fault
+    # is the same.
     fault("MR14", CORE + "messages.rs", "the queue of an identity holds one message more",
-          ("            .is_some_and(|held| held.queued >= MAX_QUEUED_MESSAGES_PER_IDENTITY)",
-           "            .is_some_and(|held| held.queued > MAX_QUEUED_MESSAGES_PER_IDENTITY)")),
+          ("            .is_some_and(|held| held.queued >= self.limits.queued_per_identity)",
+           "            .is_some_and(|held| held.queued > self.limits.queued_per_identity)")),
     fault("MR15", CORE + "identity.rs", "a queued message is reported before it is durable",
           ("        messages\n            .commit(generation)\n            .await\n            .map_err(MessageError::Storage)?;\n        if self.is_closed() {\n            return Err(MessageError::Closed);\n        }\n        Ok(queued)",
            "        let _ = generation;\n        if self.is_closed() {\n            return Err(MessageError::Closed);\n        }\n        Ok(queued)")),
@@ -1292,9 +1298,11 @@ PHASE5 = [
     fault("MR44", CORE + "runtime.rs", "a scheduler goes on after the vault failed",
           ("        let halted = identity.messages_failed() || identity.vault_failed();",
            "        let halted = identity.messages_failed();")),
+    # Since Phase 7 the limits are read from the state (P7-5); the fault
+    # is the same.
     fault("MR45", CORE + "messages.rs", "the state takes the messages of one identity more than a payload holds",
-          ("        if held.is_none() && self.identities.len() >= MAX_LOCAL_IDENTITIES {",
-           "        if held.is_none() && self.identities.len() > MAX_LOCAL_IDENTITIES {")),
+          ("        if held.is_none() && self.identities.len() >= self.limits.local_identities {",
+           "        if held.is_none() && self.identities.len() > self.limits.local_identities {")),
     fault("MR46", CORE + "messages.rs", "a conversation whose sequences ran out takes more",
           ("            if conversation.next_sequence == u64::MAX {",
            "            if conversation.next_sequence == 0 {")),
@@ -1843,6 +1851,16 @@ PHASE7 = [
     fault("HR20", CORE + "transfers.rs", "the ended transfers of a session are remembered without bound",
           ("        if self.ended.len() >= MAX_ENDED_TRANSFER_IDS {\n            self.ended.pop_front();\n        }\n",
            "")),
+    # A store above a limit a later build lowered (P7-5).
+    fault("HR21", CORE + "messages.rs", "the queue of a contact ignores a lowered limit",
+          ("            if conversation.queued.len() >= self.limits.queued_per_contact {\n",
+           "            if conversation.queued.len() >= MAX_QUEUED_MESSAGES_PER_CONTACT {\n")),
+    fault("HR22", CORE + "messages.rs", "the store takes messages in past a lowered limit",
+          ("        if self.entries >= self.limits.messages {\n",
+           "        if self.entries >= MAX_STORED_MESSAGES {\n")),
+    fault("HR23", CORE + "messages.rs", "a lowered window of forgotten messages is not applied",
+          ("            while conversation.forgotten.len() > forgotten {\n",
+           "            while conversation.forgotten.len() > MESSAGE_DEDUP_WINDOW {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

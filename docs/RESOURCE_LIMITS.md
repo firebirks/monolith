@@ -13,6 +13,17 @@ benchmarks may move them. Lowering a limit is a compatible change only for
 limits marked "local"; the others are part of the wire protocol. The cost
 of the handshake in section 11.1 is measured.
 
+Of the local limits, those of section 5 that bound what the vault and the
+message store hold (identities, contacts, the blocked and the declined,
+invitations, conversations, queues, forgotten identifiers, messages) are
+also counts of their formats. A store is read and written up to the
+ceilings of its format, which are these values as the format was made
+with; the limits of the build bound only what is added. A later build may
+lower one of them: a store above it is still read and kept, and nothing
+more is added past the limit until it is below it again. Raising one
+above its ceiling needs a new version of the format; the build refuses to
+compile otherwise (`DESIGN_QUESTIONS.md` P7-5).
+
 ## 1. Wire sizes (protocol)
 
 | Constant | Value | Notes |
