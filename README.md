@@ -27,7 +27,8 @@ its own. File transfer is not implemented. The Tails and Whonix
 integrations (control port filters, the firewall rule) are drafts.
 `docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6, 12.8 and 13.3 record the
 final verifications of Phases 3, 4, 5 and 6. Nothing here has been
-audited. Do not rely on it for anything.
+audited. Monolith is still experimental software. Do not rely on it for
+high-stakes or production use yet.
 
 ## What it is
 
