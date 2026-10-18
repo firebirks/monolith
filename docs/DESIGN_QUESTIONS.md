@@ -2540,6 +2540,18 @@ P7-1 The dial plan during a rotation of the peer's key (BL24). An
 
 ### 14.2 Not part of Phase 7
 
+Deferred with the owner's approval (2026-10-18), as work of a product
+or a platform rather than hardening: tests with screen readers,
+shaping and bidi, a message list reachable by keyboard, keeping unread
+counts and declines (BL14 to BL17); blocking a key without a record
+(BL18); finding the Tor cookie by the name Tor gives, where the path
+the user configured stays the only one read and its checks are part
+of Phase 7 (BL20); installers and signing, and the client tried by
+hand on Tails and Whonix (BL21, BL22), while the build, packages and
+tests of Linux and Windows stay in the verification; building and
+testing with a stable compiler that fixes rust-lang/rust#164250, once
+one exists (BL53), which the final verification looks for.
+
 File transfer and attachments, the Double Ratchet, groups, a mobile
 client, voice and video, read receipts, typing indicators, presence, push
 notifications, cloud sync, a new transport, a new identity model. Where a

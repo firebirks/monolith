@@ -105,10 +105,13 @@ as judged here.
 | BL52 | 12.8 | low | D, T | core `persist.rs`, `messages.rs`, `sessions.rs` | `cargo doc` with warnings denied finds broken intra-doc links |
 | BL53 | 12.8 | - | T | toolchain | rust-lang/rust#164250: build and test again with the stable compiler that fixes it |
 
-Proposed for deferral, waiting for the owner's approval (features or
-platform work, not hardening): BL14, BL15, BL16, BL17, BL18, BL20, BL21,
-BL22; BL53 until a fixed stable exists. BL19 is either measured and
-accepted or deferred.
+Deferred with the owner's approval on 2026-10-18 (features or platform
+work, not hardening; `docs/DESIGN_QUESTIONS.md` 14.2): BL14 to BL17,
+BL18, BL20 (only finding the cookie by the name Tor gives; the checks
+of the configured path are BL42), BL21, BL22 (the build, package and
+tests of Linux and Windows stay in the verification), BL53 (the final
+verification looks at the stable of the day, and if it has the fix,
+builds and tests with it). BL19 is measured, and accepted or deferred.
 
 ## 3. Progress
 
