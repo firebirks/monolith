@@ -13,6 +13,7 @@ pub mod failure;
 pub mod ids;
 pub mod model;
 pub mod present;
+pub mod prose;
 pub mod protocol;
 
 pub use data::{
@@ -25,4 +26,5 @@ pub use model::{
     Dialog, Model, Notice, NoticeKind, Phase, RowState, Selection, SidebarRow, Slice, Thread,
     TorIndicator, Waiting,
 };
+pub use prose::{Prose, Span};
 pub use protocol::{Command, CommandId, IdentitySnapshot, Outcome, ProfileOnDisk, Update};

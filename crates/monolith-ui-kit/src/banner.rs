@@ -9,6 +9,7 @@ use egui::{
 use crate::button::{Button, Size};
 use crate::icons::{self, Icon};
 use crate::interact::{self, State};
+use crate::line::Line;
 use crate::rows::{join_label, wrapped};
 use crate::theme::{self, Theme};
 
@@ -61,7 +62,7 @@ pub struct Output {
 pub struct Banner<'a> {
     id: Id,
     tone: Tone,
-    text: &'a str,
+    text: Line,
     title: &'a str,
     action: Option<&'a str>,
     dismiss: Option<&'a str>,
@@ -69,11 +70,11 @@ pub struct Banner<'a> {
 
 impl<'a> Banner<'a> {
     /// A banner identified by `id_salt`.
-    pub fn new(id_salt: impl core::hash::Hash, tone: Tone, text: &'a str) -> Self {
+    pub fn new(id_salt: impl core::hash::Hash, tone: Tone, text: impl Into<Line>) -> Self {
         Self {
             id: Id::new(("monolith-banner", id_salt)),
             tone,
-            text,
+            text: text.into(),
             title: "",
             action: None,
             dismiss: None,
@@ -156,10 +157,10 @@ impl<'a> Banner<'a> {
                 3,
             )
         });
-        let body = wrapped(
+        let body = self.text.galley(
             ui,
-            self.text,
             &theme.text.body,
+            &theme.text.body_strong,
             Color32::PLACEHOLDER,
             text_width,
             12,
@@ -172,7 +173,7 @@ impl<'a> Banner<'a> {
         interact::describe(
             &info,
             WidgetType::Label,
-            &join_label(&[self.title, self.text]),
+            &join_label(&[self.title, &self.text.plain()]),
         );
 
         if ui.is_rect_visible(rect) {

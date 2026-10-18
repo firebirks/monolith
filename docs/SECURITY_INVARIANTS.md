@@ -905,9 +905,16 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
   `monolith_ui_model::present::prepare`, which bounds it (RESOURCE_LIMITS
   section 10) and draws direction controls and other invisible format
   characters as visible marks; a request's name and introduction are
-  quoted as the sender's words, never made a title.
+  the sender's words, never made a title. Since Phase 7 (P7-2) they are
+  shown in a box of their words, each under a label of the client, and
+  never inside a sentence of the client, so that no quotation mark can
+  close them and go on as the client; a name in a sentence of the client
+  (a contact's, which can be the name a request suggested, an
+  identity's, an invitation's) is a span of its own, drawn in the strong
+  style and never between quotation marks the client adds.
 - Tests: T-TEXT-*, T-INJ-*; `present.rs` tests, fuzz target `ui_present`,
-  `requests::tests`, mutation fault UI29.
+  `requests::tests`, `prose::tests`, the request card test of
+  `monolith-ui-kit`, mutation faults UI29 and HR5 to HR8.
 
 ### S16. No received URL, file or resource is opened automatically
 

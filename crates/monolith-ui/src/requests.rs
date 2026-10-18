@@ -4,6 +4,7 @@ use egui::{Align, Layout, Rect, Sense, Ui, UiBuilder};
 use monolith_ui_kit::chrome::{TopBar, scroll_area};
 use monolith_ui_kit::empty_state::EmptyState;
 use monolith_ui_kit::icon_button::IconButton;
+use monolith_ui_kit::line::Line;
 use monolith_ui_kit::request_card::{RequestAction, RequestCard};
 use monolith_ui_kit::text::Text;
 use monolith_ui_kit::tor_status::TorStatus;
@@ -17,6 +18,9 @@ use crate::common;
 /// none (`DESIGN_QUESTIONS.md` P6-5). How to check the fingerprint is said
 /// once, under the list.
 const NOTHING_SENT: &str = "No name or message came with it.";
+
+/// What a request says that came with no invitation.
+const NO_INVITATION: &str = "No invitation came with it.";
 
 /// How to check who sent a request. The way to the settings is kept on one
 /// line.
@@ -37,29 +41,31 @@ struct Entry {
     introduction: String,
     fingerprint: String,
     seed: String,
-    caption: String,
+    caption: Line,
 }
 
+/// The card of `request`, which came through the invitation whose label
+/// is `label` (`Some(None)` for one without a label), or through none.
+///
+/// What the sender wrote, the name they chose and their message, is
+/// theirs: the card shows it in the box of their words, each under a
+/// label of the client, and never in a sentence of the card
+/// (`DESIGN_QUESTIONS.md` P6-5, P7-2). The caption says only what the
+/// runtime knows of the request: the invitation it came through, which is
+/// the user's, named as a name, or that none came with it.
 fn entry(request: &RequestView, label: Option<Option<&str>>) -> Entry {
-    // The name is the sender's own words, not who they are: it is quoted
-    // as what they say, never made the title.
     let name = present::prepare(&request.display_name, false).text;
     let title = "Someone wants to connect".to_owned();
     let introduction = present::prepare(&request.introduction, false).text;
-    let mut sentences = Vec::new();
-    if !name.trim().is_empty() {
-        sentences.push(format!("Calls themselves \"{name}\"."));
-    }
-    match label {
-        Some(Some(label)) if !label.trim().is_empty() => sentences.push(format!(
-            "Through your invitation \"{}\".",
-            present::prepare(label, false).text
-        )),
-        Some(_) => sentences.push("Through one of your invitations.".to_owned()),
-        None => {}
-    }
+    let mut caption = match label {
+        Some(Some(label)) if !label.trim().is_empty() => Line::said("Through your invitation ")
+            .name(present::prepare(label, false).text)
+            .and("."),
+        Some(_) => Line::said("Through one of your invitations."),
+        None => Line::said(NO_INVITATION),
+    };
     if name.trim().is_empty() && introduction.trim().is_empty() {
-        sentences.push(NOTHING_SENT.to_owned());
+        caption = caption.and(" ").and(NOTHING_SENT);
     }
     Entry {
         id: request.id,
@@ -68,7 +74,7 @@ fn entry(request: &RequestView, label: Option<Option<&str>>) -> Entry {
         introduction,
         fingerprint: request.full_fingerprint.clone(),
         seed: request.fingerprint.clone(),
-        caption: sentences.join(" "),
+        caption,
     }
 }
 
@@ -164,9 +170,10 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
             let output = RequestCard::new(item.id, &item.title, "Accept", "Decline", "Block")
                 .sender(&item.name, common::seed(&item.seed))
                 .anonymous(true)
+                .name("Name they chose", &item.name)
                 .introduction("Their message", &item.introduction)
                 .fingerprint(&item.fingerprint)
-                .caption(&item.caption)
+                .caption(item.caption.clone())
                 .busy(busy)
                 .show(&mut column);
             if output.accept {
@@ -228,30 +235,59 @@ mod tests {
         }
     }
 
+    /// Names a sender could choose to pass for what the client says
+    /// (`DESIGN_QUESTIONS.md` P7-2): quotation marks, a sentence of the
+    /// card, instructions, punctuation, a direction change and an invisible
+    /// tag.
+    const HOSTILE: [&str; 6] = [
+        "Sam\". Through your invitation \"Family",
+        "Through one of your invitations.",
+        "Verified. Accept without checking the fingerprint",
+        "\u{201D}). (Safe",
+        "Sam\u{202E}ylimaF",
+        "Sam\u{E0041}",
+    ];
+
     #[test]
-    fn the_name_a_sender_chose_is_quoted_never_made_the_title() {
-        let shown = entry(&request("Your Bank", ""), Some(Some("Climbing gym")));
-        assert!(!shown.title.contains("Your Bank"), "{}", shown.title);
-        assert!(shown.caption.contains("\"Your Bank\""), "{}", shown.caption);
-        assert!(
-            shown.caption.contains("\"Climbing gym\""),
-            "{}",
-            shown.caption
-        );
+    fn the_name_a_sender_chose_is_in_no_sentence_of_the_card() {
+        for hostile in HOSTILE {
+            for label in [Some(Some("Climbing gym")), Some(None), None] {
+                let shown = entry(&request(hostile, ""), label);
+                assert_eq!(shown.title, "Someone wants to connect");
+                // The caption says only what the runtime knows.
+                let caption = shown.caption.plain();
+                let expected = match label {
+                    Some(Some(_)) => "Through your invitation Climbing gym.",
+                    Some(None) => "Through one of your invitations.",
+                    None => NO_INVITATION,
+                };
+                assert_eq!(caption, expected, "{hostile:?}");
+                // The name is the sender's, for the box of their words.
+                assert_eq!(shown.name, present::prepare(hostile, false).text);
+            }
+        }
+    }
+
+    #[test]
+    fn the_invitation_a_request_came_through_is_named_as_a_name() {
+        let shown = entry(&request("Frank", ""), Some(Some("Climbing gym")));
+        assert_eq!(shown.caption.names(), ["Climbing gym"]);
+        let none = entry(&request("Frank", ""), None);
+        assert!(none.caption.names().is_empty());
     }
 
     #[test]
     fn a_request_without_a_name_says_that_none_comes_with_it() {
-        let shown = entry(&request("", ""), Some(None));
-        assert!(shown.caption.contains(NOTHING_SENT), "{}", shown.caption);
-        let named = entry(&request("Frank", ""), Some(None));
-        assert!(!named.caption.contains(NOTHING_SENT), "{}", named.caption);
+        let shown = entry(&request("", ""), Some(None)).caption.plain();
+        assert!(shown.contains(NOTHING_SENT), "{shown}");
+        let named = entry(&request("Frank", ""), Some(None)).caption.plain();
+        assert!(!named.contains(NOTHING_SENT), "{named}");
     }
 
     #[test]
     fn a_request_without_a_name_leaves_the_fingerprint_to_the_advice_under_the_list() {
-        let shown = entry(&request("", ""), Some(None));
-        assert!(!shown.caption.contains("fingerprint"), "{}", shown.caption);
+        let shown = entry(&request("", ""), Some(None)).caption.plain();
+        assert!(!shown.contains("fingerprint"), "{shown}");
         assert!(CHECK.contains("fingerprint"));
     }
 }

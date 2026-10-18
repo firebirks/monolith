@@ -32,6 +32,7 @@ use crate::ids::{
     UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
 };
 use crate::present::{self, Prepared};
+use crate::prose::Prose;
 use crate::protocol::{Command, CommandId, IdentitySnapshot, Outcome, ProfileOnDisk, Update};
 
 /// How many messages a conversation reads at a time.
@@ -93,8 +94,8 @@ pub enum NoticeKind {
 pub struct Notice {
     /// What it is about.
     pub kind: NoticeKind,
-    /// The sentence.
-    pub text: String,
+    /// The sentence, with the names in it kept apart ([`Prose`]).
+    pub text: Prose,
     /// An invitation the notice offers to revoke: its action asks whether
     /// to revoke it.
     pub revoke: Option<UiInvitationId>,
@@ -938,7 +939,7 @@ impl Model {
         id
     }
 
-    fn notice(&mut self, kind: NoticeKind, text: impl Into<String>) {
+    fn notice(&mut self, kind: NoticeKind, text: impl Into<Prose>) {
         self.notices.push(Notice {
             kind,
             text: text.into(),
@@ -2073,7 +2074,7 @@ impl Model {
     /// invitation that is active while the identity takes requests, that
     /// invitation, which keeps admitting requests until it is revoked, and
     /// a sentence that says so.
-    fn accepted_through(&self, request: UiRequestId) -> Option<(UiInvitationId, String)> {
+    fn accepted_through(&self, request: UiRequestId) -> Option<(UiInvitationId, Prose)> {
         let slice = self.slices.get(&request.identity())?;
         if slice.request_mode == Some(RequestMode::Closed) {
             return None;
@@ -2089,17 +2090,15 @@ impl Model {
             .find(|view| view.id == invitation)?
             .label
             .as_deref()
-            .map(|label| present::prepare(label, false).text)
             .filter(|label| !label.trim().is_empty());
+        let said = Prose::said("Request accepted. Others who have ");
         let named = match label {
-            Some(label) => format!("your invitation \"{label}\""),
-            None => "the invitation it came through".to_owned(),
+            Some(label) => said.and("your invitation ").name(label),
+            None => said.and("the invitation it came through"),
         };
         Some((
             invitation,
-            format!(
-                "Request accepted. Others who have {named} can still send you requests until you revoke it."
-            ),
+            named.and(" can still send you requests until you revoke it."),
         ))
     }
 
@@ -2317,7 +2316,10 @@ impl Model {
             RuntimeEvent::ContactAccepted(contact) => {
                 self.mark_identity(contact.identity());
                 let name = self.contact_name(contact);
-                self.notice(NoticeKind::Info, format!("{name} accepted your request."));
+                self.notice(
+                    NoticeKind::Info,
+                    Prose::said("").name(&name).and(" accepted your request."),
+                );
             }
             RuntimeEvent::RequestReceived { identity, queued } => {
                 if queued {

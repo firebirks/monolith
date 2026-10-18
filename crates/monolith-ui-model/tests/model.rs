@@ -18,8 +18,9 @@ use monolith_ui_model::model::UNBLOCKED;
 use monolith_ui_model::{
     BlockedView, Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure,
     IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase,
-    ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Status, UiBlockedId,
-    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update, Waiting, present,
+    ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Span, Status,
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    Waiting, present,
 };
 use zeroize::Zeroizing;
 
@@ -808,7 +809,7 @@ fn a_failure_is_told_in_its_sentence_never_in_its_debug_form() {
     let texts: Vec<String> = model
         .take_notices()
         .into_iter()
-        .map(|notice| notice.text)
+        .map(|notice| notice.text.plain())
         .collect();
     assert_eq!(texts, vec![Failure::NoSuchRequest.message().to_owned()]);
 }
@@ -1134,7 +1135,7 @@ fn a_declined_request_and_a_blocked_sender_are_told_apart() {
     let texts: Vec<String> = model
         .take_notices()
         .into_iter()
-        .map(|notice| notice.text)
+        .map(|notice| notice.text.plain())
         .collect();
     assert_eq!(texts, ["Sender blocked.", "Request declined."]);
 }
@@ -1375,7 +1376,7 @@ fn an_invitation_or_the_card_of_an_accepted_contact_closes_the_dialog() {
     let texts: Vec<String> = model
         .take_notices()
         .into_iter()
-        .map(|notice| notice.text)
+        .map(|notice| notice.text.plain())
         .collect();
     assert_eq!(texts, ["Contact added.", "Contact added."]);
 }
@@ -1458,7 +1459,7 @@ fn an_unblock_names_someone_listed_once_and_says_what_it_did() {
     let notices = model.take_notices();
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].kind, NoticeKind::Success);
-    assert_eq!(notices[0].text, UNBLOCKED);
+    assert_eq!(notices[0].text.plain(), UNBLOCKED);
     // Who is blocked is read again; until then the list stays as it was
     // said.
     assert_eq!(model.slice(identity(1)).unwrap().blocked.len(), 2);
@@ -1493,7 +1494,7 @@ fn an_unblock_names_someone_listed_once_and_says_what_it_did() {
     let notices = model.take_notices();
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].kind, NoticeKind::Error);
-    assert_eq!(notices[0].text, Failure::NotBlocked.message());
+    assert_eq!(notices[0].text.plain(), Failure::NotBlocked.message());
     assert!(
         model
             .take_commands()
@@ -1876,7 +1877,7 @@ fn a_failed_store_met_by_a_command_raises_no_notice_of_its_own() {
     let texts: Vec<String> = model
         .take_notices()
         .into_iter()
-        .map(|notice| notice.text)
+        .map(|notice| notice.text.plain())
         .collect();
     assert_eq!(texts, [Failure::NoSuchContact.message()]);
 }
@@ -2078,7 +2079,15 @@ fn accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it() {
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].kind, NoticeKind::Success);
     assert_eq!(notices[0].revoke, Some(invitation));
-    assert!(notices[0].text.contains("\"Gym\""), "{}", notices[0].text);
+    // The label is the user's, said as a name of its own (P7-2).
+    assert!(
+        notices[0]
+            .text
+            .spans()
+            .contains(&Span::Name("Gym".to_owned())),
+        "{}",
+        notices[0].text.plain()
+    );
     // While requests are set to Nobody the invitation admits none: nothing
     // to offer.
     let (mut model, request, _) = with_invited_request(RequestMode::Closed);
@@ -2086,5 +2095,5 @@ fn accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it() {
     let notices = model.take_notices();
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].revoke, None);
-    assert_eq!(notices[0].text, "Request accepted.");
+    assert_eq!(notices[0].text.plain(), "Request accepted.");
 }

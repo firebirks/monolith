@@ -1709,8 +1709,10 @@ PHASE6 = [
           ("            Self::Ended => icons::CIRCLE_DASHED,", "            Self::Ended => icons::BAN,")),
     fault("UI129", UK + "rows.rs", "the markers of the list say no word under the pointer",
           ("            tooltip::show(&mark, &status.words());\n", "")),
-    fault("UI130", UK + "request_card.rs", "the well of a request's message has no edge",
-          ("                        .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))\n", "")),
+    # The well moved to their_words.rs in Phase 7 (P7-2); the fault is the
+    # same.
+    fault("UI130", UK + "their_words.rs", "the well of a request's message has no edge",
+          ("            .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))\n", "")),
     fault("UI131", UI + "settings.rs", "the pages of the settings leave the page narrower than a narrow window's",
           ("            .default_width(theme.size.sidebar_min)\n", "")),
     fault("UI132", UI + "dialogs.rs", "the buttons that only ask in the contact dialog are solid red",
@@ -1801,4 +1803,20 @@ PHASE7 = [
            "LinkError::Stream | LinkError::TimedOut | LinkError::Tor(_) | LinkError::Session(SessionError::Protocol(_))")),
     fault("HR4", CORE + "link.rs", "an attempt that is over dials the next card",
           ("        if index > 0 && !go_on() {", "        if false {")),
+
+    # Words a sender chose and names in sentences of the client (P7-2).
+    fault("HR5", UI + "requests.rs", "the name a sender chose is put in the caption of the card",
+          ("    if name.trim().is_empty() && introduction.trim().is_empty() {\n",
+           "    caption = caption.and(format!(\" Calls themselves \\\"{name}\\\".\"));\n"
+           "    if name.trim().is_empty() && introduction.trim().is_empty() {\n")),
+    fault("HR6", UK + "line.rs", "a name in a sentence of the client is drawn as its words",
+          ("                Part::Name(name) => job.append(name, 0.0, strong.format(color)),",
+           "                Part::Name(name) => job.append(name, 0.0, token.format(color)),")),
+    fault("HR7", UI + "dialogs.rs", "the Accept dialog puts the name a sender chose in its sentence",
+          ("                TheirWords::new()\n"
+           "                    .part(\"Name they chose\", &display_name, NAME_ROWS)\n"
+           "                    .show(ui);\n",
+           "                paragraph(ui, &theme, &format!(\"They chose the name \\\"{display_name}\\\".\"));\n")),
+    fault("HR8", UM + "prose.rs", "a name in a sentence of the model becomes words of the client",
+          ("            self.spans.push(Span::Name(name));", "            self.spans.push(Span::Said(name));")),
 ]

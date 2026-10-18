@@ -284,7 +284,11 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
 
 - the dial plan during a rotation of the peer's key (P7-1): only the
   first card dialed, the next card dialed after a card that answered or
-  after a failure of Tor, or after the attempt is over (HR1 to HR4).
+  after a failure of Tor, or after the attempt is over (HR1 to HR4);
+- the words of a sender and names in sentences of the client (P7-2): the
+  name a sender chose put in the caption of a request or in the sentence
+  of the Accept dialog, a name drawn as the client's words, a name of the
+  model made words of the client (HR5 to HR8).
 
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 

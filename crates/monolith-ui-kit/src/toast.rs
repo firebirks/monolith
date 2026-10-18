@@ -15,11 +15,12 @@ use std::time::Duration;
 use egui::accesskit::Live;
 use egui::{
     Align2, Area, Color32, Context, CornerRadius, Id, Order, Rect, Sense, Stroke, StrokeKind, Vec2,
-    WidgetInfo, WidgetType, text::LayoutJob,
+    WidgetInfo, WidgetType,
 };
 
 use crate::icons::{self, Icon};
 use crate::interact::{self, State, mix, over};
+use crate::line::Line;
 use crate::theme::{self, Theme};
 
 /// How many notices are shown at once.
@@ -72,7 +73,7 @@ impl Kind {
 struct Toast {
     id: u64,
     kind: Kind,
-    text: String,
+    text: Line,
     action: Option<String>,
     /// When it first appeared; its timer starts then.
     shown_at: Option<f64>,
@@ -117,7 +118,7 @@ impl Toasts {
     }
 
     /// Shows a notice. Returns its id.
-    pub fn push(&mut self, kind: Kind, text: impl Into<String>) -> u64 {
+    pub fn push(&mut self, kind: Kind, text: impl Into<Line>) -> u64 {
         self.push_inner(kind, text.into(), None)
     }
 
@@ -126,13 +127,13 @@ impl Toasts {
     pub fn push_with_action(
         &mut self,
         kind: Kind,
-        text: impl Into<String>,
+        text: impl Into<Line>,
         action: impl Into<String>,
     ) -> u64 {
         self.push_inner(kind, text.into(), Some(action.into()))
     }
 
-    fn push_inner(&mut self, kind: Kind, text: String, action: Option<String>) -> u64 {
+    fn push_inner(&mut self, kind: Kind, text: Line, action: Option<String>) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
         self.items.push(Toast {
@@ -394,12 +395,14 @@ fn draw(ui: &mut egui::Ui, theme: &Theme, toast: &Toast, look: Look, dismiss_lab
         .map_or(0.0, |galley| galley.size().x + theme.space.md * 2.0);
     let text_width = (width - pad * 2.0 - icon_slot - button - theme.space.xs - action_width)
         .max(theme.size.control);
-    let mut job = LayoutJob::single_section(
-        toast.text.clone(),
-        theme.text.body.format(Color32::PLACEHOLDER),
+    let galley = toast.text.galley(
+        ui,
+        &theme.text.body,
+        &theme.text.body_strong,
+        Color32::PLACEHOLDER,
+        text_width,
+        usize::MAX,
     );
-    job.wrap.max_width = text_width;
-    let galley = ui.painter().layout_job(job);
 
     let height = galley.size().y + pad * 2.0;
     let (slot, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
@@ -407,7 +410,7 @@ fn draw(ui: &mut egui::Ui, theme: &Theme, toast: &Toast, look: Look, dismiss_lab
     let rect = slot.translate(Vec2::new(0.0, -slide));
     let id = Id::new(("monolith-toast", toast.id));
     let card = ui.interact(rect, id, Sense::hover());
-    card.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, toast.text.as_str()));
+    card.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, toast.text.plain()));
     // A live region: a screen reader reads the notice when it comes, at
     // once for an error, after what it is reading for the others.
     let live = if toast.kind == Kind::Error {

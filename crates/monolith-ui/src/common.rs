@@ -1,8 +1,22 @@
 //! What several screens share: how the state of Tor is said, what a
-//! contact that has not accepted waits for, and the seed of an avatar.
+//! contact that has not accepted waits for, the seed of an avatar, and
+//! the sentences of the model as lines to draw.
 
+use monolith_ui_kit::line::Line;
 use monolith_ui_kit::tor_status::TorState;
-use monolith_ui_model::{Model, TorCheck, TorIndicator, Waiting};
+use monolith_ui_model::{Model, Prose, Span, TorCheck, TorIndicator, Waiting};
+
+/// `prose` as a line to draw, each of its names a name
+/// (`DESIGN_QUESTIONS.md` P7-2).
+pub(crate) fn line(prose: &Prose) -> Line {
+    prose
+        .spans()
+        .iter()
+        .fold(Line::default(), |line, span| match span {
+            Span::Said(text) => line.and(text.as_str()),
+            Span::Name(name) => line.name(name.as_str()),
+        })
+}
 
 /// The state of Tor for a top bar, and its words. Each names Tor, so that
 /// next to a contact's name it is not read as whether they are online.

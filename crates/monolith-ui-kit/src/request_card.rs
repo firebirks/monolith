@@ -1,6 +1,7 @@
-//! The card of a contact request: who wants to connect, what they wrote
-//! (their words, marked as such), their fingerprint, and the three ways to
-//! answer.
+//! The card of a contact request: who wants to connect, how the request
+//! came, what the sender wrote (the name they chose and their message,
+//! in a box of their words, never in a sentence of the card), their
+//! fingerprint, and the three ways to answer.
 
 use egui::{
     Align, CornerRadius, Frame, Id, Label, Layout, Margin, Sense, Stroke, Ui, UiBuilder, Vec2,
@@ -11,12 +12,17 @@ use crate::avatar::{Avatar, AvatarSize};
 use crate::button::Button;
 use crate::fingerprint::Fingerprint;
 use crate::interact;
+use crate::line::Line;
 use crate::rows::wrapped;
+use crate::their_words::TheirWords;
 use crate::theme;
 
 /// The longest introduction that is laid out, in rows. Longer ones end in
 /// an ellipsis: they are written by someone else.
 const INTRO_MAX_ROWS: usize = 10;
+
+/// The rows of the name the sender chose, as for the introduction.
+const NAME_MAX_ROWS: usize = 3;
 
 /// The answers to a request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,9 +54,10 @@ pub struct RequestCard<'a> {
     sender: &'a str,
     seed: &'a [u8],
     anonymous: bool,
+    name: Option<(&'a str, &'a str)>,
     introduction: Option<(&'a str, &'a str)>,
     fingerprint: &'a str,
-    caption: &'a str,
+    caption: Line,
     labels: (&'a str, &'a str, &'a str),
     busy: Option<RequestAction>,
 }
@@ -72,9 +79,10 @@ impl<'a> RequestCard<'a> {
             sender: "",
             seed: &[],
             anonymous: false,
+            name: None,
             introduction: None,
             fingerprint: "",
-            caption: "",
+            caption: Line::default(),
             labels: (accept, decline, block),
             busy: None,
         }
@@ -95,6 +103,16 @@ impl<'a> RequestCard<'a> {
         self
     }
 
+    /// The name the sender chose, under the caller's `label` that says
+    /// whose words it is, in the box of their words and in no sentence of
+    /// the card.
+    pub fn name(mut self, label: &'a str, text: &'a str) -> Self {
+        if !text.trim().is_empty() {
+            self.name = Some((label, text));
+        }
+        self
+    }
+
     /// The sender's own words, under the caller's `label` that says whose
     /// they are.
     pub fn introduction(mut self, label: &'a str, text: &'a str) -> Self {
@@ -111,9 +129,10 @@ impl<'a> RequestCard<'a> {
         self
     }
 
-    /// A line under the title, such as the invitation it came through.
-    pub fn caption(mut self, caption: &'a str) -> Self {
-        self.caption = caption;
+    /// A line of the client under the title, such as the invitation the
+    /// request came through. It holds none of the sender's words.
+    pub fn caption(mut self, caption: impl Into<Line>) -> Self {
+        self.caption = caption.into();
         self
     }
 
@@ -151,10 +170,10 @@ impl<'a> RequestCard<'a> {
                         let title = wrapped(ui, self.title, &theme.text.heading, c.text, width, 3);
                         ui.add(Label::new(title).selectable(false));
                         if !self.caption.is_empty() {
-                            let caption = wrapped(
+                            let caption = self.caption.galley(
                                 ui,
-                                self.caption,
                                 &theme.text.caption,
+                                &theme.text.caption_strong,
                                 c.text_secondary,
                                 width,
                                 3,
@@ -164,61 +183,16 @@ impl<'a> RequestCard<'a> {
                     });
                 });
 
+                let mut words = TheirWords::new();
+                if let Some((label, text)) = self.name {
+                    words = words.part(label, text, NAME_MAX_ROWS);
+                }
                 if let Some((label, text)) = self.introduction {
+                    words = words.part(label, text, INTRO_MAX_ROWS);
+                }
+                if !words.is_empty() {
                     ui.add_space(theme.space.xs);
-                    // A hairline as well as the fill: on the card of the dark
-                    // theme the fill alone hardly shows.
-                    Frame::new()
-                        .fill(c.bg_sunken)
-                        .stroke(Stroke::new(theme.stroke.hairline, c.border_subtle))
-                        .corner_radius(CornerRadius::same(theme.radius.md))
-                        .inner_margin(Margin::same(12))
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.spacing_mut().item_spacing.y = theme.space.xs;
-                            let width = ui.available_width();
-                            ui.add(
-                                Label::new(wrapped(
-                                    ui,
-                                    label,
-                                    &theme.text.caption_strong,
-                                    c.text_tertiary,
-                                    width,
-                                    1,
-                                ))
-                                .selectable(false),
-                            );
-                            let quote = Frame::new().inner_margin(Margin {
-                                left: 11,
-                                right: 0,
-                                top: 0,
-                                bottom: 0,
-                            });
-                            let shown = quote.show(ui, |ui| {
-                                let width = ui.available_width();
-                                ui.add(
-                                    Label::new(wrapped(
-                                        ui,
-                                        text,
-                                        &theme.text.body,
-                                        c.text,
-                                        width,
-                                        INTRO_MAX_ROWS,
-                                    ))
-                                    .selectable(true),
-                                );
-                            });
-                            let rect = shown.response.rect;
-                            let bar = egui::Rect::from_min_max(
-                                rect.min + Vec2::new(0.0, 1.0),
-                                egui::pos2(rect.min.x + 3.0, rect.max.y - 1.0),
-                            );
-                            ui.painter().rect_filled(
-                                bar,
-                                CornerRadius::same(theme.radius.xs),
-                                c.border_strong,
-                            );
-                        });
+                    words.show(ui);
                 }
 
                 if !self.fingerprint.is_empty() {

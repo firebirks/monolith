@@ -225,8 +225,11 @@ window switchers, screen recorders and other programs on the same desktop.
   "New invitation" and the card of an invitation say that no request
   arrives through an invitation either.
 - Requests: listed with the sender's fingerprint, the invitation that
-  admitted them, and the name and introduction the sender chose, quoted as
-  their words; accepted (naming the contact), declined or blocked. Accepting
+  admitted them (or that none came with the request), and the name and
+  introduction the sender chose, in a box of their words, each under a
+  label of the client and never inside a sentence of the client
+  (`DESIGN_QUESTIONS.md` P7-2); accepted (naming the contact), declined or
+  blocked. Accepting
   a request that came through an invitation, while the identity takes
   requests, ends with a toast that says the invitation still admits
   requests, with Revoke, which asks as revoking from the settings does.

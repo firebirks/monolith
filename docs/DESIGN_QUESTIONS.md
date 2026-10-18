@@ -2538,6 +2538,26 @@ P7-1 The dial plan during a rotation of the peer's key (BL24). An
     stream. The attempt is reported once, with the failure of its last
     card. Faults HR1 to HR4.
 
+P7-2 Words of a sender and names in sentences of the client (BL25).
+    `PROTOCOL.md` section 9 lets a display name hold `"` and spaces, so a
+    name put inside a sentence of the client could close its quotation
+    marks and go on as the client: `Sam". Through your invitation
+    "Family` made a request without an invitation read as one through
+    the invitation "Family". Nothing is stripped from the name; the
+    window keeps the sender's words apart instead. The request card and
+    the Accept dialog show the name a sender chose and their message in
+    a box of their words, each under a label of the client ("Name they
+    chose", "Their message"); the caption of the card says only what
+    the runtime knows: the invitation the request came through, that it
+    came through one without a label, or that none came with it. A name
+    in a sentence of the client (a contact's name, which can be the name
+    a request suggested and the user kept; an identity's; an invitation's
+    label) is a span of its own (`Prose` in the model, `Line` in the
+    kit), drawn in the strong style of the sentence and never between
+    quotation marks the client adds: dialogs, notices of a
+    conversation and toasts alike. The name of a card file read is shown
+    in a mark of its own. Faults HR5 to HR8.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

@@ -25,18 +25,20 @@ use monolith_ui_kit::divider::Divider;
 use monolith_ui_kit::fingerprint::Fingerprint;
 use monolith_ui_kit::icons;
 use monolith_ui_kit::interact;
+use monolith_ui_kit::line::Sentence;
 use monolith_ui_kit::modal::{Decision, Modal};
 use monolith_ui_kit::qr::{self, QrCode, QrMatrix};
 use monolith_ui_kit::request_card::RequestAction;
 use monolith_ui_kit::spinner;
 use monolith_ui_kit::text::Text;
 use monolith_ui_kit::text_field::{self, TextField};
+use monolith_ui_kit::their_words::TheirWords;
 use monolith_ui_kit::theme::{self, Theme};
 use monolith_ui_kit::toast::Kind;
 use monolith_ui_kit::toggle::Toggle;
 use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_model::{
-    Dialog, Failure, RequestMode, TorCheck, TorIndicator, UiContactId, UiIdentityId,
+    Dialog, Failure, Prose, RequestMode, TorCheck, TorIndicator, UiContactId, UiIdentityId,
     UiInvitationId, UiRequestId, Waiting, present,
 };
 use zeroize::Zeroizing;
@@ -46,6 +48,9 @@ use crate::common;
 
 /// The longest name, in characters.
 const NAME_LIMIT: usize = 64;
+
+/// The rows of the name a sender chose, in the box of their words.
+const NAME_ROWS: usize = 3;
 
 /// The longest name of a card file shown, in characters.
 const FILE_NAME_LIMIT: usize = 40;
@@ -229,9 +234,9 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                 &Danger {
                     salt: ("block", contact),
                     title: "Block contact?",
-                    message: format!(
-                        "{name} will not be able to reach you. Messages not yet delivered to them will not be sent. {STAYS} You can unblock them later in Settings\u{a0}>\u{a0}Identities."
-                    ),
+                    message: Prose::default().name(&name).and(format!(
+                        " will not be able to reach you. Messages not yet delivered to them will not be sent. {STAYS} You can unblock them later in Settings\u{a0}>\u{a0}Identities."
+                    )),
                     action: "Block",
                     checkbox: false,
                 },
@@ -246,9 +251,9 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                 &Danger {
                     salt: ("remove", contact),
                     title: "Remove contact?",
-                    message: format!(
-                        "{name} is removed from your contacts. Messages not yet delivered to them will not be sent. {STAYS} To talk again, add their card again; ask them for it if you no longer have it."
-                    ),
+                    message: Prose::default().name(&name).and(format!(
+                        " is removed from your contacts. Messages not yet delivered to them will not be sent. {STAYS} To talk again, add their card again; ask them for it if you no longer have it."
+                    )),
                     action: "Remove",
                     checkbox: false,
                 },
@@ -276,15 +281,18 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                 .identities()
                 .iter()
                 .find(|view| view.id == identity)
-                .map_or_else(|| "This identity".to_owned(), present::identity_name);
+                .map_or_else(
+                    || Prose::said("This identity"),
+                    |view| Prose::default().name(&present::identity_name(view)),
+                );
             danger(
                 ctx,
                 app,
                 &Danger {
                     salt: ("delete-identity", identity),
                     title: "Delete identity?",
-                    message: format!(
-                        "{name}, its contacts and its messages are deleted from this device, and its address stops working. Your contacts are not told; what they send to it will never arrive. Deleted data may stay on the disk until it is overwritten. This cannot be undone."
+                    message: name.and(
+                        ", its contacts and its messages are deleted from this device, and its address stops working. Your contacts are not told; what they send to it will never arrive. Deleted data may stay on the disk until it is overwritten. This cannot be undone."
                     ),
                     action: "Delete identity",
                     checkbox: false,
@@ -299,20 +307,20 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
 // ---- What the dialogs say ----
 
 /// What revoking `invitation` does, naming it by its label.
-fn revoke_text(app: &App, invitation: UiInvitationId) -> String {
+fn revoke_text(app: &App, invitation: UiInvitationId) -> Prose {
     let label = app
         .model
         .slice(invitation.identity())
         .and_then(|slice| slice.invitations.iter().find(|view| view.id == invitation))
         .and_then(|view| view.label.as_deref())
-        .map(|label| present::prepare(label, false).text)
         .filter(|label| !label.trim().is_empty());
+    let said = Prose::said("People who have ");
     let named = match label {
-        Some(label) => format!("the invitation \"{label}\""),
-        None => "this invitation".to_owned(),
+        Some(label) => said.and("the invitation ").name(label),
+        None => said.and("this invitation"),
     };
-    format!(
-        "People who have {named} can no longer send you requests with it. Contacts you already accepted are not affected."
+    named.and(
+        " can no longer send you requests with it. Contacts you already accepted are not affected.",
     )
 }
 
@@ -320,7 +328,7 @@ fn revoke_text(app: &App, invitation: UiInvitationId) -> String {
 /// never delivered: they go too, and are never sent. A contact that has
 /// not accepted gets its request only with a message (P6-6), so with them
 /// goes the request too.
-fn delete_messages_text(app: &App, contact: UiContactId) -> String {
+fn delete_messages_text(app: &App, contact: UiContactId) -> Prose {
     let name = app.model.contact_name(contact);
     let queued = app
         .model
@@ -337,9 +345,9 @@ fn delete_messages_text(app: &App, contact: UiContactId) -> String {
     } else {
         ""
     };
-    format!(
-        "All messages with {name} are deleted from this device{undelivered}.{request} Their copies are not affected. Deleted data may stay on the disk until it is overwritten."
-    )
+    Prose::said("All messages with ").name(&name).and(format!(
+        " are deleted from this device{undelivered}.{request} Their copies are not affected. Deleted data may stay on the disk until it is overwritten."
+    ))
 }
 
 /// What closing costs, a paragraph for each part. Queued messages are sent
@@ -389,6 +397,17 @@ fn split_error(
 
 fn paragraph(ui: &mut Ui, theme: &Theme, text: &str) {
     ui.add(Text::new(text, &theme.text.body, theme.color.text_secondary).wrap());
+}
+
+/// A paragraph that names someone: each name is drawn as a name
+/// (`DESIGN_QUESTIONS.md` P7-2).
+fn sentence(ui: &mut Ui, theme: &Theme, prose: &Prose) {
+    ui.add(Sentence::new(
+        &common::line(prose),
+        &theme.text.body,
+        &theme.text.body_strong,
+        theme.color.text_secondary,
+    ));
 }
 
 fn caption(ui: &mut Ui, theme: &Theme, text: &str) {
@@ -807,19 +826,17 @@ fn card_added(ctx: &Context, app: &mut App, contact: UiContactId) {
         Some(Dialog::AddContact { name, .. }) => name.trim().to_owned(),
         _ => String::new(),
     };
-    let name = match app.model.contact(contact) {
-        Some(view) => present::contact_name(view),
-        None if !typed.is_empty() => typed,
-        None => "They".to_owned(),
+    let said = Prose::said("This is their card, not an invitation. ");
+    let named = match app.model.contact(contact) {
+        Some(view) => said.name(&present::contact_name(view)),
+        None if !typed.is_empty() => said.name(&typed),
+        None => said.and("They"),
     };
-    let name = present::prepare(&name, false).text;
-    let text = format!(
-        "This is their card, not an invitation. {name} must add your card too before your messages can arrive."
-    );
+    let text = named.and(" must add your card too before your messages can arrive.");
     let (mut show_card, mut done) = (false, false);
     let out = Modal::new(("card-added", contact), "Contact added").show(
         ctx,
-        |ui| paragraph(ui, &theme, &text),
+        |ui| sentence(ui, &theme, &text),
         |ui| {
             show_card = ui
                 .add(Button::primary("Show my card").icon(icons::ID_CARD))
@@ -1104,7 +1121,7 @@ fn new_invitation(ctx: &Context, app: &mut App) {
 struct Danger<S> {
     salt: S,
     title: &'static str,
-    message: String,
+    message: Prose,
     action: &'static str,
     /// Also shows the choice of revoking an invitation: drop its requests
     /// too.
@@ -1122,7 +1139,7 @@ fn danger<S: Hash>(ctx: &Context, app: &mut App, spec: &Danger<S>) {
     let out = Modal::new(&spec.salt, spec.title).dismissable(!busy).show(
         ctx,
         |ui| {
-            paragraph(ui, &theme, &spec.message);
+            sentence(ui, &theme, &spec.message);
             if spec.checkbox {
                 if let Some(Dialog::RevokeInvitation {
                     invitation,
@@ -1580,12 +1597,16 @@ fn accept_request(ctx: &Context, app: &mut App) {
     let out = Modal::new(salt, "Accept request").dismissable(!busy).show(
         ctx,
         |ui| {
-            let intro = if display_name.trim().is_empty() {
-                "The request carries no name. Choose how you want to see them.".to_owned()
+            if display_name.trim().is_empty() {
+                paragraph(ui, &theme, "The request carries no name.");
             } else {
-                format!("They chose the name \"{display_name}\". Choose how you want to see them.")
-            };
-            paragraph(ui, &theme, &intro);
+                // Their words, in the box of their words, never in a
+                // sentence of the dialog (P7-2).
+                TheirWords::new()
+                    .part("Name they chose", &display_name, NAME_ROWS)
+                    .show(ui);
+            }
+            paragraph(ui, &theme, "Choose how you want to see them.");
             ui.add_space(theme.space.sm);
             let output = TextField::new(("accept-name", request), name)
                 .label("Name (only you see it)")
@@ -1949,12 +1970,14 @@ mod tests {
     fn deleting_messages_names_those_not_yet_delivered() {
         let app = base();
         // Carol's conversation holds one queued message, Bob's none.
-        let carol = delete_messages_text(&app, contact(12));
+        let carol = delete_messages_text(&app, contact(12)).plain();
         assert!(
             carol.contains("including 1 not yet delivered, which will not be sent"),
             "{carol}"
         );
         let bob = delete_messages_text(&app, contact(11));
+        assert_eq!(common::line(&bob).names(), ["Bob at work"]);
+        let bob = bob.plain();
         assert!(!bob.contains("not yet delivered"), "{bob}");
         assert!(bob.starts_with("All messages with Bob at work are deleted"));
     }
@@ -2114,8 +2137,10 @@ mod tests {
     fn a_revoked_invitation_is_named_by_its_label() {
         let app = base();
         let text = revoke_text(&app, UiInvitationId::new(identity(), 1));
+        assert_eq!(common::line(&text).names(), ["Climbing gym"]);
+        let text = text.plain();
         assert!(
-            text.starts_with("People who have the invitation \"Climbing gym\""),
+            text.starts_with("People who have the invitation Climbing gym can"),
             "{text}"
         );
     }

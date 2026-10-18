@@ -1496,8 +1496,9 @@ fn accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it() {
         Command::AcceptRequest { .. } => Some(Outcome::RequestAccepted(frank)),
         _ => None,
     });
+    // The label of the invitation is named as a name, not quoted (P7-2).
     assert!(
-        window.shows_part("\"Climbing gym\""),
+        window.shows_part("your invitation Climbing gym can still"),
         "{:#?}",
         window.shown()
     );
@@ -1763,7 +1764,9 @@ fn a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar() {
     let person = icons::USER.char().to_string();
     // The name a sender chose is not who they are: no initials of it.
     let window = Window::new("requests", WIDE);
-    assert!(window.shows_part("Calls themselves \"Frank\"."));
+    // The name is in the box of their words, alone under its label.
+    assert!(window.shows("Name they chose"), "{:#?}", window.shown());
+    assert!(window.shows("Frank"), "{:#?}", window.shown());
     assert!(!window.shows("F"), "{:#?}", window.shown());
     // Carol and Dana in the list, and the card.
     assert_eq!(window.count(&person), 3);
@@ -2091,4 +2094,32 @@ fn the_tor_details_close_at_the_left_whether_tor_works_or_not() {
             );
         }
     }
+}
+
+#[test]
+fn the_name_a_sender_chose_is_in_no_sentence_of_the_screen_or_its_dialog() {
+    // On the card and in the dialog that accepts it, the name a sender
+    // chose is drawn alone under a label of the client, never inside a
+    // sentence (P7-2).
+    let mut window = Window::new("requests", WIDE);
+    let in_a_sentence = |window: &Window| {
+        window.shown().iter().any(|text| {
+            // Their own message may name them: it is theirs, in their box.
+            text.contains("Frank") && *text != "Frank" && !text.starts_with("Hi, it is Frank")
+        })
+    };
+    assert!(window.shows("Frank"), "{:#?}", window.shown());
+    assert!(!in_a_sentence(&window), "{:#?}", window.shown());
+    window.click("Accept");
+    assert!(
+        window.shows("Choose how you want to see them."),
+        "{:#?}",
+        window.shown()
+    );
+    assert!(
+        window.count("Name they chose") >= 1,
+        "{:#?}",
+        window.shown()
+    );
+    assert!(!in_a_sentence(&window), "{:#?}", window.shown());
 }

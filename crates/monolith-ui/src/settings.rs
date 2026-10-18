@@ -573,7 +573,7 @@ fn identity_card(
                 Banner::new(
                     ("closed-invitations", id),
                     Tone::Warning,
-                    &closed_warning(active),
+                    closed_warning(active),
                 )
                 .show(ui);
             }

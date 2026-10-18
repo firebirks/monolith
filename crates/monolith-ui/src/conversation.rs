@@ -19,8 +19,8 @@ use monolith_ui_kit::tor_status::TorStatus;
 use monolith_ui_kit::{Theme, icons, theme};
 use monolith_ui_model::present::Calendar;
 use monolith_ui_model::{
-    Deferral, Dialog, Failure, MessageView, Model, Status, Thread, TorIndicator, UiContactId,
-    UiMessageId, Waiting, present,
+    Deferral, Dialog, Failure, MessageView, Model, Prose, Status, Thread, TorIndicator,
+    UiContactId, UiMessageId, Waiting, present,
 };
 
 use crate::app::App;
@@ -274,28 +274,29 @@ fn deferral_text(
     name: &str,
     tor_down: bool,
     waiting: bool,
-) -> Option<String> {
+) -> Option<Prose> {
     let text = match reason {
-        _ if tor_down => "Tor is not available, so nothing can be delivered. Monolith tries \
-                          again when Tor is back."
-            .to_owned(),
+        _ if tor_down => Prose::said(
+            "Tor is not available, so nothing can be delivered. Monolith tries again when \
+             Tor is back.",
+        ),
         _ if waiting => return None,
         None => return None,
-        Some(Deferral::Tor | Deferral::Unreachable) => format!(
-            "{name} cannot be reached right now. Their Monolith may be closed or offline. \
-             Monolith tries again from time to time; your messages stay queued on this device."
+        Some(Deferral::Tor | Deferral::Unreachable) => Prose::default().name(name).and(
+            " cannot be reached right now. Their Monolith may be closed or offline. Monolith \
+             tries again from time to time; your messages stay queued on this device.",
         ),
-        Some(Deferral::NoAddress) => format!(
-            "There is no address to send to {name} yet. Messages stay queued until there is."
-        ),
-        Some(Deferral::NoAcknowledgement) => {
-            format!("{name} has not confirmed receipt yet. Monolith will send the messages again.")
-        }
+        Some(Deferral::NoAddress) => Prose::said("There is no address to send to ")
+            .name(name)
+            .and(" yet. Messages stay queued until there is."),
+        Some(Deferral::NoAcknowledgement) => Prose::default()
+            .name(name)
+            .and(" has not confirmed receipt yet. Monolith will send the messages again."),
         Some(Deferral::Busy) => {
-            "Monolith is busy with other conversations and tries this one again soon.".to_owned()
+            Prose::said("Monolith is busy with other conversations and tries this one again soon.")
         }
     };
-    Some(format!("{text} {BOTH_OPEN}"))
+    Some(text.and(" ").and(BOTH_OPEN))
 }
 
 /// When delivery is tried next, `seconds` from now, said roughly, with the
@@ -322,7 +323,7 @@ fn next_try(seconds: u64) -> Option<(String, u64)> {
 /// asked for.
 fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
     let theme = theme::current(ui.ctx());
-    let name = present::prepare(&app.model.contact_name(contact), false).text;
+    let name = app.model.contact_name(contact);
     let view = app.model.contact(contact);
     let ended = view.is_none();
     let waiting = view.is_some_and(|view| !view.accepted);
@@ -346,13 +347,15 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
         .thread(contact)
         .is_some_and(|thread| thread.refused);
     // A failed store is said once, for the whole window, not here.
-    let mut notices: Vec<(&str, Tone, String, Option<&str>)> = Vec::new();
+    let mut notices: Vec<(&str, Tone, Prose, Option<&str>)> = Vec::new();
     if ended {
         notices.push((
             "ended",
             Tone::Info,
-            "This contact was removed or blocked. You can read what is here, but not send messages."
-                .to_owned(),
+            Prose::said(
+                "This contact was removed or blocked. You can read what is here, but not send \
+                 messages.",
+            ),
             None,
         ));
     }
@@ -368,18 +371,21 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
         notices.push((
             "waiting",
             Tone::Info,
-            format!(
-                "Your request goes out with {with}. {name} should see it through their invitation, with your fingerprint only, and can read your messages after accepting. Tell them it is you."
-            ),
+            Prose::said(format!("Your request goes out with {with}. "))
+                .name(&name)
+                .and(
+                    " should see it through their invitation, with your fingerprint only, and \
+                     can read your messages after accepting. Tell them it is you.",
+                ),
             None,
         ));
     } else if waiting {
         notices.push((
             "waiting-card",
             Tone::Info,
-            format!(
-                "You added their card, not an invitation. {name} must add your card too before your messages can arrive."
-            ),
+            Prose::said("You added their card, not an invitation. ")
+                .name(&name)
+                .and(" must add your card too before your messages can arrive."),
             Some("Show my card"),
         ));
     }
@@ -388,7 +394,7 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
         if let Some(mut text) = deferral_text(deferral, &name, tor_down, waiting) {
             // Not while Tor is down: the next try waits for Tor.
             if let Some((next, change)) = retry.filter(|_| !tor_down).and_then(next_try) {
-                text = format!("{text} {next}");
+                text = text.and(" ").and(next);
                 ui.ctx().request_repaint_after(Duration::from_secs(change));
             }
             notices.push(("deferral", Tone::Info, text, None));
@@ -400,9 +406,12 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
         notices.push((
             "refused",
             Tone::Warning,
-            format!(
-                "There is no more room for messages on this device, so a message from {name} could not be saved. Their Monolith will send it again. To make room, delete the messages of this conversation or of others."
-            ),
+            Prose::said("There is no more room for messages on this device, so a message from ")
+                .name(&name)
+                .and(
+                    " could not be saved. Their Monolith will send it again. To make room, \
+                     delete the messages of this conversation or of others.",
+                ),
             None,
         ));
     }
@@ -414,7 +423,11 @@ fn banners(ui: &mut Ui, app: &App, contact: UiContactId, pad: f32) -> bool {
     inset(ui, pad, |ui| {
         ui.spacing_mut().item_spacing.y = theme.space.sm;
         for (key, tone, text, action) in &notices {
-            let mut banner = Banner::new(("conversation-banner", contact, *key), *tone, text);
+            let mut banner = Banner::new(
+                ("conversation-banner", contact, *key),
+                *tone,
+                common::line(text),
+            );
             if let Some(label) = action {
                 banner = banner.action(label);
             }
@@ -800,6 +813,7 @@ fn mark(status: Status) -> Option<(MarkStatus, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use monolith_ui_model::Span;
 
     #[test]
     fn a_message_is_marked_with_the_status_the_runtime_gave() {
@@ -817,14 +831,19 @@ mod tests {
     #[test]
     fn while_tor_is_down_the_wait_is_put_on_tor_not_on_the_contact() {
         for reason in [None, Some(Deferral::Tor), Some(Deferral::Unreachable)] {
-            let text = deferral_text(reason, "Alice", true, false).unwrap_or_default();
+            let text = deferral_text(reason, "Alice", true, false)
+                .unwrap_or_default()
+                .plain();
             assert!(text.starts_with("Tor is not available"), "{text}");
             assert!(!text.contains("Alice"), "{text}");
             // The composer still queues: what waits is delivery.
             assert!(text.contains("nothing can be delivered"), "{text}");
         }
         for reason in [Deferral::Tor, Deferral::Unreachable] {
-            let text = deferral_text(Some(reason), "Alice", false, false).unwrap_or_default();
+            let prose = deferral_text(Some(reason), "Alice", false, false).unwrap_or_default();
+            // The name is a span of its own, not words of the sentence.
+            assert_eq!(prose.spans().first(), Some(&Span::Name("Alice".to_owned())));
+            let text = prose.plain();
             assert!(text.starts_with("Alice cannot be reached"), "{text}");
             assert!(text.ends_with(BOTH_OPEN), "{text}");
         }

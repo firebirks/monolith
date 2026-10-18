@@ -17,6 +17,8 @@ use monolith_ui_model::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::common;
+
 /// The room a buffer of a passphrase has from the start: the most a field
 /// takes, `present::MAX_PASSPHRASE_CHARS` characters of at most four
 /// bytes, so that typing or pasting never moves it and leaves no copy
@@ -472,11 +474,13 @@ impl App {
             };
             match notice.revoke {
                 Some(invitation) => {
-                    let toast = self.toasts.push_with_action(kind, notice.text, "Revoke");
+                    let toast =
+                        self.toasts
+                            .push_with_action(kind, common::line(&notice.text), "Revoke");
                     self.revoke_offers.insert(toast, invitation);
                 }
                 None => {
-                    self.toasts.push(kind, notice.text);
+                    self.toasts.push(kind, common::line(&notice.text));
                 }
             }
         }
