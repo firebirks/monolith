@@ -93,11 +93,17 @@ is registered.
   each times a random factor between 0.5 and 1.5. The delay starts over
   once a session of the record stayed registered for
   `RECONNECT_RESET_AFTER`.
-- A dial is `link::dial` through the Tor backend, within
-  `MAX_CONCURRENT_DIALS`. A failure of Tor, SOCKS or the handshake
-  changes nothing in the queue; it is reported as deferred and tried
-  again later. There is no other path: no direct connection, no name
-  resolution.
+- An attempt is `link::dial_plan` over the cards of the dial plan of
+  the record (`PROTOCOL.md` sections 4 and 11.4): the authorized
+  successor if there is one, then the active key, the second only when
+  the first did not answer, that is, its handshake ended before message
+  2 authenticated the responder (since Phase 7, P7-1; before, only the
+  first card was dialed). Each card is dialed as `link::dial` dials it,
+  through the Tor backend, within `MAX_CONCURRENT_DIALS`. A failure of
+  Tor, SOCKS or the handshake changes nothing in the queue; the attempt
+  is reported as deferred once, with the failure of its last card, and
+  tried again later. There is no other path: no direct connection, no
+  name resolution.
 - The scheduler checks before every attempt that its `ContactId` is still
   the current record and that the identity is open, and ends otherwise.
   A dial in progress is dropped when a session of the record registers

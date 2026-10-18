@@ -278,6 +278,14 @@ would be new code, not a changed check. The bound on the length of a
 message is that of `ChatText`, which X1 and X2 of Phase 1 keep; the
 runtime checks the text with it before anything is stored.
 
+The Phase 7 list, HR1 and up (H is taken by the handshake faults of
+Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
+14:
+
+- the dial plan during a rotation of the peer's key (P7-1): only the
+  first card dialed, the next card dialed after a card that answered or
+  after a failure of Tor, or after the attempt is over (HR1 to HR4).
+
 The Phase 4 list, CS1 to CS123, covers the contact store and the vault:
 
 - one decision about a card and no rollback: an older card of the active

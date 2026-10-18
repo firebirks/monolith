@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use monolith_identity::{IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::limits::MAX_INBOUND_HANDSHAKES;
 use tokio::io::DuplexStream;
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 
 use crate::{
     Bootstrap, ControlStatus, IsolationGroup, KeySource, OnionService, OnionServiceSecret,
@@ -35,6 +35,9 @@ struct State {
     listener_errors: HashMap<OnionServiceKey, usize>,
     next_id: u64,
     dials: usize,
+    /// Dials, by their number, that wait once counted until a test lets
+    /// them go on.
+    holds: HashMap<usize, Arc<Semaphore>>,
 }
 
 /// A published service: the channel to its `accept`, and which publication
@@ -70,6 +73,7 @@ impl MockNetwork {
                 listener_errors: HashMap::new(),
                 next_id: 0,
                 dials: 0,
+                holds: HashMap::new(),
             })),
         }
     }
@@ -136,6 +140,38 @@ impl MockNetwork {
     pub fn dials(&self) -> usize {
         self.lock().dials
     }
+
+    /// Makes dial number `number` (counted from 1, as [`Self::dials`]
+    /// counts them) wait, once counted, until the returned hold is
+    /// released or dropped. Nothing else about the dial changes: it then
+    /// goes on as any other.
+    pub fn hold_dial(&self, number: usize) -> DialHold {
+        let semaphore = Arc::new(Semaphore::new(0));
+        self.lock().holds.insert(number, semaphore.clone());
+        DialHold { semaphore }
+    }
+}
+
+/// A dial a test holds ([`MockNetwork::hold_dial`]).
+pub struct DialHold {
+    semaphore: Arc<Semaphore>,
+}
+
+impl DialHold {
+    /// Lets the dial go on.
+    pub fn release(self) {}
+}
+
+impl Drop for DialHold {
+    fn drop(&mut self) {
+        self.semaphore.add_permits(1);
+    }
+}
+
+impl fmt::Debug for DialHold {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("DialHold")
+    }
 }
 
 impl fmt::Debug for MockNetwork {
@@ -179,11 +215,19 @@ impl TorBackend for MockTorBackend {
         target: &OnionServiceKey,
         _isolation: &IsolationGroup,
     ) -> Result<DuplexStream, TorError> {
-        let mut state = self.network.lock();
-        if !state.socks_available {
-            return Err(TorError::SocksUnavailable);
+        let hold = {
+            let mut state = self.network.lock();
+            if !state.socks_available {
+                return Err(TorError::SocksUnavailable);
+            }
+            state.dials = state.dials.saturating_add(1);
+            let number = state.dials;
+            state.holds.remove(&number)
+        };
+        if let Some(hold) = hold {
+            let _ = hold.acquire().await;
         }
-        state.dials = state.dials.saturating_add(1);
+        let state = self.network.lock();
         if !state.circuit_established {
             return Err(TorError::OnionUnreachable);
         }

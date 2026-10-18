@@ -56,7 +56,7 @@ use crate::api::{
 use crate::budget::Budgets;
 use crate::contacts::StoreError;
 use crate::identity::{Installation, InstallationError, LocalIdentity, MessageError};
-use crate::link::{Established, Link, LinkError, answer, dial};
+use crate::link::{Established, Link, LinkError, answer, dial_plan};
 use crate::messages::{Receipt, Refusal};
 use crate::requests::{InvitationId, RequestId};
 use crate::sessions::{SessionControl, SessionManager};
@@ -788,7 +788,7 @@ impl<B: TorBackend + 'static> Inner<B> {
             let Some(plan) = identity.dial_plan(&peer) else {
                 return;
             };
-            let Some(card) = plan.cards.first().cloned() else {
+            if plan.cards.is_empty() {
                 let retry_in = backoff.delay(jitter());
                 self.emit(Event::DeliveryDeferred {
                     identity: identity.id(),
@@ -798,9 +798,17 @@ impl<B: TorBackend + 'static> Inner<B> {
                 });
                 delay = retry_in;
                 continue;
-            };
+            }
             let dialed = {
-                let mut dialing = pin!(dial(&self.backend, &self.budgets, &identity, &card));
+                // The successor first and the active key if it does not
+                // answer; no further card once the attempt is over.
+                let mut dialing = pin!(dial_plan(
+                    &self.backend,
+                    &self.budgets,
+                    &identity,
+                    &plan.cards,
+                    || !over(),
+                ));
                 let mut cut = pin!(wait_until(
                     None,
                     &mut shutdown,
@@ -2043,8 +2051,8 @@ impl<B: TorBackend + 'static> Runtime<B> {
 
     /// Asks for a session with the contact of the record `contact` now, an
     /// explicit local operation, whether or not anything is queued. One
-    /// attempt, through the Tor backend; none while a session of the record
-    /// exists.
+    /// attempt, through the Tor backend, over the cards of the dial plan
+    /// ([`dial_plan`]); none while a session of the record exists.
     pub fn connect(&self, identity: &IdentityId, contact: &ContactId) -> Result<(), CommandError> {
         let held = self.held(identity)?;
         let peer = Self::peer_of(&held, contact)?;
@@ -2055,15 +2063,22 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .identity
             .dial_plan(&peer)
             .ok_or(CommandError::UnknownContact)?;
-        let card = plan
-            .cards
-            .first()
-            .cloned()
-            .ok_or(CommandError::UnknownContact)?;
+        if plan.cards.is_empty() {
+            return Err(CommandError::UnknownContact);
+        }
         let inner = self.inner.clone();
+        let contact = *contact;
         self.inner.spawn(async move {
-            if let Ok(established) =
-                dial(&inner.backend, &inner.budgets, &held.identity, &card).await
+            let go_on =
+                || !held.manager.has_session(&contact) && held.identity.is_current(&contact, &peer);
+            if let Ok(established) = dial_plan(
+                &inner.backend,
+                &inner.budgets,
+                &held.identity,
+                &plan.cards,
+                go_on,
+            )
+            .await
             {
                 let _ = inner.run_session(&held, established).await;
             }

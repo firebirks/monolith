@@ -186,7 +186,9 @@ another:
 The parties that hold a transport key stay in the core: `link` dials
 and answers with them, and callers get cards (a `DialPlan` holds the
 local card, not the party).
-`link::dial` dials only a card the dial plan of a contact names.
+`link::dial` dials only a card the dial plan of a contact names, and
+`link::dial_plan` dials the cards of the plan in their order, the next
+only after a card that did not answer (`DESIGN_QUESTIONS.md` P7-1).
 
 ### 1.2 Admission and credentials
 

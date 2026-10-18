@@ -449,6 +449,81 @@ pub async fn dial<B>(
 where
     B: TorBackend,
 {
+    dial_card(backend, budgets, identity, card, &AtomicBool::new(false)).await
+}
+
+/// Dials the cards of the dial plan of a contact in their order
+/// ([`LocalIdentity::dial_plan`], `docs/PROTOCOL.md` sections 4 and
+/// 11.4): the authorized successor, if there is one, then the active key.
+/// Each card is dialed as [`dial`] dials it.
+///
+/// The next card is dialed only when the one before did not answer: its
+/// handshake ended before message 2 authenticated the responder (the
+/// stream ended, the handshake timed out, or message 2 did not
+/// authenticate). A peer that has not taken its announced successor into
+/// use yet does that, and is reached with its active key; the dial of the
+/// successor is not reported. A card that answered decides the attempt,
+/// whatever came after (an admission that refused, a full budget, a
+/// withdrawal): the successor answered and is promoted by that handshake.
+/// So does a failure of Tor, the same for each card, since every card of
+/// the plan states the endpoints the user confirmed, and a failure before
+/// any stream was opened. `go_on` is asked before each card after the
+/// first: once the attempt is over for the caller (the record ended, a
+/// session took over), no further card is dialed. The failure returned is
+/// that of the last card dialed; with no card, [`LinkError::NoEndpoint`].
+pub async fn dial_plan<B>(
+    backend: &B,
+    budgets: &Budgets,
+    identity: &LocalIdentity,
+    cards: &[ContactCard],
+    go_on: impl Fn() -> bool,
+) -> Result<Established<B::Stream>, LinkError>
+where
+    B: TorBackend,
+{
+    let mut failure = LinkError::NoEndpoint;
+    for (index, card) in cards.iter().enumerate() {
+        if index > 0 && !go_on() {
+            break;
+        }
+        let answered = AtomicBool::new(false);
+        match dial_card(backend, budgets, identity, card, &answered).await {
+            Ok(established) => return Ok(established),
+            Err(error) => {
+                failure = error;
+                if !tries_next(answered.load(Ordering::Acquire), error) {
+                    break;
+                }
+            }
+        }
+    }
+    Err(failure)
+}
+
+/// Whether the next card of a dial plan is dialed after a card failed
+/// with `error`: only when that card did not answer, that is, message 2
+/// did not authenticate its responder (`answered` is false) and the
+/// handshake ended on the stream, its deadline or message 2.
+fn tries_next(answered: bool, error: LinkError) -> bool {
+    !answered
+        && matches!(
+            error,
+            LinkError::Stream | LinkError::TimedOut | LinkError::Session(SessionError::Protocol(_))
+        )
+}
+
+/// [`dial`], which sets `answered` once message 2 has authenticated the
+/// responder as the key of `card`.
+async fn dial_card<B>(
+    backend: &B,
+    budgets: &Budgets,
+    identity: &LocalIdentity,
+    card: &ContactCard,
+    answered: &AtomicBool,
+) -> Result<Established<B::Stream>, LinkError>
+where
+    B: TorBackend,
+{
     let contact = *card.identity();
     // A closed identity dials nobody: it has no party any more. Only a
     // contact is dialed: for anyone else (no record, declined, blocked)
@@ -495,6 +570,7 @@ where
         write_all(&mut stream, &message_1).await?;
         let message_2 = read_message::<_, HANDSHAKE_MSG2_LEN>(&mut stream).await?;
         let outbound = initiator.read_message_2(&message_2, now())?;
+        answered.store(true, Ordering::Release);
         // The responder is authenticated. The admission decides whether
         // message 3, which carries the local identity, is made at all.
         let withdrawal = Withdrawal::new();
@@ -1976,5 +2052,42 @@ mod tests {
             assert!(link.receive().await.is_err());
             assert!(link.is_over());
         });
+    }
+
+    #[test]
+    fn only_a_card_that_did_not_answer_is_followed_by_the_next() {
+        use monolith_protocol::ProtocolError;
+        use monolith_tor::TorError;
+        let unanswered = [
+            LinkError::Stream,
+            LinkError::TimedOut,
+            LinkError::Session(SessionError::Protocol(ProtocolError::IdentityMismatch)),
+        ];
+        for error in unanswered {
+            assert!(tries_next(false, error), "{error:?}");
+            // Once message 2 authenticated the responder, the card
+            // answered, whatever ended the dial after it.
+            assert!(!tries_next(true, error), "{error:?}");
+        }
+        let decided = [
+            LinkError::Tor(TorError::OnionUnreachable),
+            LinkError::Tor(TorError::SocksUnavailable),
+            LinkError::NoEndpoint,
+            LinkError::Budget,
+            LinkError::Evicted,
+            LinkError::Storage(CommitError::Failed),
+            LinkError::Withdrawn,
+            LinkError::Refused(Admission {
+                standing: Standing::Blocked,
+                change: None,
+            }),
+            LinkError::OtherSession,
+            LinkError::Session(SessionError::Randomness),
+            LinkError::Session(SessionError::LocalCard),
+        ];
+        for error in decided {
+            assert!(!tries_next(false, error), "{error:?}");
+            assert!(!tries_next(true, error), "{error:?}");
+        }
     }
 }

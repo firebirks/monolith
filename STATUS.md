@@ -117,7 +117,8 @@ mutation fault, the document changed, the final status.
 
 | ID | Decision | Commit | Test | Fault | Document | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| BL1 to BL53 | | | | | | open |
+| BL24 | fix (P7-1) | see git log | runtime tests `a_successor_that_does_not_answer_is_followed_by_the_active_key` and five more; `link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next` | HR1 to HR4 | ADR 0009, ARCHITECTURE 1.1, DESIGN_QUESTIONS P7-1, mutation/README | fixed |
+| the rest | | | | | | open |
 
 ## 4. Order of the work
 

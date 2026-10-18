@@ -2520,7 +2520,23 @@ BL53, is in the status file of the phase.
 
 ### 14.1 Decisions
 
-None yet.
+P7-1 The dial plan during a rotation of the peer's key (BL24). An
+    attempt of the runtime, the scheduler's or a `connect`, dials the
+    cards of the dial plan in their order (`link::dial_plan`): the
+    authorized successor, then the active key. The active key is dialed
+    only when the successor did not answer: its handshake ended before
+    message 2 authenticated the responder, on the stream, the handshake
+    deadline or message 2 itself, which is what a peer that has not
+    taken its successor into use does (`PROTOCOL.md` sections 4 and
+    11.4). A successor that answered decides the attempt, whatever
+    came after it: that handshake promoted it. A failure of Tor does
+    too: every card of the plan states the endpoints the user
+    confirmed, so the active key would fail the same way. No further
+    card is dialed once the attempt is over for its caller (the record
+    ended or was made again, a session of it registered, the identity
+    closed), and `link::dial` checks the plan again before it opens a
+    stream. The attempt is reported once, with the failure of its last
+    card. Faults HR1 to HR4.
 
 ### 14.2 Not part of Phase 7
 

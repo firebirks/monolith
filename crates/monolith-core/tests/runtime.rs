@@ -27,12 +27,15 @@ use monolith_core::api::{ContactId, DeferReason, Event, IdentityId, MessageStatu
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
+use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
     HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT, SESSION_LINGER,
 };
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
-use monolith_tor::{KeySource, MockNetwork, MockTorBackend, OnionServiceSecret, TorBackend};
+use monolith_tor::{
+    Bootstrap, KeySource, MockNetwork, MockTorBackend, OnionService, OnionServiceSecret, TorBackend,
+};
 use tokio::sync::broadcast;
 
 fn passphrase() -> Passphrase {
@@ -1239,6 +1242,250 @@ fn a_restarted_sender_delivers_what_it_had_queued() {
             assert_eq!(delivered, Event::MessageDelivered(sent));
         }
         assert_eq!(b.statuses(&at_b), vec![MessageStatus::Received]);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+/// The cards A dials for B, in order.
+fn plan(a: &Peer, b: &Peer) -> Vec<ContactCard> {
+    a.identity
+        .dial_plan(b.identity.identity())
+        .map(|plan| plan.cards)
+        .unwrap_or_default()
+}
+
+/// A and B are accepted contacts. B has begun a rotation of its transport
+/// key and announced the successor to A on a session that has ended
+/// since: A's dial plan of B holds the successor, then the active key.
+/// B goes on answering with its old key until it switches. Both run.
+async fn announced_successor(network: &MockNetwork) -> (Peer, Peer, ContactId, ContactId) {
+    let (mut a, mut b, at_a, at_b) = pair(network).await;
+    b.identity.begin_rotation().await.unwrap();
+    a.start(network, options()).await;
+    b.start(network, options()).await;
+    a.runtime()
+        .send_message(&a.id(), &at_a, "before")
+        .await
+        .unwrap();
+    until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered]).await;
+    until(|| plan(&a, &b).len() == 2).await;
+    assert_eq!(plan(&a, &b)[1], b.identity.card());
+    until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 0).await;
+    (a, b, at_a, at_b)
+}
+
+/// Fails the test on a `DeliveryDeferred` among the events received.
+fn no_deferral(events: &mut broadcast::Receiver<Event>) {
+    while let Ok(event) = events.try_recv() {
+        assert!(
+            !matches!(event, Event::DeliveryDeferred { .. }),
+            "{event:?}"
+        );
+    }
+}
+
+#[test]
+fn a_successor_that_does_not_answer_is_followed_by_the_active_key() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = announced_successor(&network).await;
+        let mut events = a.runtime().subscribe();
+        let dials = network.dials();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "after")
+            .await
+            .unwrap();
+        until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered; 2]).await;
+        // One attempt: the successor, which B does not answer with yet,
+        // then the active key. The first is not reported.
+        assert_eq!(network.dials(), dials + 2);
+        no_deferral(&mut events);
+        assert_eq!(a.runtime().sessions(&a.id(), &at_a).unwrap(), 1);
+        assert_eq!(b.statuses(&at_b), vec![MessageStatus::Received; 2]);
+        // B has not taken the successor into use: it stays announced.
+        assert_eq!(plan(&a, &b).len(), 2);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_successor_in_use_is_dialed_first_and_promoted() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = announced_successor(&network).await;
+        let successor = plan(&a, &b)[0].clone();
+        let rotation = b.identity.rotation_id().unwrap();
+        assert!(b.identity.switch_rotation(rotation, true).await.unwrap());
+        let dials = network.dials();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "after")
+            .await
+            .unwrap();
+        until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered; 2]).await;
+        // The successor answered: one dial, and it is the active key now.
+        assert_eq!(network.dials(), dials + 1);
+        assert_eq!(plan(&a, &b), vec![successor]);
+        assert_eq!(a.runtime().sessions(&a.id(), &at_a).unwrap(), 1);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_failure_of_tor_is_not_followed_by_the_active_key() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = announced_successor(&network).await;
+        let mut events = a.runtime().subscribe();
+        // Tor counts the dial and reaches no service: the same for every
+        // card, which all state the same endpoints.
+        network.set_readiness(false, Bootstrap::InProgress(50));
+        let dials = network.dials();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "after")
+            .await
+            .unwrap();
+        event(&mut events, |event| {
+            matches!(
+                event,
+                Event::DeliveryDeferred {
+                    reason: DeferReason::Tor,
+                    ..
+                }
+            )
+        })
+        .await;
+        assert_eq!(network.dials(), dials + 1);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_plan_whose_cards_both_fail_is_reported_once() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = announced_successor(&network).await;
+        // B is gone; its service takes every stream and drops it, so
+        // neither card answers.
+        b.stop().await;
+        let mut service = network
+            .backend()
+            .publish_onion(KeySource::Existing {
+                secret: OnionServiceSecret::from_bytes(&[2; 64]),
+                expected: fixed_endpoint(2),
+            })
+            .await
+            .unwrap();
+        let dropping = tokio::spawn(async move {
+            while let Ok(stream) = service.accept().await {
+                drop(stream);
+            }
+        });
+        let mut events = a.runtime().subscribe();
+        let dials = network.dials();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "after")
+            .await
+            .unwrap();
+        event(&mut events, |event| {
+            matches!(
+                event,
+                Event::DeliveryDeferred {
+                    reason: DeferReason::Handshake,
+                    ..
+                }
+            )
+        })
+        .await;
+        // Both cards in one attempt, one report for it.
+        assert_eq!(network.dials(), dials + 2);
+        no_deferral(&mut events);
+        assert_eq!(
+            a.statuses(&at_a),
+            vec![MessageStatus::Delivered, MessageStatus::Queued]
+        );
+        dropping.abort();
+        a.stop().await;
+    });
+}
+
+/// What ends an attempt while its first dial, of the successor, is held.
+#[derive(Clone, Copy, Debug)]
+enum Ending {
+    Block,
+    DeleteAndAddAgain,
+    DeleteIdentity,
+}
+
+#[test]
+fn an_attempt_that_ends_between_its_cards_dials_no_further() {
+    for ending in [
+        Ending::Block,
+        Ending::DeleteAndAddAgain,
+        Ending::DeleteIdentity,
+    ] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, mut b, at_a, _) = announced_successor(&network).await;
+            let mut events = a.runtime().subscribe();
+            let dials = network.dials();
+            let hold = network.hold_dial(dials + 1);
+            a.runtime()
+                .send_message(&a.id(), &at_a, "after")
+                .await
+                .unwrap();
+            until(|| network.dials() == dials + 1).await;
+            let again = match ending {
+                Ending::Block => {
+                    a.runtime().block_contact(&a.id(), &at_a).await.unwrap();
+                    None
+                }
+                Ending::DeleteAndAddAgain => {
+                    a.runtime().delete_contact(&a.id(), &at_a).await.unwrap();
+                    Some(a.add(&b).await)
+                }
+                Ending::DeleteIdentity => {
+                    a.runtime().delete_identity(&a.id()).await.unwrap();
+                    None
+                }
+            };
+            hold.release();
+            tokio::time::sleep(HANDSHAKE_TIMEOUT * 10).await;
+            // The successor did not answer, and the active key is not
+            // dialed for a record or an identity that is gone: no stream,
+            // no session, nothing reported.
+            assert_eq!(network.dials(), dials + 1, "{ending:?}");
+            no_deferral(&mut events);
+            if let Some(again) = again {
+                assert_ne!(again, at_a);
+                assert_eq!(a.runtime().sessions(&a.id(), &again).unwrap(), 0);
+            }
+            a.stop().await;
+            b.stop().await;
+        });
+    }
+}
+
+#[test]
+fn a_connect_for_a_record_made_again_between_its_cards_dials_no_further() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = announced_successor(&network).await;
+        let dials = network.dials();
+        let hold = network.hold_dial(dials + 1);
+        a.runtime().connect(&a.id(), &at_a).unwrap();
+        until(|| network.dials() == dials + 1).await;
+        a.runtime().delete_contact(&a.id(), &at_a).await.unwrap();
+        let again = a.add(&b).await;
+        hold.release();
+        tokio::time::sleep(HANDSHAKE_TIMEOUT * 10).await;
+        // The connect was for the record that is gone: the active key is
+        // not dialed for the one made again.
+        assert_eq!(network.dials(), dials + 1);
+        assert_eq!(a.runtime().sessions(&a.id(), &again).unwrap(), 0);
         a.stop().await;
         b.stop().await;
     });

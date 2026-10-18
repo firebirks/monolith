@@ -1786,3 +1786,19 @@ PHASE6 = [
           ("                    .max_rect(row.with_max_x(row.right() + theme.space.sm))",
            "                    .max_rect(row)")),
 ]
+
+
+# Phase 7: security and protocol hardening (docs/DESIGN_QUESTIONS.md
+# section 14). HR for hardening: H is the handshake list of Phase 2.
+PHASE7 = [
+    # The dial plan during a rotation of the peer's key (PROTOCOL.md 4, 11.4).
+    fault("HR1", CORE + "link.rs", "only the first card of a dial plan is dialed",
+          ("        if index > 0 && !go_on() {", "        if index > 0 {")),
+    fault("HR2", CORE + "link.rs", "the next card is dialed after a card that answered",
+          ("    !answered\n        && matches!(", "    matches!(")),
+    fault("HR3", CORE + "link.rs", "a failure of Tor is followed by the next card",
+          ("LinkError::Stream | LinkError::TimedOut | LinkError::Session(SessionError::Protocol(_))",
+           "LinkError::Stream | LinkError::TimedOut | LinkError::Tor(_) | LinkError::Session(SessionError::Protocol(_))")),
+    fault("HR4", CORE + "link.rs", "an attempt that is over dials the next card",
+          ("        if index > 0 && !go_on() {", "        if false {")),
+]
