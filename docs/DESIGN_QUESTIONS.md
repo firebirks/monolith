@@ -2798,6 +2798,25 @@ P7-14 Screens (BL5, BL47, BL48, BL49). `is_invisible` drew the tag
     (`TextField::byte_limit` cuts at the last character that fits).
     Faults HR53 to HR55.
 
+P7-15 What "Check Tor" says with the SOCKS proof on (BL38). With the
+    proof on, the default outside Tails and Whonix, the SOCKS endpoint is
+    not greeted until Tor's control endpoint lists it, so a status query
+    whose control endpoint failed reported the SOCKS endpoint unavailable
+    without trying it, and the check said that Tor is not running: wrong
+    for a Tor that serves its SOCKS port without a control port at the
+    configured endpoint. `SocksStatus::Unproven` now says that the
+    endpoint was not tried because the control endpoint did not answer
+    (nothing is connected to it, as before); one that answered and did
+    not list it stays `Unavailable`. The runtime says `TorCheck::NoControl`
+    for a control endpoint that does not answer with the SOCKS endpoint
+    not tried (the desktop: the control port cannot be reached, and Tor
+    is not running or its control port is not at the endpoint of the
+    settings), and `ControlUnavailable` for one that answers as something
+    other than Tor. With the proof off nothing changes. `readiness` is
+    unchanged: without the control endpoint nothing is dialed, so the
+    client is offline either way. UI42 retargeted to the new form of the
+    same early return. Faults HR56, HR57.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

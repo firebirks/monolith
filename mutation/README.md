@@ -328,7 +328,10 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   the desktop (HR47 to HR52);
 - screens (P7-14): tag characters drawn as they are, white initials
   below 4.5 to 1 on a light avatar colour, a name field that takes more
-  bytes than a name may hold (HR53 to HR55).
+  bytes than a name may hold (HR53 to HR55);
+- "Check Tor" with the SOCKS proof on (P7-15): a SOCKS endpoint not tried
+  said not to answer, a control endpoint that does not answer said to be
+  Tor not running (HR56, HR57).
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within

@@ -43,6 +43,11 @@ pub(crate) fn tor_words(check: Option<&TorCheck>) -> String {
                                        connection settings. Open Tor Browser and leave it \
                                        open, or start the Tor service, then press Check again."
             .to_owned(),
+        Some(TorCheck::NoControl) => "Monolith cannot reach the control port of Tor. Tor is \
+                                      not running, or its control port is not at the endpoint \
+                                      of the connection settings. Open Tor Browser and leave it \
+                                      open, or start the Tor service, then press Check again."
+            .to_owned(),
         Some(TorCheck::SocksUnavailable) => "Monolith cannot use the SOCKS port of Tor. Check \
                                              the SOCKS endpoint in the connection settings."
             .to_owned(),

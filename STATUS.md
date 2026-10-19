@@ -143,6 +143,7 @@ mutation fault, the document changed, the final status.
 | BL47 | shown not to overflow (P7-14): broken at the width of the bubble, nothing inserted; for the owner to confirm | see git log | kit `a_run_without_a_break_opportunity_is_broken_inside_its_share_of_the_width` | - | RESOURCE_LIMITS 10.1, DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-5 | fixed, to confirm |
 | BL48 | fix (P7-14): five light colours darker | see git log | `contrast.rs` covers the initials | HR54 | DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-6 | fixed |
 | BL49 | fix (P7-14): 128 bytes and 64 characters, applied to every name field | see git log | kit `the_byte_limit_cuts_typed_and_pasted_text_at_a_character`, views `a_name_field_takes_no_more_than_a_name_may_hold` | HR55 | RESOURCE_LIMITS 10.1, DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-5 and T-UI-7 | fixed |
+| BL38 | fix (P7-15): `SocksStatus::Unproven`, `TorCheck::NoControl` | see git log | tor `tests/system.rs` `with_the_check_on_status_says_the_socks_endpoint_was_not_tried_without_the_control_endpoint`; `runtime::tests::a_tor_check_says_tor_is_not_running_only_where_both_endpoints_were_tried`; views `a_control_port_that_does_not_answer_is_named_where_tor_may_be_running` | HR56, HR57; UI42 retargeted | DESKTOP 5, DESIGN_QUESTIONS P7-15, TEST_PLAN T-UI-7, mutation/README | fixed |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

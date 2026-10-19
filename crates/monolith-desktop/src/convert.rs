@@ -90,6 +90,7 @@ pub(crate) fn tor_check(check: api::TorCheck) -> TorCheck {
         api::TorCheck::Ready { version, outdated } => TorCheck::Ready { version, outdated },
         api::TorCheck::Connecting { progress } => TorCheck::Connecting { progress },
         api::TorCheck::NotRunning => TorCheck::NotRunning,
+        api::TorCheck::NoControl => TorCheck::NoControl,
         api::TorCheck::SocksUnavailable => TorCheck::SocksUnavailable,
         api::TorCheck::ControlUnavailable => TorCheck::ControlUnavailable,
         api::TorCheck::AuthenticationFailed => TorCheck::AuthenticationFailed,

@@ -227,6 +227,7 @@ fn describe(status: &TorStatus) -> Vec<String> {
         SocksStatus::Reachable => "reachable",
         SocksStatus::Unavailable => "unreachable",
         SocksStatus::InvalidResponse => "answers, but not as Tor's SOCKS5 endpoint",
+        SocksStatus::Unproven => "not tried: Tor cannot be asked whether it is Tor's",
     };
     let mut lines = vec![format!("Tor SOCKS: {socks}")];
     match status.control {

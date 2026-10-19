@@ -413,6 +413,10 @@ pub enum TorCheck {
     /// Nothing answers at the configured endpoints: Tor is not running, or
     /// is configured elsewhere.
     NotRunning,
+    /// The control endpoint does not answer, and the SOCKS endpoint is not
+    /// tried without it (`SocksProof::ControlListeners`): Tor is not
+    /// running, or its control port is not at the configured endpoint.
+    NoControl,
     /// The SOCKS endpoint does not work: no peer can be reached.
     SocksUnavailable,
     /// The control endpoint does not work: no Onion Service can be

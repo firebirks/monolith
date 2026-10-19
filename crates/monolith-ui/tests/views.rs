@@ -26,8 +26,9 @@ use monolith_ui::{App, Effect, EffectResult};
 use monolith_ui_kit::avatar::color_index;
 use monolith_ui_kit::{TextField, Theme, fonts, icons, theme};
 use monolith_ui_model::{
-    Command, Deferral, Dialog, Failure, MessageView, Outcome, RuntimeEvent, Status, UiBlockedId,
-    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update, present,
+    Command, Deferral, Dialog, Failure, MessageView, Outcome, RuntimeEvent, Status, TorCheck,
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    present,
 };
 use zeroize::Zeroizing;
 
@@ -1643,6 +1644,24 @@ fn tor_is_said_the_same_in_its_details_and_in_the_settings() {
     window.click("Connection settings");
     assert!(window.shows("SOCKS endpoint"));
     assert!(window.shows(&said[0]), "{:#?}", window.shown());
+}
+
+#[test]
+fn a_control_port_that_does_not_answer_is_named_where_tor_may_be_running() {
+    let mut window = Window::new("tor-unavailable", WIDE);
+    window.app.model.open(Dialog::TorDetails);
+    window.settle();
+    window.click("Check again");
+    window.answer(|command| match command {
+        Command::CheckTor => Some(Outcome::Tor(TorCheck::NoControl)),
+        _ => None,
+    });
+    assert!(
+        window.shows_part("cannot reach the control port of Tor. Tor is not running, or its"),
+        "{:#?}",
+        window.shown()
+    );
+    assert_eq!(window.count_part("Tor is not running, or not at"), 0);
 }
 
 #[test]

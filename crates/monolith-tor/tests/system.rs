@@ -1189,6 +1189,25 @@ fn losing_a_published_service_ends_the_proof() {
 }
 
 #[test]
+fn with_the_check_on_status_says_the_socks_endpoint_was_not_tried_without_the_control_endpoint() {
+    run(async {
+        // Tor serves the SOCKS endpoint, but its control endpoint is not
+        // at the configured one.
+        let (socks, _, connections) = counted_socks(connected()).await;
+        let backend = proved(socks, closed_port().await, any_cookie());
+        let status = backend.status().await;
+        assert_eq!(status.control, ControlStatus::Unavailable);
+        assert_eq!(status.socks, SocksStatus::Unproven);
+        assert_eq!(status.readiness(), Readiness::Unavailable);
+        assert_eq!(connections.load(Ordering::SeqCst), 0);
+
+        // With the check off the SOCKS endpoint is tried and answers.
+        let backend = system(socks, closed_port().await, any_cookie());
+        assert_eq!(backend.status().await.socks, SocksStatus::Reachable);
+    });
+}
+
+#[test]
 fn with_the_check_on_status_reports_a_socks_endpoint_tor_does_not_list() {
     run(async {
         let (socks, _, connections) = counted_socks(vec![]).await;

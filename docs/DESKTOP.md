@@ -144,7 +144,9 @@ identity switcher. The labels name Tor, not the contact: whether a contact
 is online is never known. The Tor details dialog says what the last
 check found in plain words (not running, SOCKS or control not working,
 authentication refused, too old, outdated) and offers a check and the
-settings. Nothing in the client offers to connect without Tor. Outside
+settings. While the SOCKS endpoint is not tried for want of the control
+endpoint, it names the control port instead of saying that Tor is not
+running (P7-15). Nothing in the client offers to connect without Tor. Outside
 Tails and Whonix the client dials only once Tor has listed its SOCKS
 endpoint (`THREAT_MODEL.md` adversary O): while Tor Browser is closed,
 nothing is dialed, and when Tor answers but does not list the configured

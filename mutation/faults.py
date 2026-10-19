@@ -1477,7 +1477,9 @@ PHASE6 = [
           ("        if !matches!(self.config.auth, ControlAuth::SafeCookie { .. }) {",
            "        if false {")),
     fault("UI42", TOR + "system.rs", "a status query greets a SOCKS endpoint Tor does not list",
-          ("        if self.prove_socks().await.is_err() {\n            return SocksStatus::Unavailable;\n        }\n",
+          ("        if self.prove_socks().await.is_err() {\n            return if control_answered {\n"
+           "                SocksStatus::Unavailable\n            } else {\n                SocksStatus::Unproven\n"
+           "            };\n        }\n",
            "")),
     fault("UI43", DK + "config.rs", "the desktop client dials without the proof",
           ("    if filtered {\n        SocksProof::Off\n    } else {\n        SocksProof::ControlListeners\n    }",
@@ -1962,6 +1964,13 @@ PHASE7 = [
     fault("HR55", UK + "text_field.rs", "a name field takes more bytes than a name may hold",
           ("                limit: self.byte_limit.unwrap_or(usize::MAX),\n",
            "                limit: usize::MAX,\n")),
+    # What "Check Tor" says with the SOCKS proof on (P7-15).
+    fault("HR56", TOR + "system.rs", "a SOCKS endpoint not tried is said not to answer",
+          ("            } else {\n                SocksStatus::Unproven\n",
+           "            } else {\n                SocksStatus::Unavailable\n")),
+    fault("HR57", CORE + "runtime.rs", "a control endpoint that does not answer is said to be Tor not running",
+          ("        ControlStatus::Unavailable if status.socks == SocksStatus::Unproven => TorCheck::NoControl,\n",
+           "        ControlStatus::Unavailable if status.socks == SocksStatus::Unproven => TorCheck::NotRunning,\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

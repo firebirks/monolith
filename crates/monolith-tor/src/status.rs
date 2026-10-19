@@ -125,6 +125,12 @@ pub enum SocksStatus {
     InvalidResponse,
     /// It answered as Monolith needs.
     Reachable,
+    /// It was not greeted: under [`SocksProof::ControlListeners`] the
+    /// control endpoint, which has to prove it Tor's first, did not answer.
+    /// Whether anything listens there is not known.
+    ///
+    /// [`SocksProof::ControlListeners`]: crate::SocksProof::ControlListeners
+    Unproven,
 }
 
 /// The state of Tor as a status query found it.

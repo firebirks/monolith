@@ -172,11 +172,18 @@ impl SystemTorBackend {
         }
     }
 
-    async fn socks_status(&self) -> SocksStatus {
+    /// What the SOCKS endpoint says to a greeting. `control_answered`
+    /// tells whether the control endpoint answered the status query.
+    async fn socks_status(&self, control_answered: bool) -> SocksStatus {
         // With the listener check, a SOCKS endpoint that Tor has not proved
-        // its own is not even greeted.
+        // its own is not even greeted: Tor did not list it, or could not be
+        // asked without its control endpoint.
         if self.prove_socks().await.is_err() {
-            return SocksStatus::Unavailable;
+            return if control_answered {
+                SocksStatus::Unavailable
+            } else {
+                SocksStatus::Unproven
+            };
         }
         let attempt = tokio::time::timeout(SOCKS_NEGOTIATION_TIMEOUT, async {
             let mut stream = connect(&self.config.socks)
@@ -214,12 +221,13 @@ impl TorBackend for SystemTorBackend {
         let control = self.control_status().await;
         // A control endpoint that fails ends the proof of the SOCKS
         // endpoint, which is then made again or refused below.
-        if !matches!(control, ControlStatus::Reachable { .. }) {
+        let answered = matches!(control, ControlStatus::Reachable { .. });
+        if !answered {
             self.forget_proof();
         }
         TorStatus {
             control,
-            socks: self.socks_status().await,
+            socks: self.socks_status(answered).await,
         }
     }
 

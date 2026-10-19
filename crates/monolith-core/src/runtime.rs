@@ -369,6 +369,12 @@ fn tor_check(status: &monolith_tor::TorStatus) -> TorCheck {
         ControlStatus::AuthenticationFailed | ControlStatus::AuthenticationUnavailable => {
             TorCheck::AuthenticationFailed
         }
+        // With the SOCKS proof on, the SOCKS endpoint is not tried without
+        // the control endpoint: whether Tor runs is not known.
+        ControlStatus::Unavailable if status.socks == SocksStatus::Unproven => TorCheck::NoControl,
+        ControlStatus::InvalidResponse if status.socks == SocksStatus::Unproven => {
+            TorCheck::ControlUnavailable
+        }
         ControlStatus::Unavailable | ControlStatus::InvalidResponse => {
             if socks {
                 TorCheck::ControlUnavailable
@@ -2263,6 +2269,39 @@ impl<B: TorBackend + 'static> Runtime<B> {
 mod tests {
     use super::*;
     use crate::persist::CommitError;
+
+    #[test]
+    fn a_tor_check_says_tor_is_not_running_only_where_both_endpoints_were_tried() {
+        use monolith_tor::{ControlStatus, SocksStatus, TorStatus};
+        let check = |control, socks| tor_check(&TorStatus { control, socks });
+        // The SOCKS endpoint was not tried: the control endpoint is what
+        // failed, and whether Tor runs is not known.
+        assert_eq!(
+            check(ControlStatus::Unavailable, SocksStatus::Unproven),
+            TorCheck::NoControl
+        );
+        assert_eq!(
+            check(ControlStatus::InvalidResponse, SocksStatus::Unproven),
+            TorCheck::ControlUnavailable
+        );
+        // Both were tried.
+        assert_eq!(
+            check(ControlStatus::Unavailable, SocksStatus::Unavailable),
+            TorCheck::NotRunning
+        );
+        assert_eq!(
+            check(ControlStatus::InvalidResponse, SocksStatus::InvalidResponse),
+            TorCheck::NotRunning
+        );
+        assert_eq!(
+            check(ControlStatus::Unavailable, SocksStatus::Reachable),
+            TorCheck::ControlUnavailable
+        );
+        assert_eq!(
+            check(ControlStatus::AuthenticationFailed, SocksStatus::Unproven),
+            TorCheck::AuthenticationFailed
+        );
+    }
 
     #[test]
     fn a_failed_send_says_what_failed() {

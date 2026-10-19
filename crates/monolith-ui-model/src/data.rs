@@ -236,6 +236,9 @@ pub enum TorCheck {
     },
     /// Nothing answers at the configured endpoints.
     NotRunning,
+    /// The control endpoint does not answer; the SOCKS endpoint was not
+    /// tried without it.
+    NoControl,
     /// The SOCKS endpoint does not work.
     SocksUnavailable,
     /// The control endpoint does not work.
