@@ -141,11 +141,20 @@ pub fn config_file() -> Option<PathBuf> {
     base.map(|base| base.join("desktop.conf"))
 }
 
-/// Where a saved card goes: the downloads folder, or the home folder.
-pub fn save_dir() -> Option<PathBuf> {
-    let home = home()?;
+/// The home folder, from the environment alone.
+pub fn home_dir() -> Option<PathBuf> {
+    home()
+}
+
+/// Where a saved card goes: the downloads folder of `home`, or `home`.
+/// It looks at the disk, so it runs on the thread of the files.
+pub fn save_dir(home: &Path) -> PathBuf {
     let downloads = home.join("Downloads");
-    Some(if downloads.is_dir() { downloads } else { home })
+    if downloads.is_dir() {
+        downloads
+    } else {
+        home.to_owned()
+    }
 }
 
 fn settings(socks: &str, control: &str, cookie_file: OsString) -> TorSettings {

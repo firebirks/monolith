@@ -114,8 +114,9 @@ impl Client {
         self
     }
 
-    /// Saves the cards of "Save card" in `dir`, where the window saves
-    /// them in the downloads folder.
+    /// Saves the cards of "Save card" in `dir`, taken as the home folder
+    /// (it has no downloads folder), where the window saves them in the
+    /// downloads folder of the user's home folder.
     pub fn saving_to(mut self, dir: &Path) -> Self {
         self.saves = Some(dir.to_owned());
         self
@@ -178,7 +179,7 @@ impl Client {
     pub fn effect(&mut self, effect: Effect) {
         let job = match effect {
             Effect::SaveCard { name, contents } => Job::SaveCard {
-                dir: self.saves.clone(),
+                home: self.saves.clone(),
                 name,
                 contents,
             },

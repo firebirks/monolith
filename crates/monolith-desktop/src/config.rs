@@ -216,14 +216,14 @@ fn create_private_dir(path: &Path) -> std::io::Result<()> {
 /// The Tor configuration of `settings`, if they are complete: endpoints on
 /// the loopback or a socket path, and the absolute path of the cookie of
 /// SAFECOOKIE authentication, named as a file of this computer
-/// (`crate::local`, by its name alone: this runs on the window's
-/// thread). No setting turns authentication off.
+/// (`crate::local`). No setting turns authentication off.
 pub fn tor_config(settings: &TorSettings) -> Option<SystemTorConfig> {
     tor_config_on(settings, places::filtered_tor())
 }
 
 /// [`tor_config`] on a system whose Tor is the platform's own behind a
-/// filter (`filtered`), or not.
+/// filter (`filtered`), or not. It does not look at the disk (the cookie
+/// path is judged by its name alone), so the window's thread calls it.
 pub(crate) fn tor_config_on(settings: &TorSettings, filtered: bool) -> Option<SystemTorConfig> {
     let socks = Endpoint::parse(settings.socks.trim()).ok()?;
     let control = Endpoint::parse(settings.control.trim()).ok()?;

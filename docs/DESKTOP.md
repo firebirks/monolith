@@ -53,7 +53,10 @@ draws, and hands the commands the model issued to the bridge
 (`crates/monolith-desktop/src/window.rs`). Nothing in a drawing path awaits
 anything: disk, Tor, an acknowledgement, the vault and the shutdown of the
 runtime all happen on the bridge's thread, and the files the screens ask
-for on a thread of their own (`files.rs`).
+for on a thread of their own (`files.rs`). Since Phase 7 (P7-16) the
+window's thread does not look at the disk at all: whether Tor is the
+platform's own behind a filter is found once at the start, and the folder
+of a saved card is chosen on the thread of the files.
 
 The bridge runs queries and forwards events in one task, in order, so that
 the model sees them in an order the runtime went through. A command that

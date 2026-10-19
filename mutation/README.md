@@ -331,7 +331,9 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   bytes than a name may hold (HR53 to HR55);
 - "Check Tor" with the SOCKS proof on (P7-15): a SOCKS endpoint not tried
   said not to answer, a control endpoint that does not answer said to be
-  Tor not running (HR56, HR57).
+  Tor not running (HR56, HR57);
+- the window (P7-16): its saved size divided by the zoom, a card saved in
+  the home folder though it has a downloads folder (HR58, HR59).
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within

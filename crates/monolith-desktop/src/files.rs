@@ -17,6 +17,7 @@ use crate::Join;
 use crate::bridge::Wake;
 use crate::config::{self, Config};
 use crate::local;
+use crate::places;
 
 /// The largest card file read (`docs/adr/0011-ui-security-boundary.md`).
 pub const MAX_CARD_FILE: u64 = 64 * 1024;
@@ -31,8 +32,9 @@ const CLOSE_WAIT: Duration = Duration::from_secs(3);
 pub enum Job {
     /// Save a card as a new file in `dir`.
     SaveCard {
-        /// The folder.
-        dir: Option<PathBuf>,
+        /// The home folder: the card goes into its downloads folder, or
+        /// into it if it has none (`places::save_dir`).
+        home: Option<PathBuf>,
         /// The file name the screens chose.
         name: String,
         /// The card.
@@ -135,10 +137,10 @@ impl Drop for Disk {
 fn run(job: Job) -> Option<EffectResult> {
     match job {
         Job::SaveCard {
-            dir,
+            home,
             name,
             contents,
-        } => Some(match dir {
+        } => Some(match home.map(|home| places::save_dir(&home)) {
             Some(dir) => match save_card(&dir, &name, contents.as_bytes()) {
                 Ok(path) => EffectResult::CardSaved {
                     path: path.display().to_string(),
@@ -375,6 +377,36 @@ mod tests {
     }
 
     #[test]
+    fn a_card_goes_to_the_downloads_folder_chosen_by_the_thread_of_the_files() {
+        let home = scratch("home");
+        let save = |home: &Path| {
+            run(Job::SaveCard {
+                home: Some(home.to_owned()),
+                name: "monolith-card.txt".to_owned(),
+                contents: Zeroizing::new("card".to_owned()),
+            })
+        };
+        let saved = |result: Option<EffectResult>| match result {
+            Some(EffectResult::CardSaved { path }) => PathBuf::from(path),
+            other => panic!("{other:?}"),
+        };
+        // Without a downloads folder, into the home folder.
+        assert_eq!(saved(save(&home)).parent(), Some(home.as_path()));
+        let downloads = home.join("Downloads");
+        std::fs::create_dir(&downloads).unwrap();
+        assert_eq!(saved(save(&home)).parent(), Some(downloads.as_path()));
+        assert!(matches!(
+            run(Job::SaveCard {
+                home: None,
+                name: String::new(),
+                contents: Zeroizing::new(String::new()),
+            }),
+            Some(EffectResult::Failed(Failure::File))
+        ));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
     fn a_name_cannot_leave_the_folder() {
         assert_eq!(file_name("../../etc/passwd"), "etc-passwd");
         assert_eq!(file_name("..\\x.txt"), "x.txt");
@@ -437,7 +469,7 @@ mod tests {
         }
         let disk = Disk::start_with(Arc::new(|| {}), Duration::from_millis(200), hang).unwrap();
         let job = Job::SaveCard {
-            dir: None,
+            home: None,
             name: String::new(),
             contents: Zeroizing::new(String::new()),
         };

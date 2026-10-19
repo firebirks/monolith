@@ -2817,6 +2817,18 @@ P7-15 What "Check Tor" says with the SOCKS proof on (BL38). With the
     client is offline either way. UI42 retargeted to the new form of the
     same early return. Faults HR56, HR57.
 
+P7-16 The window (BL43, BL44). The window saved its size in egui's
+    points, which the zoom enlarges, and is opened with that size in the
+    units of the screen, so with a zoom above 1 it came back smaller each
+    time; the size is now multiplied by the zoom before it is kept (the
+    zoom itself is not kept, section 8 of `DESKTOP.md`). The window's
+    thread looked at the disk when the preferences changed (the marker
+    files of Tails and Whonix, for the SOCKS proof) and when a card was
+    saved (whether the home folder has a downloads folder). The first is
+    found once at the start and handed to the window; the second is
+    chosen on the thread of the files, which the job now gives the home
+    folder. Faults HR58, HR59.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

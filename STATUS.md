@@ -144,6 +144,8 @@ mutation fault, the document changed, the final status.
 | BL48 | fix (P7-14): five light colours darker | see git log | `contrast.rs` covers the initials | HR54 | DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-6 | fixed |
 | BL49 | fix (P7-14): 128 bytes and 64 characters, applied to every name field | see git log | kit `the_byte_limit_cuts_typed_and_pasted_text_at_a_character`, views `a_name_field_takes_no_more_than_a_name_may_hold` | HR55 | RESOURCE_LIMITS 10.1, DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-5 and T-UI-7 | fixed |
 | BL38 | fix (P7-15): `SocksStatus::Unproven`, `TorCheck::NoControl` | see git log | tor `tests/system.rs` `with_the_check_on_status_says_the_socks_endpoint_was_not_tried_without_the_control_endpoint`; `runtime::tests::a_tor_check_says_tor_is_not_running_only_where_both_endpoints_were_tried`; views `a_control_port_that_does_not_answer_is_named_where_tor_may_be_running` | HR56, HR57; UI42 retargeted | DESKTOP 5, DESIGN_QUESTIONS P7-15, TEST_PLAN T-UI-7, mutation/README | fixed |
+| BL43 | fix (P7-16): the size times the zoom | see git log | `window::tests::the_saved_size_of_the_window_is_its_size_on_the_screen_whatever_the_zoom` | HR58 | DESIGN_QUESTIONS P7-16, TEST_PLAN T-UI-10, mutation/README | fixed |
+| BL44 | fix (P7-16): the filter found at the start, the save folder chosen on the thread of the files | see git log | `files::tests::a_card_goes_to_the_downloads_folder_chosen_by_the_thread_of_the_files` | HR59 | DESKTOP 3, DESIGN_QUESTIONS P7-16, TEST_PLAN T-UI-10 | fixed |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

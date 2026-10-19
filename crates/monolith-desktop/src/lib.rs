@@ -173,6 +173,7 @@ pub fn run(options: Options) -> ExitCode {
     // On Tails a file is kept only in the Persistent Storage; a place named
     // on the command line elsewhere is refused, not replaced by another.
     let tails = places::is_tails();
+    let filtered = places::filtered_tor();
     let kept = |path: PathBuf| (!tails || places::in_tails_persistent(&path)).then_some(path);
     let config_path = match options.config {
         Some(path) => kept(path),
@@ -183,14 +184,14 @@ pub fn run(options: Options) -> ExitCode {
         Some(path) => config::read(path, defaults),
         None => defaults,
     };
-    let tor_settings_refused = (config::tor_config(&config.preferences.tor).is_none()
+    let tor_settings_refused = (config::tor_config_on(&config.preferences.tor, filtered).is_none()
         || !cookie_here(Path::new(config.preferences.tor.cookie_file.trim())))
         && config.preferences.tor != default_tor;
     if tor_settings_refused {
         config.preferences.tor = default_tor;
     }
     // The default endpoints always parse; nothing else is ever used.
-    let Some(tor) = backend_config(&config.preferences.tor, places::filtered_tor()) else {
+    let Some(tor) = backend_config(&config.preferences.tor, filtered) else {
         return ExitCode::FAILURE;
     };
     let data_dir = match options.data_dir {
@@ -248,7 +249,7 @@ pub fn run(options: Options) -> ExitCode {
             if tor_settings_refused {
                 app.effect_done(EffectResult::Failed(Failure::TorSettings));
             }
-            let (window, joins) = Window::start(app, setup, wake, config, config_path)?;
+            let (window, joins) = Window::start(app, setup, wake, config, config_path, filtered)?;
             *slot = Some(joins);
             Ok(Box::new(window))
         }),

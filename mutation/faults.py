@@ -1971,6 +1971,12 @@ PHASE7 = [
     fault("HR57", CORE + "runtime.rs", "a control endpoint that does not answer is said to be Tor not running",
           ("        ControlStatus::Unavailable if status.socks == SocksStatus::Unproven => TorCheck::NoControl,\n",
            "        ControlStatus::Unavailable if status.socks == SocksStatus::Unproven => TorCheck::NotRunning,\n")),
+    # The window (P7-16).
+    fault("HR58", DK + "window.rs", "the saved size of the window is divided by the zoom",
+          ("            let zoom = ctx.zoom_factor();\n", "            let zoom = 1.0;\n")),
+    fault("HR59", DK + "files.rs", "a card is saved in the home folder though it has a downloads folder",
+          ("        } => Some(match home.map(|home| places::save_dir(&home)) {\n",
+           "        } => Some(match home {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

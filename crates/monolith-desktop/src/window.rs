@@ -25,6 +25,10 @@ pub struct Window {
     disk: Disk,
     config: Config,
     config_path: Option<PathBuf>,
+    /// Tor is the platform's own behind a filter (`places::filtered_tor`),
+    /// as it was found at the start: the window's thread does not look at
+    /// the disk.
+    filtered: bool,
     /// The theme installed: light or dark, and reduced motion.
     installed: Option<(Mode, bool)>,
     /// The colour behind the panels.
@@ -54,20 +58,27 @@ impl Window {
         wake: Wake,
         config: Config,
         config_path: Option<PathBuf>,
+        filtered: bool,
     ) -> std::io::Result<(Self, [Join; 2])> {
         let mut bridge = Bridge::start(setup, Arc::clone(&wake))?;
         let mut disk = Disk::start(wake)?;
         let threads = [bridge.take_join(), disk.take_join()];
-        Ok((Self::new(app, bridge, disk, config, config_path), threads))
+        Ok((
+            Self::new(app, bridge, disk, config, config_path, filtered),
+            threads,
+        ))
     }
 
-    /// A window over `app`, with the bridge and the disk thread running.
+    /// A window over `app`, with the bridge and the disk thread running,
+    /// on a system whose Tor is the platform's own behind a filter
+    /// (`filtered`), or not.
     pub fn new(
         app: App,
         bridge: Bridge,
         disk: Disk,
         config: Config,
         config_path: Option<PathBuf>,
+        filtered: bool,
     ) -> Self {
         // eframe clears the window before the first frame: with the
         // colour of the theme the preferences ask for, as far as it is
@@ -81,6 +92,7 @@ impl Window {
             disk,
             config,
             config_path,
+            filtered,
             installed: None,
             clear,
             waiting: 0,
@@ -157,7 +169,8 @@ impl Window {
         self.waiting = now;
     }
 
-    /// Keeps the size of the window for the settings file.
+    /// Keeps the size of the window for the settings file, in the units
+    /// it is opened with: those of the screen, without egui's zoom.
     fn track_window(&mut self, ctx: &Context) {
         let (inner, maximized) = ctx.input(|input| {
             let viewport = input.viewport();
@@ -171,8 +184,10 @@ impl Window {
             return;
         }
         if let Some(inner) = inner {
-            self.config.window.width = inner.width();
-            self.config.window.height = inner.height();
+            // egui gives the size in its points, which the zoom enlarges.
+            let zoom = ctx.zoom_factor();
+            self.config.window.width = inner.width() * zoom;
+            self.config.window.height = inner.height() * zoom;
         }
     }
 
@@ -196,7 +211,7 @@ impl Window {
     fn effect(&mut self, effect: Effect) {
         let job = match effect {
             Effect::SaveCard { name, contents } => Job::SaveCard {
-                dir: places::save_dir(),
+                home: places::home_dir(),
                 name,
                 contents,
             },
@@ -210,7 +225,7 @@ impl Window {
                 dialog,
             },
             Effect::Preferences(preferences) => {
-                if config::tor_config(&preferences.tor).is_none() {
+                if config::tor_config_on(&preferences.tor, self.filtered).is_none() {
                     self.app
                         .effect_done(EffectResult::Failed(Failure::TorSettings));
                     return;
@@ -520,7 +535,7 @@ mod tests {
         let mut app = monolith_ui::App::for_tests(model, 0);
         app.set_preferences(preferences(theme));
         let config = Config::defaults(tor());
-        Window::new(app, bridge, disk, config, Some(config_path))
+        Window::new(app, bridge, disk, config, Some(config_path), false)
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -529,6 +544,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn the_saved_size_of_the_window_is_its_size_on_the_screen_whatever_the_zoom() {
+        let dir = scratch("zoom");
+        let mut window = open_window(dir.join("zoom.conf"), false, ThemeChoice::System);
+        let ctx = Context::default();
+        for zoom in [1.0, 1.5, 0.8] {
+            ctx.set_zoom_factor(zoom);
+            // egui gives the size in its points: the screen's divided by
+            // the zoom.
+            let mut input = egui::RawInput::default();
+            let viewport = input.viewports.entry(egui::ViewportId::ROOT).or_default();
+            viewport.inner_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(960.0 / zoom, 640.0 / zoom),
+            ));
+            viewport.maximized = Some(false);
+            let _ = ctx.run(input, |ctx| window.track_window(ctx));
+            let saved = (window.config.window.width, window.config.window.height);
+            assert!(
+                (saved.0 - 960.0).abs() < 0.01 && (saved.1 - 640.0).abs() < 0.01,
+                "{zoom}: {saved:?}"
+            );
+        }
+        drop(window);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -926,8 +968,15 @@ mod tests {
             close_wait: Duration::from_secs(10),
         };
         let app = monolith_ui::App::for_tests(Model::new(), 0);
-        let (mut window, threads) =
-            Window::start(app, setup, Arc::new(|| {}), Config::defaults(tor()), None).unwrap();
+        let (mut window, threads) = Window::start(
+            app,
+            setup,
+            Arc::new(|| {}),
+            Config::defaults(tor()),
+            None,
+            false,
+        )
+        .unwrap();
         window
             .bridge
             .send(CommandId::new(1), Command::StartWithoutSaving);
