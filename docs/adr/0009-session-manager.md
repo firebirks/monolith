@@ -57,8 +57,8 @@ key is still the active credential:
   the older is closed. A probe asked while a Ping is outstanding takes
   the Pong of that Ping, which the peer may have sent before the probe
   began: a Pong shows the session was alive after its Ping was sent, not
-  within the probe. Liveness only. The timeout counts only while the session is read,
-  so a wait for the store does not use it up;
+  within the probe. Liveness only. The timeout counts only while the
+  session is read, so a wait for the store does not use it up;
 - a session whose key is no longer the active one loses; if neither is,
   both are closed. That is looked at again when a probe ends: a session
   whose key was retired while it was probed loses, answered or not.

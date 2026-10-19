@@ -112,9 +112,9 @@ send an endpoint update.
 - Cannot exceed the per-contact limits of what is stored; a message
   above them is refused. Above its message rates it is slowed, not cut
   off, and never slows another contact; a session it opens above
-  `CONTACT_SESSION_RATE` is closed (since Phase 7). Each message it sends that is taken in
-  rewrites the message store; the rate bounds how often
-  (`RESOURCE_LIMITS.md` section 12).
+  `CONTACT_SESSION_RATE` is closed (since Phase 7). Each message it
+  sends that is taken in rewrites the message store; the rate bounds
+  how often (`RESOURCE_LIMITS.md` section 12).
 - Cannot make a file arrive without acceptance (S13), choose where it is
   written (S14), or have it opened (S16).
 - Cannot change its own pinned identity (S9), and cannot roll back its

@@ -214,9 +214,9 @@ File transfer (T-FILE)
    discarded. A file message for an identifier never seen on the session
    is a violation. Without transfers (P7-4), only a FileAbort or the same
    offer again crosses a rejected offer; a chunk, a completion or an
-   answer of the offerer for it ends the session (P7-23). A property test runs any
-   sequence of file messages of one session against the history of the
-   offers it rejected (`transfers::tests`, P7-22).
+   answer of the offerer for it ends the session (P7-23). A property
+   test runs any sequence of file messages of one session against the
+   history of the offers it rejected (`transfers::tests`, P7-22).
 
 Contacts (T-CONTACT)
 
