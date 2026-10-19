@@ -171,7 +171,7 @@ mod tests {
                 let message = if kind == 0 {
                     offer(byte)
                 } else {
-                    others(byte).swap_remove(usize::from(kind - 1))
+                    others(byte).swap_remove(usize::from(kind.saturating_sub(1)))
                 };
                 let window = rejected.len().saturating_sub(MAX_ENDED_TRANSFER_IDS);
                 let expected = if rejected[window..].contains(&byte) {
