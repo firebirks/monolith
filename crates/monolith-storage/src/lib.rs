@@ -77,7 +77,8 @@ pub enum StorageError {
     /// Another process holds the vault lock.
     Locked,
     /// The passphrase is wrong or the vault was modified. The two cases are
-    /// deliberately indistinguishable.
+    /// deliberately indistinguishable. Of the message store, whose key the
+    /// vault holds: the store was modified.
     AuthenticationFailed,
     /// The vault header is malformed or outside the accepted parameter range,
     /// or the payload does not validate.

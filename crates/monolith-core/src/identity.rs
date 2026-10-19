@@ -1865,6 +1865,10 @@ pub enum InstallationError {
     /// messages: it belongs to another vault, such as one this vault was
     /// restored over. Nothing is repaired.
     MessageStore,
+    /// The message store in place does not authenticate though the vault
+    /// did, with the key the vault holds for it: it was changed or
+    /// damaged, and the passphrase is not the cause. Nothing is repaired.
+    MessageStoreChanged,
 }
 
 impl fmt::Display for InstallationError {
@@ -1875,6 +1879,7 @@ impl fmt::Display for InstallationError {
             Self::Invalid => f.write_str("invalid identity in the vault"),
             Self::Full => f.write_str("too many local identities"),
             Self::MessageStore => f.write_str("the message store is not of this vault"),
+            Self::MessageStoreChanged => f.write_str("the message store was changed or damaged"),
         }
     }
 }
@@ -1982,7 +1987,12 @@ impl Installation {
         let nothing_to_lose =
             contents.version == PayloadVersion::V1 || contents.identities.is_empty();
         let (mut file, stored, missing) = if MessageFile::in_place(&dir)? {
-            let (file, plaintext, _) = MessageFile::open(dir.clone(), key)?;
+            // The vault authenticated, so the passphrase is right.
+            let (file, plaintext, _) =
+                MessageFile::open(dir.clone(), key).map_err(|error| match error {
+                    StorageError::AuthenticationFailed => InstallationError::MessageStoreChanged,
+                    error => error.into(),
+                })?;
             (file, MessageContents::decode(&plaintext)?, false)
         } else {
             match MessageFile::open(dir.clone(), key) {

@@ -2843,6 +2843,20 @@ P7-17 What another identity's event and a refused place show (BL45,
     a notice at the start (settings then last until Monolith closes). A
     place refused is still not replaced by another. Faults HR60 to HR62.
 
+P7-18 A message store that does not authenticate (BL36). The store is
+    opened only once the vault authenticated, with the key the vault
+    holds for it, so a store in place that does not authenticate was
+    changed or damaged; the passphrase is not the cause. It was told as
+    `OpenError::AuthenticationFailed`, which the desktop says as a wrong
+    passphrase. The installation now fails with
+    `InstallationError::MessageStoreChanged`, which the runtime reports
+    as `OpenError::Invalid` and the desktop as a damaged profile, nothing
+    repaired as before. `OpenError::AuthenticationFailed` now names the
+    vault only. The test of Phase 5 that changes a byte of the store
+    expects the new variant: it still fails the installation and leaves
+    the file as it was. Faults HR63, HR64 (the first fault of the runtime
+    crate, whose tests and the desktop's the runner now knows).
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

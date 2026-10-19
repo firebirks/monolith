@@ -148,6 +148,7 @@ mutation fault, the document changed, the final status.
 | BL44 | fix (P7-16): the filter found at the start, the save folder chosen on the thread of the files | see git log | `files::tests::a_card_goes_to_the_downloads_folder_chosen_by_the_thread_of_the_files` | HR59 | DESKTOP 3, DESIGN_QUESTIONS P7-16, TEST_PLAN T-UI-10 | fixed |
 | BL45 | fix (P7-17): the notice only for the identity shown | see git log | model `a_contact_of_another_identity_accepting_raises_no_notice_over_the_one_shown` | HR60 | DESIGN_QUESTIONS P7-17, TEST_PLAN T-UI-1, mutation/README | fixed |
 | BL46 | fix (P7-17): the first screen says a refused data folder, a notice a refused settings file | see git log | desktop `tests::a_place_named_and_refused_is_said_refused_and_not_replaced`, views `a_data_folder_refused_at_the_start_is_said_so_and_not_as_storage_to_unlock` | HR61, HR62 | PLATFORM_TAILS 5, DESIGN_QUESTIONS P7-17, TEST_PLAN T-UI-7 | fixed |
+| BL36 | fix (P7-18): `InstallationError::MessageStoreChanged`, `OpenError::Invalid` | see git log | core `tests/messages.rs` `a_message_store_that_does_not_authenticate_fails_the_installation` (expects the new variant); runtime `tests::a_changed_message_store_is_not_told_as_a_wrong_passphrase` | HR63, HR64 | STORAGE 3.6, DESIGN_QUESTIONS P7-18, mutation/README | fixed |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

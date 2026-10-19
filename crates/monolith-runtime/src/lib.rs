@@ -38,8 +38,9 @@ use core::time::Duration;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum OpenError {
-    /// The passphrase is wrong, or the vault or the message store was
-    /// changed. The two cannot be told apart.
+    /// The passphrase is wrong, or the vault was changed. The two cannot
+    /// be told apart. A message store that does not authenticate once the
+    /// vault did is [`OpenError::Invalid`].
     AuthenticationFailed,
     /// The passphrase is empty or too long.
     BadPassphrase,
@@ -56,7 +57,8 @@ pub enum OpenError {
     /// right one (`docs/STORAGE.md` section 3.5).
     RecoveryNeeded,
     /// The vault or the message store holds something that does not
-    /// validate. Nothing was repaired.
+    /// validate, or the message store does not authenticate though the
+    /// vault did. Nothing was repaired.
     Invalid,
     /// The message store beside the vault holds the messages of another
     /// vault: the vault is one from before Phase 5 put back beside a newer
@@ -69,7 +71,7 @@ pub enum OpenError {
 impl fmt::Display for OpenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::AuthenticationFailed => "wrong passphrase or changed files",
+            Self::AuthenticationFailed => "wrong passphrase or changed vault",
             Self::BadPassphrase => "unusable passphrase",
             Self::Locked => "the data directory is in use",
             Self::NotFound => "no vault in the data directory",
@@ -103,6 +105,7 @@ fn installation(error: InstallationError) -> OpenError {
     match error {
         InstallationError::Storage(error) => storage(error),
         InstallationError::MessageStore => OpenError::MessageStore,
+        InstallationError::MessageStoreChanged => OpenError::Invalid,
         _ => OpenError::Invalid,
     }
 }
@@ -424,6 +427,21 @@ mod tests {
 
     use super::*;
     use monolith_tor::MockNetwork;
+
+    #[test]
+    fn a_changed_message_store_is_not_told_as_a_wrong_passphrase() {
+        // The store is opened only once the vault authenticated.
+        assert_eq!(
+            installation(InstallationError::MessageStoreChanged),
+            OpenError::Invalid
+        );
+        assert_eq!(
+            installation(InstallationError::Storage(
+                StorageError::AuthenticationFailed
+            )),
+            OpenError::AuthenticationFailed
+        );
+    }
 
     #[test]
     fn an_ephemeral_messenger_answers_its_queries_with_plain_values() {

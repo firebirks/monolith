@@ -337,7 +337,11 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
 - another identity's event and a refused place (P7-17): a contact of
   another identity accepting raises a notice over the one shown, a place
   named and refused at the start not said refused, a data folder refused
-  explained as storage to unlock (HR60 to HR62).
+  explained as storage to unlock (HR60 to HR62);
+- a message store that does not authenticate (P7-18): told as the
+  vault's authentication by the core, or as a wrong passphrase by the
+  runtime (HR63, HR64). A fault of `monolith-runtime` runs its tests and
+  the desktop's.
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within

@@ -13,6 +13,7 @@ CORE = "crates/monolith-core/src/"
 PR = "crates/monolith-protocol/src/"
 SE = "crates/monolith-session/src/"
 ST = "crates/monolith-storage/src/"
+RT = "crates/monolith-runtime/src/"
 UM = "crates/monolith-ui-model/src/"
 UK = "crates/monolith-ui-kit/src/"
 UI = "crates/monolith-ui/src/"
@@ -33,6 +34,7 @@ TESTS = {
     "monolith-tor": ["monolith-tor", "monolith-core"],
     "monolith-storage": ["monolith-storage", "monolith-core"],
     "monolith-core": ["monolith-core"],
+    "monolith-runtime": ["monolith-runtime", "monolith-desktop"],
     "monolith-ui-model": ["monolith-ui-model", "monolith-ui", "monolith-desktop"],
     "monolith-ui-kit": ["monolith-ui-kit", "monolith-ui", "monolith-desktop"],
     "monolith-ui": ["monolith-ui", "monolith-desktop"],
@@ -1987,6 +1989,15 @@ PHASE7 = [
           ("            let refused = place.is_none();\n", "            let refused = false;\n")),
     fault("HR62", UI + "onboarding.rs", "a data folder refused is explained as storage to unlock",
           ("    let why = if app.data_dir_refused {\n", "    let why = if false {\n")),
+    # A message store that does not authenticate (P7-18).
+    fault("HR63", CORE + "identity.rs", "a changed message store is told as the vault's authentication",
+          ("                    StorageError::AuthenticationFailed => InstallationError::MessageStoreChanged,\n",
+           "                    StorageError::AuthenticationFailed => {\n"
+           "                        InstallationError::Storage(StorageError::AuthenticationFailed)\n"
+           "                    }\n")),
+    fault("HR64", RT + "lib.rs", "a changed message store is told as a wrong passphrase",
+          ("        InstallationError::MessageStoreChanged => OpenError::Invalid,\n",
+           "        InstallationError::MessageStoreChanged => OpenError::AuthenticationFailed,\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

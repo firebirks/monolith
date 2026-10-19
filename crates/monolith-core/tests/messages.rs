@@ -28,7 +28,6 @@ use monolith_core::messages::{Receipt, Refusal};
 use monolith_protocol::body::{Message, MessageId};
 use monolith_protocol::limits::{MAX_QUEUED_MESSAGES_PER_CONTACT, MAX_VAULT_FILE_LEN};
 use monolith_protocol::text::ChatText;
-use monolith_storage::StorageError;
 use monolith_storage::dir::{CrashOutcome, MESSAGES, MemoryDir, VAULT, VaultDir};
 use monolith_storage::message_records::EntryKind;
 use monolith_storage::record::{
@@ -778,9 +777,7 @@ fn a_message_store_that_does_not_authenticate_fails_the_installation() {
         dir.overwrite(MESSAGES, &changed).unwrap();
         assert_eq!(
             Installation::open(Box::new(dir.clone()), &passphrase()).err(),
-            Some(InstallationError::Storage(
-                StorageError::AuthenticationFailed
-            ))
+            Some(InstallationError::MessageStoreChanged)
         );
         // Nothing was repaired: the file is as it was left.
         assert_eq!(

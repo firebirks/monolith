@@ -385,7 +385,9 @@ file.
 ### 3.6 Failure
 
 - Wrong passphrase and modified file are indistinguishable by design; both
-  fail authentication. The message says so.
+  fail authentication. The message says so. A message store that does not
+  authenticate once the vault did is changed or damaged, and is said to be
+  damaged, not a wrong passphrase (P7-18).
 - A vault that does not open is left untouched. Monolith does not offer to
   "reset" it; that would destroy the identity. The user can move the file
   away by hand and start a new identity.
