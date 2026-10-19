@@ -2904,6 +2904,18 @@ P7-20 Documents and small corrections (BL6 to BL9, BL11, BL12, BL33 to
     they are code spans now, and the CI builds the documentation with
     warnings denied.
 
+P7-21 The cost of the SOCKS proof for each failed dial (BL19), measured
+    and accepted. A failed dial ends the proof, so the next one opens a
+    control connection again. A throwaway test against the fake control
+    port of `tests/system.rs` (release build, 300 failed dials each way)
+    took 2.8 ms a dial with the proof and 1.0 ms without: about 1.8 ms of
+    loopback and SAFECOOKIE, against the seconds a dial that fails over
+    Tor takes, and made at most once a failed dial, which the delays and
+    `MAX_CONCURRENT_DIALS` pace. Keeping the proof across a failed dial
+    would let a SOCKS port taken over after Tor stopped receive the next
+    dial; the cost does not justify that. Not measured: what a control
+    connection costs Tor itself, and whether Tor logs each one.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

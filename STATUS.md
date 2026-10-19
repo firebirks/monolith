@@ -162,6 +162,7 @@ mutation fault, the document changed, the final status.
 | BL37 | measured and documented (P7-20): 64 to 100 MiB at a write | see git log | measurement outside the repository | - | RESOURCE_LIMITS 11 | fixed |
 | BL51 | documented (P7-20) | see git log | - | - | ADR 0009 | fixed |
 | BL52 | fixed (P7-20): links made code spans, `cargo doc` in the CI | see git log | `cargo doc` with warnings denied | - | `.github/workflows/ci.yml` | fixed |
+| BL19 | measured and accepted (P7-21): about 1.8 ms a failed dial | see git log | throwaway test, release build | - | RESOURCE_LIMITS 11, DESIGN_QUESTIONS P7-21 | accepted |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

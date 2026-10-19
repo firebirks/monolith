@@ -568,6 +568,14 @@ Other resources:
   (section 11.1). Streams are not rate limited (section 6); the
   handshake budget bounds how many are under way, and at 120 a minute a
   stream would cost a fraction of a percent of one core.
+- A failed dial under the SOCKS proof (`SocksProof::ControlListeners`)
+  ends the proof, so the next dial makes it again: one control connection
+  to Tor, with SAFECOOKIE authentication and one `GETINFO`. Measured on
+  loopback against the fake control port of the tests, release build, the
+  proof adds about 1.8 ms to a failed dial (2.8 ms against 1.0 ms without
+  it); a dial that fails over Tor takes seconds. Dials are paced by the
+  delays of section 7 and `MAX_CONCURRENT_DIALS`, so a proof is made at
+  most as often as a dial fails (P7-21).
 
 ### 11.1 Cost of a handshake
 
