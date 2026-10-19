@@ -2987,11 +2987,10 @@ P7-23 The independent reviews. Four reviews with Opus, each blind to the
       variation selectors stay unmarked, so up to fifteen in a cluster
       can carry hidden bits a user does not read; U+2800 draws a blank
       bubble; the pill of a card file of forty wide characters can
-      overflow on a narrow window (a local name). For the owner: a name
-      in a sentence of the client is set apart by weight alone, which
-      glyphs from fallback fonts lose, and a screen reader hears the
-      sentence whole; a design that sets names apart by more than that
-      is a decision of the product.
+      overflow on a narrow window (a local name). Deferred by the owner
+      (2026-10-19, section 14.2): a name in a sentence of the client is
+      set apart by weight alone, which glyphs from fallback fonts lose,
+      and a screen reader hears the sentence whole.
     - Protocol. After a rejected offer, a FileChunk, FileComplete,
       FileAccept or FileReject is a violation now, as section 13.1 asks
       of each, and only a FileAbort (and the same offer again) is
@@ -2999,10 +2998,9 @@ P7-23 The independent reviews. Four reviews with Opus, each blind to the
       refused. The dev node dials by `link::dial_plan`. The threat model
       no longer says a rate ends a session or that strangers have a
       rate, and the session bucket that stays when a record ends is
-      said. For the owner: an EndpointUpdate counts against the control
-      rate, 600 a minute, and each newer card rewrites the vault;
-      section 12 records that, and a rate of its own would change
-      `RESOURCE_LIMITS.md`.
+      said. Accepted by the owner (2026-10-19): an EndpointUpdate counts
+      against the control rate, 600 a minute, and each newer card
+      rewrites the vault, as section 12 records.
     Faults HR68 to HR85; HR12, HR34, HR44, HR66, HR67, MR48 and MR54
     retargeted, each to the same defect.
 
@@ -3018,7 +3016,10 @@ of Phase 7 (BL20); installers and signing, and the client tried by
 hand on Tails and Whonix (BL21, BL22), while the build, packages and
 tests of Linux and Windows stay in the verification; building and
 testing with a stable compiler that fixes rust-lang/rust#164250, once
-one exists (BL53), which the final verification looks for.
+one exists (BL53), which the final verification looks for. Deferred on
+2026-10-19, from the reviews (P7-23): setting a name apart in a sentence
+of the client by more than its weight, for sight and for screen
+readers, a decision of the product's design.
 
 File transfer and attachments, the Double Ratchet, groups, a mobile
 client, voice and video, read receipts, typing indicators, presence, push

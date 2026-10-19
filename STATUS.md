@@ -171,8 +171,9 @@ mutation fault, the document changed, the final status.
 Four reviews with Opus on 2026-10-19, blind to each other: protocol and
 security, runtime and concurrency, Windows paths, trust of the screens.
 No critical or high finding. Every finding and what became of it is in
-`docs/DESIGN_QUESTIONS.md` P7-23; two are for the owner (how a name is set
-apart in a sentence of the client; a rate of its own for EndpointUpdate).
+`docs/DESIGN_QUESTIONS.md` P7-23. The owner deferred how a name is set
+apart in a sentence of the client (section 14.2) and accepted that
+EndpointUpdate counts against the control rate (2026-10-19).
 
 ## 4. Order of the work
 
