@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the mutation suite. See README.md in this directory.
 
-Usage: python3 mutation/run.py <phase1|...|phase7|all> <workers> [fault id ...]
+Usage: python3 mutation/run.py <phase1|...|phase7|phase7w|all> <workers> [fault id ...]
 
 Each fault of faults.py is applied to a copy of the committed HEAD, one at
 a time; the tests of the affected crates run; the file is restored. The
@@ -10,15 +10,21 @@ directory. The working tree of the repository is never modified.
 
 The exit code is 0 when every fault has the outcome its entry expects, 1
 when one does not, and 2 or 3 when the suite could not start.
+
+It runs on Linux and on Windows; the list `phase7w`, of code built on
+Windows only, runs on Windows only.
 """
 
 import concurrent.futures
+import io
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 
@@ -47,6 +53,20 @@ print_lock = threading.Lock()
 running = set()
 running_lock = threading.Lock()
 
+WINDOWS = sys.platform == "win32"
+
+
+def read(path):
+    """The text of the file at `path`, as its bytes say: UTF-8, line ends
+    untranslated, on every platform."""
+    with open(path, encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def write(path, text):
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
 
 def log(text):
     with print_lock:
@@ -56,23 +76,28 @@ def log(text):
 def prepare(worker, commit):
     tree = os.path.join(WORK, f"tree{worker}")
     marker = os.path.join(tree, ".mutation-commit")
-    if os.path.exists(marker) and open(marker).read().strip() == commit:
+    if os.path.exists(marker) and read(marker).strip() == commit:
         return tree
-    subprocess.run(["rm", "-rf", tree], check=True)
+    shutil.rmtree(tree, ignore_errors=True)
     os.makedirs(tree)
     archive = subprocess.run(
-        ["git", "-C", REPO, "archive", commit], check=True, capture_output=True
+        ["git", "-C", REPO, "archive", "--format=tar", commit], check=True, capture_output=True
     ).stdout
-    subprocess.run(["tar", "-x", "-C", tree], input=archive, check=True)
-    with open(marker, "w") as handle:
-        handle.write(commit)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as files:
+        # The archive of our own commit; the filter, where Python has one,
+        # keeps the modes git gives.
+        if hasattr(tarfile, "tar_filter"):
+            files.extractall(tree, filter="tar")
+        else:
+            files.extractall(tree)
+    write(marker, commit)
     return tree
 
 
 def precheck(selected, tree):
     problems = []
     for item in selected:
-        text = open(os.path.join(tree, item["path"])).read()
+        text = read(os.path.join(tree, item["path"]))
         for old, new in item["pairs"]:
             count = text.count(old)
             if count != 1:
@@ -91,6 +116,11 @@ def cargo_test(tree, crates, limit):
     if "monolith-ui" in crates:
         command += ["--features", "monolith-ui/fixtures"]
     env = dict(os.environ, CARGO_TERM_COLOR="never")
+    group = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if WINDOWS
+        else {"start_new_session": True}
+    )
     process = subprocess.Popen(
         command,
         cwd=tree,
@@ -98,7 +128,9 @@ def cargo_test(tree, crates, limit):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        start_new_session=True,
+        encoding="utf-8",
+        errors="replace",
+        **group,
     )
     with running_lock:
         running.add(process)
@@ -117,6 +149,13 @@ def cargo_test(tree, crates, limit):
 
 
 def kill_group(process):
+    if WINDOWS:
+        # The tree of processes cargo started, the test binaries included.
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(process.pid)],
+            capture_output=True,
+        )
+        return
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
@@ -138,13 +177,12 @@ def classify(code, output, timed_out):
 
 def mutate(path, pairs):
     """Applies a fault to the file at `path` and returns what it held."""
-    original = open(path).read()
+    original = read(path)
     mutated = original
     for old, new in pairs:
         mutated = mutated.replace(old, new, 1)
-    with open(path, "w") as handle:
-        handle.write(mutated)
-    if mutated == original or open(path).read() != mutated:
+    write(path, mutated)
+    if mutated == original or read(path) != mutated:
         log(f"{path} does not hold the fault")
         sys.exit(3)
     return original
@@ -155,10 +193,9 @@ def restore(path, original):
     build of the fault, so that cargo builds it again, and checks that it
     holds exactly that. A copy that would keep running the build of a
     fault falsifies every result after it."""
-    with open(path, "w") as handle:
-        handle.write(original)
+    write(path, original)
     os.utime(path, None)
-    if open(path).read() != original:
+    if read(path) != original:
         log(f"{path} was not restored")
         sys.exit(3)
 
@@ -213,6 +250,8 @@ def check_copy(tree):
             env=dict(os.environ, CARGO_TERM_COLOR="never"),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=TIMEOUT,
         )
         return result.returncode, result.stdout + result.stderr
@@ -235,6 +274,25 @@ def check_copy(tree):
     return None
 
 
+def alive(pid):
+    """Whether the process `pid` runs. On Windows `os.kill` would end it,
+    so the list of processes is asked."""
+    if WINDOWS:
+        listed = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+        ).stdout
+        return f'"{pid}"' in listed
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def lock_work():
     """Refuses to start while another run uses the same copies: two runners
     would restore each other's files and leave trees that do not build."""
@@ -244,14 +302,15 @@ def lock_work():
         descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         try:
-            other = int(open(lock).read().strip() or "0")
-            os.kill(other, 0)
+            other = int(read(lock).strip() or "0")
+        except ValueError:
+            other = 0
+        if other and alive(other):
             log(f"another run (process {other}) uses {WORK}")
             sys.exit(2)
-        except (ValueError, ProcessLookupError, PermissionError):
-            # The process that held the lock is gone.
-            os.remove(lock)
-            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        # The process that held the lock is gone.
+        os.remove(lock)
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     os.write(descriptor, str(os.getpid()).encode())
     os.close(descriptor)
     return lock
@@ -289,6 +348,7 @@ def run_main():
         "phase5": faults.PHASE5,
         "phase6": faults.PHASE6,
         "phase7": faults.PHASE7,
+        "phase7w": faults.PHASE7_WINDOWS,
     }.get(
         phase,
         faults.PHASE1
@@ -301,6 +361,11 @@ def run_main():
     )
     if only:
         selected = [item for item in selected if item["id"] in only]
+    # Code built on Windows only: elsewhere its faults change nothing that
+    # is compiled, and would be counted survived.
+    if phase == "phase7w" and not WINDOWS:
+        log("the list phase7w runs on Windows only")
+        sys.exit(2)
     commit = subprocess.run(
         ["git", "-C", REPO, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
     ).stdout.strip()
@@ -364,7 +429,7 @@ def run_main():
         results = list(pool.map(task, selected))
 
     out = os.path.join(HERE, f"results-{phase}-{commit[:7]}.json")
-    with open(out, "w") as handle:
+    with open(out, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(
             {
                 "commit": commit,

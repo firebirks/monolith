@@ -163,7 +163,8 @@ mutation fault, the document changed, the final status.
 | BL51 | documented (P7-20) | see git log | - | - | ADR 0009 | fixed |
 | BL52 | fixed (P7-20): links made code spans, `cargo doc` in the CI | see git log | `cargo doc` with warnings denied | - | `.github/workflows/ci.yml` | fixed |
 | BL19 | measured and accepted (P7-21): about 1.8 ms a failed dial | see git log | throwaway test, release build | - | RESOURCE_LIMITS 11, DESIGN_QUESTIONS P7-21 | accepted |
-| the rest | | | | | | open |
+| BL14 to BL18, BL20 to BL22 | deferred with the owner's approval (2026-10-18) | - | - | - | DESIGN_QUESTIONS 14.2 | deferred |
+| BL53 | the final verification looks for a stable compiler with the fix | - | - | - | DESIGN_QUESTIONS 14.2 | at the final verification |
 
 ## 4. Order of the work
 

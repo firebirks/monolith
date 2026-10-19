@@ -12,7 +12,8 @@ key kept.
 
 ## Files
 
-- `faults.py`: the lists `PHASE1` to `PHASE6`. An entry names the
+- `faults.py`: the lists `PHASE1` to `PHASE7`, and `PHASE7_WINDOWS` of
+  code built on Windows only. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
@@ -20,6 +21,8 @@ key kept.
 ## Running
 
     python3 mutation/run.py all 3
+    python3 mutation/run.py phase7 3
+    python3 mutation/run.py phase7w 1
     python3 mutation/run.py phase6 3
     python3 mutation/run.py phase5 3
     python3 mutation/run.py phase4 3
@@ -48,7 +51,10 @@ the crate that holds the fault and of every crate that depends on it,
 with `--no-fail-fast`, so the result names every test that noticed. When
 `monolith-ui` is among them, its `fixtures` feature is on, so that the
 tests of the screens run in the states their fixtures build. The runner
-runs on Linux.
+runs on Linux and on Windows, with the same checks, outcomes and results
+file on both (since Phase 7). The list `phase7w`, of code built on
+Windows only, runs on Windows only, and `all` leaves it out: elsewhere
+its faults change nothing that is compiled.
 
 Outcomes:
 
