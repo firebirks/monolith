@@ -646,17 +646,17 @@ Advisories ignored, to be reviewed on 2027-01-15:
   font comes from a peer or from a file the user names. `epaint` 0.36
   replaces it with `skrifa` and needs Rust 1.95; raising the minimum Rust
   version is the way to drop it (ADR 0010).
-- RUSTSEC-2026-0370, `zvariant` 5.9.2, and RUSTSEC-2026-0371,
-  `zbus_names` 4.3.1 (2026-10-19, found by the final verification of
-  Phase 7): unmaintained as crates of their own, since `zbus` 6 took them
-  in as its `wire` and `names` modules. No vulnerability is known. They
+- RUSTSEC-2026-0370, `zvariant` 5.9.2, RUSTSEC-2026-0372, its derive
+  macros `zvariant_derive` 5.9.2, and RUSTSEC-2026-0371, `zbus_names`
+  4.3.1 (2026-10-19, found by the final verification of Phase 7):
+  unmaintained as crates of their own, since `zbus` 6 took them in as its
+  `wire` and `names` modules. No vulnerability is known. They
   are the D-Bus types of `zbus` 5.13.2, which `accesskit_unix` 0.15 under
   `eframe` 0.32.3 uses on Linux to give the screens to assistive
   technology over the session bus; no peer reaches D-Bus, and nothing of
   them is used on Windows. `zbus` 6 needs Rust 1.89, above the minimum
   Rust version, and an `accesskit_unix` that uses it; neither `Cargo.lock`
-  nor any code changed for these exceptions. `zvariant_derive` is not in
-  the tree's findings and is not ignored.
+  nor any code changed for these exceptions.
 
 Banned crates allowed only as a direct dependency of named crates
 (`wrappers`); any other crate that depends on them still fails the check:
@@ -713,8 +713,8 @@ Run on the dependency set above; the date is in each row.
 
 | Check | Result |
 | --- | --- |
-| `cargo audit` | no vulnerability applies; RUSTSEC-2026-0194, RUSTSEC-2026-0195, RUSTSEC-2026-0192, RUSTSEC-2026-0370 and RUSTSEC-2026-0371 are ignored with their reasons (section 3, "Exceptions in deny.toml"); 445 crates in `Cargo.lock` (2026-10-14, Phase 6; the last two since 2026-10-19) |
-| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy, no warning (2026-10-14; again on 2026-10-19 with the two exceptions of that day) |
+| `cargo audit` | no vulnerability applies; RUSTSEC-2026-0194, RUSTSEC-2026-0195, RUSTSEC-2026-0192, RUSTSEC-2026-0370, RUSTSEC-2026-0371 and RUSTSEC-2026-0372 are ignored with their reasons (section 3, "Exceptions in deny.toml"); 445 crates in `Cargo.lock` (2026-10-14, Phase 6; the last three since 2026-10-19) |
+| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy, no warning (2026-10-14; again on 2026-10-19 with the three exceptions of that day) |
 | `cargo tree -d` | in the core, one pair: `rand_core` 0.9.5 and 0.10.1; in the desktop, the second versions of its window stack; see below (2026-10-14) |
 | Build and tests with Rust 1.85.1 | pass; after the Phase 6 changes to `Cargo.lock` the workspace was built with 1.85.1 on Windows (2026-10-14) |
 | Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `snow`, `zeroize`, `proptest`; for the desktop `egui`, `eframe`, `zbus`, `zbus_xml`, `webbrowser`, `image`, `unicode-segmentation` and others) |
@@ -835,6 +835,7 @@ makes `cargo deny` fail on `getrandom` until it is reviewed again.
 - https://rustsec.org/advisories/RUSTSEC-2026-0192.html
 - https://rustsec.org/advisories/RUSTSEC-2026-0370.html
 - https://rustsec.org/advisories/RUSTSEC-2026-0371.html
+- https://rustsec.org/advisories/RUSTSEC-2026-0372.html
 - https://github.com/harfbuzz/ttf-parser/issues/217
 - https://www.boost.org/LICENSE_1_0.txt
 - https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html

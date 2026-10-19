@@ -24,14 +24,16 @@ ignore = [
     # comes from a peer. epaint 0.36 replaces it with skrifa and needs
     # Rust 1.95. Review on 2027-01-15.
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser reads only bundled fonts and the fixed system fonts of ADR 0012; no egui that drops it builds with Rust 1.85. Review 2027-01-15." },
-    # zvariant 5.9.2 and zbus_names 4.3.1 are unmaintained as crates of
-    # their own: zbus 6 took them in as its wire and names modules. No
+    # zvariant 5.9.2, its derive macros zvariant_derive 5.9.2 and
+    # zbus_names 4.3.1 are unmaintained as crates of their own: zbus 6 took
+    # them in as its wire and names modules. No
     # vulnerability is known. They come through zbus 5.13.2, the AT-SPI
     # bridge of accesskit_unix 0.15 under eframe 0.32.3, which the desktop
     # uses on Linux to speak to the session bus for accessibility; no peer
     # reaches D-Bus. zbus 6 needs Rust 1.89. Review on 2027-01-15.
     { id = "RUSTSEC-2026-0370", reason = "zvariant through zbus 5, the accessibility bridge of accesskit on Linux; unmaintained, no vulnerability; zbus 6 needs Rust 1.89. Review 2027-01-15." },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names through zbus 5, the accessibility bridge of accesskit on Linux; unmaintained, no vulnerability; zbus 6 needs Rust 1.89. Review 2027-01-15." },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, the derive macros of zvariant through zbus 5, the accessibility bridge of accesskit on Linux; unmaintained, no vulnerability; zbus 6 needs Rust 1.89. Review 2027-01-15." },
 ]
 
 [licenses]
