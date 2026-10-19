@@ -152,6 +152,24 @@ fn backend_config(settings: &TorSettings, filtered: bool) -> Option<SystemTorCon
     })
 }
 
+/// The place `named` on the command line if `kept` keeps it, or else
+/// none, and whether it was refused; the `default` place when none was
+/// named. A place refused is not replaced by another.
+fn named_or_default(
+    named: Option<PathBuf>,
+    kept: impl Fn(PathBuf) -> Option<PathBuf>,
+    default: impl FnOnce() -> Option<PathBuf>,
+) -> (Option<PathBuf>, bool) {
+    match named {
+        Some(path) => {
+            let place = kept(path);
+            let refused = place.is_none();
+            (place, refused)
+        }
+        None => (default(), false),
+    }
+}
+
 /// Whether the cookie file `path` is one of this computer, or would be
 /// once Tor writes it (`local::would_be_here`): looked at once, at the
 /// start, since the Tor settings take effect then.
@@ -175,10 +193,7 @@ pub fn run(options: Options) -> ExitCode {
     let tails = places::is_tails();
     let filtered = places::filtered_tor();
     let kept = |path: PathBuf| (!tails || places::in_tails_persistent(&path)).then_some(path);
-    let config_path = match options.config {
-        Some(path) => kept(path),
-        None => places::config_file(),
-    };
+    let (config_path, config_refused) = named_or_default(options.config, kept, places::config_file);
     let defaults = Config::defaults(default_tor.clone());
     let mut config = match &config_path {
         Some(path) => config::read(path, defaults),
@@ -194,10 +209,7 @@ pub fn run(options: Options) -> ExitCode {
     let Some(tor) = backend_config(&config.preferences.tor, filtered) else {
         return ExitCode::FAILURE;
     };
-    let data_dir = match options.data_dir {
-        Some(path) => kept(path),
-        None => places::data_dir(),
-    };
+    let (data_dir, data_dir_refused) = named_or_default(options.data_dir, kept, places::data_dir);
 
     let window = &config.window;
     let sizes = monolith_ui_kit::theme::Theme::light().size;
@@ -249,6 +261,10 @@ pub fn run(options: Options) -> ExitCode {
             if tor_settings_refused {
                 app.effect_done(EffectResult::Failed(Failure::TorSettings));
             }
+            if config_refused {
+                app.effect_done(EffectResult::Failed(Failure::SettingsNotKept));
+            }
+            app.set_data_dir_refused(data_dir_refused);
             let (window, joins) = Window::start(app, setup, wake, config, config_path, filtered)?;
             *slot = Some(joins);
             Ok(Box::new(window))
@@ -268,6 +284,26 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<OsString> {
         list.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn a_place_named_and_refused_is_said_refused_and_not_replaced() {
+        let named = PathBuf::from("/elsewhere");
+        let default = || Some(PathBuf::from("/home/amnesia/Persistent/monolith"));
+        assert_eq!(
+            named_or_default(Some(named.clone()), |_| None, default),
+            (None, true)
+        );
+        assert_eq!(
+            named_or_default(Some(named.clone()), Some, default),
+            (Some(named), false)
+        );
+        // No place named: the default, refused or not, is not a refusal.
+        assert_eq!(
+            named_or_default(None, |_| None, default),
+            (default(), false)
+        );
+        assert_eq!(named_or_default(None, Some, || None), (None, false));
     }
 
     #[test]

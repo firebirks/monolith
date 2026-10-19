@@ -275,6 +275,9 @@ pub struct App {
     pub(crate) last_conversation: Option<UiContactId>,
     /// The Tor settings offered on the Tor page, the default first.
     pub(crate) tor_presets: Vec<TorPreset>,
+    /// The data directory named when Monolith was started was refused
+    /// (`docs/PLATFORM_TAILS.md` section 5).
+    pub(crate) data_dir_refused: bool,
     /// Where the view drawn in this frame wants its toasts: the part of it
     /// under its bar and its notices.
     pub(crate) toast_area: Option<Rect>,
@@ -323,9 +326,17 @@ impl App {
             focus_search: false,
             last_conversation: None,
             tor_presets: Vec::new(),
+            data_dir_refused: false,
             toast_area: None,
             effects: Vec::new(),
         }
+    }
+
+    /// Says that the data directory named when Monolith was started was
+    /// refused, so that the first screen says why there is no place for a
+    /// profile.
+    pub fn set_data_dir_refused(&mut self, refused: bool) {
+        self.data_dir_refused = refused;
     }
 
     /// Sets the Tor settings offered on the Tor page, the default first.

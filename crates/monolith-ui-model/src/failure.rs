@@ -64,6 +64,9 @@ pub enum Failure {
     FileTooLarge,
     /// The Tor settings are incomplete, or name a place off this computer.
     TorSettings,
+    /// The settings file named when Monolith was started was refused: on
+    /// Tails it is not in the unlocked Persistent Storage.
+    SettingsNotKept,
     /// Something the app did not expect.
     Unexpected,
 }
@@ -140,6 +143,10 @@ impl Failure {
             Self::ShuttingDown => "Monolith is closing.",
             Self::File => "The file could not be read or written.",
             Self::FileTooLarge => "This file is too large to be a Monolith card.",
+            Self::SettingsNotKept => {
+                "The settings file Monolith was started with is not in the unlocked Persistent \
+                 Storage, so settings last until Monolith closes."
+            }
             Self::TorSettings => {
                 "These Tor settings cannot be used. Tor must be on this computer, and the \
                  cookie file needs its full path."

@@ -2315,11 +2315,15 @@ impl Model {
             }
             RuntimeEvent::ContactAccepted(contact) => {
                 self.mark_identity(contact.identity());
-                let name = self.contact_name(contact);
-                self.notice(
-                    NoticeKind::Info,
-                    Prose::said("").name(&name).and(" accepted your request."),
-                );
+                // An event of another identity changes nothing shown (ADR
+                // 0011, State): its contact shows as accepted there.
+                if self.current() == Some(contact.identity()) {
+                    let name = self.contact_name(contact);
+                    self.notice(
+                        NoticeKind::Info,
+                        Prose::said("").name(&name).and(" accepted your request."),
+                    );
+                }
             }
             RuntimeEvent::RequestReceived { identity, queued } => {
                 if queued {

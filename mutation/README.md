@@ -333,7 +333,11 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   said not to answer, a control endpoint that does not answer said to be
   Tor not running (HR56, HR57);
 - the window (P7-16): its saved size divided by the zoom, a card saved in
-  the home folder though it has a downloads folder (HR58, HR59).
+  the home folder though it has a downloads folder (HR58, HR59);
+- another identity's event and a refused place (P7-17): a contact of
+  another identity accepting raises a notice over the one shown, a place
+  named and refused at the start not said refused, a data folder refused
+  explained as storage to unlock (HR60 to HR62).
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within

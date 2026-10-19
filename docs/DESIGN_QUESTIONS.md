@@ -2829,6 +2829,20 @@ P7-16 The window (BL43, BL44). The window saved its size in egui's
     chosen on the thread of the files, which the job now gives the home
     folder. Faults HR58, HR59.
 
+P7-17 What another identity's event and a refused place show (BL45,
+    BL46). A contact of an identity not shown accepting raised a notice
+    over the identity shown, against ADR 0011 (an event of another
+    identity changes nothing shown); the notice is now raised only for
+    the identity shown, and the other identity is read again as before,
+    so its contact shows as accepted there. On Tails a data directory
+    named with `--data-dir` outside the unlocked Persistent Storage was
+    explained as storage to unlock, and a settings file named with
+    `--config` there was refused without a word. The first screen now
+    says that the data folder Monolith was started with is not in the
+    unlocked Persistent Storage, and a refused settings file is said in
+    a notice at the start (settings then last until Monolith closes). A
+    place refused is still not replaced by another. Faults HR60 to HR62.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

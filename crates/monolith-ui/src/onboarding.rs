@@ -303,24 +303,25 @@ fn stopped(ui: &mut Ui) {
 }
 
 /// The first start where there is no folder to keep a profile in: on
-/// Tails before the Persistent Storage is unlocked
-/// (`docs/PLATFORM_TAILS.md` section 5), or with no home folder. Only a
-/// session that keeps nothing can start.
+/// Tails before the Persistent Storage is unlocked or with a data
+/// directory named outside it (`docs/PLATFORM_TAILS.md` section 5), or
+/// with no home folder. Only a session that keeps nothing can start.
 fn no_place(ui: &mut Ui, app: &mut App) {
     let ctx = ui.ctx().clone();
     let theme = theme::current(&ctx);
     wordmark(ui, &theme);
     let mut start = false;
+    let why = if app.data_dir_refused {
+        "The data folder Monolith was started with is not in the unlocked Persistent \
+         Storage, where a profile would last. Start Monolith again with a folder inside it."
+    } else {
+        "There is no folder here where a profile would last. On Tails, unlock the \
+         Persistent Storage when Tails starts, then start Monolith again."
+    };
     card(ui, &theme, |ui| {
         introduction(ui, &theme);
         ui.add_space(theme.space.md);
-        Banner::new(
-            "no-profile-folder",
-            Tone::Info,
-            "There is no folder here where a profile would last. On Tails, unlock the \
-             Persistent Storage when Tails starts, then start Monolith again.",
-        )
-        .show(ui);
+        Banner::new("no-profile-folder", Tone::Info, why).show(ui);
         ui.add_space(theme.space.sm);
         start = ui
             .add(

@@ -818,6 +818,18 @@ fn a_name_field_takes_no_more_than_a_name_may_hold() {
 }
 
 #[test]
+fn a_data_folder_refused_at_the_start_is_said_so_and_not_as_storage_to_unlock() {
+    let window = Window::new("no-profile-folder", WIDE);
+    assert!(window.shows_part("unlock the Persistent Storage"));
+    let mut app = fixture("no-profile-folder").unwrap();
+    app.set_data_dir_refused(true);
+    let window = Window::with(app, WIDE);
+    assert!(window.shows_part("The data folder Monolith was started with"));
+    assert!(!window.shows_part("unlock the Persistent Storage"));
+    assert!(window.shows("Start without saving"));
+}
+
+#[test]
 fn a_failed_store_is_said_on_every_view() {
     let views = [
         "conversation",

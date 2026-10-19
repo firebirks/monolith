@@ -209,6 +209,28 @@ fn a_late_event_of_one_identity_changes_nothing_shown_of_another() {
 }
 
 #[test]
+fn a_contact_of_another_identity_accepting_raises_no_notice_over_the_one_shown() {
+    let mut model = ready();
+    model.select_identity(identity(1));
+    model.take_notices();
+    // Erin is a contact of B, which is not shown.
+    model.apply(Update::Event(RuntimeEvent::ContactAccepted(contact(2, 20))));
+    assert!(model.take_notices().is_empty());
+    // What is asked again is B's.
+    for (_, command) in model.take_commands() {
+        match command {
+            Command::LoadIdentity(id) => assert_eq!(id, identity(2)),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    // Carol is a contact of A, which is shown.
+    model.apply(Update::Event(RuntimeEvent::ContactAccepted(contact(1, 10))));
+    let notices = model.take_notices();
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].text.plain().contains("Carol"));
+}
+
+#[test]
 fn a_contact_made_again_inherits_nothing_of_the_old_record() {
     let mut model = ready();
     model.select_identity(identity(1));

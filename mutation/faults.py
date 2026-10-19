@@ -1977,6 +1977,16 @@ PHASE7 = [
     fault("HR59", DK + "files.rs", "a card is saved in the home folder though it has a downloads folder",
           ("        } => Some(match home.map(|home| places::save_dir(&home)) {\n",
            "        } => Some(match home {\n")),
+    # Events of another identity (P7-17).
+    fault("HR60", UM + "model.rs", "a contact of another identity accepting raises a notice over the one shown",
+          ("                if self.current() == Some(contact.identity()) {\n"
+           "                    let name = self.contact_name(contact);\n",
+           "                if true {\n                    let name = self.contact_name(contact);\n")),
+    # Places refused on Tails (P7-17).
+    fault("HR61", DK + "lib.rs", "a place named and refused at the start is not said refused",
+          ("            let refused = place.is_none();\n", "            let refused = false;\n")),
+    fault("HR62", UI + "onboarding.rs", "a data folder refused is explained as storage to unlock",
+          ("    let why = if app.data_dir_refused {\n", "    let why = if false {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

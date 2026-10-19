@@ -253,8 +253,10 @@ operation, not an error.
   `/live/persistence/TailsData_unlocked/Persistent`) and that this directory
   is a mount point. If the Persistent Storage is not unlocked, or the path
   is elsewhere, Monolith refuses and explains that the location would not
-  survive shutdown. It does not silently create an amnesic "persistent"
-  identity.
+  survive shutdown: a data directory named on the command line is said to
+  be outside the unlocked Persistent Storage, and a settings file named
+  there is said to be refused, its settings lasting until Monolith closes
+  (P7-17). It does not silently create an amnesic "persistent" identity.
 - The Dotfiles feature is not suitable for the vault. It symlinks existing
   files only; a file replaced by write-and-rename would land in the amnesic
   home directory.
