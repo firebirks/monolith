@@ -147,10 +147,21 @@ pub fn home_dir() -> Option<PathBuf> {
 }
 
 /// Where a saved card goes: the downloads folder of `home`, or `home`.
-/// It looks at the disk, so it runs on the thread of the files.
+/// It looks at the disk, so it runs on the thread of the files. A home
+/// that is not named as a folder of this computer is not looked into, and
+/// on Windows a downloads folder that is a link or a junction is not
+/// followed (`crate::local`); the card is then saved in `home`, which
+/// `files::save_card` checks.
 pub fn save_dir(home: &Path) -> PathBuf {
     let downloads = home.join("Downloads");
-    if downloads.is_dir() {
+    let look = |path: &Path| {
+        if cfg!(windows) {
+            std::fs::symlink_metadata(path)
+        } else {
+            std::fs::metadata(path)
+        }
+    };
+    if crate::local::named_here(home) && look(&downloads).is_ok_and(|looked| looked.is_dir()) {
         downloads
     } else {
         home.to_owned()

@@ -157,8 +157,11 @@ pub enum SendError {
     /// The message store could not be written. Nothing more is stored until
     /// the process starts again.
     Storage,
-    /// The runtime is shutting down: the send was refused, or cut short
-    /// before it was stored.
+    /// The runtime is shutting down: the send was refused, or cut short. A
+    /// send cut short once the message had entered the state of the store,
+    /// while it waited for the write, may still be written, by that write or
+    /// a later one; the message is then queued after a restart, and no
+    /// `MessageQueued` was raised for it.
     ShuttingDown,
     /// The random source failed: the message has no identifier. Nothing
     /// was stored, and the store goes on.

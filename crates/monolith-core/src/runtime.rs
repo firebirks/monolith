@@ -795,12 +795,26 @@ impl<B: TorBackend + 'static> Inner<B> {
                 }
                 // Unless it ended for want of an acknowledgement, a session
                 // that lasted starts the delays again.
-                if since.elapsed() >= RECONNECT_RESET_AFTER
-                    && !lock(&runtime.timed_out).contains(&contact)
-                {
+                let timed_out = lock(&runtime.timed_out).contains(&contact);
+                if since.elapsed() >= RECONNECT_RESET_AFTER && !timed_out {
                     backoff.reset();
                 }
                 delay = backoff.delay(jitter());
+                // The end of the session said nothing while this scheduler
+                // ran; the retry it waits for is announced here, when one
+                // follows.
+                if !identity.is_closed() && self.needs_scheduler(runtime, &contact, &peer) {
+                    self.emit(Event::DeliveryDeferred {
+                        identity: identity.id(),
+                        contact,
+                        reason: if timed_out {
+                            DeferReason::AckTimeout
+                        } else {
+                            DeferReason::SessionEnded
+                        },
+                        retry_in: delay,
+                    });
+                }
                 continue;
             }
             if !delay.is_zero() {
@@ -1689,7 +1703,8 @@ impl<B: TorBackend + 'static> Runtime<B> {
         })?;
         let inner = self.inner.clone();
         let (identity, contact) = (*identity, *contact);
-        // A send the shutdown cut short stored nothing, as at once.
+        // A send the shutdown cut short is reported so, whether or not the
+        // message was written (`SendError::ShuttingDown`).
         self.inner
             .detached(async move { inner.send(&held, identity, contact, text).await })
             .await
@@ -2193,8 +2208,14 @@ impl<B: TorBackend + 'static> Runtime<B> {
         let inner = self.inner.clone();
         let contact = *contact;
         self.inner.spawn(async move {
-            let go_on =
-                || !held.manager.has_session(&contact) && held.identity.is_current(&contact, &peer);
+            // No further card once the runtime shuts down or the identity
+            // closes, as for the scheduler.
+            let go_on = || {
+                !inner.stopping()
+                    && !held.identity.is_closed()
+                    && !held.manager.has_session(&contact)
+                    && held.identity.is_current(&contact, &peer)
+            };
             if let Ok(established) = dial_plan(
                 &inner.backend,
                 &inner.budgets,

@@ -21,8 +21,9 @@
 //!   `FileRenameInfoEx` and POSIX semantics (as in the source of Rust
 //!   1.95). One that another process blocks for the moment, holding the
 //!   file without the sharing that lets it be renamed, as a scanner may,
-//!   is tried again for at most [`RENAME_WAITS`] together; a second name
-//!   is a hard link.
+//!   is tried again for at most [`RENAME_WAITS`] together, and so is the
+//!   removal of a file (since Phase 7, P7-10 and P7-23); a second name is
+//!   a hard link.
 //!
 //! What Unix checks and this does not: who owns the directory and who
 //! else may read it. Windows keeps that in access control lists, which
@@ -76,6 +77,29 @@ const RENAME_WAITS: [Duration; 7] = [
 
 fn std_io(_: std::io::Error) -> StorageError {
     StorageError::Io
+}
+
+/// Runs `operation`, a rename or a removal, and runs it again after each
+/// of [`RENAME_WAITS`] while another process holds the file without the
+/// sharing that allows it, for the moment, as a scanner may, or for good:
+/// a few pauses tell which.
+fn retried(mut operation: impl FnMut() -> std::io::Result<()>) -> Result<(), StorageError> {
+    let mut waits = RENAME_WAITS.iter();
+    loop {
+        match operation() {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(ERROR_SHARING_VIOLATION | ERROR_ACCESS_DENIED)
+                ) =>
+            {
+                let wait = waits.next().ok_or(StorageError::Io)?;
+                std::thread::sleep(*wait);
+            }
+            Err(_) => return Err(StorageError::Io),
+        }
+    }
 }
 
 /// Checks that the open `file` is of the expected kind and is not a
@@ -233,24 +257,7 @@ impl VaultDir for DiskDir {
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         let (from, to) = (self.file(from)?, self.file(to)?);
-        let mut waits = RENAME_WAITS.iter();
-        loop {
-            match std::fs::rename(&from, &to) {
-                Ok(()) => return Ok(()),
-                Err(error)
-                    if matches!(
-                        error.raw_os_error(),
-                        Some(ERROR_SHARING_VIOLATION | ERROR_ACCESS_DENIED)
-                    ) =>
-                {
-                    // Held by another process for the moment, or for
-                    // good: a few pauses tell which.
-                    let wait = waits.next().ok_or(StorageError::Io)?;
-                    std::thread::sleep(*wait);
-                }
-                Err(_) => return Err(StorageError::Io),
-            }
-        }
+        retried(|| std::fs::rename(&from, &to))
     }
 
     fn link(&self, from: &str, to: &str) -> Result<(), StorageError> {
@@ -261,7 +268,8 @@ impl VaultDir for DiskDir {
     }
 
     fn remove(&self, name: &str) -> Result<(), StorageError> {
-        std::fs::remove_file(self.file(name)?).map_err(std_io)
+        let path = self.file(name)?;
+        retried(|| std::fs::remove_file(&path))
     }
 
     fn sync(&self) -> Result<(), StorageError> {
@@ -344,6 +352,25 @@ mod tests {
             releasing.join().unwrap();
             assert_eq!(dir.read(VAULT, 3).unwrap(), Some(b"new".to_vec()));
         }
+        drop(dir);
+        std::fs::remove_dir_all(&path).unwrap();
+    }
+
+    #[test]
+    fn a_removal_waits_a_little_for_a_file_another_process_holds() {
+        // What a write that used up its pauses left, still held by a
+        // scanner when the next write removes it.
+        let path = temp("remove-held");
+        let dir = DiskDir::open(&path, true).unwrap();
+        dir.write_new(VAULT_NEW, b"new").unwrap();
+        let file = held(&path.join(VAULT_NEW));
+        let releasing = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            drop(file);
+        });
+        assert_eq!(dir.remove(VAULT_NEW), Ok(()));
+        releasing.join().unwrap();
+        assert_eq!(dir.read(VAULT_NEW, 3).unwrap(), None);
         drop(dir);
         std::fs::remove_dir_all(&path).unwrap();
     }

@@ -893,16 +893,6 @@ impl LocalIdentity {
                 MessageError::Storage(error)
             }
         })?;
-        // The record is looked at again once the wait is over, with no
-        // await before the change: a record that ended meanwhile gets no
-        // message.
-        if !self.is_current(&contact, &peer) {
-            return Err(if self.is_closed() {
-                MessageError::Closed
-            } else {
-                MessageError::NotAContact
-            });
-        }
         let messages = self.messages()?;
         let time = now_seconds();
         let mut attempts = 0_u8;
@@ -915,21 +905,28 @@ impl LocalIdentity {
                     // closes the identity before it removes its messages,
                     // so nothing of a deleted identity is added after that.
                     if self.is_closed() {
-                        return (None, false);
+                        return (Err(MessageError::Closed), false);
                     }
-                    let result = state.queue(self.id, contact, peer, id, text.clone(), time);
+                    // The record is looked at again once the wait for the
+                    // vault is over, in the change itself: a record that
+                    // ended meanwhile, on whatever thread, gets no message.
+                    if !self.is_current(&contact, &peer) {
+                        return (Err(MessageError::NotAContact), false);
+                    }
+                    let result = state
+                        .queue(self.id, contact, peer, id, text.clone(), time)
+                        .map_err(MessageError::Refused);
                     let changed = result.is_ok();
-                    (Some(result), changed)
+                    (result, changed)
                 })
                 .map_err(MessageError::Storage)?;
             match result {
-                None => return Err(MessageError::Closed),
-                Some(Ok(sequence)) => break (Queued { id, sequence }, generation),
+                Ok(sequence) => break (Queued { id, sequence }, generation),
                 // Another identifier: a collision of 128 random bits.
-                Some(Err(Refusal::IdTaken)) if attempts < 3 => {
+                Err(MessageError::Refused(Refusal::IdTaken)) if attempts < 3 => {
                     attempts = attempts.saturating_add(1);
                 }
-                Some(Err(refusal)) => return Err(MessageError::Refused(refusal)),
+                Err(error) => return Err(error),
             }
         };
         messages
@@ -2510,6 +2507,32 @@ mod tests {
                 .messages
                 .read(|state| state.identities().is_empty())
         );
+    }
+
+    #[test]
+    fn a_message_queued_as_its_record_is_blocked_on_another_thread_is_refused() {
+        // The record ends after the wait for the vault and before the
+        // message enters the state, on another thread: the message is
+        // refused, and nothing is queued for the blocked record (P7-23).
+        let installation = Installation::ephemeral();
+        let identity = run(installation.restore_identity(keys(1), None)).unwrap();
+        let carol = stranger(3);
+        let carol_id = *carol.identity();
+        run(identity.import(&carol)).unwrap();
+        let contact = identity.contact_id(&carol_id).unwrap();
+        let step: Hook = Box::new({
+            let identity = identity.clone();
+            move || {
+                std::thread::spawn(move || run(identity.block(&carol_id)).unwrap())
+                    .join()
+                    .unwrap();
+            }
+        });
+        lock(&identity.hooks).insert("queueing", step);
+        let queued = run(identity.queue_message(contact, ChatText::new("late").unwrap()));
+        assert_eq!(queued.err(), Some(MessageError::NotAContact));
+        assert_eq!(identity.kind(&carol_id), RecordKind::Blocked);
+        assert!(identity.next_queued(&contact).is_none());
     }
 
     #[test]

@@ -12,7 +12,7 @@ The exit code is 0 when every fault has the outcome its entry expects, 1
 when one does not, and 2 or 3 when the suite could not start.
 
 It runs on Linux and on Windows; the list `phase7w`, of code built on
-Windows only, runs on Windows only.
+Windows only, runs on Windows only, and `all` leaves it out.
 """
 
 import concurrent.futures
@@ -141,7 +141,11 @@ def cargo_test(tree, crates, limit):
         # Killing cargo alone would leave the test binary it started
         # running beside the next fault.
         kill_group(process)
-        out, err = process.communicate()
+        try:
+            out, err = process.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            # A process the kill did not reach still holds the pipes.
+            out, err = "", ""
         return None, (out or "") + (err or ""), True
     finally:
         with running_lock:
@@ -170,9 +174,15 @@ def classify(code, output, timed_out):
         return "survived", []
     if failed:
         return "caught", failed
+    errors = [line for line in output.splitlines() if line.startswith("error")][:5]
     if re.search(r"^error(\[E\d+\])?:", output, re.M) and "could not compile" in output:
-        return "invalid", [line for line in output.splitlines() if line.startswith("error")][:5]
-    return "caught", ["(non-zero exit, no failing test named)"]
+        return "invalid", errors
+    # A non-zero exit counts only once the tests ran: a build that failed
+    # for another reason (on Windows, a test binary another process still
+    # holds) tells nothing of the fault.
+    if re.search(r"^running \d+ tests?$", output, re.M):
+        return "caught", ["(non-zero exit, no failing test named)"]
+    return "invalid", errors or ["(non-zero exit before any test ran)"]
 
 
 def mutate(path, pairs):

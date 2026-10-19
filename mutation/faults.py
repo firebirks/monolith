@@ -1314,8 +1314,12 @@ PHASE5 = [
           ("        if changed {\n            self.changes",
            "        if true {\n            self.changes")),
     fault("MR48", CORE + "identity.rs", "a message queued as its identity is deleted is added after the deletion",
-          ("                    if self.is_closed() {\n                        return (None, false);\n                    }\n                    let result = state.queue(",
-           "                    let result = state.queue(")),
+          ("                    if self.is_closed() {\n                        return (Err(MessageError::Closed), false);\n"
+           "                    }\n",
+           ""),
+          ("                    if !self.is_current(&contact, &peer) {\n"
+           "                        return (Err(MessageError::NotAContact), false);\n                    }\n",
+           "")),
     # Since Phase 7 a send cut short says ShuttingDown (BL27); the fault is
     # the same.
     fault("MR49", CORE + "runtime.rs", "a send its caller stops waiting for is left half done",
@@ -1336,8 +1340,8 @@ PHASE5 = [
           ("        inner.spawn(async move { watching.watch_storage().await });",
            "        drop(watching);")),
     fault("MR54", CORE + "runtime.rs", "an inbound session that ended for want of an acknowledgement starts the delays again",
-          ("                if since.elapsed() >= RECONNECT_RESET_AFTER\n                    && !lock(&runtime.timed_out).contains(&contact)",
-           "                if since.elapsed() >= RECONNECT_RESET_AFTER")),
+          ("                if since.elapsed() >= RECONNECT_RESET_AFTER && !timed_out {",
+           "                if since.elapsed() >= RECONNECT_RESET_AFTER {")),
     fault("MR55", CORE + "runtime.rs", "a command runs outside the tasks a shutdown waits for",
           ("        self.spawn(async move {\n            let _ = result.send(work.await);\n        });",
            "        drop(tokio::spawn(async move {\n            let _ = result.send(work.await);\n        }));")),
@@ -1905,8 +1909,10 @@ PHASE7 = [
           ("                let peer = Self::peer_of(&held, &contact)?;\n",
            "                let peer = named;\n")),
     fault("HR34", CORE + "identity.rs", "a send queues for a record that ended while it waited for the vault",
-          ("        if !self.is_current(&contact, &peer) {\n            return Err(if self.is_closed() {\n",
-           "        if self.is_closed() {\n            return Err(if self.is_closed() {\n")),
+          ("                    if !self.is_current(&contact, &peer) {\n"
+           "                        return (Err(MessageError::NotAContact), false);\n",
+           "                    if false {\n"
+           "                        return (Err(MessageError::NotAContact), false);\n")),
     # The rates of what a contact sends and opens (BL13, P7-8).
     fault("HR35", CORE + "rates.rs", "chat messages are not paced",
           ("            Message::ChatMessage { .. } => Some(Self::Chat),\n",
@@ -2005,6 +2011,17 @@ PHASE7 = [
           ("    before || now || ended\n", "    before && now\n")),
     fault("HR67", UK + "composer.rs", "an Enter after a composition begun and committed in its frame sends the draft",
           ("    before || now || ended\n", "    before || now\n")),
+    # Findings of the reviews (P7-23).
+    fault("HR68", DK + "local.rs", "a drive on a share is looked at folder by folder before it is refused",
+          ("    if !system\n        .resolve(root)\n        .is_ok_and(|canonical| resolved_on_a_drive(&canonical))\n"
+           "    {\n        return false;\n    }\n", "")),
+    fault("HR76", CORE + "runtime.rs", "a session the scheduler waited on ends without announcing the retry",
+          ("                if !identity.is_closed() && self.needs_scheduler(runtime, &contact, &peer) {\n",
+           "                if false {\n")),
+    fault("HR77", CORE + "runtime.rs", "a connect dials its next card once the runtime shuts down",
+          ("                !inner.stopping()\n                    && !held.identity.is_closed()\n"
+           "                    && !held.manager.has_session(&contact)\n",
+           "                !held.manager.has_session(&contact)\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that
@@ -2012,8 +2029,8 @@ PHASE7 = [
 # ("phase7w"); every other list runs on Linux.
 PHASE7_WINDOWS = [
     fault("HR12", DK + "local.rs", "a link or a junction on the way is followed",
-          ("        if looked.file_type().is_symlink() || !held_here(looked.file_attributes()) {",
-           "        if !held_here(looked.file_attributes()) {")),
+          ("            Ok(looked) if !looked.link && held_here(looked.attributes) => deepest = Some(part),",
+           "            Ok(looked) if held_here(looked.attributes) => deepest = Some(part),")),
     fault("HR13", DK + "files.rs", "a card file opened is not compared with the one looked at",
           ("        && opened.file_size() == looked_at.file_size()\n"
            "        && opened.creation_time() == looked_at.creation_time()\n"
@@ -2028,9 +2045,26 @@ PHASE7_WINDOWS = [
     # A rename another process blocks, and the cookie file without case
     # (BL40, BL39).
     fault("HR44", ST + "disk_windows.rs", "a rename another process blocks is tried once",
-          ("        let mut waits = RENAME_WAITS.iter();\n",
-           "        let mut waits = RENAME_WAITS[..0].iter();\n")),
+          ("        retried(|| std::fs::rename(&from, &to))\n",
+           "        std::fs::rename(&from, &to).map_err(std_io)\n")),
     fault("HR46", TOR + "control/mod.rs", "the cookie file Tor names is compared with case on Windows",
           ("                if !names_cookie_file(&named, cookie_file, cfg!(windows)) {\n",
            "                if !names_cookie_file(&named, cookie_file, false) {\n")),
+    # Findings of the reviews (P7-23), in code built on Windows only.
+    fault("HR69", DK + "files.rs", "a card file swapped for one of the same length is read",
+          ("        && opened.last_write_time() == looked_at.last_write_time()\n", "")),
+    fault("HR70", DK + "local.rs", "a name with a stream or a dot or space at its end is a file name",
+          ("                    && !name.contains(':')\n                    && !name.ends_with(['.', ' '])\n", "")),
+    fault("HR71", DK + "files.rs", "a card file opened offline or in the cloud only is read",
+          ("        && local::held_here(opened.file_attributes())\n", "")),
+    fault("HR72", DK + "files.rs", "a card is saved in a folder that is not of this computer",
+          ("    if !local::here(dir) {\n        return Err(std::io::ErrorKind::PermissionDenied.into());\n    }\n", "")),
+    fault("HR73", DK + "config.rs", "a cookie path not named as a file of this computer is taken",
+          ("    if !cookie_file.is_absolute() || !local::named_here(&cookie_file) {\n",
+           "    if !cookie_file.is_absolute() {\n")),
+    fault("HR74", DK + "places.rs", "a downloads folder that is a junction is followed",
+          ("            std::fs::symlink_metadata(path)\n", "            std::fs::metadata(path)\n")),
+    fault("HR75", ST + "disk_windows.rs", "a removal another process blocks is tried once",
+          ("        retried(|| std::fs::remove_file(&path))\n",
+           "        std::fs::remove_file(&path).map_err(std_io)\n")),
 ]

@@ -458,6 +458,64 @@ fn no_acknowledgement_in_time_closes_the_session_and_tries_again_later() {
 }
 
 #[test]
+fn a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends() {
+    // A queues while B is away, and its scheduler waits to dial again. B
+    // dials in, takes the message and never acknowledges it: the session
+    // ends for want of an acknowledgement while the scheduler runs, and the
+    // retry that follows is announced (P7-23).
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = pair(&network).await;
+        a.start(&network, options()).await;
+        let mut events = a.runtime().subscribe();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "while away")
+            .await
+            .unwrap();
+        event(&mut events, |event| {
+            matches!(event, Event::DeliveryDeferred { .. })
+        })
+        .await;
+        b.start(
+            &network,
+            RuntimeOptions {
+                acknowledgement_delay: MESSAGE_ACK_TIMEOUT * 10,
+                ..options()
+            },
+        )
+        .await;
+        let dialed_in = tokio::time::Instant::now();
+        b.runtime()
+            .send_message(&b.id(), &at_b, "dialing in")
+            .await
+            .unwrap();
+        event(&mut events, |event| {
+            matches!(
+                event,
+                Event::DeliveryDeferred {
+                    reason: DeferReason::AckTimeout,
+                    ..
+                }
+            )
+        })
+        .await;
+        // At the end of that session, not after a dial of A's own and the
+        // wait for its acknowledgement.
+        assert!(
+            dialed_in.elapsed() < MESSAGE_ACK_TIMEOUT * 2,
+            "{:?}",
+            dialed_in.elapsed()
+        );
+        assert_eq!(
+            a.statuses(&at_a),
+            vec![MessageStatus::Queued, MessageStatus::Received]
+        );
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
 fn a_message_in_flight_is_sent_once_and_waited_for_from_then() {
     run_paused(async {
         let network = MockNetwork::new();
@@ -1488,6 +1546,29 @@ fn an_attempt_that_ends_between_its_cards_dials_no_further() {
             b.stop().await;
         });
     }
+}
+
+#[test]
+fn a_connect_once_the_runtime_shuts_down_dials_no_further() {
+    // The successor does not answer after the shutdown began: the active
+    // key is not dialed (P7-23).
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = announced_successor(&network).await;
+        let dials = network.dials();
+        let hold = network.hold_dial(dials + 1);
+        a.runtime().connect(&a.id(), &at_a).unwrap();
+        until(|| network.dials() == dials + 1).await;
+        let runtime = a.runtime().clone();
+        let stopping = tokio::spawn(async move { runtime.shutdown(HANDSHAKE_TIMEOUT * 20).await });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        hold.release();
+        tokio::time::sleep(HANDSHAKE_TIMEOUT * 10).await;
+        assert_eq!(network.dials(), dials + 1);
+        stopping.await.unwrap();
+        a.stop().await;
+        b.stop().await;
+    });
 }
 
 #[test]

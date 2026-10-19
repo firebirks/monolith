@@ -15,23 +15,32 @@
 //!   drive, every part of it a plain name, none a name Windows reserves,
 //!   none with a colon (a stream of a file) or ending in a dot or a space
 //!   (which Windows strips, so that two names name one file);
+//! - then its drive: the path Windows resolves for the root of the drive
+//!   is on a drive, not on a share (`\\?\UNC\`), which is what a drive
+//!   mapped to a share resolves to;
 //! - then on the disk, from the root down: no folder on the way and not
 //!   the file itself is a link or a junction, which would send the rest of
 //!   the path elsewhere, and none is offline or kept in the cloud only;
 //! - and then where it ends: the path Windows resolves for it is on a
-//!   drive, not on a share (`\\?\UNC\`), which is what a drive mapped to a
-//!   share resolves to.
+//!   drive too.
 //!
 //! Each step looks at a part only once the parts above it passed, so that
-//! nothing is looked at through a link. The last step opens the file, as
-//! the standard library does to resolve a path; for a drive mapped to a
-//! share, Windows does that on the share the user mapped, over the
-//! connection the mapping made, and the file is then refused unread.
-//! Without code that is not safe Rust, Monolith cannot ask Windows what a
-//! drive is before it opens a file on it. Nor can it hold a folder while it
-//! opens what is in it: a process of the user that replaces a folder on
-//! the way between the checks and the open is not defended against; it can
-//! read the user's files anyway.
+//! nothing is looked at through a link. To resolve the root of a drive the
+//! standard library opens it; for a drive mapped to a share, Windows does
+//! that once, on the share the user mapped, and nothing below the root is
+//! looked at. If the mapping was disconnected, that open makes Windows
+//! connect to the share again, outside Tor (since Phase 7, P7-23; before,
+//! each folder on the way was looked at first). Without code that is not
+//! safe Rust, Monolith cannot ask Windows what a drive is without opening
+//! it. Nor can it hold a folder while it opens what is in it: a process of
+//! the user that replaces a folder on the way between the checks and the
+//! open is not defended against; it can read the user's files anyway.
+//!
+//! A drive that a driver backs with storage elsewhere but presents as a
+//! disk (a cloud drive in streaming mode, a file system in user space, a
+//! disk image or iSCSI volume) resolves on a drive and passes; so does a
+//! folder a sync client keeps, whose files are read from the disk but
+//! uploaded when they change. Nothing in safe Rust tells them apart.
 //!
 //! On Unix nothing here applies, and every path passes: a card file is
 //! opened without following a link (`crate::files`), and a file on a
@@ -139,38 +148,93 @@ pub(crate) fn named_here(path: &Path) -> bool {
     }
 }
 
-/// Whether the folders on the way to `path`, from the root down, and the
-/// last part of `path` itself if `last` and it exists, are held on the disk
-/// and none is a link or a junction. Each part is looked at only once
-/// those above it passed. A part that does not exist ends the walk with
-/// true: there is nothing further to follow.
+/// What a look at one part of a path found, without following a link.
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug)]
+struct Looked {
+    /// A link, a junction or a mount point.
+    link: bool,
+    /// Its attributes.
+    attributes: u32,
+}
+
+/// The calls to the system the checks make, kept apart so that a test can
+/// see which are made and in what order.
+#[cfg(any(windows, test))]
+trait System {
+    /// Looks at `part` without following it.
+    fn look(&mut self, part: &Path) -> std::io::Result<Looked>;
+    /// The path Windows resolves for `path` (`std::fs::canonicalize`).
+    fn resolve(&mut self, path: &Path) -> std::io::Result<std::path::PathBuf>;
+}
+
+/// The disk.
 #[cfg(windows)]
-fn way_held_here(path: &Path, last: bool) -> bool {
-    use std::os::windows::fs::MetadataExt;
+struct Disk;
+
+#[cfg(windows)]
+impl System for Disk {
+    fn look(&mut self, part: &Path) -> std::io::Result<Looked> {
+        use std::os::windows::fs::MetadataExt;
+        let looked = std::fs::symlink_metadata(part)?;
+        Ok(Looked {
+            link: looked.file_type().is_symlink(),
+            attributes: looked.file_attributes(),
+        })
+    }
+
+    fn resolve(&mut self, path: &Path) -> std::io::Result<std::path::PathBuf> {
+        std::fs::canonicalize(path)
+    }
+}
+
+/// The checks on the disk, for a path [`named_here`] passed. The root
+/// first: a drive mapped to a share resolves to the share, and is refused
+/// there, before anything on it is looked at. Then the parts from the root
+/// down: none a link and none offline or in the cloud only, each looked at
+/// only once those above it passed; a part that does not exist ends the
+/// walk. Then the deepest part that exists resolves on a drive. With
+/// `whole`, `path` itself has to exist.
+#[cfg(any(windows, test))]
+fn on_this_computer(path: &Path, whole: bool, system: &mut impl System) -> bool {
+    let Some(root) = path.ancestors().last() else {
+        return false;
+    };
+    if !system
+        .resolve(root)
+        .is_ok_and(|canonical| resolved_on_a_drive(&canonical))
+    {
+        return false;
+    }
     let parts: Vec<&Path> = path.ancestors().collect();
-    let skip = usize::from(!last);
-    for part in parts.iter().rev().take(parts.len().saturating_sub(skip)) {
-        let looked = match std::fs::symlink_metadata(part) {
-            Ok(looked) => looked,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
+    let mut deepest = None;
+    for part in parts.into_iter().rev().skip(1) {
+        match system.look(part) {
+            Ok(looked) if !looked.link && held_here(looked.attributes) => deepest = Some(part),
+            Ok(_) => return false,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
             Err(_) => return false,
-        };
-        if looked.file_type().is_symlink() || !held_here(looked.file_attributes()) {
-            return false;
         }
     }
-    true
+    match deepest {
+        Some(part) => {
+            (!whole || part == path)
+                && system
+                    .resolve(part)
+                    .is_ok_and(|canonical| resolved_on_a_drive(&canonical))
+        }
+        None => !whole || root == path,
+    }
 }
 
 /// Whether `path`, an existing file or folder, is one of this computer:
-/// [`named_here`], every part of the way held on the disk and none a link,
-/// and resolved on a drive. On Unix, every path.
+/// [`named_here`], its drive resolved on a drive, every part of the way
+/// held on the disk and none a link, and resolved on a drive. On Unix,
+/// every path.
 pub(crate) fn here(path: &Path) -> bool {
     #[cfg(windows)]
     {
-        named_here(path)
-            && way_held_here(path, true)
-            && std::fs::canonicalize(path).is_ok_and(|canonical| resolved_on_a_drive(&canonical))
+        named_here(path) && on_this_computer(path, true, &mut Disk)
     }
     #[cfg(not(windows))]
     {
@@ -180,19 +244,14 @@ pub(crate) fn here(path: &Path) -> bool {
 }
 
 /// Whether `path`, which may not exist yet, would be one of this computer:
-/// [`named_here`], and the part of its way that exists is held on the disk,
-/// none of it a link, and resolved on a drive. For the data directory and
-/// the settings file, which the client may make. On Unix, every path.
+/// [`named_here`], its drive resolved on a drive, and the part of its way
+/// that exists held on the disk, none of it a link, and resolved on a
+/// drive. For the data directory and the settings file, which the client
+/// may make. On Unix, every path.
 pub(crate) fn would_be_here(path: &Path) -> bool {
     #[cfg(windows)]
     {
-        if !named_here(path) || !way_held_here(path, true) {
-            return false;
-        }
-        let Some(existing) = path.ancestors().find(|part| part.exists()) else {
-            return false;
-        };
-        std::fs::canonicalize(existing).is_ok_and(|canonical| resolved_on_a_drive(&canonical))
+        named_here(path) && on_this_computer(path, false, &mut Disk)
     }
     #[cfg(not(windows))]
     {
@@ -271,6 +330,122 @@ mod tests {
         ] {
             assert!(!resolved_on_a_drive(&PathBuf::from(path)), "{path}");
         }
+    }
+
+    /// A disk that answers from a table and records every call.
+    struct Fake {
+        /// Parts that resolve on a share; every other one on a drive.
+        on_a_share: Vec<PathBuf>,
+        /// Parts that are links.
+        links: Vec<PathBuf>,
+        /// Parts that exist.
+        existing: Vec<PathBuf>,
+        calls: Vec<String>,
+    }
+
+    impl System for Fake {
+        fn look(&mut self, part: &Path) -> std::io::Result<Looked> {
+            self.calls.push(format!("look {}", part.display()));
+            if !self.existing.iter().any(|known| known == part) {
+                return Err(std::io::ErrorKind::NotFound.into());
+            }
+            Ok(Looked {
+                link: self.links.iter().any(|link| link == part),
+                attributes: 0x20,
+            })
+        }
+
+        fn resolve(&mut self, path: &Path) -> std::io::Result<PathBuf> {
+            self.calls.push(format!("resolve {}", path.display()));
+            Ok(if self.on_a_share.iter().any(|share| share == path) {
+                PathBuf::from(r"\\?\UNC\nas\share")
+            } else {
+                PathBuf::from(r"\\?\C:\")
+            })
+        }
+    }
+
+    /// The parts of a path from the root down, written for this platform.
+    fn parts() -> [PathBuf; 4] {
+        if cfg!(windows) {
+            [r"Z:\", r"Z:\cards", r"Z:\cards\in", r"Z:\cards\in\card.txt"].map(PathBuf::from)
+        } else {
+            ["/", "/cards", "/cards/in", "/cards/in/card.txt"].map(PathBuf::from)
+        }
+    }
+
+    fn fake() -> Fake {
+        Fake {
+            on_a_share: Vec::new(),
+            links: Vec::new(),
+            existing: parts().to_vec(),
+            calls: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_drive_on_a_share_is_refused_before_anything_on_it_is_looked_at() {
+        let [root, _, _, file] = parts();
+        let mut system = Fake {
+            on_a_share: vec![root.clone()],
+            ..fake()
+        };
+        assert!(!on_this_computer(&file, true, &mut system));
+        assert!(!on_this_computer(&file, false, &mut system));
+        let resolved = format!("resolve {}", root.display());
+        assert_eq!(system.calls, vec![resolved.clone(), resolved]);
+    }
+
+    #[test]
+    fn nothing_below_a_link_is_looked_at() {
+        let [root, cards, inner, file] = parts();
+        let mut system = Fake {
+            links: vec![cards.clone()],
+            ..fake()
+        };
+        assert!(!on_this_computer(&file, true, &mut system));
+        assert_eq!(
+            system.calls,
+            vec![
+                format!("resolve {}", root.display()),
+                format!("look {}", cards.display()),
+            ]
+        );
+        let _ = inner;
+    }
+
+    #[test]
+    fn a_path_of_a_drive_is_looked_at_from_the_root_down_and_resolved_where_it_ends() {
+        let [root, cards, inner, file] = parts();
+        let mut system = fake();
+        assert!(on_this_computer(&file, true, &mut system));
+        assert_eq!(
+            system.calls,
+            vec![
+                format!("resolve {}", root.display()),
+                format!("look {}", cards.display()),
+                format!("look {}", inner.display()),
+                format!("look {}", file.display()),
+                format!("resolve {}", file.display()),
+            ]
+        );
+        // A file that does not exist yet would be here; it is not here.
+        let mut system = Fake {
+            existing: vec![root.clone(), cards.clone()],
+            ..fake()
+        };
+        assert!(!on_this_computer(&file, true, &mut system));
+        assert!(on_this_computer(&file, false, &mut system));
+        assert_eq!(
+            system.calls.last(),
+            Some(&format!("resolve {}", cards.display()))
+        );
+        // A deeper part resolved on a share is refused there.
+        let mut system = Fake {
+            on_a_share: vec![file.clone()],
+            ..fake()
+        };
+        assert!(!on_this_computer(&file, true, &mut system));
     }
 
     #[cfg(windows)]

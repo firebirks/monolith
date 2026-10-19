@@ -193,7 +193,11 @@ pub fn run(options: Options) -> ExitCode {
     let tails = places::is_tails();
     let filtered = places::filtered_tor();
     let kept = |path: PathBuf| (!tails || places::in_tails_persistent(&path)).then_some(path);
-    let (config_path, config_refused) = named_or_default(options.config, kept, places::config_file);
+    // The default places come from the environment, which can name a share
+    // (a redirected profile); they are checked as a place named would be.
+    let here = |path: &PathBuf| local::would_be_here(path);
+    let (config_path, config_refused) =
+        named_or_default(options.config, kept, || places::config_file().filter(here));
     let defaults = Config::defaults(default_tor.clone());
     let mut config = match &config_path {
         Some(path) => config::read(path, defaults),
@@ -209,7 +213,8 @@ pub fn run(options: Options) -> ExitCode {
     let Some(tor) = backend_config(&config.preferences.tor, filtered) else {
         return ExitCode::FAILURE;
     };
-    let (data_dir, data_dir_refused) = named_or_default(options.data_dir, kept, places::data_dir);
+    let (data_dir, data_dir_refused) =
+        named_or_default(options.data_dir, kept, || places::data_dir().filter(here));
 
     let window = &config.window;
     let sizes = monolith_ui_kit::theme::Theme::light().size;

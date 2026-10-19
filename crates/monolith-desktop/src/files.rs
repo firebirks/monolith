@@ -625,6 +625,20 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn a_downloads_folder_that_is_a_junction_is_not_followed() {
+        let home = scratch("downloads-junction");
+        let elsewhere = home.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        junction(&home.join("Downloads"), &elsewhere);
+        assert_eq!(crate::places::save_dir(&home), home);
+        // A home not named as a folder of this computer is not looked into.
+        let share = PathBuf::from(r"\\server\share\home");
+        assert_eq!(crate::places::save_dir(&share), share);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn a_card_behind_a_junction_is_never_read() {
         // A junction on the way could lead anywhere, a share included: the
         // file behind it is refused, and the same file by its own path is
@@ -719,6 +733,41 @@ mod tests {
             open(path)
         });
         assert_eq!(swapped, Err(Failure::File));
+        // A file of the same length: NTFS gives a file that takes a name
+        // within seconds the creation time of the one that had it, so only
+        // the write time tells them apart.
+        std::fs::write(&card, "MONOLITH card").unwrap();
+        let swapped = read_card_with(&card, |path| {
+            std::thread::sleep(Duration::from_millis(20));
+            std::fs::write(&other, "MONOLITH CARD").unwrap();
+            std::fs::remove_file(path).unwrap();
+            std::fs::rename(&other, path).unwrap();
+            open(path)
+        });
+        assert_eq!(swapped, Err(Failure::File));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_card_file_that_went_offline_once_looked_at_is_not_read() {
+        let dir = scratch("offline-windows");
+        let card = dir.join("card.txt");
+        std::fs::write(&card, "MONOLITH card").unwrap();
+        let read = read_card_with(&card, |path| {
+            let marked = std::process::Command::new("attrib")
+                .arg("+O")
+                .arg(path)
+                .status()
+                .unwrap();
+            assert!(marked.success());
+            open(path)
+        });
+        assert_eq!(read, Err(Failure::File));
+        let _ = std::process::Command::new("attrib")
+            .arg("-O")
+            .arg(&card)
+            .status();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
