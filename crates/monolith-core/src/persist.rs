@@ -7,7 +7,7 @@
 //! takes something away (a retired key, a blocked contact) acts at once,
 //! in memory; a change that grants something (message 3, a contact
 //! session, the success of a user command) is used only once its
-//! generation is durable ([`Durability::wait`]). A crash in between loses
+//! generation is durable (`Store::wait`). A crash in between loses
 //! the change and everything that depended on it, and nothing that
 //! depended on it was used, so a restart finds a state that a valid
 //! sequence of transitions produced (`docs/STORAGE.md` section 8, S31).

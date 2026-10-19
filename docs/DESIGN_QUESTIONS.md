@@ -1927,7 +1927,8 @@ P5-15 Test tooling: `dev-runtime` in the CLI, a node on the runtime for the
   circuits.
 - The queued messages of an ended conversation (a contact blocked or
   deleted) stay stored and count toward the limits of the queue of the
-  identity until the user deletes that conversation. Whether they should
+  identity, and toward `MAX_QUEUED_MESSAGE_BYTES`, until the user deletes
+  that conversation. Whether they should
   be dropped, or counted apart, is a decision about what the user keeps.
 - An identity whose deletion is cancelled after its vault commit, outside
   the runtime, keeps its messages in the store until the next opening,
@@ -2021,7 +2022,8 @@ against the code:
 Not changed, with the reason: a session that waits for the message store
 to write the head of its queue before it sends it reads nothing in the
 meantime, also not a close or a Ping (R5-28). The wait is one write of the
-store, a small file on local disk; a withdrawal still stops the send,
+store, a file of up to 16 MiB rewritten whole on local disk
+(`RESOURCE_LIMITS.md` section 12); a withdrawal still stops the send,
 since the link refuses to write once withdrawn, and at-least-once makes a
 message sent once more harmless. Waiting for the write inside the select
 of the session would add a state for little.
@@ -2871,6 +2873,36 @@ P7-19 Enter during the composition of an input method (BL50). Established
     lasts, or in the frame where it ends, as the input method's: it is
     consumed and sends nothing. The next Enter sends. Faults HR65 to
     HR67.
+
+P7-20 Documents and small corrections (BL6 to BL9, BL11, BL12, BL33 to
+    BL35, BL37, BL51, BL52, BL7). The stale comment of `monolith-ui`,
+    `app.rs`, is that of `TorSettings::cookie_file`, which allowed an
+    empty cookie path for a trusted filter that the desktop never
+    configures: it takes no settings without a full cookie path. The
+    literal Rust 1.99 warns about is `2.0_f32`; the nightly of
+    2026-09-23 finds no other. ADR 0009 says the fixed nonce of a probe
+    when the random source fails, that the runtime never reaches the two
+    outcomes of the duplicate rule for an older session with a retired
+    key, and that a record without a card confirmed for dialing has a
+    scheduler that reports `NoEndpoint` and dials nothing. Section 12.3
+    counts ended queues toward `MAX_QUEUED_MESSAGE_BYTES`, and 12.6 no
+    longer calls the store a small file. ADR 0008, `STORAGE.md` 3.5 and
+    the comment of `MessageFile::recreate` now agree: a `messages.new`
+    alone that authenticates is linked into place, one that does not
+    open is removed and an empty store made, for a vault with identities
+    too, which reports the store missing. `CRYPTOGRAPHY.md` 8 says that
+    decoded message texts are not erased: the runtime holds each as an
+    ordinary string while the store keeps it, copies go to the front
+    end, and the store has them on disk while the conversation is kept.
+    The memory of the store was measured (a program outside the
+    repository counted the allocations of a full store of 262 144 short
+    messages and of 1016 long ones): the state takes 16 to 46 MiB, and a
+    write peaks 48 to 54 MiB above it, 64 to 100 MiB in all, where
+    section 11 said 16 and 48; it now gives the measured figures.
+    `cargo doc` with warnings denied found the three links of 12.8, one
+    to a function built on Unix only and two added in Phase 7 (P7-3);
+    they are code spans now, and the CI builds the documentation with
+    warnings denied.
 
 ### 14.2 Not part of Phase 7
 

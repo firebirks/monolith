@@ -150,6 +150,18 @@ mutation fault, the document changed, the final status.
 | BL46 | fix (P7-17): the first screen says a refused data folder, a notice a refused settings file | see git log | desktop `tests::a_place_named_and_refused_is_said_refused_and_not_replaced`, views `a_data_folder_refused_at_the_start_is_said_so_and_not_as_storage_to_unlock` | HR61, HR62 | PLATFORM_TAILS 5, DESIGN_QUESTIONS P7-17, TEST_PLAN T-UI-7 | fixed |
 | BL36 | fix (P7-18): `InstallationError::MessageStoreChanged`, `OpenError::Invalid` | see git log | core `tests/messages.rs` `a_message_store_that_does_not_authenticate_fails_the_installation` (expects the new variant); runtime `tests::a_changed_message_store_is_not_told_as_a_wrong_passphrase` | HR63, HR64 | STORAGE 3.6, DESIGN_QUESTIONS P7-18, mutation/README | fixed |
 | BL50 | established and fixed (P7-19): an Enter after a preedit sent the draft; the composer follows the composition | see git log | kit `composer.rs` `enter_while_an_input_method_composes_sends_nothing` | HR65 to HR67 | DESKTOP 8, DESIGN_QUESTIONS P7-19, TEST_PLAN T-UI-5, mutation/README | fixed |
+| BL6 | fixed (P7-20): `TorSettings::cookie_file` | see git log | - | - | DESIGN_QUESTIONS P7-20 | fixed |
+| BL7 | fixed (P7-20): `2.0_f32`; nightly 1.100 finds no other | see git log | - | - | DESIGN_QUESTIONS P7-20 | fixed |
+| BL8 | documented (P7-20) | see git log | - | - | ADR 0009 | fixed |
+| BL9 | documented (P7-20) | see git log | - | - | ADR 0009 | fixed |
+| BL11 | documented (P7-20) | see git log | - | - | DESIGN_QUESTIONS 12.3 | fixed |
+| BL12 | documented (P7-20) | see git log | - | - | DESIGN_QUESTIONS 12.6 | fixed |
+| BL33 | documented (P7-20): not erased, said so | see git log | - | - | CRYPTOGRAPHY 8 | fixed |
+| BL34 | documented (P7-20) | see git log | - | - | ADR 0008, STORAGE 3.5 | fixed |
+| BL35 | fixed (P7-20) | see git log | - | - | `messages.rs` | fixed |
+| BL37 | measured and documented (P7-20): 64 to 100 MiB at a write | see git log | measurement outside the repository | - | RESOURCE_LIMITS 11 | fixed |
+| BL51 | documented (P7-20) | see git log | - | - | ADR 0009 | fixed |
+| BL52 | fixed (P7-20): links made code spans, `cargo doc` in the CI | see git log | `cargo doc` with warnings denied | - | `.github/workflows/ci.yml` | fixed |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

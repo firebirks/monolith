@@ -529,12 +529,12 @@ Memory that a peer can influence, with every budget full:
 | Contact sessions: 256 x (read buffer + write buffer, one frame each) | about 32 MiB |
 | Pending handshakes: 16 x about 3 KiB (section 11.1) | about 48 KiB |
 | Unconfirmed sessions: one frame of one block each, plus about 2 KiB of session state | under 1 MiB |
-| Message store: the state in memory, at most the 16 MiB of its file, and a write that encodes and encrypts a copy | about 48 MiB at a write, 16 MiB between writes |
+| Message store: the state in memory, and at a write a copy of it, its encoding and the sealed file (measured, P7-20) | 16 to 46 MiB between writes, more for many short messages; 64 to 100 MiB at a write |
 | UI event queue: 256 events, none of them with message text | under 0.1 MiB |
 | Active transfers: 4 x (one chunk + hash state) | about 0.3 MiB |
 | Pending requests, file offers | under 0.1 MiB |
 | Contacts with profiles, block and declined lists | about 2 MiB |
-| Total | about 83 MiB |
+| Total | about 136 MiB |
 
 The message store holds what the user queued and what contacts sent, up to
 its bound (`MAX_MESSAGE_STORE_FILE_LEN`); a contact fills at most its

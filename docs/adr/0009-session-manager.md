@@ -50,13 +50,21 @@ key is still the active credential:
 - different initiators: the session initiated by the side with the
   smaller identity key is preferred. If it is the newer, the older is
   closed. If it is the older, it is probed with a Ping with a fresh random
-  nonce; a Pong with that nonce within `DUPLICATE_PROBE_TIMEOUT` keeps it
-  and the newer is closed, otherwise the older is closed. The timeout
-  counts only while the session is read, so a wait for the store does not
-  use it up;
+  nonce (a fixed one if the random source of the system fails: one Ping is
+  outstanding at most, so its Pong is told by the state of the session,
+  not by the nonce); a Pong with that nonce within
+  `DUPLICATE_PROBE_TIMEOUT` keeps it and the newer is closed, otherwise
+  the older is closed. The timeout counts only while the session is read,
+  so a wait for the store does not use it up;
 - a session whose key is no longer the active one loses; if neither is,
   both are closed. That is looked at again when a probe ends: a session
   whose key was retired while it was probed loses, answered or not.
+  At a registration only the newer session can lose this way: a session
+  registered earlier whose key was retired has been withdrawn by the
+  contact store, so the runtime gives it as active. The two outcomes of
+  `duplicate::resolve` for an older session with a retired key (the
+  newer stays; both are closed) are therefore not reached by the runtime;
+  `monolith-protocol` tests them.
 
 When both sessions are alive, both sides keep the same one, because the
 choice depends only on the two identity keys and on who initiated each
@@ -91,9 +99,11 @@ session layer.
 
 One scheduler per conversation, while all of these hold: the conversation
 has queued messages, its `ContactId` is the current record of the remote
-identity and that record is a requested or accepted contact with a card
-confirmed for dialing, the identity is open, and no session of the record
-is registered.
+identity and that record is a requested or accepted contact, the
+identity is open, and no session of the record is registered. A record
+without a card confirmed for dialing has a scheduler too: each attempt
+finds no card in the dial plan and is reported `DeliveryDeferred` with
+`NoEndpoint`, after the same growing delays, and nothing is dialed.
 
 - The first attempt follows the command that queued the first message at
   once; at startup, attempts are spread at random over

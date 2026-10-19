@@ -48,6 +48,18 @@ jobs:
       - run: rustup toolchain install
       - run: cargo test --workspace --locked
 
+  # The documentation of every crate, with its intra-doc links checked.
+  doc:
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - run: cargo doc --workspace --no-deps --locked
+
   # The oldest compiler that must keep working. A dependency update that
   # needs a newer one fails here and has to be reviewed.
   msrv:

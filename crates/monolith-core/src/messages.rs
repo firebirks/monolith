@@ -22,7 +22,7 @@
 //!   checked before anything changes; nothing stored is dropped to make
 //!   room.
 //!
-//! [`Messages`] holds the state of one installation under one lock, stamps
+//! `Messages` holds the state of one installation under one lock, stamps
 //! every change with a generation of its own and writes it to the message
 //! store with the write job of [`crate::persist`]. A change is used (an
 //! acknowledgement sent, a command reported done, an event raised) only

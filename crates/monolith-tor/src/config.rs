@@ -54,7 +54,7 @@ impl Endpoint {
     }
 
     /// Parses `127.0.0.1:9050`, `[::1]:9050` or `unix:/run/tor/control`,
-    /// with the rules of [`Self::tcp`] and [`Self::unix`]. A host name is
+    /// with the rules of [`Self::tcp`] and `Self::unix` (on Unix). A host name is
     /// refused: nothing is resolved.
     pub fn parse(text: &str) -> Result<Self, TorError> {
         #[cfg(unix)]

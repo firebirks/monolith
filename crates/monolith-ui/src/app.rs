@@ -45,8 +45,9 @@ pub struct TorSettings {
     /// The control endpoint, such as `127.0.0.1:9051` or
     /// `unix:/run/tor/control`.
     pub control: String,
-    /// The cookie file of SAFECOOKIE authentication; empty for a trusted
-    /// filter.
+    /// The cookie file of SAFECOOKIE authentication, by its full path. The
+    /// desktop takes no settings without one: no setting turns
+    /// authentication off.
     pub cookie_file: String,
 }
 

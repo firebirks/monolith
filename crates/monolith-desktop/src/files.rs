@@ -193,7 +193,7 @@ fn file_name(name: &str) -> String {
 /// Saves `contents` in `dir` as a new file named after `name`, readable
 /// by the user alone. An existing file is never replaced: the name gets a
 /// number instead. A folder that is not one of this computer
-/// ([`local::here`]) is refused before anything is written.
+/// (`local::here`) is refused before anything is written.
 pub fn save_card(dir: &Path, name: &str, contents: &[u8]) -> std::io::Result<PathBuf> {
     if !local::here(dir) {
         return Err(std::io::ErrorKind::PermissionDenied.into());
@@ -229,7 +229,7 @@ pub fn save_card(dir: &Path, name: &str, contents: &[u8]) -> std::io::Result<Pat
 /// Reads a card file: a regular file of at most [`MAX_CARD_FILE`] bytes of
 /// UTF-8. What it says is checked like pasted text.
 ///
-/// The path must name a file of this computer ([`local::here`]): on
+/// The path must name a file of this computer (`local::here`): on
 /// Windows, a path that names a device, or that leads to a share, through a
 /// link or a mapped drive, or to a file kept only in the cloud, is refused
 /// before it is read, a device before anything is opened. The name is

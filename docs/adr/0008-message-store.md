@@ -119,13 +119,19 @@ As the vault (`STORAGE.md` section 3.5) with the names `messages` and
 `messages.new`: a new complete file, flushed, renamed over the old one,
 the directory flushed. The store is created, empty, with the installation,
 by a write under the other name linked into place. Recovery at open
-follows section 3.5 with these names: an unauthenticated file is never
-removed, except a `messages.new` beside a `messages` that authenticates.
+follows section 3.5 with these names, with one more exception to the
+rule that an unauthenticated file is never removed: besides a
+`messages.new` beside a `messages` that authenticates, a `messages.new`
+alone that does not open (it does not authenticate or does not
+validate).
 
-Where no store is in place, an empty one is made, and a `messages.new`
-without a `messages`, what an interrupted creation left, is removed
-first unless it is a complete store. A vault of payload version 1 never
-had a store, and a vault without identities has nothing one could hold.
+Where no store is in place, an empty one is made. A `messages.new`
+without a `messages` is what an interrupted creation left, or a write
+whose `messages` is gone: if it authenticates it is linked into place,
+as section 3.5 says; if it does not open, nothing in it can be read,
+and it is removed before the empty store is made. A vault of payload
+version 1 never had a store, and a vault without identities has nothing
+one could hold.
 A vault with identities is a backup of them on its own (Phase 4, T-MI-9),
 so it opens without its store too, with an empty one; that the messages
 from before are not there is reported (`Installation::message_store_missing`,

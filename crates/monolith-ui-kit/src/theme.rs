@@ -660,7 +660,7 @@ impl Theme {
         visuals.error_fg_color = c.danger;
         visuals.selection.bg_fill = c.text_selection;
         visuals.selection.stroke = Stroke::new(self.stroke.hairline, c.accent);
-        visuals.text_cursor.stroke = Stroke::new(2.0, c.accent);
+        visuals.text_cursor.stroke = Stroke::new(2.0_f32, c.accent);
         visuals.text_cursor.blink = !self.motion.reduced;
         visuals.text_cursor.on_duration = 0.6;
         visuals.text_cursor.off_duration = 0.4;

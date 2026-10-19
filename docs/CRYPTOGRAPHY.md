@@ -531,7 +531,11 @@ dropped too: the bytes a card signature covers, made to sign a card and
 to verify one; the encoded card a vault record copies, which may carry
 the capability of a contact; the copies `ContactCard::to_text` and
 `ContactCard::from_text` make on the way; and the plaintext of every
-frame a session seals or opens, with the body it is made from. The base32
+frame a session seals or opens, with the body it is made from. Message
+texts, once decoded, are not erased: the runtime holds each as an
+ordinary string for as long as the store keeps it, copies go to the
+front end and its widgets, and the store has them on disk while the
+conversation is kept (P7-20). The base32
 encoder and the normalization of a passphrase reserve their whole length
 at once, so they leave no copies in buffers they outgrew. The CLI holds
 the passphrase it reads from its file in a buffer that is erased. A local

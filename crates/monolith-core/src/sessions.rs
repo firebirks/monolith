@@ -11,7 +11,7 @@
 //! decides which stays; the loser is told to close.
 //!
 //! The manager holds no link. It reaches the task of a session through a
-//! [`SessionControl`]: a flag that asks it to close, a probe to send, and
+//! `SessionControl`: a flag that asks it to close, a probe to send, and
 //! a wakeup. Everything it decides is decided under one lock, in one step,
 //! so two registrations of one record are resolved one after the other.
 

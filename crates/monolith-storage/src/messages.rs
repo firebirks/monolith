@@ -219,9 +219,11 @@ impl<D: VaultDir> MessageFile<D> {
 
     /// Creates a store in `dir` where none is in place, over what a
     /// creation that did not complete left: a `messages.new` without a
-    /// `messages` is removed first, whether it authenticates or not. Only
-    /// for a caller that knows no store held anything here (a vault that
-    /// never had one, or one without identities). Fails with
+    /// `messages` is removed first, whether it authenticates or not. For a
+    /// caller that found no store to open here ([`Self::open`] links a
+    /// `messages.new` alone into place if it authenticates): a vault that
+    /// never had one, one without identities, or one with identities
+    /// whose store is gone, which that caller reports. Fails with
     /// [`StorageError::Exists`] if `messages` exists.
     pub fn recreate(dir: D, key: StoreKey, plaintext: &[u8]) -> Result<Self, StorageError> {
         if Self::in_place(&dir)? {

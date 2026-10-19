@@ -376,7 +376,10 @@ At startup, after the lock is taken and the passphrase has been entered:
 
 Monolith never deletes or overwrites a file that it has not been able to
 authenticate, with one exception: a `vault.new` next to a `vault` that
-authenticates.
+authenticates. The message store, which follows these cases with its own
+names, has a second one: a `messages.new` alone that does not open is
+removed before an empty store is made (`docs/adr/0008-message-store.md`,
+Writing; since Phase 7, P7-20, said here).
 
 `generation` lets a person or a recovery tool tell which of two valid files
 is newer. It does not detect rollback: an older valid file is still a valid
