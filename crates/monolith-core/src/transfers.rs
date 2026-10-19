@@ -149,6 +149,44 @@ mod tests {
         );
     }
 
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Any sequence of file messages on one session against a model of
+        /// what section 13.1 asks: the history of the offers rejected, of
+        /// which the last `MAX_ENDED_TRANSFER_IDS` are remembered.
+        #[test]
+        fn every_file_message_is_answered_as_the_rejected_offers_say(
+            steps in proptest::collection::vec(
+                (
+                    proptest::prop_oneof![3 => proptest::strategy::Just(0_u8), 1 => 1_u8..6],
+                    0_u8..160,
+                ),
+                1..600,
+            ),
+        ) {
+            let mut transfers = Transfers::default();
+            let mut rejected: Vec<u8> = Vec::new();
+            for (kind, byte) in steps {
+                let message = if kind == 0 {
+                    offer(byte)
+                } else {
+                    others(byte).swap_remove(usize::from(kind - 1))
+                };
+                let window = rejected.len().saturating_sub(MAX_ENDED_TRANSFER_IDS);
+                let expected = if rejected[window..].contains(&byte) {
+                    Answer::Discard
+                } else if kind == 0 {
+                    rejected.push(byte);
+                    Answer::Reject(id(byte))
+                } else {
+                    Answer::Violation
+                };
+                proptest::prop_assert_eq!(transfers.receive(&message), Some(expected));
+            }
+        }
+    }
+
     #[test]
     fn other_messages_are_not_file_messages() {
         let mut transfers = Transfers::default();

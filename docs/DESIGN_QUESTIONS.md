@@ -2916,6 +2916,23 @@ P7-21 The cost of the SOCKS proof for each failed dial (BL19), measured
     dial; the cost does not justify that. Not measured: what a control
     connection costs Tor itself, and whether Tor logs each one.
 
+P7-22 Models and fuzzing of what Phase 7 changed. Property tests against
+    models written apart from the code: the rates (a token bucket kept as
+    a credit of time, where the code keeps the instant it is full again;
+    bursts of up to 150 takes of three contacts at any times, and records
+    that end), the file messages of a session (the history of the
+    rejected offers), a store above any lowered limit (a count), and in
+    the model of the desktop an event that raises a notice only for the
+    identity shown. Their faults are caught by them too: HR18 to HR22,
+    HR39, HR43, HR60. The dial plan is two cards and one pure predicate,
+    `tries_next`, which a unit test runs over every kind of failure; the
+    runtime tests cover the attempt. No new fuzz target: the file
+    messages are a small state over messages the session targets already
+    decode, the presentation target covers the larger set of marks
+    (P7-14), and the target of the message store now holds the decoder
+    to the ceilings of the format, which since P7-5 it accepts, rather
+    than to the limits, which a later build may lower.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

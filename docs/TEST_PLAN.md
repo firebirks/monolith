@@ -212,7 +212,9 @@ File transfer (T-FILE)
 4. Existing destination file is not overwritten.
 5. Messages that cross an abort, a reject or an offer timeout are
    discarded. A file message for an identifier never seen on the session
-   is a violation.
+   is a violation. Without transfers (P7-4), a property test runs any
+   sequence of file messages of one session against the history of the
+   offers it rejected (`transfers::tests`, P7-22).
 
 Contacts (T-CONTACT)
 
@@ -583,7 +585,7 @@ time.
 | T-MSG-7 | Sessions: both sides sending at once end with one session and every message once; the duplicate rule in every order; a probe answered or not, answered while the session is not read, asked while a Ping is outstanding, of a session whose key was retired meanwhile; a Pong after the probe was decided; a Ping not answered in time; a contact that keeps no idle session open with messages held already or acknowledgements of nothing | `tests/runtime.rs`, `sessions::tests` |
 | T-MSG-8 | Reconnecting: nothing is dialed without a queued message; a failed attempt is not repeated at once; an acknowledgement that does not come closes the session `MESSAGE_ACK_TIMEOUT` after the one send of the message, whatever is queued behind it, and the message is sent again later, with growing delays; a session that ends with a message in flight reports nothing delivered; a session that ends with its service leaves no registration behind; an idle session ends; a failed message store or vault ends every session and attempt and is reported at once; a runtime dropped without a shutdown stops; a send its caller stops waiting for completes, and a shutdown waits for it; a send once the runtime shuts down, or one a shutdown cuts short, says so and is not a failed store; an identity without a key is reported so, and stays so; an inbound session that timed out does not reset the delays; availability is reported in turn | `tests/runtime.rs`, `runtime::tests`, `supervisor::tests` (the jitter) |
 | T-MSG-9 | Limits: text at `MAX_CHAT_TEXT_LEN` - 1, at it and + 1, empty and with forbidden characters, checked before anything is stored; the queue of a contact and of an identity; a conversation in bytes | `tests/runtime.rs`, `tests/messages.rs`, `messages::tests` |
-| T-MSG-10 | Storage: a store that does not authenticate fails the installation and is left as it was; a vault of Phase 4 is opened with identifiers and an empty store; a vault with identities and no store opens and reports it, a vault of Phase 4 beside a store with messages is refused; a crash at every step of making the store leaves an installation that opens; corrupt, truncated, out of order or impossible contents are refused | `tests/messages.rs`, `message_records.rs`, `messages.rs` in `monolith-storage` |
+| T-MSG-10 | Storage: a store that does not authenticate fails the installation and is left as it was; a store above any lowered limit of a queue or of the messages is read and written back whole, and takes a message in exactly when it holds fewer (a property test, P7-22); a vault of Phase 4 is opened with identifiers and an empty store; a vault with identities and no store opens and reports it, a vault of Phase 4 beside a store with messages is refused; a crash at every step of making the store leaves an installation that opens; corrupt, truncated, out of order or impossible contents are refused | `tests/messages.rs`, `message_records.rs`, `messages.rs` in `monolith-storage` |
 | T-MSG-11 | Model: any sequence of queueing, receiving, acknowledging, deleting, removing an identity and restarting leaves the state a separate model holds; any sequence of sending from either side, crashes and restarts of either side, Tor going and coming back, closed sessions, time passing and a block leaves the runtime delivering, in order and once, what a model of the sent texts says | `tests/message_model.rs`, `tests/runtime_model.rs` (property tests), fuzz target `message_sequence` |
 | T-MSG-12 | Diagnostics: no message text in `Debug` output | `messages::tests`, `api::tests`, `message_records.rs` |
 | T-MSG-13 | Structure: a message is delivered only by an acknowledgement a link received, acknowledged only once `take_in` returned, sent only once durable; the boundary of a front end hands out no authority | `tests/structure.rs` |
@@ -598,7 +600,7 @@ to images by `monolith-ui-snapshot`.
 | --- | --- | --- |
 | T-UI-1 | Stale instances: a late event of one identity, a contact of another identity accepting (no notice, P7-17), a contact made again, a confirmation after the selection moved, a replaced request, an invitation of another identity, a Delivered of another conversation, an answer to no command in flight, an unblock of someone not listed or answered while another identity is shown | `monolith-ui-model/tests/model.rs` |
 | T-UI-2 | Reconstruction: missed events read everything again; a burst of events makes one read; a deleted identity takes its state with it | `monolith-ui-model/tests/model.rs` |
-| T-UI-3 | Model: random sequences of actions, events and late answers against a separate model of the runtime keep the invariants of S59 and S60 | `monolith-ui-model/tests/properties.rs`, fuzz target `ui_model_sequence` |
+| T-UI-3 | Model: random sequences of actions, events and late answers against a separate model of the runtime keep the invariants of S59 and S60; an event raises a notice only when it is a contact of the identity shown accepting (P7-22) | `monolith-ui-model/tests/properties.rs`, fuzz target `ui_model_sequence` |
 | T-UI-4 | Presentation: rendering limits, visible marks for invisible characters (tag and other format characters included, P7-14), previews, names | `present.rs` tests, fuzz target `ui_present` |
 | T-UI-5 | Components: buttons, text fields (the secret field keeps no history; a byte limit cuts at a character), the composer (an Enter while an input method composes sends nothing, P7-19), bubbles and their status (a run without a break opportunity broken inside the bubble), modals, rows, the identity switcher, driven by pointer and keyboard | `monolith-ui-kit/tests/` |
 | T-UI-6 | Contrast of every text on what it is drawn on, the initials of avatars included, both themes | `monolith-ui-kit/tests/contrast.rs` |
@@ -801,7 +803,10 @@ cannot be told apart by what is sent.
    not slowed; the rate holds across the sessions of a contact; a session
    above `CONTACT_SESSION_RATE` is closed before it is confirmed; a
    session waiting for a token ends when it is closed (`tests/runtime.rs`,
-   `rates::tests`).
+   `rates::tests`). A property test runs any sequence of bursts of
+   messages and sessions of three contacts, and records that end, against
+   a token bucket written apart: every take is the model's, and a refusal
+   names the first instant the model gives a token (P7-22).
 
 ## 9. Tails matrix (T-PLAT-TAILS, manual)
 

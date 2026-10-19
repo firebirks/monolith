@@ -316,6 +316,110 @@ mod tests {
         assert_eq!(buckets.len(), 2);
     }
 
+    /// A token bucket written apart from [`Bucket`]: a credit of time in
+    /// nanoseconds, refilled by the time that passes up to the burst, and
+    /// one interval spent for each token.
+    #[derive(Clone, Copy, Debug)]
+    struct Credit {
+        credit: u128,
+        at: Instant,
+    }
+
+    impl Credit {
+        fn step(limit: RateLimit) -> u128 {
+            60_000_000_000 / u128::from(limit.per_minute)
+        }
+
+        fn new(limit: RateLimit, now: Instant) -> Self {
+            Self {
+                credit: Self::step(limit) * u128::from(limit.burst),
+                at: now,
+            }
+        }
+
+        fn take(&mut self, limit: RateLimit, now: Instant) -> bool {
+            let depth = Self::step(limit) * u128::from(limit.burst);
+            self.credit = (self.credit + (now - self.at).as_nanos()).min(depth);
+            self.at = now;
+            if self.credit >= Self::step(limit) {
+                self.credit -= Self::step(limit);
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    const KINDS: [Kind; 4] = [Kind::Chat, Kind::Control, Kind::FileOffer, Kind::Profile];
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+
+        /// Any sequence of messages of three contacts, sessions they open
+        /// and records that end, in bursts at any times: each take is
+        /// allowed exactly when the model of its own contact and rate
+        /// allows it, and a refusal names the first instant the model
+        /// gives a token.
+        #[test]
+        fn every_take_is_that_of_a_bucket_of_its_own_contact_and_rate(
+            steps in proptest::collection::vec(
+                (
+                    proptest::prop_oneof![
+                        proptest::strategy::Just(0_u64),
+                        0_u64..2_000,
+                        0_u64..120_000,
+                    ],
+                    0_usize..3,
+                    0_usize..6,
+                    1_usize..150,
+                ),
+                1..60,
+            ),
+        ) {
+            let start = Instant::now();
+            let mut now = start;
+            let mut rates = ContactRates::default();
+            let mut models: HashMap<(usize, usize), Credit> = HashMap::new();
+            let remotes: Vec<IdentityPublicKey> = (1..=3_u8)
+                .map(|n| IdentitySecretKey::from_seed(&[n; 32]).public_key())
+                .collect();
+            for (millis, who, what, count) in steps {
+                now += Duration::from_millis(millis);
+                if what == 5 {
+                    rates.ended(&record(u8::try_from(who).unwrap() + 1));
+                    for kind in 0..4 {
+                        models.remove(&(who, kind));
+                    }
+                    continue;
+                }
+                let limit = KINDS.get(what).map_or(CONTACT_SESSION_RATE, |kind| kind.limit());
+                for _ in 0..count {
+                    let model = models
+                        .entry((who, what))
+                        .or_insert_with(|| Credit::new(limit, now));
+                    let mut probe = *model;
+                    let allowed = model.take(limit, now);
+                    if let Some(kind) = KINDS.get(what) {
+                        match rates.message(record(u8::try_from(who).unwrap() + 1), *kind, now) {
+                            Ok(()) => proptest::prop_assert!(allowed),
+                            Err(when) => {
+                                proptest::prop_assert!(!allowed);
+                                // A token at that instant, and none before.
+                                let mut before = probe;
+                                proptest::prop_assert!(
+                                    !before.take(limit, when - Duration::from_nanos(1))
+                                );
+                                proptest::prop_assert!(probe.take(limit, when));
+                            }
+                        }
+                    } else {
+                        proptest::prop_assert_eq!(rates.session(remotes[who], now), allowed);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn every_message_but_a_chunk_and_a_close_is_counted() {
         use monolith_protocol::body::{FileChunk, TransferId};

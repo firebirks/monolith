@@ -2346,6 +2346,26 @@ impl World {
         check(&self.model, &self.env, &mut self.track, &round);
     }
 
+    /// Applies `event`. An event raises a notice only when it is a contact
+    /// of the identity shown accepting: an event of another identity
+    /// changes nothing shown (ADR 0011, P7-17).
+    fn event(&mut self, event: RuntimeEvent) {
+        let noticed = matches!(
+            event,
+            RuntimeEvent::ContactAccepted(contact)
+                if self.model.current() == Some(contact.identity())
+        );
+        self.model.take_notices();
+        self.model.apply(Update::Event(event.clone()));
+        if !noticed {
+            assert!(
+                self.model.take_notices().is_empty(),
+                "{event:?} raised a notice over {:?}",
+                self.model.current()
+            );
+        }
+    }
+
     fn pick_identity(&self, local: bool, pick: u8) -> UiIdentityId {
         if local {
             if let Some(current) = self.model.current() {
@@ -2638,14 +2658,14 @@ impl World {
             Step::Change { change, notify } => {
                 if let Some(event) = self.env.change(change) {
                     if notify {
-                        self.model.apply(Update::Event(event));
+                        self.event(event);
                     }
                 }
             }
-            Step::Missed => self.model.apply(Update::Event(RuntimeEvent::Missed)),
+            Step::Missed => self.event(RuntimeEvent::Missed),
             Step::Spurious { kind, pick } => {
                 let event = self.env.spurious(kind, pick);
-                self.model.apply(Update::Event(event));
+                self.event(event);
             }
             Step::StorageFails => self.model.apply(Update::Event(RuntimeEvent::StorageFailed)),
             Step::Stopped => {

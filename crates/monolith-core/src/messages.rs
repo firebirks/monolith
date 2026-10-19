@@ -1350,6 +1350,62 @@ mod tests {
         assert!(later.queue(a, c, peer(3), id(100), text("m"), 0).is_ok());
     }
 
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(128))]
+
+        /// Whatever a later build lowers the queue of a contact or the
+        /// messages of the store to, a store above it is read whole and
+        /// written back whole, and takes a message in exactly when it holds
+        /// fewer than the new limit (P7-5). The model is the count.
+        #[test]
+        fn a_store_above_any_lowered_limit_is_kept_and_takes_in_only_below_it(
+            queued in 0_u64..24,
+            per_contact in 1_usize..24,
+            delivered in 0_u64..24,
+            received in 0_u64..24,
+            messages in 1_usize..48,
+        ) {
+            let (a, c, r) = (identity(1), contact(2), contact(3));
+            let mut state = MessageState::new();
+            for n in 0..queued {
+                state.queue(a, c, peer(3), id(n), text("m"), 0).unwrap();
+            }
+            for n in 0..received {
+                state.receive(a, r, peer(4), id(100 + n), text("m"), 0).unwrap();
+            }
+            let bytes = state.contents().encode().unwrap();
+
+            // The queue of a contact.
+            let mut later = MessageState::load(MessageContents::decode(&bytes).unwrap())
+                .with_limits(lowered(|limits| limits.queued_per_contact = per_contact));
+            proptest::prop_assert_eq!(later.contents().encode().unwrap(), bytes.clone());
+            let acknowledged = delivered.min(queued);
+            for n in 0..acknowledged {
+                later.acknowledge(&a, &c, &id(n));
+            }
+            let left = usize::try_from(queued - acknowledged).unwrap();
+            proptest::prop_assert_eq!(
+                later.queue(a, c, peer(3), id(200), text("m"), 0).is_ok(),
+                left < per_contact
+            );
+
+            // The messages of the store.
+            let mut later = MessageState::load(MessageContents::decode(&bytes).unwrap())
+                .with_limits(lowered(|limits| limits.messages = messages));
+            let held = usize::try_from(queued + received).unwrap();
+            proptest::prop_assert_eq!(
+                later.receive(a, r, peer(4), id(250), text("m"), 0).is_ok(),
+                held < messages
+            );
+            if received > 0 {
+                proptest::prop_assert_eq!(
+                    later.receive(a, r, peer(4), id(100), text("m"), 0),
+                    Ok(Receipt::Duplicate)
+                );
+            }
+        }
+    }
+
     #[test]
     fn a_store_with_more_messages_than_a_lowered_limit_takes_none_in() {
         let (a, c) = (identity(1), contact(2));

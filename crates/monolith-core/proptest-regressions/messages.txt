@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 46ed6ae5c20649f66102356c1b5218ffe5fda2fbdf623a12c9f65e66c5007425 # shrinks to queued = 8, per_contact = 1, delivered = 0, received = 0, messages = 1

@@ -1,6 +1,8 @@
 //! The payload of the message store: `MessageContents::decode` on
 //! arbitrary bytes either refuses them or gives contents within every
-//! limit of `docs/RESOURCE_LIMITS.md` section 5, in increasing order of
+//! ceiling of the format (`message_records::ceiling`, which the limits of
+//! `docs/RESOURCE_LIMITS.md` section 5 never exceed: a store written under
+//! higher limits is read, P7-5), in increasing order of
 //! identity and of conversation, with entries in increasing sequence below
 //! the next one; their encoding, with the zero padding the store adds, is
 //! the input itself and decodes to the same contents; and the state loaded
@@ -15,18 +17,13 @@
 
 use libfuzzer_sys::fuzz_target;
 use monolith_core::messages::MessageState;
-use monolith_protocol::limits::{
-    MAX_CONVERSATION_STORE_LEN, MAX_CONVERSATIONS_PER_IDENTITY, MAX_LOCAL_IDENTITIES,
-    MAX_QUEUED_MESSAGES_PER_CONTACT, MAX_QUEUED_MESSAGES_PER_IDENTITY, MAX_STORED_MESSAGES,
-    MESSAGE_DEDUP_WINDOW,
-};
-use monolith_storage::message_records::MessageContents;
+use monolith_storage::message_records::{MessageContents, ceiling};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(contents) = MessageContents::decode(data) else {
         return;
     };
-    assert!(contents.identities.len() <= MAX_LOCAL_IDENTITIES);
+    assert!(contents.identities.len() <= ceiling::LOCAL_IDENTITIES);
     assert!(
         contents
             .identities
@@ -35,7 +32,7 @@ fuzz_target!(|data: &[u8]| {
     );
     let mut entries = 0;
     for identity in &contents.identities {
-        assert!(identity.conversations.len() <= MAX_CONVERSATIONS_PER_IDENTITY);
+        assert!(identity.conversations.len() <= ceiling::CONVERSATIONS_PER_IDENTITY);
         assert!(
             identity
                 .conversations
@@ -44,7 +41,7 @@ fuzz_target!(|data: &[u8]| {
         );
         let mut queued = 0;
         for conversation in &identity.conversations {
-            assert!(conversation.forgotten.len() <= MESSAGE_DEDUP_WINDOW);
+            assert!(conversation.forgotten.len() <= ceiling::FORGOTTEN_PER_CONVERSATION);
             assert!(
                 conversation
                     .entries
@@ -57,14 +54,14 @@ fuzz_target!(|data: &[u8]| {
                     .iter()
                     .all(|entry| entry.sequence < conversation.next_sequence)
             );
-            assert!(conversation.queued() <= MAX_QUEUED_MESSAGES_PER_CONTACT);
-            assert!(conversation.entries_len() <= MAX_CONVERSATION_STORE_LEN);
+            assert!(conversation.queued() <= ceiling::QUEUED_PER_CONTACT);
+            assert!(conversation.entries_len() <= ceiling::CONVERSATION_LEN);
             queued += conversation.queued();
             entries += conversation.entries.len();
         }
-        assert!(queued <= MAX_QUEUED_MESSAGES_PER_IDENTITY);
+        assert!(queued <= ceiling::QUEUED_PER_IDENTITY);
     }
-    assert!(entries <= MAX_STORED_MESSAGES);
+    assert!(entries <= ceiling::MESSAGES);
     // One valid encoding: what was read is the encoding, then zeros.
     let encoded = contents.encode().unwrap();
     assert!(data.starts_with(&encoded));
