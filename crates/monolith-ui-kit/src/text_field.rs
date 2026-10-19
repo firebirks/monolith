@@ -227,6 +227,8 @@ impl<'a> TextField<'a> {
             let hint = egui::RichText::new(self.hint)
                 .font(font.clone())
                 .color(c.text_tertiary);
+            // Before the edit takes the events of the frame.
+            let composing = crate::ime::composing(ui, edit_id, focused);
             let mut limited = ByteLimit {
                 text: self.text,
                 limit: self.byte_limit.unwrap_or(usize::MAX),
@@ -274,8 +276,11 @@ impl<'a> TextField<'a> {
                 ui.ctx()
                     .accesskit_node_builder(edit_id, |node| node.set_disabled());
             }
-            let submitted =
-                response.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+            // An Enter that commits what an input method composes is not
+            // a submission (P7-23).
+            let submitted = response.lost_focus()
+                && ui.input(|input| input.key_pressed(Key::Enter))
+                && !composing;
 
             let note = self.error.or(self.help);
             if let Some(note) = note {
@@ -362,6 +367,7 @@ fn clear_history(ctx: &egui::Context, edit_id: Id) {
 /// and selection). Call when a dialog with a secret field closes.
 pub fn forget(ctx: &egui::Context, edit_id: Id) {
     ctx.data_mut(|data| data.remove::<egui::text_edit::TextEditState>(edit_id));
+    crate::ime::forget(ctx, edit_id);
 }
 
 /// The colour of placeholder text, for components that draw their own.

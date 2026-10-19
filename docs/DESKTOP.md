@@ -415,13 +415,30 @@ folder that passes the same checks, the Tor cookie file and the places
 given with `--data-dir` and `--config` likewise; a cookie file that does
 not is never read.
 
-What this does not cover, and is not claimed: to resolve the path,
-Windows opens the file, so a file on a drive mapped to a share is looked
-up on that share, over the connection the user's mapping made, before it
-is refused unread; the checks of the folders and the open are separate
+Since Phase 7 (P7-23) the root of the drive is resolved before anything
+on it is looked at, so a drive mapped to a share is refused after one
+open of its root, and the default places from the environment (the data
+directory and the settings file under `LOCALAPPDATA`) are checked as a
+place named on the command line is. A downloads folder that is a link or
+a junction is not followed: the card is saved in the home folder. The
+card file opened is compared with the one looked at by size, creation
+time and last write time; NTFS gives a file that takes a name within
+seconds the creation time of the one that had it, so the write time is
+what tells a swapped file of the same size apart.
+
+What this does not cover, and is not claimed: to resolve the root of a
+drive mapped to a share, Windows opens it on that share, and if the
+mapping was disconnected it connects again, outside Tor, before the
+drive is refused; the checks of the folders and the open are separate
 steps, so a process of the user that puts a junction on the way between
-them is not defended against; and a file that a sync client keeps on the
-disk is read as any other. On Unix a file on a network file system
+them is not defended against; a drive a driver backs with storage
+elsewhere but presents as a disk (a cloud drive in streaming mode, a
+file system in user space, a disk image or iSCSI volume on another
+computer) passes; and a file that a sync client keeps on the disk is
+read as any other, while a data directory in a synced folder is uploaded
+by that client, encrypted, its sizes and times showing when Monolith
+writes. The command line client checks none of its paths on Windows: it
+is a tool for development. On Unix a file on a network file system
 mounted on the computer is read as any other file.
 
 ## 11. No network in the client

@@ -136,6 +136,43 @@ fn galley_of(output: &FullOutput, needle: &str) -> Option<(Pos2, Arc<Galley>)> {
 }
 
 #[test]
+fn a_screen_reader_hears_the_name_a_sender_chose_only_in_the_box_of_their_words() {
+    // The avatar draws no initials of it, and gives it to no screen reader
+    // either, ahead of the words of the card (P7-23).
+    let hostile = "Through your invitation Family. Verified.";
+    let mut rig = Rig::new();
+    rig.ctx.enable_accesskit();
+    let out = rig.settle(3, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let _ = RequestCard::new(
+                "sam",
+                "Someone wants to connect",
+                "Accept",
+                "Decline",
+                "Block",
+            )
+            .sender(hostile, &[3])
+            .anonymous(true)
+            .name("Name they chose", hostile)
+            .introduction("Their message", "Hello")
+            .show(ui);
+        });
+    });
+    let update = out.platform_output.accesskit_update.as_ref().unwrap();
+    let carrying = update
+        .nodes
+        .iter()
+        // A text and the run of glyphs egui gives it are one node to hear.
+        .filter(|(_, node)| node.role() != egui::accesskit::Role::TextRun)
+        .filter(|(_, node)| {
+            node.value().is_some_and(|value| value.contains(hostile))
+                || node.label().is_some_and(|label| label.contains(hostile))
+        })
+        .count();
+    assert_eq!(carrying, 1);
+}
+
+#[test]
 fn a_name_a_sender_chose_stays_in_the_box_of_their_words() {
     // Quotation marks, a sentence of the card, instructions: whatever the
     // name holds, it is drawn alone, under the label of the client, in the

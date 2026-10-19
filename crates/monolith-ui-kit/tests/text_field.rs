@@ -12,7 +12,7 @@
 mod common;
 
 use common::{Rig, command, dump, paints};
-use egui::{Context, FullOutput, Id, Key, TextEdit};
+use egui::{Context, Event, FullOutput, Id, ImeEvent, Key, TextEdit};
 use monolith_ui_kit::TextField;
 use monolith_ui_kit::text_field;
 
@@ -168,6 +168,45 @@ fn enter_in_a_focused_field_reports_a_submission() {
     });
     assert!(seen.submitted);
     assert_eq!(text, "done");
+}
+
+#[test]
+fn an_enter_that_commits_an_input_method_is_no_submission() {
+    let ime = |event: ImeEvent| Event::Ime(event);
+    let enter = || {
+        vec![
+            common::key_event(Key::Enter, true),
+            common::key_event(Key::Enter, false),
+        ]
+    };
+    let mut text = String::new();
+    let mut rig = focused(&mut text, Cfg::default());
+    let mut seen = Seen::default();
+    rig.frame(
+        vec![
+            ime(ImeEvent::Enabled),
+            ime(ImeEvent::Preedit("\u{304B}".to_owned())),
+        ],
+        |ctx| show(ctx, &mut text, Cfg::default(), &mut seen),
+    );
+    // The Enter before the commit, and the commit with its Enter.
+    rig.frame(enter(), |ctx| {
+        show(ctx, &mut text, Cfg::default(), &mut seen);
+    });
+    assert!(!seen.submitted);
+    let mut text = String::new();
+    let mut rig = focused(&mut text, Cfg::default());
+    let mut seen = Seen::default();
+    rig.frame(vec![ime(ImeEvent::Preedit("ka".to_owned()))], |ctx| {
+        show(ctx, &mut text, Cfg::default(), &mut seen);
+    });
+    let mut events = vec![ime(ImeEvent::Commit("\u{304B}".to_owned()))];
+    events.extend(enter());
+    rig.frame(events, |ctx| {
+        show(ctx, &mut text, Cfg::default(), &mut seen)
+    });
+    assert!(!seen.submitted);
+    assert_eq!(text, "\u{304B}");
 }
 
 #[test]

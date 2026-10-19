@@ -5,13 +5,16 @@
 //! receiver is kept all the same, and nothing more: an offer is answered
 //! at once with FileReject, as an offer above the pending limits is, and
 //! its identifier is remembered as that of a transfer that ended on the
-//! session, among the last [`MAX_ENDED_TRANSFER_IDS`]. A file message that
-//! names a remembered identifier is discarded: it crossed the rejection. A
-//! file message that names any other identifier is a violation, and the
-//! session ends without a Close; with no offer of this side and none
-//! pending or active, that is every FileAccept, FileReject, FileChunk,
-//! FileComplete and FileAbort for an identifier this session did not
-//! reject. Nothing of a file is stored, written or shown, and what a file
+//! session, among the last [`MAX_ENDED_TRANSFER_IDS`]. A FileAbort that
+//! names a remembered identifier is discarded: it crossed the rejection.
+//! So is the same offer again. Nothing else can follow an offer this side
+//! rejected without accepting it: a FileChunk and a FileComplete come only
+//! after a FileAccept, and a FileAccept and a FileReject only from the
+//! side an offer is made to; they are violations (P7-23). A file message
+//! that names any other identifier is a violation too, and the session
+//! ends without a Close; with no offer of this side and none pending or
+//! active, that is every FileAccept, FileReject, FileChunk, FileComplete
+//! and FileAbort for an identifier this session did not reject. Nothing of a file is stored, written or shown, and what a file
 //! message names lives as long as its session: another session knows none
 //! of it.
 
@@ -25,7 +28,8 @@ use monolith_protocol::limits::MAX_ENDED_TRANSFER_IDS;
 pub(crate) enum Answer {
     /// Send FileReject for this offer.
     Reject(TransferId),
-    /// Nothing: the message names a transfer that ended on the session.
+    /// Nothing: the message is a FileAbort or the same offer again, for a
+    /// transfer that ended on the session.
     Discard,
     /// End the session without a Close.
     Violation,
@@ -41,17 +45,24 @@ impl Transfers {
     /// What to do with `message`, if it is a file message. `None` for any
     /// other message.
     pub(crate) fn receive(&mut self, message: &Message) -> Option<Answer> {
-        let (transfer, offer) = match message {
-            Message::FileOffer { transfer, .. } => (*transfer, true),
-            Message::FileAccept(transfer)
-            | Message::FileReject(transfer)
-            | Message::FileAbort(transfer) => (*transfer, false),
-            Message::FileChunk(chunk) => (*chunk.transfer(), false),
-            Message::FileComplete { transfer, .. } => (*transfer, false),
+        let (transfer, offer, abort) = match message {
+            Message::FileOffer { transfer, .. } => (*transfer, true, false),
+            Message::FileAbort(transfer) => (*transfer, false, true),
+            Message::FileAccept(transfer) | Message::FileReject(transfer) => {
+                (*transfer, false, false)
+            }
+            Message::FileChunk(chunk) => (*chunk.transfer(), false, false),
+            Message::FileComplete { transfer, .. } => (*transfer, false, false),
             _ => return None,
         };
         if self.ended.contains(&transfer) {
-            return Some(Answer::Discard);
+            // Only an abort can cross the rejection; the same offer again
+            // is that offer. Nothing else follows an offer never accepted.
+            return Some(if offer || abort {
+                Answer::Discard
+            } else {
+                Answer::Violation
+            });
         }
         if !offer {
             return Some(Answer::Violation);
@@ -99,13 +110,22 @@ mod tests {
     }
 
     #[test]
-    fn an_offer_is_rejected_and_what_crosses_the_rejection_is_discarded() {
+    fn an_offer_is_rejected_and_only_an_abort_crosses_the_rejection() {
         let mut transfers = Transfers::default();
         assert_eq!(transfers.receive(&offer(1)), Some(Answer::Reject(id(1))));
         // The same offer again names a transfer that ended.
         assert_eq!(transfers.receive(&offer(1)), Some(Answer::Discard));
         for message in others(1) {
-            assert_eq!(transfers.receive(&message), Some(Answer::Discard));
+            let expected = if matches!(message, Message::FileAbort(_)) {
+                Answer::Discard
+            } else {
+                // A chunk or a completion without an acceptance, and an
+                // answer from the side that made the offer (P7-23).
+                Answer::Violation
+            };
+            let mut transfers = Transfers::default();
+            transfers.receive(&offer(1));
+            assert_eq!(transfers.receive(&message), Some(expected), "{message:?}");
         }
     }
 
@@ -174,8 +194,13 @@ mod tests {
                     others(byte).swap_remove(usize::from(kind.saturating_sub(1)))
                 };
                 let window = rejected.len().saturating_sub(MAX_ENDED_TRANSFER_IDS);
+                // `others` gives FileAbort third.
                 let expected = if rejected[window..].contains(&byte) {
-                    Answer::Discard
+                    if kind == 0 || kind == 3 {
+                        Answer::Discard
+                    } else {
+                        Answer::Violation
+                    }
                 } else if kind == 0 {
                     rejected.push(byte);
                     Answer::Reject(id(byte))

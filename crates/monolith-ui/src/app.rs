@@ -474,10 +474,15 @@ impl App {
 
     /// Moves the notices of the model onto the screen.
     pub(crate) fn pump_notices(&mut self) {
-        // An offer goes with its toast: none is left once no toast is.
+        // An offer goes with its toast: none is left once no toast is. Nor
+        // once another identity is shown: its invitation is not one of the
+        // identity shown (ADR 0011, P7-23).
         if self.toasts.is_empty() {
             self.revoke_offers.clear();
         }
+        let shown = self.model.current();
+        self.revoke_offers
+            .retain(|_, invitation| Some(invitation.identity()) == shown);
         for notice in self.model.take_notices() {
             let kind = match notice.kind {
                 NoticeKind::Success => Kind::Success,

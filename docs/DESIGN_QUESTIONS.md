@@ -2933,6 +2933,79 @@ P7-22 Models and fuzzing of what Phase 7 changed. Property tests against
     to the ceilings of the format, which since P7-5 it accepts, rather
     than to the limits, which a later build may lower.
 
+P7-23 The independent reviews. Four reviews with Opus, each blind to the
+    others and to the rest (protocol and security, runtime and
+    concurrency, Windows paths, trust of what the screens show), read
+    `20a6779..f1f0d78` and found nothing critical or high. Each finding
+    was reproduced first where it could be, and what was fixed has a test
+    that failed before:
+    - Windows paths. A drive mapped to a share was looked at folder by
+      folder before its path resolved to the share: the root of the drive
+      is now resolved first (one open, which still reconnects a dropped
+      mapping; said in `DESKTOP.md` 10). Drives backed elsewhere and
+      synced folders pass; said, not checked. The mutation runner counted
+      a run that failed before any test ran (a binary still held, on
+      Windows) as caught: it is invalid now, and the read after a timeout
+      is bounded. Not reproduced: a card compressed with WOF read wrongly
+      (it is read whole). The test of a swapped card now swaps a file of
+      the same size, since NTFS keeps the creation time of a name. The
+      downloads folder is not followed through a link, nor looked into
+      for a home not named on a drive; a removal another process blocks
+      is tried again as a rename is; the default data directory and
+      settings file are checked as named ones. Faults for the checks no
+      fault held: names with a stream or a trailing dot, a card opened
+      offline, the folder of a saved card, the cookie by its name. Not
+      given a fault: opening a card through a reparse point, or one
+      opened as a link, which `is_file` and the comparison with the file
+      looked at refuse as well. The settings file is still renamed once:
+      a failure is said and the next save tries again.
+    - Runtime. `SendError::ShuttingDown` may now say a message that a
+      later write still stores; said in `api.rs`. A session that ended
+      while a scheduler waited on it announced no retry; it does now
+      (since Phase 5). A `connect` dialed its second card after the
+      shutdown began; it stops as the scheduler does. A send looked at
+      its record before the change that queues the message, so a record
+      ended on another thread in between got the message; the record is
+      looked at in that change now. A Pong of an earlier Ping can decide
+      a later probe; said in ADR 0009 (liveness only). A block names its
+      peer before its work as before: blocking that person is what was
+      asked.
+    - Trust of the screens. An Enter that commits an input method
+      confirmed a dialog through its field, as it sent a message before
+      P7-19; the fields follow the composition too, and a commit is now
+      always the end of one. The avatar of a request gave the name the
+      sender chose to a screen reader, before the words of the card, and
+      the row of a conversation read a preview before its markers: the
+      avatar of a request has no name now, and a preview comes last,
+      named as the message. Runs of spaces in a name in a sentence of the
+      client are drawn as one, so a name cannot move its words to a row
+      that looks like a line of the client. An offer to revoke stayed
+      usable once another identity was shown. Accept suggested the copy
+      of a name drawn with its marks; it suggests the name as sent.
+      Accepted: marks also show U+200C, U+200E, U+200F and U+00AD inside
+      the words of some scripts and pasted text, a cost of legibility;
+      variation selectors stay unmarked, so up to fifteen in a cluster
+      can carry hidden bits a user does not read; U+2800 draws a blank
+      bubble; the pill of a card file of forty wide characters can
+      overflow on a narrow window (a local name). For the owner: a name
+      in a sentence of the client is set apart by weight alone, which
+      glyphs from fallback fonts lose, and a screen reader hears the
+      sentence whole; a design that sets names apart by more than that
+      is a decision of the product.
+    - Protocol. After a rejected offer, a FileChunk, FileComplete,
+      FileAccept or FileReject is a violation now, as section 13.1 asks
+      of each, and only a FileAbort (and the same offer again) is
+      discarded, so a contact cannot stream chunks for an offer it was
+      refused. The dev node dials by `link::dial_plan`. The threat model
+      no longer says a rate ends a session or that strangers have a
+      rate, and the session bucket that stays when a record ends is
+      said. For the owner: an EndpointUpdate counts against the control
+      rate, 600 a minute, and each newer card rewrites the vault;
+      section 12 records that, and a rate of its own would change
+      `RESOURCE_LIMITS.md`.
+    Faults HR68 to HR85; HR12, HR34, HR44, HR66, HR67, MR48 and MR54
+    retargeted, each to the same defect.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

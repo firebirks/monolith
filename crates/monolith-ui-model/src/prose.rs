@@ -44,10 +44,21 @@ impl Prose {
         self
     }
 
-    /// The sentence with `name`, kept as a name.
+    /// The sentence with `name`, kept as a name. Runs of spaces in it are
+    /// drawn as one, so that a name cannot push what follows in it to a
+    /// row of its own, where it would look like a line of the client
+    /// (`PROTOCOL.md` section 9 lets a copy for drawing be changed; P7-23).
     #[must_use]
     pub fn name(mut self, name: &str) -> Self {
-        let name = present::prepare(name, false).text;
+        let prepared = present::prepare(name, false).text;
+        let mut name = String::with_capacity(prepared.len());
+        let mut after_space = false;
+        for character in prepared.chars() {
+            if character != ' ' || !after_space {
+                name.push(character);
+            }
+            after_space = character == ' ';
+        }
         if !name.is_empty() {
             self.spans.push(Span::Name(name));
         }
@@ -116,6 +127,16 @@ mod tests {
         };
         assert!(name.contains("<U+202E>"), "{name}");
         assert!(!name.contains('\u{202E}'), "{name}");
+    }
+
+    #[test]
+    fn a_run_of_spaces_in_a_name_is_drawn_as_one() {
+        let pushed = format!("Bob{}Your fingerprint changed", " ".repeat(40));
+        let prose = Prose::said("").name(&pushed).and(" accepted your request.");
+        let [Span::Name(name), Span::Said(_)] = prose.spans() else {
+            panic!("a name and words");
+        };
+        assert_eq!(name, "Bob Your fingerprint changed");
     }
 
     #[test]

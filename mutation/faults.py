@@ -2007,9 +2007,9 @@ PHASE7 = [
     # Enter while an input method composes (P7-19).
     fault("HR65", UK + "composer.rs", "an Enter while an input method composes sends the draft",
           ("            })\n            && !composing;\n", "            });\n")),
-    fault("HR66", UK + "composer.rs", "an Enter in the frame of a commit sends the draft",
+    fault("HR66", UK + "ime.rs", "an Enter in the frame of a commit sends the draft",
           ("    before || now || ended\n", "    before && now\n")),
-    fault("HR67", UK + "composer.rs", "an Enter after a composition begun and committed in its frame sends the draft",
+    fault("HR67", UK + "ime.rs", "an Enter after a composition begun and committed in its frame sends the draft",
           ("    before || now || ended\n", "    before || now\n")),
     # Findings of the reviews (P7-23).
     fault("HR68", DK + "local.rs", "a drive on a share is looked at folder by folder before it is refused",
@@ -2022,6 +2022,28 @@ PHASE7 = [
           ("                !inner.stopping()\n                    && !held.identity.is_closed()\n"
            "                    && !held.manager.has_session(&contact)\n",
            "                !held.manager.has_session(&contact)\n")),
+    fault("HR78", UK + "text_field.rs", "an Enter that commits an input method submits a field",
+          ("                && ui.input(|input| input.key_pressed(Key::Enter))\n                && !composing;\n",
+           "                && ui.input(|input| input.key_pressed(Key::Enter));\n")),
+    fault("HR79", UK + "ime.rs", "a commit after the input method stopped is not the end of a composition",
+          ("                Event::Ime(ImeEvent::Commit(_)) => (false, true),\n",
+           "                Event::Ime(ImeEvent::Commit(_)) => (false, ended || now),\n")),
+    fault("HR80", UI + "requests.rs", "accept suggests the copy of a name drawn with its marks",
+          ("        sent_name: request.display_name.clone(),\n",
+           "        sent_name: present::prepare(&request.display_name, false).text,\n")),
+    fault("HR81", UI + "app.rs", "an offer to revoke stays once another identity is shown",
+          ("        self.revoke_offers\n            .retain(|_, invitation| Some(invitation.identity()) == shown);\n",
+           "        let _ = shown;\n")),
+    fault("HR82", UK + "request_card.rs", "the avatar of a request gives a screen reader the name the sender chose",
+          ("                    let name = if self.anonymous { \"\" } else { self.sender };\n",
+           "                    let name = self.sender;\n")),
+    fault("HR83", UK + "rows.rs", "a preview is told to a screen reader before the markers, not as a message",
+          ("        let mut parts = vec![self.name];\n",
+           "        let mut parts = vec![self.name, preview_text.as_str()];\n")),
+    fault("HR84", UM + "prose.rs", "a run of spaces in a name in a sentence of the client is drawn whole",
+          ("            if character != ' ' || !after_space {\n", "            if true {\n")),
+    fault("HR85", CORE + "transfers.rs", "a chunk for an offer this side rejected is discarded",
+          ("            return Some(if offer || abort {\n", "            return Some(if true {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

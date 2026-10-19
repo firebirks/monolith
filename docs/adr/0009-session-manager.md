@@ -54,7 +54,10 @@ key is still the active credential:
   outstanding at most, so its Pong is told by the state of the session,
   not by the nonce); a Pong with that nonce within
   `DUPLICATE_PROBE_TIMEOUT` keeps it and the newer is closed, otherwise
-  the older is closed. The timeout counts only while the session is read,
+  the older is closed. A probe asked while a Ping is outstanding takes
+  the Pong of that Ping, which the peer may have sent before the probe
+  began: a Pong shows the session was alive after its Ping was sent, not
+  within the probe. Liveness only. The timeout counts only while the session is read,
   so a wait for the store does not use it up;
 - a session whose key is no longer the active one loses; if neither is,
   both are closed. That is looked at again when a probe ends: a session

@@ -1686,12 +1686,10 @@ fn a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded() {
             before_pong(&mut link, 1).await,
             vec![Message::FileReject(transfer(1))]
         );
-        // The same offer again, and everything else for that transfer:
+        // The same offer again, and an abort that crossed the rejection:
         // discarded, the session goes on, nothing is answered.
         link.send(&offer(1)).await.unwrap();
-        for message in file_messages(1) {
-            link.send(&message).await.unwrap();
-        }
+        link.send(&Message::FileAbort(transfer(1))).await.unwrap();
         assert_eq!(before_pong(&mut link, 2).await, Vec::<Message>::new());
         // A profile is taken and dropped.
         link.send(&Message::Profile {
@@ -1705,6 +1703,30 @@ fn a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded() {
         assert_eq!(a.statuses(&at_a), vec![MessageStatus::Delivered]);
         a.stop().await;
     });
+}
+
+#[test]
+fn what_cannot_follow_a_rejected_offer_ends_the_session() {
+    // A chunk or a completion of an offer never accepted, or an answer from
+    // the side that made it (P7-23).
+    for message in file_messages(1) {
+        if matches!(message, Message::FileAbort(_)) {
+            continue;
+        }
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, _b, at_a, mut link) = dialed_by_hand(&network).await;
+            link.send(&offer(1)).await.unwrap();
+            assert_eq!(
+                before_pong(&mut link, 1).await,
+                vec![Message::FileReject(transfer(1))]
+            );
+            link.send(&message).await.unwrap();
+            assert!(link.receive().await.is_err(), "{message:?}");
+            assert_eq!(a.statuses(&at_a), vec![MessageStatus::Delivered]);
+            a.stop().await;
+        });
+    }
 }
 
 #[test]

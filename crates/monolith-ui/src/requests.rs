@@ -38,6 +38,10 @@ struct Entry {
     id: UiRequestId,
     title: String,
     name: String,
+    /// The name as the sender sent it, which Accept suggests: the field
+    /// edits that text, within the limits of a name, not the copy drawn
+    /// with its marks (P7-23).
+    sent_name: String,
     introduction: String,
     fingerprint: String,
     seed: String,
@@ -71,6 +75,7 @@ fn entry(request: &RequestView, label: Option<Option<&str>>) -> Entry {
         id: request.id,
         title,
         name,
+        sent_name: request.display_name.clone(),
         introduction,
         fingerprint: request.full_fingerprint.clone(),
         seed: request.fingerprint.clone(),
@@ -177,7 +182,7 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App) {
                 .busy(busy)
                 .show(&mut column);
             if output.accept {
-                accept = Some((item.id, item.name.clone()));
+                accept = Some((item.id, item.sent_name.clone()));
             }
             if output.decline {
                 decline = Some(item.id);
@@ -266,6 +271,21 @@ mod tests {
                 assert_eq!(shown.name, present::prepare(hostile, false).text);
             }
         }
+    }
+
+    #[test]
+    fn accept_suggests_the_name_as_it_was_sent() {
+        // Drawn with its marks; suggested as sent, which fits a name field.
+        for sent in ["Sam\u{13430}", "Sam\u{E0041}", "Frank"] {
+            let shown = entry(&request(sent, ""), None);
+            assert_eq!(shown.sent_name, sent);
+            assert!(shown.sent_name.chars().count() <= present::MAX_NAME_CHARS);
+            assert!(shown.sent_name.len() <= present::MAX_NAME_BYTES);
+        }
+        assert_ne!(
+            entry(&request("Sam\u{13430}", ""), None).name,
+            "Sam\u{13430}"
+        );
     }
 
     #[test]

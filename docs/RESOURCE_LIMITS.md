@@ -380,7 +380,9 @@ How the rates are enforced since Phase 7 (`crate::rates` in the core,
   gives a contact one burst more; a peer cannot make Monolith restart.
 - Memory: one instant for each bucket that is not full. When those of
   `MAX_CONTACTS` contacts are held, the full ones are dropped before
-  another is added; a record that ends drops its buckets.
+  another is added; a record that ends drops its message buckets. The
+  bucket of the sessions a contact opens is keyed by its identity key and
+  stays, so that deleting and adding a contact again does not refill it.
 
 The rates of streams and of strangers, `INBOUND_CONNECTION_RATE` and
 `UNKNOWN_SESSION_RATE`, are not enforced. Before authentication nothing

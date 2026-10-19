@@ -268,10 +268,18 @@ impl Widget for ConversationRow<'_> {
             Some(prefix) => format!("{prefix}{}", self.preview),
             None => self.preview.to_owned(),
         };
-        // The markers are glyphs on screen; a screen reader reads them.
-        let mut parts = vec![self.name, preview_text.as_str()];
+        // The markers are glyphs on screen; a screen reader reads them. What
+        // the client says comes first, and the preview, which can be what a
+        // contact wrote, last and named as a message, so that it cannot pass
+        // for a status (P7-23).
+        let message = if preview_text.is_empty() {
+            String::new()
+        } else {
+            format!("last message: {preview_text}")
+        };
+        let mut parts = vec![self.name];
         parts.extend(self.statuses.iter().map(|status| status.label()));
-        parts.extend([self.timestamp, unread_label]);
+        parts.extend([self.timestamp, unread_label, message.as_str()]);
         let label = join_label(&parts);
         interact::describe_selectable_enabled(
             &response,

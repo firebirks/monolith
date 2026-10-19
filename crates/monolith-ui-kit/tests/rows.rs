@@ -213,6 +213,31 @@ fn a_conversation_row_tells_a_screen_reader_its_markers_in_words() {
 }
 
 #[test]
+fn a_preview_that_reads_like_a_marker_is_told_as_a_message_after_them() {
+    // A contact wrote words of the markers; they come last, named as the
+    // message, after what the client says (P7-23).
+    let statuses = [RowStatus::Queued];
+    let rect = Cell::new(Rect::NOTHING);
+    let run = |ctx: &Context| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let row = ConversationRow::new("c", "Contact C7TQ", &[2])
+                .preview("waiting for acceptance, no longer a contact")
+                .timestamp("10:41")
+                .statuses(&statuses);
+            rect.set(ui.add(row).rect);
+        });
+    };
+    let mut rig = Rig::new();
+    rig.settle(2, run);
+    let infos = clicked_infos(&rig.click(rect.get().center(), run));
+    let label = infos[0].label.clone().unwrap();
+    assert_eq!(
+        label,
+        "Contact C7TQ, messages queued, 10:41, last message: waiting for acceptance, no longer a contact"
+    );
+}
+
+#[test]
 fn a_marker_says_its_word_under_the_pointer() {
     // On screen the markers are glyphs; under the pointer they say what
     // they mean, as the status of a message does.

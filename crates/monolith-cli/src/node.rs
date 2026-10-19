@@ -52,7 +52,7 @@ use std::time::Duration;
 use monolith_core::budget::Budgets;
 use monolith_core::contacts::{ImportOutcome, StoreError};
 use monolith_core::identity::{Installation, LocalIdentity, RotationState};
-use monolith_core::link::{Established, LinkError, answer, dial};
+use monolith_core::link::{Established, LinkError, answer, dial_plan};
 use monolith_core::requests::{InvitationId, RequestId};
 use monolith_core::supervisor::{Publication, supervise};
 use monolith_identity::IdentityPublicKey;
@@ -469,30 +469,31 @@ impl Node {
         }
         let mut last = String::new();
         for attempt in 1..=DIAL_ATTEMPTS {
-            for card in &plan.cards {
-                match dial(&self.backend, &self.budgets, &local, card).await {
-                    Ok(established) => {
-                        say(&format!(
-                            "outbound {index} {} {:?}",
-                            short(&peer),
-                            established.admission.standing
-                        ));
-                        self.run(index, local, established, queued).await;
-                        return;
-                    }
-                    // A service Tor cannot reach yet, or a dial that timed
-                    // out on the way, in Tor or in the handshake: tried
-                    // again, through Tor only.
-                    Err(
-                        error @ (LinkError::Tor(TorError::OnionUnreachable | TorError::TimedOut)
-                        | LinkError::TimedOut),
-                    ) => {
-                        last = error.to_string();
-                    }
-                    Err(error) => {
-                        say(&format!("dial-failed {index} {} {error}", short(&peer)));
-                        return;
-                    }
+            // The cards as the runtime dials them (`link::dial_plan`): the
+            // successor, then the active key only if the successor did not
+            // answer.
+            match dial_plan(&self.backend, &self.budgets, &local, &plan.cards, || true).await {
+                Ok(established) => {
+                    say(&format!(
+                        "outbound {index} {} {:?}",
+                        short(&peer),
+                        established.admission.standing
+                    ));
+                    self.run(index, local, established, queued).await;
+                    return;
+                }
+                // A service Tor cannot reach yet, or a dial that timed out on
+                // the way, in Tor or in the handshake: tried again, through
+                // Tor only.
+                Err(
+                    error @ (LinkError::Tor(TorError::OnionUnreachable | TorError::TimedOut)
+                    | LinkError::TimedOut),
+                ) => {
+                    last = error.to_string();
+                }
+                Err(error) => {
+                    say(&format!("dial-failed {index} {} {error}", short(&peer)));
+                    return;
                 }
             }
             say(&format!(

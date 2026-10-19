@@ -1545,6 +1545,38 @@ fn accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it() {
     );
 }
 
+#[test]
+fn an_offer_to_revoke_goes_once_another_identity_is_shown() {
+    let mut window = Window::new("requests", WIDE);
+    let _ = window.app.model.take_commands();
+    window.click("Accept");
+    window.click_last("Accept");
+    let frank = UiContactId::new(UiIdentityId::from_bytes([1; 16]), [15; 16]);
+    window.answer(|command| match command {
+        Command::AcceptRequest { .. } => Some(Outcome::RequestAccepted(frank)),
+        _ => None,
+    });
+    assert!(window.shows("Revoke"));
+    // The toast is still up when Work is shown: its Revoke does nothing
+    // there, since the invitation is Personal's (P7-23).
+    window
+        .app
+        .model
+        .select_identity(UiIdentityId::from_bytes([2; 16]));
+    window.settle();
+    if window.shows("Revoke") {
+        window.click("Revoke");
+    }
+    assert!(
+        !matches!(
+            window.app.model.dialog(),
+            Some(Dialog::RevokeInvitation { .. })
+        ),
+        "{:?}",
+        window.app.model.dialog()
+    );
+}
+
 /// What the question before declining says.
 const DECLINE: &str = "Nothing is sent to them. Their later requests are dropped without being \
                        shown, and Monolith does not show whom you declined, so this cannot be \

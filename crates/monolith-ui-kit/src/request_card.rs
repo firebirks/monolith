@@ -159,8 +159,12 @@ impl<'a> RequestCard<'a> {
                 ui.spacing_mut().item_spacing = Vec2::new(theme.space.md, theme.space.sm);
 
                 ui.horizontal_top(|ui| {
+                    // An avatar that draws no initials gives no name to a
+                    // screen reader either: the name the sender chose is
+                    // heard in the box of their words only (P7-23).
+                    let name = if self.anonymous { "" } else { self.sender };
                     ui.add(
-                        Avatar::new(self.sender, self.seed)
+                        Avatar::new(name, self.seed)
                             .anonymous(self.anonymous)
                             .size(AvatarSize::Large),
                     );

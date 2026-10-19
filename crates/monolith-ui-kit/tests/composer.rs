@@ -100,6 +100,25 @@ fn enter_while_an_input_method_composes_sends_nothing() {
     rig.key(Key::Enter, |ctx| show(ctx, &mut draft, &mut sent));
     assert!(sent);
 
+    // The input method stops in one frame, and its commit comes with an
+    // Enter in the next: a commit is always the end of a composition.
+    sent = false;
+    rig.frame(vec![ime(ImeEvent::Preedit("x".to_owned()))], |ctx| {
+        show(ctx, &mut draft, &mut sent);
+    });
+    rig.frame(vec![ime(ImeEvent::Disabled)], |ctx| {
+        show(ctx, &mut draft, &mut sent);
+    });
+    rig.frame(
+        vec![
+            ime(ImeEvent::Commit("y".to_owned())),
+            key_event(Key::Enter, true),
+            key_event(Key::Enter, false),
+        ],
+        |ctx| show(ctx, &mut draft, &mut sent),
+    );
+    assert!(!sent);
+
     // A composition begun and committed in the frame of the Enter.
     sent = false;
     rig.frame(

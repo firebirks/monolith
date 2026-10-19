@@ -60,7 +60,10 @@ Outcomes:
 
 - caught: a test failed, or the run hit the timeout;
 - survived: every test passed;
-- invalid: the fault does not compile, which is a mistake in the list.
+- invalid: the fault does not compile, which is a mistake in the list,
+  or the run ended before any test ran for another reason (since Phase
+  7: on Windows, a test binary another process still holds), which says
+  nothing of the fault and is looked at by hand.
 
 The timeout is measured, not fixed: it is the slowest unmodified run of
 a copy, twice over for each worker, and never less than 20 minutes. The
@@ -350,7 +353,22 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   the desktop's;
 - Enter while an input method composes (P7-19): it sends the draft while
   the composition lasts, in the frame of its commit, or after one begun
-  and committed in its frame (HR65 to HR67).
+  and committed in its frame (HR65 to HR67);
+- findings of the reviews (P7-23): a drive on a share looked at folder by
+  folder, a session the scheduler waited on that ends without announcing
+  the retry, a connect that dials on at shutdown (HR68, HR76, HR77); an
+  Enter that commits an input method submitting a field, a commit after
+  the input method stopped not ending a composition, Accept suggesting
+  the copy drawn with marks, an offer to revoke kept once another
+  identity is shown, the avatar of a request naming the sender to a
+  screen reader, a preview told before the markers, a run of spaces in a
+  name drawn whole, a chunk for a rejected offer discarded (HR78 to
+  HR85); and on Windows only: a swapped card of the same size read, a
+  name with a stream or a trailing dot taken, a card opened offline read,
+  a card saved in a folder not of this computer, a cookie path not named
+  as one taken, a downloads junction followed, a blocked removal tried
+  once (HR69 to HR75). HR12, HR34, HR44, HR66, HR67, MR48 and MR54 moved
+  with their code and keep their defects.
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within

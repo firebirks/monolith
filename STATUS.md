@@ -166,6 +166,14 @@ mutation fault, the document changed, the final status.
 | BL14 to BL18, BL20 to BL22 | deferred with the owner's approval (2026-10-18) | - | - | - | DESIGN_QUESTIONS 14.2 | deferred |
 | BL53 | the final verification looks for a stable compiler with the fix | - | - | - | DESIGN_QUESTIONS 14.2 | at the final verification |
 
+## 3.1 Independent reviews
+
+Four reviews with Opus on 2026-10-19, blind to each other: protocol and
+security, runtime and concurrency, Windows paths, trust of the screens.
+No critical or high finding. Every finding and what became of it is in
+`docs/DESIGN_QUESTIONS.md` P7-23; two are for the owner (how a name is set
+apart in a sentence of the client; a rate of its own for EndpointUpdate).
+
 ## 4. Order of the work
 
 A, correctness and security: BL24, BL25, BL2 with BL41 and BL42, BL3,

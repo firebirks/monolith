@@ -109,9 +109,10 @@ Can do everything a contact can: send messages and file offers within the
 rate limits, see the profile the user shares, see when a session is up,
 send an endpoint update.
 
-- Cannot exceed the per-contact limits; exceeding them ends the session.
-  Above its rates it is slowed, not cut off, and never slows another
-  contact (since Phase 7). Each message it sends that is taken in
+- Cannot exceed the per-contact limits of what is stored; a message
+  above them is refused. Above its message rates it is slowed, not cut
+  off, and never slows another contact; a session it opens above
+  `CONTACT_SESSION_RATE` is closed (since Phase 7). Each message it sends that is taken in
   rewrites the message store; the rate bounds how often
   (`RESOURCE_LIMITS.md` section 12).
 - Cannot make a file arrive without acceptance (S13), choose where it is
@@ -501,7 +502,7 @@ removes each class, so that the class is hard to reintroduce.
 | Links clickable without warning | Chat text rendered as active content | Plain text only; copy, never open (S15, S16). |
 | GUI impersonation with a lookalike address and the same name | Name shown as identity; contacts auto-added | Fingerprints in security-relevant UI; requests need acceptance; pinning (S9, S20). |
 | File transfer auto-accepted, one window per file | No consent, unbounded UI state | Offer and explicit accept (S13); bounded offers; coalesced notifications. |
-| `add_me` flooding | Unbounded requests | Bounded queue, one entry per identity, global rate, optional invitation. |
+| `add_me` flooding | Unbounded requests | Bounded queue, one entry per identity, the budgets of strangers, optional invitation. No rate of strangers is enforced (`RESOURCE_LIMITS.md` section 6). |
 | Restart detectable by a contact | Handshake value reused across connections | Every session uses fresh ephemeral keys. What a peer sees again from one session to the next is the contact card: the identity key, the transport key and the endpoint, none of which changes when Monolith restarts. |
 | Plaintext traces on disk | Contact list, logs, queues, key in clear files | Encrypted vault, ephemeral mode, no log file, history off by default. |
 | Removed contact reappears | Removal depended on a message to the peer | Deletion is local. A deleted peer is unknown again and must be accepted again. |

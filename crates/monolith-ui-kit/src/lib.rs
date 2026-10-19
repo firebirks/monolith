@@ -20,6 +20,7 @@ pub mod fonts;
 pub mod icon_button;
 pub mod icons;
 pub mod identity_switcher;
+mod ime;
 pub mod interact;
 pub mod invitation_row;
 pub mod line;
