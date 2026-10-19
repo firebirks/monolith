@@ -27,7 +27,7 @@ use monolith_ui_kit::avatar::color_index;
 use monolith_ui_kit::{TextField, Theme, fonts, icons, theme};
 use monolith_ui_model::{
     Command, Deferral, Dialog, Failure, MessageView, Outcome, RuntimeEvent, Status, UiBlockedId,
-    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update, present,
 };
 use zeroize::Zeroizing;
 
@@ -796,6 +796,24 @@ fn escape_closes_a_dialog_over_the_settings_before_it_leaves_them() {
     assert!(window.shows("Who can send you requests"));
     window.press(Key::Escape);
     assert!(!window.shows("Who can send you requests"));
+}
+
+#[test]
+fn a_name_field_takes_no_more_than_a_name_may_hold() {
+    let mut window = Window::new("settings-identities", WIDE);
+    window.app.model.open(Dialog::NewIdentity {
+        name: String::new(),
+        busy: None,
+        error: None,
+    });
+    window.settle();
+    // Three bytes each: the bytes run out before the characters do.
+    window.type_text(&"\u{4E2D}".repeat(present::MAX_NAME_CHARS));
+    let Some(Dialog::NewIdentity { name, .. }) = window.app.model.dialog() else {
+        panic!("the dialog closed");
+    };
+    assert_eq!(name.len(), present::MAX_NAME_BYTES / 3 * 3);
+    assert!(name.len() <= present::MAX_NAME_BYTES);
 }
 
 #[test]

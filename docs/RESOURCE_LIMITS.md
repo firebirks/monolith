@@ -515,6 +515,8 @@ the runtime accepts.
 | A fallback font | 32 MiB | `system_fonts.rs` |
 | Messages read at a time | 100; at most 2000 in a window | `monolith-ui-model` (`PAGE`, `MAX_WINDOW`) |
 | A preview in the list | 120 characters laid out | `sidebar.rs` |
+| A run without a break opportunity | broken where it meets the width of its bubble or box | `bubble.rs`, the text layout of egui; nothing is inserted into the text, so what is copied is what was sent (P7-14) |
+| A local name typed | 64 characters and 128 bytes, those of `display_name` | `dialogs.rs`, `present.rs` (P7-14) |
 | Notices shown at once | 3, each 5 seconds unless it is an error | `toast.rs` |
 | A QR code | a card of at most 1200 bytes | `qr.rs`; a longer one is shown as text only |
 

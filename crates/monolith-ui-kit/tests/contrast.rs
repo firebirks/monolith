@@ -278,6 +278,17 @@ fn pairs(theme: &Theme) -> Vec<(String, Color32, Color32, f64)> {
             4.5,
         );
     }
+
+    // The initials of an avatar in each of its colours; those of a
+    // disabled row are dimmed and held to no ratio.
+    for (index, background) in c.avatar.iter().enumerate() {
+        add(
+            format!("the initials of avatar colour {index}"),
+            c.avatar_text,
+            *background,
+            4.5,
+        );
+    }
     pairs
 }
 

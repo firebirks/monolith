@@ -1954,6 +1954,14 @@ PHASE7 = [
     fault("HR43", CORE + "rates.rs", "what an ended record took is not forgotten",
           ("    pub(crate) fn ended(&mut self, contact: &ContactId) {\n        self.chat.remove(contact);\n",
            "    pub(crate) fn ended(&mut self, contact: &ContactId) {\n        let _ = contact;\n        return;\n        self.chat.remove(contact);\n")),
+    # How a peer's text is drawn (P7-14).
+    fault("HR53", UM + "present.rs", "tag characters are drawn as they are",
+          ("            | '\\u{E0000}'..='\\u{E00FF}'\n", "")),
+    fault("HR54", UK + "theme.rs", "white initials below 4.5 to 1 on a light avatar colour",
+          ("                    rgb(0x398172),\n", "                    rgb(0x3F8F7E),\n")),
+    fault("HR55", UK + "text_field.rs", "a name field takes more bytes than a name may hold",
+          ("                limit: self.byte_limit.unwrap_or(usize::MAX),\n",
+           "                limit: usize::MAX,\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

@@ -23,6 +23,7 @@ struct Cfg {
     no_history: bool,
     enabled_off: bool,
     limit: Option<usize>,
+    bytes: Option<usize>,
     error: Option<&'static str>,
     help: Option<&'static str>,
     focus: bool,
@@ -49,6 +50,9 @@ fn show(ctx: &Context, text: &mut String, cfg: Cfg, seen: &mut Seen) {
             .request_focus(cfg.focus);
         if let Some(limit) = cfg.limit {
             field = field.char_limit(limit);
+        }
+        if let Some(bytes) = cfg.bytes {
+            field = field.byte_limit(bytes);
         }
         let out = field.show(ui);
         seen.height = ui.cursor().top() - top;
@@ -126,6 +130,32 @@ fn the_character_limit_cuts_typed_and_pasted_text() {
     assert_eq!(text, "abcde");
     rig.type_text("x", |ctx| show(ctx, &mut text, cfg, &mut seen));
     assert_eq!(text, "abcde");
+}
+
+#[test]
+fn the_byte_limit_cuts_typed_and_pasted_text_at_a_character() {
+    let cfg = Cfg {
+        limit: Some(5),
+        bytes: Some(7),
+        ..Cfg::default()
+    };
+    let mut text = String::new();
+    let mut rig = focused(&mut text, cfg);
+    let mut seen = Seen::default();
+    // Three bytes each: the third would pass the limit of bytes before the
+    // limit of characters.
+    rig.type_text("\u{4E2D}\u{6587}\u{5B57}", |ctx| {
+        show(ctx, &mut text, cfg, &mut seen);
+    });
+    assert_eq!(text, "\u{4E2D}\u{6587}");
+    rig.type_text("ab", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "\u{4E2D}\u{6587}a");
+    rig.type_text("\u{4E2D}", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "\u{4E2D}\u{6587}a");
+    // Two bytes do not fit in the one left once a character is deleted.
+    rig.key(Key::Backspace, |ctx| show(ctx, &mut text, cfg, &mut seen));
+    rig.type_text("\u{E9}b", |ctx| show(ctx, &mut text, cfg, &mut seen));
+    assert_eq!(text, "\u{4E2D}\u{6587}");
 }
 
 #[test]

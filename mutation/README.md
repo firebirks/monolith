@@ -325,7 +325,10 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   stopped, a jitter that takes every byte, a send at shutdown said to
   have no identity, a send a shutdown cuts short or a failed random
   source said to be a failed store, a send at shutdown said nowhere by
-  the desktop (HR47 to HR52).
+  the desktop (HR47 to HR52);
+- screens (P7-14): tag characters drawn as they are, white initials
+  below 4.5 to 1 on a light avatar colour, a name field that takes more
+  bytes than a name may hold (HR53 to HR55).
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within

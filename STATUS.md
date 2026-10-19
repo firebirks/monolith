@@ -139,6 +139,10 @@ mutation fault, the document changed, the final status.
 | BL27 | fix (P7-12): `SendError::ShuttingDown`, `SendError::Randomness`; desktop says them in place | see git log | `a_send_once_the_runtime_shuts_down_says_so`, `a_send_a_shutdown_cuts_short_says_so`, `runtime::tests::a_failed_send_says_what_failed`, desktop `convert::tests::a_failed_send_is_said_where_it_was_met_unless_the_store_failed` | HR49 to HR52; MR49 retargeted | `api.rs`, DESIGN_QUESTIONS P7-12 | fixed |
 | BL23 | fix (P7-13), tooling only | see git log | CS29 now fails `tests/runtime.rs` in about a minute | - | mutation/README, DESIGN_QUESTIONS P7-13 | fixed |
 | BL3 (note) | PROTOCOL 8.7 and P7-4: Profile stated as accepted and not used, checked like any other | see git log | as BL3 | - | PROTOCOL 8.7, DESIGN_QUESTIONS P7-4 | fixed |
+| BL5 | fix (P7-14): the name rules' invisible set, tags included | see git log | `present::tests::tag_and_other_format_characters_are_shown`; fuzz target `ui_present` | HR53 | DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-4, mutation/README | fixed |
+| BL47 | shown not to overflow (P7-14): broken at the width of the bubble, nothing inserted; for the owner to confirm | see git log | kit `a_run_without_a_break_opportunity_is_broken_inside_its_share_of_the_width` | - | RESOURCE_LIMITS 10.1, DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-5 | fixed, to confirm |
+| BL48 | fix (P7-14): five light colours darker | see git log | `contrast.rs` covers the initials | HR54 | DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-6 | fixed |
+| BL49 | fix (P7-14): 128 bytes and 64 characters, applied to every name field | see git log | kit `the_byte_limit_cuts_typed_and_pasted_text_at_a_character`, views `a_name_field_takes_no_more_than_a_name_may_hold` | HR55 | RESOURCE_LIMITS 10.1, DESIGN_QUESTIONS P7-14, TEST_PLAN T-UI-5 and T-UI-7 | fixed |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

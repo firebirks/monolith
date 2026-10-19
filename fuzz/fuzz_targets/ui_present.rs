@@ -16,10 +16,11 @@
 //! fingerprint.
 //!
 //! The classes of characters and of white space are written out here from
-//! `PROTOCOL.md` section 9, independently of `present.rs`. The ignorable
-//! characters of the planes above the basic one, U+2800 and U+FFFC are in
-//! that list but not in the set `present.rs` shows, so they are not
-//! checked.
+//! `PROTOCOL.md` section 9, independently of `present.rs`: the characters
+//! that list rejects as drawn as nothing or changing direction, and the
+//! format controls of Egyptian hieroglyphs. U+2800 and U+FFFC, drawn as a
+//! blank and a box, are in that list but not in the set `present.rs`
+//! shows, so they are not checked.
 
 #![no_main]
 
@@ -33,7 +34,7 @@ use monolith_ui_model::present::{
 };
 
 /// Drawn as nothing or changing the direction of text: shown as a mark.
-const INVISIBLE: [(u32, u32); 14] = [
+const INVISIBLE: [(u32, u32); 18] = [
     (0x00AD, 0x00AD),
     (0x034F, 0x034F),
     (0x061C, 0x061C),
@@ -42,12 +43,16 @@ const INVISIBLE: [(u32, u32); 14] = [
     (0x180E, 0x180E),
     (0x200B, 0x200F),
     (0x202A, 0x202E),
-    (0x2060, 0x2064),
-    (0x2066, 0x206F),
+    (0x2060, 0x206F),
     (0x3164, 0x3164),
     (0xFEFF, 0xFEFF),
     (0xFFA0, 0xFFA0),
-    (0xFFF9, 0xFFFB),
+    (0xFFF0, 0xFFFB),
+    (0x13430, 0x1343F),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE00FF),
+    (0xE01F0, 0xE0FFF),
 ];
 
 /// The characters with the Unicode property White_Space.
@@ -129,8 +134,8 @@ fn check_prepare(text: &str, expanded: bool) {
 
     // No invisible character is drawn as itself.
     assert!(!shown.chars().any(invisible), "an invisible character");
-    // Each character becomes at most a mark of eight characters.
-    assert!(shown.chars().count() <= text.chars().count().saturating_mul(8));
+    // Each character becomes at most a mark of nine characters.
+    assert!(shown.chars().count() <= text.chars().count().saturating_mul(9));
     assert!(shown.len() <= text.len().saturating_mul(8));
 
     // A text too short to hold an over-long cluster comes out exactly as

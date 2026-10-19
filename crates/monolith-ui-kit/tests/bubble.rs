@@ -127,6 +127,18 @@ fn a_long_message_wraps_inside_its_share_of_the_width() {
 }
 
 #[test]
+fn a_run_without_a_break_opportunity_is_broken_inside_its_share_of_the_width() {
+    // Wide and narrow characters, and a run of the longest message.
+    for run in ["W".repeat(400), ".".repeat(400), "l".repeat(16_384)] {
+        let run: &'static str = Box::leak(run.into_boxed_str());
+        let (_, seen) = render(&|| MessageBubble::new(5, Direction::Incoming, run, "09:40"));
+        let (bubble, panel) = (seen.bubble.unwrap(), seen.panel.unwrap());
+        assert!(bubble.width() <= panel.width() * 0.72 + 1.0, "{bubble:?}");
+        assert!(bubble.height() > 60.0, "{bubble:?}");
+    }
+}
+
+#[test]
 fn only_the_last_bubble_of_a_run_has_the_pointed_corner() {
     let make = |last: bool| {
         move || MessageBubble::new(6, Direction::Incoming, "Hello", "09:40").last_in_group(last)

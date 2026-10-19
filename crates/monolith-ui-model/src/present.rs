@@ -17,9 +17,12 @@ pub const MAX_RENDERED_MESSAGE_LINES: usize = 200;
 /// The largest message, in bytes (`MAX_CHAT_TEXT_LEN`).
 pub const MAX_MESSAGE_BYTES: usize = 16_384;
 
-/// The longest local name of a contact or an identity, in bytes
-/// (`MAX_DISPLAY_NAME_LEN`).
-pub const MAX_NAME_BYTES: usize = 64;
+/// The longest local name of a contact, an identity or an invitation, in
+/// bytes of UTF-8 (`MAX_DISPLAY_NAME_LEN`); the runtime takes no longer.
+pub const MAX_NAME_BYTES: usize = 128;
+
+/// The longest local name, in characters (`MAX_DISPLAY_NAME_SCALARS`).
+pub const MAX_NAME_CHARS: usize = 64;
 
 /// The most characters a passphrase field takes: as UTF-8 they are at most
 /// 1024 bytes, the most the vault takes (`STORAGE.md` section 3.3).
@@ -78,6 +81,12 @@ pub fn identity_name(identity: &IdentityView) -> String {
 
 /// Whether `character` is drawn as nothing or changes the direction of
 /// text around it: such characters are shown as a visible mark instead.
+/// These are the characters a display name rejects as such (`PROTOCOL.md`
+/// section 9): the bidirectional controls, the code points ignorable by
+/// default other than variation selectors, tag characters included, and
+/// the interlinear annotation controls; and the format controls of
+/// Egyptian hieroglyphs, which nothing here shapes. Variation selectors
+/// stay as they are, since emoji need them and they hide no text.
 fn is_invisible(character: char) -> bool {
     matches!(
         character,
@@ -91,12 +100,18 @@ fn is_invisible(character: char) -> bool {
             | '\u{180E}'
             | '\u{200B}'..='\u{200F}'
             | '\u{202A}'..='\u{202E}'
-            | '\u{2060}'..='\u{2064}'
+            | '\u{2060}'..='\u{2065}'
             | '\u{2066}'..='\u{206F}'
             | '\u{3164}'
             | '\u{FEFF}'
             | '\u{FFA0}'
+            | '\u{FFF0}'..='\u{FFF8}'
             | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E00FF}'
+            | '\u{E01F0}'..='\u{E0FFF}'
     )
 }
 
@@ -395,6 +410,48 @@ mod tests {
         let prepared = prepare("abc\u{202E}def\u{200B}", false);
         assert_eq!(prepared.text, "abc<U+202E>def<U+200B>");
         assert!(!prepared.collapsed);
+    }
+
+    #[test]
+    fn tag_and_other_format_characters_are_shown() {
+        // A tag sequence spells hidden words; each tag shows as its mark.
+        let prepared = prepare("hi\u{E0001}\u{E0041}\u{E007F}!", false);
+        assert_eq!(prepared.text, "hi<U+E0001><U+E0041><U+E007F>!");
+        for hidden in [
+            '\u{2065}',
+            '\u{FFF0}',
+            '\u{13430}',
+            '\u{1343F}',
+            '\u{1BCA0}',
+            '\u{1D173}',
+            '\u{E0000}',
+            '\u{E00FF}',
+            '\u{E01F0}',
+            '\u{E0FFF}',
+        ] {
+            assert_eq!(
+                prepare(&format!("a{hidden}b"), false).text,
+                format!("a<U+{:04X}>b", u32::from(hidden))
+            );
+        }
+        // Variation selectors are left as they are, and so are characters
+        // just outside the ranges.
+        for kept in [
+            '\u{180B}',
+            '\u{180F}',
+            '\u{FE0F}',
+            '\u{E0100}',
+            '\u{E01EF}',
+            '\u{1342F}',
+            '\u{13440}',
+            '\u{1D172}',
+            '\u{1D17B}',
+            '\u{2800}',
+            '\u{FFFC}',
+        ] {
+            let text = format!("a{kept}b");
+            assert_eq!(prepare(&text, false).text, text);
+        }
     }
 
     #[test]

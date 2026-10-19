@@ -2770,6 +2770,34 @@ P7-13 A wait of the tests that a fault made last hours (BL23). Under
     the tests of `tests/runtime.rs` fail within about a minute, the build
     included. Only the tooling changed.
 
+P7-14 Screens (BL5, BL47, BL48, BL49). `is_invisible` drew the tag
+    characters (U+E0001, U+E0020 to U+E007F), which can spell words no
+    one sees, and a few other characters as nothing. The set it shows as
+    marks is now every character a display name rejects as drawn as
+    nothing or changing direction (`PROTOCOL.md` section 9), variation
+    selectors left as they are there, and the format controls of
+    Egyptian hieroglyphs, which nothing here shapes; U+2800 and U+FFFC,
+    drawn as a blank and a box, are left as they are. A flag of a
+    subdivision such as Scotland's now shows its tags as marks, as a
+    sequence joined by U+200D already did. `MAX_RENDERED_UNBROKEN_RUN`:
+    the desktop breaks a run without a break opportunity where it meets
+    the width of its bubble (the text layout of egui then breaks at any
+    character), so no run overflows, which is what the limit is for. It
+    does not count 64 characters: a break inserted into the text would
+    also be in what is copied from it. A test runs wide, narrow and the
+    longest runs through a bubble. This reading of the limit is for the
+    owner to confirm. White initials were 3.86 to 4.26 to 1 on five of
+    the light colours of avatars, where P6-19 asks 4.5: those five are
+    darker with their hue kept, and the contrast test covers the
+    initials on every colour of both themes. `present::MAX_NAME_BYTES`
+    gave 64 for `MAX_DISPLAY_NAME_LEN`, which is 128, and nothing used
+    it; the name fields cut at 64 characters only, so a name of 64
+    characters of three bytes each was refused by the runtime as text
+    with characters that cannot be used. It is now 128, with
+    `MAX_NAME_CHARS` at 64, and every name field takes at most both
+    (`TextField::byte_limit` cuts at the last character that fits).
+    Faults HR53 to HR55.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

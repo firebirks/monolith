@@ -36,6 +36,7 @@ pub struct TextField<'a> {
     no_history: bool,
     enabled: bool,
     char_limit: Option<usize>,
+    byte_limit: Option<usize>,
     width: Option<f32>,
     request_focus: bool,
 }
@@ -55,6 +56,7 @@ impl<'a> TextField<'a> {
             no_history: false,
             enabled: true,
             char_limit: None,
+            byte_limit: None,
             width: None,
             request_focus: false,
         }
@@ -116,6 +118,13 @@ impl<'a> TextField<'a> {
     /// At most this many characters; typed and pasted text is cut there.
     pub fn char_limit(mut self, limit: usize) -> Self {
         self.char_limit = Some(limit);
+        self
+    }
+
+    /// At most this many bytes of UTF-8; typed and pasted text is cut at
+    /// the last character that fits.
+    pub fn byte_limit(mut self, limit: usize) -> Self {
+        self.byte_limit = Some(limit);
         self
     }
 
@@ -218,7 +227,11 @@ impl<'a> TextField<'a> {
             let hint = egui::RichText::new(self.hint)
                 .font(font.clone())
                 .color(c.text_tertiary);
-            let mut edit = TextEdit::singleline(self.text)
+            let mut limited = ByteLimit {
+                text: self.text,
+                limit: self.byte_limit.unwrap_or(usize::MAX),
+            };
+            let mut edit = TextEdit::singleline(&mut limited)
                 .id(edit_id)
                 .frame(false)
                 .margin(Margin::ZERO)
@@ -291,6 +304,49 @@ impl<'a> TextField<'a> {
             changed: false,
             submitted: false,
         })
+    }
+}
+
+/// A text buffer that takes at most `limit` bytes: what is inserted is cut
+/// at the last character that fits.
+struct ByteLimit<'b> {
+    text: &'b mut dyn TextBuffer,
+    limit: usize,
+}
+
+impl TextBuffer for ByteLimit<'_> {
+    fn is_mutable(&self) -> bool {
+        self.text.is_mutable()
+    }
+
+    fn as_str(&self) -> &str {
+        self.text.as_str()
+    }
+
+    fn insert_text(&mut self, text: &str, char_index: usize) -> usize {
+        let room = self.limit.saturating_sub(self.text.as_str().len());
+        let mut end = text.len().min(room);
+        while !text.is_char_boundary(end) {
+            end = end.saturating_sub(1);
+        }
+        self.text
+            .insert_text(text.get(..end).unwrap_or_default(), char_index)
+    }
+
+    fn delete_char_range(&mut self, char_range: core::ops::Range<usize>) {
+        self.text.delete_char_range(char_range);
+    }
+
+    fn clear(&mut self) {
+        self.text.clear();
+    }
+
+    fn take(&mut self) -> String {
+        self.text.take()
+    }
+
+    fn type_id(&self) -> core::any::TypeId {
+        TextBuffer::type_id(&*self.text)
     }
 }
 

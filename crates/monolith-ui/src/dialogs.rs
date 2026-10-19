@@ -46,9 +46,6 @@ use zeroize::Zeroizing;
 use crate::app::{App, CardFile, CloseWarning, Effect, SettingsPage, ShownQr, View, close_warning};
 use crate::common;
 
-/// The longest name, in characters.
-const NAME_LIMIT: usize = 64;
-
 /// The rows of the name a sender chose, in the box of their words.
 const NAME_ROWS: usize = 3;
 
@@ -637,7 +634,8 @@ fn new_identity(ctx: &Context, app: &mut App) {
             |ui| {
                 let output = TextField::new("new-identity-name", name)
                     .label("Name (only you see it)")
-                    .char_limit(NAME_LIMIT)
+                    .char_limit(present::MAX_NAME_CHARS)
+                    .byte_limit(present::MAX_NAME_BYTES)
                     .enabled(!busy)
                     .error(name_error)
                     .request_focus(focus)
@@ -759,7 +757,8 @@ fn add_contact_dialog(ctx: &Context, app: &mut App) {
                 ui.add_space(theme.space.xs);
                 let output = TextField::new(("add-contact-name", identity), name)
                     .label("Name (only you see it)")
-                    .char_limit(NAME_LIMIT)
+                    .char_limit(present::MAX_NAME_CHARS)
+                    .byte_limit(present::MAX_NAME_BYTES)
                     .error(name_error)
                     .enabled(!busy)
                     .show(ui);
@@ -1098,7 +1097,8 @@ fn new_invitation(ctx: &Context, app: &mut App) {
                 let output = TextField::new(("new-invitation-label", identity), label)
                     .label("Label (only you see it)")
                     .hint("For Dana")
-                    .char_limit(NAME_LIMIT)
+                    .char_limit(present::MAX_NAME_CHARS)
+                    .byte_limit(present::MAX_NAME_BYTES)
                     .error(label_error)
                     .enabled(!busy)
                     .request_focus(focus)
@@ -1438,7 +1438,8 @@ fn contact_details(ctx: &Context, app: &mut App) {
             ui.add_space(theme.space.md);
             let output = TextField::new(("contact-name", contact), name)
                 .label("Name (only you see it)")
-                .char_limit(NAME_LIMIT)
+                .char_limit(present::MAX_NAME_CHARS)
+                .byte_limit(present::MAX_NAME_BYTES)
                 .error(name_error)
                 .enabled(!busy)
                 .show(ui);
@@ -1610,7 +1611,8 @@ fn accept_request(ctx: &Context, app: &mut App) {
             ui.add_space(theme.space.sm);
             let output = TextField::new(("accept-name", request), name)
                 .label("Name (only you see it)")
-                .char_limit(NAME_LIMIT)
+                .char_limit(present::MAX_NAME_CHARS)
+                .byte_limit(present::MAX_NAME_BYTES)
                 .error(name_error)
                 .enabled(!busy)
                 .request_focus(focus)
