@@ -1998,6 +1998,13 @@ PHASE7 = [
     fault("HR64", RT + "lib.rs", "a changed message store is told as a wrong passphrase",
           ("        InstallationError::MessageStoreChanged => OpenError::Invalid,\n",
            "        InstallationError::MessageStoreChanged => OpenError::AuthenticationFailed,\n")),
+    # Enter while an input method composes (P7-19).
+    fault("HR65", UK + "composer.rs", "an Enter while an input method composes sends the draft",
+          ("            })\n            && !composing;\n", "            });\n")),
+    fault("HR66", UK + "composer.rs", "an Enter in the frame of a commit sends the draft",
+          ("    before || now || ended\n", "    before && now\n")),
+    fault("HR67", UK + "composer.rs", "an Enter after a composition begun and committed in its frame sends the draft",
+          ("    before || now || ended\n", "    before || now\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

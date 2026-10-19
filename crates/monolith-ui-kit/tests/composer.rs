@@ -11,8 +11,8 @@
 
 mod common;
 
-use common::{Rig, command};
-use egui::{Context, Id, Key, TextEdit};
+use common::{Rig, command, key_event};
+use egui::{Context, Event, Id, ImeEvent, Key, TextEdit};
 use monolith_ui_kit::composer::{self, Composer};
 
 fn show(ctx: &Context, draft: &mut String, sent: &mut bool) {
@@ -62,6 +62,56 @@ fn undo_while_typing_keeps_the_draft_as_it_is() {
     let mut sent = false;
     rig.key_with(Key::Z, command(), |ctx| show(ctx, &mut draft, &mut sent));
     assert_eq!(draft, "meet at the north gate");
+}
+
+fn ime(event: ImeEvent) -> Event {
+    Event::Ime(event)
+}
+
+#[test]
+fn enter_while_an_input_method_composes_sends_nothing() {
+    let mut draft = String::new();
+    let mut rig = typed(&mut draft);
+    let mut sent = false;
+    rig.frame(
+        vec![
+            ime(ImeEvent::Enabled),
+            ime(ImeEvent::Preedit(" ni".to_owned())),
+        ],
+        |ctx| show(ctx, &mut draft, &mut sent),
+    );
+    assert_eq!(draft, "meet at the north gate ni");
+    // An Enter that reaches the window before the input method commits.
+    rig.key(Key::Enter, |ctx| show(ctx, &mut draft, &mut sent));
+    assert!(!sent);
+    // The commit and an Enter in the same frame: the Enter was the
+    // input method's.
+    rig.frame(
+        vec![
+            ime(ImeEvent::Commit(" \u{4F60}".to_owned())),
+            key_event(Key::Enter, true),
+            key_event(Key::Enter, false),
+        ],
+        |ctx| show(ctx, &mut draft, &mut sent),
+    );
+    assert!(!sent);
+    assert_eq!(draft, "meet at the north gate \u{4F60}");
+    // Once the text is committed, Enter sends it.
+    rig.key(Key::Enter, |ctx| show(ctx, &mut draft, &mut sent));
+    assert!(sent);
+
+    // A composition begun and committed in the frame of the Enter.
+    sent = false;
+    rig.frame(
+        vec![
+            ime(ImeEvent::Preedit("ma".to_owned())),
+            ime(ImeEvent::Commit("\u{5417}".to_owned())),
+            key_event(Key::Enter, true),
+            key_event(Key::Enter, false),
+        ],
+        |ctx| show(ctx, &mut draft, &mut sent),
+    );
+    assert!(!sent);
 }
 
 #[test]

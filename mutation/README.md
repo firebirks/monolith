@@ -341,7 +341,10 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
 - a message store that does not authenticate (P7-18): told as the
   vault's authentication by the core, or as a wrong passphrase by the
   runtime (HR63, HR64). A fault of `monolith-runtime` runs its tests and
-  the desktop's.
+  the desktop's;
+- Enter while an input method composes (P7-19): it sends the draft while
+  the composition lasts, in the frame of its commit, or after one begun
+  and committed in its frame (HR65 to HR67).
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within

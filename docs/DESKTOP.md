@@ -311,7 +311,8 @@ views.
   edge of the sidebar and the scroll bars are dragged with the pointer and
   take no focus, and lists scroll with the wheel or as the focus moves.
 - Enter sends, Shift+Enter starts a new line; Enter submits a dialog's
-  field.
+  field. An Enter while an input method composes, or in the frame of its
+  commit, belongs to the input method and sends nothing (P7-19).
 - Escape closes a dialog that is not waiting for its action, clears the
   filter, and leaves the settings when no dialog or menu is open.
 - Ctrl+F (Cmd+F) moves to the filter of the list; Alt+Up and Alt+Down show

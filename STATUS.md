@@ -149,6 +149,7 @@ mutation fault, the document changed, the final status.
 | BL45 | fix (P7-17): the notice only for the identity shown | see git log | model `a_contact_of_another_identity_accepting_raises_no_notice_over_the_one_shown` | HR60 | DESIGN_QUESTIONS P7-17, TEST_PLAN T-UI-1, mutation/README | fixed |
 | BL46 | fix (P7-17): the first screen says a refused data folder, a notice a refused settings file | see git log | desktop `tests::a_place_named_and_refused_is_said_refused_and_not_replaced`, views `a_data_folder_refused_at_the_start_is_said_so_and_not_as_storage_to_unlock` | HR61, HR62 | PLATFORM_TAILS 5, DESIGN_QUESTIONS P7-17, TEST_PLAN T-UI-7 | fixed |
 | BL36 | fix (P7-18): `InstallationError::MessageStoreChanged`, `OpenError::Invalid` | see git log | core `tests/messages.rs` `a_message_store_that_does_not_authenticate_fails_the_installation` (expects the new variant); runtime `tests::a_changed_message_store_is_not_told_as_a_wrong_passphrase` | HR63, HR64 | STORAGE 3.6, DESIGN_QUESTIONS P7-18, mutation/README | fixed |
+| BL50 | established and fixed (P7-19): an Enter after a preedit sent the draft; the composer follows the composition | see git log | kit `composer.rs` `enter_while_an_input_method_composes_sends_nothing` | HR65 to HR67 | DESKTOP 8, DESIGN_QUESTIONS P7-19, TEST_PLAN T-UI-5, mutation/README | fixed |
 | the rest | | | | | | open |
 
 ## 4. Order of the work

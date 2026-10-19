@@ -2857,6 +2857,21 @@ P7-18 A message store that does not authenticate (BL36). The store is
     the file as it was. Faults HR63, HR64 (the first fault of the runtime
     crate, whose tests and the desktop's the runner now knows).
 
+P7-19 Enter during the composition of an input method (BL50). Established
+    with the events egui-winit hands to egui: egui puts the text an input
+    method composes into the draft before it is committed, and egui-winit
+    forwards every key the platform delivers, Enter included, whatever the
+    input method does. So where a platform delivers the Enter that
+    commits a composition (whether it does depends on the platform and
+    its input method, which winit passes on), the composer sent the draft
+    with the composition half made: a test fed an Enter after a preedit
+    and the draft was sent. The composer now follows the composition from
+    the events (from a preedit with text to a commit or the end of the
+    input method, while it has the focus) and takes an Enter while it
+    lasts, or in the frame where it ends, as the input method's: it is
+    consumed and sends nothing. The next Enter sends. Faults HR65 to
+    HR67.
+
 ### 14.2 Not part of Phase 7
 
 Deferred with the owner's approval (2026-10-18), as work of a product

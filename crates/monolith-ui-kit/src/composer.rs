@@ -6,8 +6,8 @@
 use std::hash::Hash;
 
 use egui::{
-    Align, Align2, Color32, CornerRadius, Frame, Id, Key, KeyboardShortcut, Layout, Margin,
-    Modifiers, Rect, Response, ScrollArea, Stroke, TextEdit, Ui, Vec2, pos2,
+    Align, Align2, Color32, CornerRadius, Event, Frame, Id, ImeEvent, Key, KeyboardShortcut,
+    Layout, Margin, Modifiers, Rect, Response, ScrollArea, Stroke, TextEdit, Ui, Vec2, pos2,
 };
 
 use crate::chrome::ScrollView;
@@ -108,11 +108,16 @@ impl<'a> Composer<'a> {
         let can_send = self.sendable && !self.busy && !over_limit && !self.text.trim().is_empty();
 
         // Plain Enter asks to send. The edit only treats Shift+Enter as a
-        // new line, so it leaves plain Enter alone.
+        // new line, so it leaves plain Enter alone. An Enter while an input
+        // method composes, or in the frame of its commit, is the input
+        // method's: the text it composes is in the draft before it is
+        // committed, and would be sent half made.
+        let composing = composing(ui, edit_id, focused);
         let enter = focused
             && ui.input_mut(|input| {
                 !input.modifiers.shift && input.consume_key(Modifiers::NONE, Key::Enter)
-            });
+            })
+            && !composing;
 
         let mut send_clicked = false;
         let mut edited: Option<Response> = None;
@@ -290,5 +295,36 @@ impl<'a> Composer<'a> {
 /// and selection). Call when the messages of its conversation are deleted
 /// or the conversation goes away.
 pub fn forget(ctx: &egui::Context, edit_id: Id) {
-    ctx.data_mut(|data| data.remove::<egui::text_edit::TextEditState>(edit_id));
+    ctx.data_mut(|data| {
+        data.remove::<egui::text_edit::TextEditState>(edit_id);
+        data.remove::<bool>(edit_id.with(COMPOSING));
+    });
+}
+
+/// Where the composer keeps whether an input method composes in it.
+const COMPOSING: &str = "composing";
+
+/// Whether an input method composes in the edit `edit_id` in this frame:
+/// it has text in composition from earlier frames or from this one, or
+/// committed or stopped in this frame. Kept from frame to frame while the
+/// edit has the focus (`focused`), which the input method writes to.
+fn composing(ui: &Ui, edit_id: Id, focused: bool) -> bool {
+    let key = edit_id.with(COMPOSING);
+    if !focused {
+        ui.data_mut(|data| data.remove::<bool>(key));
+        return false;
+    }
+    let before = ui.data(|data| data.get_temp::<bool>(key).unwrap_or(false));
+    let (now, ended) = ui.input(|input| {
+        input
+            .events
+            .iter()
+            .fold((before, false), |(now, ended), event| match event {
+                Event::Ime(ImeEvent::Preedit(text)) => (!text.is_empty(), ended),
+                Event::Ime(ImeEvent::Commit(_) | ImeEvent::Disabled) => (false, ended || now),
+                _ => (now, ended),
+            })
+    });
+    ui.data_mut(|data| data.insert_temp(key, now));
+    before || now || ended
 }
