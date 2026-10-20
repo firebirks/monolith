@@ -47,7 +47,7 @@ use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{
     Bootstrap, KeySource, MockNetwork, MockTorBackend, OnionService, OnionServiceSecret, TorBackend,
 };
-use tokio::io::DuplexStream;
+use tokio::io::{AsyncReadExt, DuplexStream};
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 
@@ -615,7 +615,7 @@ fn blocking_or_deleting_a_contact_ends_the_attempt_in_progress() {
             let (mut a, _b, at_a, _) = pair(&network).await;
             // B's service takes streams and nothing answers on them: a dial
             // waits for the handshake until HANDSHAKE_TIMEOUT.
-            let _silent = network
+            let mut silent = network
                 .backend()
                 .publish_onion(KeySource::Existing {
                     secret: OnionServiceSecret::from_bytes(&[2; 64]),
@@ -627,11 +627,20 @@ fn blocking_or_deleting_a_contact_ends_the_attempt_in_progress() {
             let mut events = a.runtime().subscribe();
             a.runtime().send_message(&a.id(), &at_a, "x").await.unwrap();
             until(|| network.dials() == 1).await;
+            let mut stream = silent.accept().await.unwrap();
             if block {
                 a.runtime().block_contact(&a.id(), &at_a).await.unwrap();
             } else {
                 a.runtime().delete_contact(&a.id(), &at_a).await.unwrap();
             }
+            // The attempt is dropped at once, not when its handshake times
+            // out: the stream it opened closes.
+            let closed = tokio::time::timeout(HANDSHAKE_TIMEOUT / 4, async {
+                let mut buffer = [0_u8; 1024];
+                while stream.read(&mut buffer).await.is_ok_and(|read| read > 0) {}
+            })
+            .await;
+            assert!(closed.is_ok(), "{block}");
             // The attempt ended with the record: it reports nothing, and
             // nothing follows it.
             tokio::time::sleep(HANDSHAKE_TIMEOUT * 100).await;
