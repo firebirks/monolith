@@ -17,6 +17,7 @@ key kept.
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
+- `affected.py`: the faults a change can affect, for an incremental run.
 
 ## Running
 
@@ -82,6 +83,52 @@ four cores; a fault caught only by the timeout takes the whole of it.
 When code moves, a pattern may no longer match. The runner then stops
 before testing and names the entry; update the pattern so that the fault
 stays the same fault.
+
+## Incremental runs
+
+A change after a full run does not need every fault again, only those
+whose outcome it can alter. `affected.py` selects them (since Phase 7):
+
+    python3 mutation/affected.py HEAD mutation/results-*.json
+
+It takes the candidate commit and results files of `run.py`. For each
+fault the last file that has it gives its evidence: the outcome, the
+tests that failed and the commit it ran on. It prints, for each list, the
+faults to run again with the reason of each, and the `run.py` command
+that runs them. A fault runs again when:
+
+- no results file has it, or its entry in `faults.py` differs from the
+  one its evidence ran with;
+- the change from its commit to the candidate touches `Cargo.toml`,
+  `Cargo.lock`, a crate manifest or build script, the toolchain file,
+  `.cargo/config.toml`, `run.py`, or a file the rules below do not
+  name;
+- the change touches the code of a crate the tests of the fault build
+  with, dev-dependencies included: its sources, examples (`cargo test`
+  builds them), assets or proptest regressions;
+- the change touches a test file of a crate whose tests run for the
+  fault, and the fault survived, was caught by the timeout or without a
+  failing test named, or was caught by a test of that file. A change to a
+  module the test files share counts for every test file of the crate;
+- the change touches a file a test reads outside its crate: the sources
+  of every crate (`monolith-core/tests/structure.rs`), `docs/PROTOCOL.md`
+  (the session vectors) and `fuzz/seeds/` (the seed tests). These are
+  listed in `READERS` in `affected.py`; a test that starts to read
+  another file is added there.
+
+Documents, `deny.toml`, `.cargo/audit.toml`, `clippy.toml`, the CI
+workflows, the fuzz targets, packaging, integrations, the network tests
+under `tests/` and the verification outputs change no outcome.
+
+A test file is matched by the names of the functions it holds before and
+after the change, helpers included, so a selection can only be wider than
+needed. The faults a new test is written for are among those that
+survived, and run again with it.
+
+A full run of every list stays the baseline: at least once in each
+phase, at its final verification, and whenever the selection names
+everything. Results of an incremental run join the baseline's for the
+next selection; the evidence of each fault is its newest result.
 
 ## Expected results
 
