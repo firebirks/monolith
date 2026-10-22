@@ -3019,7 +3019,11 @@ testing with a stable compiler that fixes rust-lang/rust#164250, once
 one exists (BL53), which the final verification looks for. Deferred on
 2026-10-19, from the reviews (P7-23): setting a name apart in a sentence
 of the client by more than its weight, for sight and for screen
-readers, a decision of the product's design.
+readers, a decision of the product's design. Deferred on 2026-10-22,
+from the final verification: a mutation runner that tells a failure of
+a test that bears on the fault from one that fails for another reason
+(BL54); until then the outcomes are classified by hand
+(`mutation/README.md`).
 
 File transfer and attachments, the Double Ratchet, groups, a mobile
 client, voice and video, read receipts, typing indicators, presence, push

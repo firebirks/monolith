@@ -104,6 +104,7 @@ as judged here.
 | BL51 | 12.8 | low | D | ADR 0009 | A record without a dialable card is `DeliveryDeferred` with `NoEndpoint`, never dialed |
 | BL52 | 12.8 | low | D, T | core `persist.rs`, `messages.rs`, `sessions.rs` | `cargo doc` with warnings denied finds broken intra-doc links |
 | BL53 | 12.8 | - | T | toolchain | rust-lang/rust#164250: build and test again with the stable compiler that fixes it |
+| BL54 | final verification | - | T | `mutation/run.py` | A fault counts as caught by any failing test, also one that fails for another reason, such as its own timeout under load |
 
 Deferred with the owner's approval on 2026-10-18 (features or platform
 work, not hardening; `docs/DESIGN_QUESTIONS.md` 14.2): BL14 to BL17,
@@ -165,6 +166,7 @@ mutation fault, the document changed, the final status.
 | BL19 | measured and accepted (P7-21): about 1.8 ms a failed dial | see git log | throwaway test, release build | - | RESOURCE_LIMITS 11, DESIGN_QUESTIONS P7-21 | accepted |
 | BL14 to BL18, BL20 to BL22 | deferred with the owner's approval (2026-10-18) | - | - | - | DESIGN_QUESTIONS 14.2 | deferred |
 | BL53 | the final verification looks for a stable compiler with the fix | - | - | - | DESIGN_QUESTIONS 14.2 | at the final verification |
+| BL54 | deferred with the owner's approval (2026-10-22); the outcomes are classified by hand, and the store.rs crash tests have a bound of their own | see git log | - | - | mutation/README, DESIGN_QUESTIONS 14.2 | deferred |
 
 ## 3.1 Independent reviews
 

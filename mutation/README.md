@@ -66,6 +66,19 @@ Outcomes:
   7: on Windows, a test binary another process still holds), which says
   nothing of the fault and is looked at by hand.
 
+Caught counts any test that failed, also one the fault cannot reach. A
+fault is caught only if a test that bears on it failed; one whose only
+failures are tests that fail for another reason, such as a test stopped
+by its own timeout under the load of the other copies, is counted as it
+would be without them, and a fault expected to survive keeps that
+outcome. The verification of Phase 7 found this: the exhaustive crash
+tests of `monolith-core/tests/store.rs` ran into the 120 s bound of
+`common::run` under four workers and failed in faults of any crate, so
+B3, B4, Q14, Q18 and Q29 looked caught. They have a bound of their own
+since (`EXHAUSTIVE_TEST_TIMEOUT`), with the message "the exhaustive
+crash test did not end in time". The runner does not tell the two kinds
+of failure apart yet (BL54).
+
 The timeout is measured, not fixed: it is the slowest unmodified run of
 a copy, twice over for each worker, and never less than 20 minutes. The
 unmodified run itself has two hours. With Phase 5 the unmodified run
