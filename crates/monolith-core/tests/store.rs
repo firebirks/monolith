@@ -13,6 +13,7 @@
 
 mod common;
 
+use core::time::Duration;
 use std::sync::Arc;
 
 use common::{State, befriend, confirm_both, party, run, state, step};
@@ -26,6 +27,32 @@ use monolith_protocol::text::DisplayName;
 use monolith_storage::dir::{CrashOutcome, MemoryDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::MockNetwork;
+
+/// The bound of one exhaustive crash test, apart from the 120 s of
+/// `common::run`. Such a test opens the vault, with its key derived at
+/// `KdfParams::FLOOR`, twice for every step of a write and every crash
+/// outcome: alone it takes 20 to 70 s, and its wall time grows with
+/// whatever else runs. In the verification of Phase 7, with four mutation
+/// workers on eight CPUs, each of these tests got a fifth of a core and
+/// took 100 to 170 s, so `common::run` stopped tests that were making
+/// progress. This bound is a guard well above that measured worst case,
+/// not a promise that it holds on any machine; a test that hangs still
+/// ends, with its own message.
+const EXHAUSTIVE_TEST_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// As `common::run`, with [`EXHAUSTIVE_TEST_TIMEOUT`], for the tests that
+/// crash a write at every step.
+fn run_exhaustive<F: core::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(EXHAUSTIVE_TEST_TIMEOUT, future)
+                .await
+                .expect("the exhaustive crash test did not end in time")
+        })
+}
 
 fn passphrase() -> Passphrase {
     Passphrase::new("store test passphrase").unwrap()
@@ -202,7 +229,7 @@ where
     S: Fn(MemoryDir) -> std::pin::Pin<Box<dyn core::future::Future<Output = ()>>>,
     O: Fn(Installation) -> std::pin::Pin<Box<dyn core::future::Future<Output = bool>>>,
 {
-    run(async {
+    run_exhaustive(async {
         // The states before and after, and how many steps the write takes.
         let base = MemoryDir::new();
         setup(base.clone()).await;
@@ -474,7 +501,7 @@ fn an_announced_successor_is_atomic() {
         let (bob_link, alice_link) = confirm_both(&bob, &mut alice).await;
         (alice, bob, alice_link, bob_link, successor)
     }
-    run(async {
+    run_exhaustive(async {
         let network = MockNetwork::new();
         let base = MemoryDir::new();
         let (alice, _bob, mut alice_link, mut bob_link, successor) =
