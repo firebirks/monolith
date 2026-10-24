@@ -5,12 +5,14 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
+use std::os::unix::fs::FileExt;
 use std::path::Path;
 
 use rustix::fs::{AtFlags, FileType, FlockOperation, Mode, OFlags};
+use rustix::io::Errno;
 
 use crate::StorageError;
-use crate::dir::{LOCK, VaultDir};
+use crate::dir::{BlobFile, LOCK, VaultDir};
 
 fn io(_: rustix::io::Errno) -> StorageError {
     StorageError::Io
@@ -18,6 +20,63 @@ fn io(_: rustix::io::Errno) -> StorageError {
 
 fn std_io(_: std::io::Error) -> StorageError {
     StorageError::Io
+}
+
+/// An error of a write: a full file system or quota is
+/// [`StorageError::Full`], anything else an I/O failure.
+fn write_error(error: &std::io::Error) -> StorageError {
+    let full = [Errno::NOSPC, Errno::DQUOT].map(Errno::raw_os_error);
+    if error
+        .raw_os_error()
+        .is_some_and(|code| full.contains(&code))
+    {
+        StorageError::Full
+    } else {
+        StorageError::Io
+    }
+}
+
+/// A file of the directory held open to be read and written at offsets.
+#[derive(Debug)]
+struct DiskBlob(File);
+
+impl BlobFile for DiskBlob {
+    fn length(&self) -> Result<u64, StorageError> {
+        Ok(self.0.metadata().map_err(std_io)?.len())
+    }
+
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), StorageError> {
+        self.0.read_exact_at(buf, offset).map_err(std_io)
+    }
+
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), StorageError> {
+        self.0
+            .write_all_at(bytes, offset)
+            .map_err(|error| write_error(&error))
+    }
+
+    fn sync(&mut self) -> Result<(), StorageError> {
+        self.0.sync_all().map_err(|error| write_error(&error))
+    }
+}
+
+/// Gives the open file `fd` the length `len`, allocated where the file
+/// system allows it, so that writing into it later needs no new space
+/// (`docs/adr/0014`). Where allocation is refused or does not exist, the
+/// file only gets the length; the free space was checked before.
+fn reserve(fd: &OwnedFd, len: u64) -> Result<(), StorageError> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    match rustix::fs::fallocate(fd, rustix::fs::FallocateFlags::empty(), 0, len) {
+        Ok(()) => return Ok(()),
+        Err(Errno::NOSPC | Errno::DQUOT) => return Err(StorageError::Full),
+        Err(Errno::OPNOTSUPP | Errno::NOSYS) => {}
+        Err(_) => return Err(StorageError::Io),
+    }
+    match rustix::fs::ftruncate(fd, len) {
+        Ok(()) => Ok(()),
+        Err(Errno::NOSPC | Errno::DQUOT | Errno::FBIG) => Err(StorageError::Full),
+        Err(_) => Err(StorageError::Io),
+    }
 }
 
 /// A vault directory on disk, held for the life of the value.
@@ -196,6 +255,69 @@ impl VaultDir for DiskDir {
     fn sync(&self) -> Result<(), StorageError> {
         rustix::fs::fsync(&self.dir).map_err(io)
     }
+
+    fn create_reserved(
+        &self,
+        name: &str,
+        len: u64,
+        margin: u64,
+    ) -> Result<Box<dyn BlobFile>, StorageError> {
+        // The blocks available to this user, not to the superuser.
+        let stat = rustix::fs::fstatvfs(&self.dir).map_err(io)?;
+        let free = stat.f_bavail.saturating_mul(stat.f_frsize);
+        if free < len.saturating_add(margin) {
+            return Err(StorageError::Full);
+        }
+        let fd = rustix::fs::openat(
+            &self.dir,
+            name,
+            OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_raw_mode(FILE_MODE),
+        )
+        .map_err(|error| match error {
+            Errno::EXIST => StorageError::Exists,
+            _ => StorageError::Io,
+        })?;
+        if let Err(error) = reserve(&fd, len) {
+            drop(fd);
+            let _ = rustix::fs::unlinkat(&self.dir, name, AtFlags::empty());
+            return Err(error);
+        }
+        Ok(Box::new(DiskBlob(File::from(fd))))
+    }
+
+    fn open_blob(&self, name: &str) -> Result<Option<Box<dyn BlobFile>>, StorageError> {
+        match rustix::fs::openat(
+            &self.dir,
+            name,
+            OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(fd) => {
+                check_owned(&fd, FileType::RegularFile)?;
+                Ok(Some(Box::new(DiskBlob(File::from(fd)))))
+            }
+            Err(Errno::NOENT) => Ok(None),
+            Err(Errno::LOOP) => Err(StorageError::Permissions),
+            Err(_) => Err(StorageError::Io),
+        }
+    }
+
+    fn list(&self) -> Result<Vec<String>, StorageError> {
+        let mut names = Vec::new();
+        for entry in rustix::fs::Dir::read_from(&self.dir).map_err(io)? {
+            let entry = entry.map_err(io)?;
+            let name = entry.file_name().to_bytes();
+            if name == b"." || name == b".." {
+                continue;
+            }
+            // A name that is not UTF-8 is no name of Monolith's.
+            if let Ok(name) = core::str::from_utf8(name) {
+                names.push(name.to_owned());
+            }
+        }
+        Ok(names)
+    }
 }
 
 #[cfg(test)]
@@ -209,6 +331,36 @@ mod tests {
             std::env::temp_dir().join(format!("monolith-storage-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         base
+    }
+
+    #[test]
+    fn a_blob_is_reserved_written_and_read_at_offsets_and_listed() {
+        let base = temp("blob");
+        let dir = DiskDir::open(&base, true).unwrap();
+        let name = "transfer-0123456789abcdef0123456789abcdef";
+        let mut blob = dir.create_reserved(name, 100, 0).unwrap();
+        assert_eq!(blob.length().unwrap(), 100);
+        blob.write_at(10, b"chunk").unwrap();
+        blob.sync().unwrap();
+        dir.sync().unwrap();
+        assert!(matches!(
+            dir.create_reserved(name, 1, 0),
+            Err(StorageError::Exists)
+        ));
+        drop(blob);
+        let mut opened = dir.open_blob(name).unwrap().unwrap();
+        let mut buf = [0xFF; 7];
+        opened.read_at(9, &mut buf).unwrap();
+        assert_eq!(&buf, b"\0chunk\0");
+        assert_eq!(opened.read_at(98, &mut buf), Err(StorageError::Io));
+        assert!(dir.open_blob("transfer-none").unwrap().is_none());
+        let names = dir.list().unwrap();
+        assert!(names.iter().any(|listed| listed == name));
+        assert!(names.iter().any(|listed| listed == LOCK));
+        drop(opened);
+        dir.remove(name).unwrap();
+        drop(dir);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

@@ -42,11 +42,11 @@
 use core::time::Duration;
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Write};
-use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+use std::os::windows::fs::{FileExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::StorageError;
-use crate::dir::{LOCK, VaultDir};
+use crate::dir::{BlobFile, LOCK, VaultDir};
 
 /// Opens a directory (needed to open one at all).
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
@@ -63,6 +63,11 @@ const ERROR_SHARING_VIOLATION: i32 = 32;
 /// `ERROR_ACCESS_DENIED`: what a rename gets when another process holds
 /// its target.
 const ERROR_ACCESS_DENIED: i32 = 5;
+/// `ERROR_LOCK_VIOLATION`: another process locked a range of the file.
+const ERROR_LOCK_VIOLATION: i32 = 33;
+/// `ERROR_HANDLE_DISK_FULL`, `ERROR_DISK_FULL` and `ERROR_NOT_ENOUGH_QUOTA`:
+/// the volume, or the user's quota on it, has no space left.
+const DISK_FULL: [i32; 3] = [39, 112, 1816];
 /// The pauses before a rename is tried again, while another process holds
 /// its file: about 1.6 s in all, then the rename fails.
 const RENAME_WAITS: [Duration; 7] = [
@@ -77,6 +82,64 @@ const RENAME_WAITS: [Duration; 7] = [
 
 fn std_io(_: std::io::Error) -> StorageError {
     StorageError::Io
+}
+
+/// An error of a write to a blob: a full volume is [`StorageError::Full`],
+/// a file another process holds [`StorageError::Busy`], anything else an
+/// I/O failure.
+fn write_error(error: &std::io::Error) -> StorageError {
+    match error.raw_os_error() {
+        Some(code) if DISK_FULL.contains(&code) => StorageError::Full,
+        Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION) => StorageError::Busy,
+        _ if error.kind() == ErrorKind::StorageFull => StorageError::Full,
+        _ => StorageError::Io,
+    }
+}
+
+/// A file of the directory held open to be read and written at offsets.
+#[derive(Debug)]
+struct DiskBlob(File);
+
+impl BlobFile for DiskBlob {
+    fn length(&self) -> Result<u64, StorageError> {
+        Ok(self.0.metadata().map_err(std_io)?.len())
+    }
+
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), StorageError> {
+        let mut done = 0;
+        while let Some(rest) = buf.get_mut(done..).filter(|rest| !rest.is_empty()) {
+            let at = offset
+                .checked_add(u64::try_from(done).map_err(|_| StorageError::Io)?)
+                .ok_or(StorageError::Io)?;
+            match self.0.seek_read(rest, at) {
+                Ok(0) => return Err(StorageError::Io),
+                Ok(read) => done = done.checked_add(read).ok_or(StorageError::Io)?,
+                Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                Err(error) => return Err(write_error(&error)),
+            }
+        }
+        Ok(())
+    }
+
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), StorageError> {
+        let mut done = 0;
+        while let Some(rest) = bytes.get(done..).filter(|rest| !rest.is_empty()) {
+            let at = offset
+                .checked_add(u64::try_from(done).map_err(|_| StorageError::Io)?)
+                .ok_or(StorageError::Io)?;
+            match self.0.seek_write(rest, at) {
+                Ok(0) => return Err(StorageError::Io),
+                Ok(written) => done = done.checked_add(written).ok_or(StorageError::Io)?,
+                Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                Err(error) => return Err(write_error(&error)),
+            }
+        }
+        Ok(())
+    }
+
+    fn sync(&mut self) -> Result<(), StorageError> {
+        self.0.sync_all().map_err(|error| write_error(&error))
+    }
 }
 
 /// Runs `operation`, a rename or a removal, and runs it again after each
@@ -275,6 +338,75 @@ impl VaultDir for DiskDir {
     fn sync(&self) -> Result<(), StorageError> {
         self.dir.sync_all().map_err(std_io)
     }
+
+    /// The standard library gives no safe call to read the free space of a
+    /// volume. Extending a file allocates its clusters on an ordinary NTFS
+    /// volume and fails when they are missing, so the file is extended to
+    /// its length plus the margin and then shortened to its length
+    /// (`docs/adr/0014`).
+    fn create_reserved(
+        &self,
+        name: &str,
+        len: u64,
+        margin: u64,
+    ) -> Result<Box<dyn BlobFile>, StorageError> {
+        let path = self.file(name)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&path)
+            .map_err(|error| match error.kind() {
+                ErrorKind::AlreadyExists => StorageError::Exists,
+                _ => StorageError::Io,
+            })?;
+        let reserved = file
+            .set_len(len.saturating_add(margin))
+            .and_then(|()| file.set_len(len))
+            .map_err(|error| write_error(&error));
+        if let Err(error) = reserved {
+            drop(file);
+            let _ = retried(|| std::fs::remove_file(&path));
+            return Err(error);
+        }
+        Ok(Box::new(DiskBlob(file)))
+    }
+
+    fn open_blob(&self, name: &str) -> Result<Option<Box<dyn BlobFile>>, StorageError> {
+        let path = self.file(name)?;
+        match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&path)
+        {
+            Ok(file) => {
+                check_kind(&file, false)?;
+                Ok(Some(Box::new(DiskBlob(file))))
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION) => {
+                Err(StorageError::Busy)
+            }
+            Err(_) if std::fs::symlink_metadata(&path).is_ok_and(|meta| !meta.is_file()) => {
+                Err(StorageError::Permissions)
+            }
+            Err(_) => Err(StorageError::Io),
+        }
+    }
+
+    fn list(&self) -> Result<Vec<String>, StorageError> {
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(&self.path).map_err(std_io)? {
+            let entry = entry.map_err(std_io)?;
+            // A name that is not Unicode is no name of Monolith's.
+            if let Ok(name) = entry.file_name().into_string() {
+                names.push(name);
+            }
+        }
+        Ok(names)
+    }
 }
 
 #[cfg(test)]
@@ -287,6 +419,36 @@ mod tests {
             std::env::temp_dir().join(format!("monolith-storage-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         base
+    }
+
+    #[test]
+    fn a_blob_is_reserved_written_and_read_at_offsets_and_listed() {
+        let base = temp("blob");
+        let dir = DiskDir::open(&base, true).unwrap();
+        let name = "transfer-0123456789abcdef0123456789abcdef";
+        let mut blob = dir.create_reserved(name, 100, 0).unwrap();
+        assert_eq!(blob.length().unwrap(), 100);
+        blob.write_at(10, b"chunk").unwrap();
+        blob.sync().unwrap();
+        dir.sync().unwrap();
+        assert!(matches!(
+            dir.create_reserved(name, 1, 0),
+            Err(StorageError::Exists)
+        ));
+        drop(blob);
+        let mut opened = dir.open_blob(name).unwrap().unwrap();
+        let mut buf = [0xFF; 7];
+        opened.read_at(9, &mut buf).unwrap();
+        assert_eq!(&buf, b"\0chunk\0");
+        assert_eq!(opened.read_at(98, &mut buf), Err(StorageError::Io));
+        assert!(dir.open_blob("transfer-none").unwrap().is_none());
+        let names = dir.list().unwrap();
+        assert!(names.iter().any(|listed| listed == name));
+        assert!(names.iter().any(|listed| listed == LOCK));
+        drop(opened);
+        dir.remove(name).unwrap();
+        drop(dir);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

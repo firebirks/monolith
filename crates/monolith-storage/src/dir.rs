@@ -28,6 +28,31 @@ pub const MESSAGES: &str = "messages";
 /// The name of a message store file while it is written.
 pub const MESSAGES_NEW: &str = "messages.new";
 
+/// The name of the transfer store file (`docs/adr/0014-transfer-staging.md`).
+pub const TRANSFERS: &str = "transfers";
+
+/// The name of a transfer store file while it is written.
+pub const TRANSFERS_NEW: &str = "transfers.new";
+
+/// A file of a vault directory held open to be read and written at
+/// offsets: the staged data of a transfer (`docs/adr/0014`).
+pub trait BlobFile: Send {
+    /// The length of the file in bytes.
+    fn length(&self) -> Result<u64, StorageError>;
+
+    /// Fills `buf` with the bytes of the file from `offset`. Fails if the
+    /// file ends before `buf` is full.
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), StorageError>;
+
+    /// Writes `bytes` at `offset`. Fails with [`StorageError::Full`] when
+    /// the space is missing and with [`StorageError::Busy`] when another
+    /// process holds the file.
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), StorageError>;
+
+    /// Flushes what was written to stable storage.
+    fn sync(&mut self) -> Result<(), StorageError>;
+}
+
 /// The file operations of a vault directory.
 ///
 /// Names are file names inside the directory, never paths. An
@@ -54,6 +79,25 @@ pub trait VaultDir {
 
     /// Flushes the names in the directory to stable storage.
     fn sync(&self) -> Result<(), StorageError>;
+
+    /// Creates the file `name`, which must not exist, and reserves `len`
+    /// bytes for it, leaving at least `margin` bytes of the file system
+    /// free where that can be known (`docs/adr/0014`). The file then has
+    /// the length `len`. Fails with [`StorageError::Full`] if the space is
+    /// missing; nothing is left behind then.
+    fn create_reserved(
+        &self,
+        name: &str,
+        len: u64,
+        margin: u64,
+    ) -> Result<Box<dyn BlobFile>, StorageError>;
+
+    /// Opens the file `name` to read and write it at offsets. Returns
+    /// `None` if there is no such file.
+    fn open_blob(&self, name: &str) -> Result<Option<Box<dyn BlobFile>>, StorageError>;
+
+    /// The names of the files in the directory, in no particular order.
+    fn list(&self) -> Result<Vec<String>, StorageError>;
 }
 
 impl<T: VaultDir + ?Sized> VaultDir for Box<T> {
@@ -79,6 +123,23 @@ impl<T: VaultDir + ?Sized> VaultDir for Box<T> {
 
     fn sync(&self) -> Result<(), StorageError> {
         (**self).sync()
+    }
+
+    fn create_reserved(
+        &self,
+        name: &str,
+        len: u64,
+        margin: u64,
+    ) -> Result<Box<dyn BlobFile>, StorageError> {
+        (**self).create_reserved(name, len, margin)
+    }
+
+    fn open_blob(&self, name: &str) -> Result<Option<Box<dyn BlobFile>>, StorageError> {
+        (**self).open_blob(name)
+    }
+
+    fn list(&self) -> Result<Vec<String>, StorageError> {
+        (**self).list()
     }
 }
 
@@ -108,6 +169,23 @@ impl<T: VaultDir + ?Sized> VaultDir for Arc<T> {
     fn sync(&self) -> Result<(), StorageError> {
         (**self).sync()
     }
+
+    fn create_reserved(
+        &self,
+        name: &str,
+        len: u64,
+        margin: u64,
+    ) -> Result<Box<dyn BlobFile>, StorageError> {
+        (**self).create_reserved(name, len, margin)
+    }
+
+    fn open_blob(&self, name: &str) -> Result<Option<Box<dyn BlobFile>>, StorageError> {
+        (**self).open_blob(name)
+    }
+
+    fn list(&self) -> Result<Vec<String>, StorageError> {
+        (**self).list()
+    }
 }
 
 #[cfg(unix)]
@@ -119,7 +197,11 @@ pub use crate::disk_windows::DiskDir;
 ///
 /// A real file system may keep more than what was flushed, or less of a
 /// file that was being written. The four combinations cover what a vault
-/// has to survive.
+/// has to survive. For a file written at offsets (a [`BlobFile`]) torn
+/// contents go further: of the writes since its last flush, the first,
+/// third and so on survive torn (the first half of their bytes, the old
+/// bytes after it) and the others whole, so that a later write can survive
+/// an earlier one (`docs/adr/0014-transfer-staging.md`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CrashOutcome {
     /// Names that were not flushed with [`VaultDir::sync`] survive as they
@@ -157,6 +239,26 @@ impl CrashOutcome {
 struct Node {
     content: Vec<u8>,
     flushed: Option<Vec<u8>>,
+    /// Written at offsets, as a [`BlobFile`]: the writes since the last
+    /// flush, in order, decide what a crash leaves.
+    blob: bool,
+    pending: Vec<(usize, Vec<u8>)>,
+}
+
+/// Writes `bytes` into `content` at `offset`, extending it with zero bytes
+/// if it is shorter.
+fn write_into(content: &mut Vec<u8>, offset: usize, bytes: &[u8]) -> Result<(), StorageError> {
+    let end = offset
+        .checked_add(bytes.len())
+        .ok_or(StorageError::TooLarge)?;
+    if content.len() < end {
+        content.resize(end, 0);
+    }
+    content
+        .get_mut(offset..end)
+        .ok_or(StorageError::Internal)?
+        .copy_from_slice(bytes);
+    Ok(())
 }
 
 #[derive(Clone, Debug, Default)]
@@ -171,6 +273,10 @@ struct MemoryState {
     /// The step that fails; from then on every operation fails.
     crash_at: Option<u64>,
     crashed: bool,
+    /// The free space the directory pretends to have, for reservations.
+    free: Option<u64>,
+    /// The error the next write of a blob fails with, once.
+    fail_next_write: Option<StorageError>,
 }
 
 impl MemoryState {
@@ -306,18 +412,36 @@ impl MemoryDir {
             .nodes
             .iter()
             .map(|node| {
-                let content = match (&node.flushed, outcome.keep_torn_contents) {
-                    (Some(flushed), _) => flushed.clone(),
-                    (None, true) => node
-                        .content
-                        .get(..node.content.len() / 2)
-                        .unwrap_or_default()
-                        .to_vec(),
-                    (None, false) => Vec::new(),
+                let content = if node.blob {
+                    let mut content = node.flushed.clone().unwrap_or_default();
+                    if outcome.keep_torn_contents {
+                        for (index, (offset, bytes)) in node.pending.iter().enumerate() {
+                            let kept = if index % 2 == 0 {
+                                bytes.get(..bytes.len() / 2).unwrap_or_default()
+                            } else {
+                                bytes.as_slice()
+                            };
+                            // Within the bounds the write had, so it fits.
+                            let _ = write_into(&mut content, *offset, kept);
+                        }
+                    }
+                    content
+                } else {
+                    match (&node.flushed, outcome.keep_torn_contents) {
+                        (Some(flushed), _) => flushed.clone(),
+                        (None, true) => node
+                            .content
+                            .get(..node.content.len() / 2)
+                            .unwrap_or_default()
+                            .to_vec(),
+                        (None, false) => Vec::new(),
+                    }
                 };
                 Node {
                     flushed: Some(content.clone()),
                     content,
+                    blob: node.blob,
+                    pending: Vec::new(),
                 }
             })
             .collect();
@@ -329,6 +453,8 @@ impl MemoryDir {
                 steps: 0,
                 crash_at: None,
                 crashed: false,
+                free: state.free,
+                fail_next_write: None,
             })),
             hold: Arc::default(),
         }
@@ -348,6 +474,87 @@ impl MemoryDir {
         let node = state.node(name)?;
         node.content = bytes.to_vec();
         node.flushed = Some(bytes.to_vec());
+        node.pending.clear();
+        Ok(())
+    }
+
+    /// The content of the file `name` as it is now, flushed or not. For
+    /// tests.
+    pub fn content(&self, name: &str) -> Result<Vec<u8>, StorageError> {
+        let mut state = self.state();
+        Ok(state.node(name)?.content.clone())
+    }
+
+    /// Pretends that the file system has `free` bytes free, so that a
+    /// reservation that leaves less than its margin fails with
+    /// [`StorageError::Full`]. `None`, the default, has no limit.
+    pub fn set_free(&self, free: Option<u64>) {
+        self.state().free = free;
+    }
+
+    /// Makes the next write of a blob fail with `error`, once, without a
+    /// crash: a full disk, or a file another process holds.
+    pub fn fail_next_write(&self, error: StorageError) {
+        self.state().fail_next_write = Some(error);
+    }
+}
+
+/// A [`BlobFile`] of a [`MemoryDir`].
+#[derive(Debug)]
+struct MemoryBlob {
+    state: Arc<Mutex<MemoryState>>,
+    node: usize,
+}
+
+impl MemoryBlob {
+    fn state(&self) -> MutexGuard<'_, MemoryState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl BlobFile for MemoryBlob {
+    fn length(&self) -> Result<u64, StorageError> {
+        let state = self.state();
+        if state.crashed {
+            return Err(StorageError::Io);
+        }
+        let node = state.nodes.get(self.node).ok_or(StorageError::Io)?;
+        u64::try_from(node.content.len()).map_err(|_| StorageError::TooLarge)
+    }
+
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), StorageError> {
+        let state = self.state();
+        if state.crashed {
+            return Err(StorageError::Io);
+        }
+        let node = state.nodes.get(self.node).ok_or(StorageError::Io)?;
+        let start = usize::try_from(offset).map_err(|_| StorageError::Io)?;
+        let end = start.checked_add(buf.len()).ok_or(StorageError::Io)?;
+        buf.copy_from_slice(node.content.get(start..end).ok_or(StorageError::Io)?);
+        Ok(())
+    }
+
+    fn write_at(&mut self, offset: u64, bytes: &[u8]) -> Result<(), StorageError> {
+        let mut state = self.state();
+        if let Some(error) = state.fail_next_write.take() {
+            return Err(error);
+        }
+        state.step()?;
+        let offset = usize::try_from(offset).map_err(|_| StorageError::TooLarge)?;
+        let node = state.nodes.get_mut(self.node).ok_or(StorageError::Io)?;
+        write_into(&mut node.content, offset, bytes)?;
+        node.pending.push((offset, bytes.to_vec()));
+        Ok(())
+    }
+
+    fn sync(&mut self) -> Result<(), StorageError> {
+        let mut state = self.state();
+        state.step()?;
+        let node = state.nodes.get_mut(self.node).ok_or(StorageError::Io)?;
+        node.flushed = Some(node.content.clone());
+        node.pending.clear();
         Ok(())
     }
 }
@@ -427,6 +634,70 @@ impl VaultDir for MemoryDir {
         state.flushed_names = state.names.clone();
         Ok(())
     }
+
+    /// Two steps: the name, then the reservation. Neither is durable
+    /// before the file and the directory are flushed.
+    fn create_reserved(
+        &self,
+        name: &str,
+        len: u64,
+        margin: u64,
+    ) -> Result<Box<dyn BlobFile>, StorageError> {
+        self.hold.pass();
+        let mut state = self.state();
+        if state.crashed {
+            return Err(StorageError::Io);
+        }
+        if state.names.contains_key(name) {
+            return Err(StorageError::Exists);
+        }
+        if let Some(free) = state.free {
+            if free < len.saturating_add(margin) {
+                return Err(StorageError::Full);
+            }
+        }
+        let size = usize::try_from(len).map_err(|_| StorageError::TooLarge)?;
+        state.step()?;
+        let node = state.nodes.len();
+        state.nodes.push(Node {
+            blob: true,
+            ..Node::default()
+        });
+        state.names.insert(name.to_owned(), node);
+        state.step()?;
+        let reserved = state.nodes.get_mut(node).ok_or(StorageError::Io)?;
+        reserved.content = vec![0; size];
+        if let Some(free) = state.free.as_mut() {
+            *free = free.saturating_sub(len);
+        }
+        Ok(Box::new(MemoryBlob {
+            state: Arc::clone(&self.state),
+            node,
+        }))
+    }
+
+    fn open_blob(&self, name: &str) -> Result<Option<Box<dyn BlobFile>>, StorageError> {
+        let mut state = self.state();
+        if state.crashed {
+            return Err(StorageError::Io);
+        }
+        let Some(&node) = state.names.get(name) else {
+            return Ok(None);
+        };
+        state.nodes.get_mut(node).ok_or(StorageError::Io)?.blob = true;
+        Ok(Some(Box::new(MemoryBlob {
+            state: Arc::clone(&self.state),
+            node,
+        })))
+    }
+
+    fn list(&self) -> Result<Vec<String>, StorageError> {
+        let state = self.state();
+        if state.crashed {
+            return Err(StorageError::Io);
+        }
+        Ok(state.names.keys().cloned().collect())
+    }
 }
 
 #[cfg(test)]
@@ -456,5 +727,80 @@ mod tests {
                 (true, true) => assert_eq!(new, Some(b"ab".to_vec())),
             }
         }
+    }
+
+    const BLOB: &str = "transfer-00000000000000000000000000000001";
+
+    #[test]
+    fn a_blob_keeps_what_was_flushed_and_unflushed_writes_survive_torn_or_whole() {
+        let dir = MemoryDir::new();
+        let mut blob = dir.create_reserved(BLOB, 16, 0).unwrap();
+        assert_eq!(blob.length().unwrap(), 16);
+        blob.write_at(0, b"head").unwrap();
+        blob.sync().unwrap();
+        dir.sync().unwrap();
+        // Two writes not flushed: the first survives torn, the second whole.
+        blob.write_at(4, b"abcd").unwrap();
+        blob.write_at(8, b"wxyz").unwrap();
+        let mut buf = [0; 12];
+        blob.read_at(0, &mut buf).unwrap();
+        assert_eq!(&buf, b"headabcdwxyz");
+        for outcome in CrashOutcome::ALL {
+            let after = dir.restart(outcome);
+            let content = after.content(BLOB).unwrap();
+            assert_eq!(content.len(), 16);
+            let expected: &[u8] = if outcome.keep_torn_contents {
+                b"headab\0\0wxyz\0\0\0\0"
+            } else {
+                b"head\0\0\0\0\0\0\0\0\0\0\0\0"
+            };
+            assert_eq!(content, expected, "{outcome:?}");
+        }
+    }
+
+    #[test]
+    fn a_blob_neither_flushed_nor_named_durably_is_gone_after_a_crash() {
+        let dir = MemoryDir::new();
+        let mut blob = dir.create_reserved(BLOB, 8, 0).unwrap();
+        blob.write_at(0, b"12345678").unwrap();
+        let after = dir.restart(CrashOutcome::ALL[0]);
+        assert_eq!(after.open_blob(BLOB).unwrap().map(|_| ()), None);
+        // The name survives, the reservation did not.
+        let after = dir.restart(CrashOutcome::ALL[1]);
+        assert_eq!(after.content(BLOB).unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn a_reservation_without_room_for_the_margin_fails_and_leaves_nothing() {
+        let dir = MemoryDir::new();
+        dir.set_free(Some(100));
+        assert!(matches!(
+            dir.create_reserved(BLOB, 60, 41),
+            Err(StorageError::Full)
+        ));
+        assert!(dir.list().unwrap().is_empty());
+        assert!(dir.create_reserved(BLOB, 60, 40).is_ok());
+        assert_eq!(dir.list().unwrap(), vec![BLOB.to_owned()]);
+        assert!(matches!(
+            dir.create_reserved(BLOB, 1, 0),
+            Err(StorageError::Exists)
+        ));
+    }
+
+    #[test]
+    fn a_write_can_fail_for_a_full_disk_or_a_held_file_without_a_crash() {
+        let dir = MemoryDir::new();
+        let mut blob = dir.create_reserved(BLOB, 4, 0).unwrap();
+        dir.fail_next_write(StorageError::Busy);
+        assert_eq!(blob.write_at(0, b"ab"), Err(StorageError::Busy));
+        blob.write_at(0, b"ab").unwrap();
+        dir.fail_next_write(StorageError::Full);
+        assert_eq!(blob.write_at(2, b"cd"), Err(StorageError::Full));
+        assert!(!dir.crashed());
+        let mut opened = dir.open_blob(BLOB).unwrap().unwrap();
+        let mut buf = [0; 2];
+        opened.read_at(0, &mut buf).unwrap();
+        assert_eq!(&buf, b"ab");
+        assert_eq!(opened.read_at(3, &mut buf), Err(StorageError::Io));
     }
 }

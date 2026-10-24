@@ -18,12 +18,17 @@
 //! - [`message_records`]: what the message store holds: the conversations
 //!   of each local identity, their queued, delivered and received
 //!   messages.
+//! - [`blob`]: the staged data of a transfer, encrypted segment by segment
+//!   (`docs/adr/0014-transfer-staging.md`).
+//! - [`transfers`]: the transfer store, the records of every transfer of
+//!   the installation, built as the message store is.
 //!
 //! This is the only crate that writes files.
 
 // Tests build their own inputs and do arithmetic and indexing on them.
 #![cfg_attr(test, allow(clippy::arithmetic_side_effects))]
 
+pub mod blob;
 pub mod dir;
 #[cfg(unix)]
 mod disk_unix;
@@ -32,6 +37,7 @@ mod disk_windows;
 pub mod message_records;
 pub mod messages;
 pub mod record;
+pub mod transfers;
 pub mod vault;
 
 use core::fmt;
@@ -108,6 +114,10 @@ pub enum StorageError {
     Randomness,
     /// An internal step failed that does not depend on the stored data.
     Internal,
+    /// The file system has no space left for the write or the reservation.
+    Full,
+    /// Another process holds the file, for the moment or for good.
+    Busy,
 }
 
 impl fmt::Display for StorageError {
@@ -128,6 +138,8 @@ impl fmt::Display for StorageError {
             Self::Kdf => "key derivation failed",
             Self::Randomness => "random source failed",
             Self::Internal => "internal storage error",
+            Self::Full => "no space left",
+            Self::Busy => "file held by another process",
         })
     }
 }

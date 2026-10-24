@@ -58,6 +58,14 @@ const PAYLOAD_INFO: &[u8] = b"MONOLITH-VAULT-PAYLOAD-V1";
 /// (`docs/adr/0008-message-store.md`).
 const MESSAGE_STORE_INFO: &[u8] = b"MONOLITH-MESSAGE-STORE-V1";
 
+/// The HKDF label of the key of the transfer store
+/// (`docs/adr/0014-transfer-staging.md`).
+const TRANSFER_STORE_INFO: &[u8] = b"MONOLITH-TRANSFER-STORE-V1";
+
+/// The HKDF label of the key from which the keys of staged files are
+/// derived (`docs/adr/0014-transfer-staging.md`).
+const TRANSFER_STAGING_INFO: &[u8] = b"MONOLITH-TRANSFER-STAGING-V1";
+
 /// The cost of the key derivation of a vault.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct KdfParams {
@@ -591,6 +599,29 @@ impl<D: VaultDir> Vault<D> {
             .expand(MESSAGE_STORE_INFO, key.as_mut_slice())
             .map_err(|_| StorageError::Internal)?;
         Ok(crate::messages::StoreKey::new(key))
+    }
+
+    fn derived(&self, info: &[u8]) -> Result<Zeroizing<[u8; KEY_LEN]>, StorageError> {
+        let mut key = Zeroizing::new([0_u8; KEY_LEN]);
+        hkdf::Hkdf::<Sha256>::new(None, self.vault_key.as_slice())
+            .expand(info, key.as_mut_slice())
+            .map_err(|_| StorageError::Internal)?;
+        Ok(key)
+    }
+
+    /// The key of the transfer store of this vault: HKDF-SHA256 of the
+    /// vault key with its own label. It does not change with the
+    /// passphrase.
+    pub fn transfer_store_key(&self) -> Result<crate::transfers::TransferStoreKey, StorageError> {
+        self.derived(TRANSFER_STORE_INFO)
+            .map(crate::transfers::TransferStoreKey::new)
+    }
+
+    /// The key from which the key of every staged file of this vault is
+    /// derived: HKDF-SHA256 of the vault key with its own label.
+    pub fn staging_key(&self) -> Result<crate::blob::StagingKey, StorageError> {
+        self.derived(TRANSFER_STAGING_INFO)
+            .map(crate::blob::StagingKey::new)
     }
 }
 
