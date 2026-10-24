@@ -1,0 +1,32 @@
+commit ba12472cb87e70b7c62c55a856faa200f0f8f7fc, 30 faults, 4 workers, unmodified run 417s, timeout 3336s
+MR2   caught    361s  a message is recorded delivered when it is queued, before any acknowledgement
+MR3   caught    391s  a message received again is stored again
+MR7   caught    488s  a contact made again gets the identifier of its earlier record
+MR6   caught    518s  queued messages are not written to the message store
+MR8   caught    452s  the scheduler of a record takes no notice of the record ending
+MR11  caught    421s  the session of the side with the larger key is preferred
+MR15  caught    630s  a queued message is reported before it is durable
+MR27  caught    825s  a probe that was answered leaves the newer session open
+MR28  caught    842s  a session sends its message in flight again and waits for it from the last send
+MR29  caught    794s  a message is recorded delivered when it is handed to a session to send
+MR9   caught   3336s  a failed attempt is followed by the next at once (timeout)
+MR25  caught   3336s  an idle session never ends (timeout)
+MR26  caught   3336s  a message whose acknowledgement does not come keeps its session waiting (timeout)
+MR30  caught    791s  a message in flight when its session ends is reported delivered
+MR33  caught    713s  a session goes on after the message store failed
+MR34  caught    546s  a scheduler goes on after the message store failed
+MR35  caught    530s  a dial in progress goes on after its record ended
+MR36  caught    545s  closing the sessions of a record wakes no scheduler
+MR38  caught    520s  a session task that is aborted stays registered
+MR39  caught    614s  a session that ended for want of an acknowledgement starts the delays again
+MR43  caught    609s  a runtime dropped without a shutdown runs on
+MR44  caught    659s  a scheduler goes on after the vault failed
+MR48  caught    687s  a message queued as its identity is deleted is added after the deletion
+MR51  caught    552s  a send to an installation whose vault failed is refused as an identity that is gone
+MR49  caught    772s  a send its caller stops waiting for is left half done
+MR52  caught    530s  an identity deleted while a send waits for the vault is reported as a failed store
+MR53  caught    548s  a failed store is reported only by whatever runs into it
+MR54  caught    453s  an inbound session that ended for want of an acknowledgement starts the delays again
+MR56  caught    377s  a session is reported available or unavailable again without a change
+MR55  caught    510s  a command runs outside the tasks a shutdown waits for
+done: {'caught': 30}; written to <repo>/mutation/results-phase5-ba12472.json

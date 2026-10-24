@@ -1,0 +1,32 @@
+commit ba12472cb87e70b7c62c55a856faa200f0f8f7fc, 30 faults, 4 workers, unmodified run 424s, timeout 3392s
+HR17  caught    470s  a file offer is ignored, not rejected
+HR3   caught    480s  a failure of Tor is followed by the next card
+HR1   caught    488s  only the first card of a dial plan is dialed
+HR4   caught    519s  an attempt that is over dials the next card
+HR24  caught    459s  an acknowledgement of nothing keeps a session open
+HR18  caught    488s  a file message for a transfer never offered is ignored
+HR19  caught    506s  a rejected offer is not remembered
+HR25  caught    498s  a message held already keeps a session open
+HR26  caught    477s  the time a message is handled counts against the probe
+HR28  caught    445s  a Ping never answered does not end the session
+HR27  caught    474s  the Ping of a probe decided is forgotten: its Pong is a violation
+HR29  caught    494s  a probe sends a second Ping while one is outstanding
+HR31  caught    482s  a session that ended with its record announces a retry
+HR32  caught    488s  a dial that failed once no attempt follows announces a retry
+HR33  caught    489s  a block or a deletion names its contact before its work runs
+HR34  caught    494s  a send queues for a record that ended while it waited for the vault
+HR36  caught    461s  control messages are not paced
+HR35  caught    482s  chat messages are not paced
+HR37  caught    498s  file offers are not paced
+HR38  caught    496s  profiles are not paced
+HR39  caught    455s  a bucket holds twice its burst
+HR40  caught    482s  a new session of a contact gives back what the last one took
+HR41  caught    474s  the sessions a contact opens are not counted
+HR42  caught    486s  a session that waits for a token does not end when it is closed
+HR47  caught    482s  an identity without a key is reported stopped
+HR49  caught    471s  a send once the runtime shuts down is said to have no identity
+HR50  caught    473s  a send a shutdown cuts short is said to be a failed store
+HR76  caught    463s  a session the scheduler waited on ends without announcing the retry
+HR77  caught    369s  a connect dials its next card once the runtime shuts down
+HR85  caught    365s  a chunk for an offer this side rejected is discarded
+done: {'caught': 30}; written to <repo>/mutation/results-phase7-ba12472.json

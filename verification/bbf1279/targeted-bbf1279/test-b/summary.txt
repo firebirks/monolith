@@ -1,0 +1,23 @@
+commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, changed files 0, 4 workers, 2026-10-22T13:18:13+02:00
+B: binary <home>/bbf-target/debug/deps/store-6b86cbde12e69c0c sha256 1a007fc891c4a991dc93906b7e63faf9a0730666669ad08e7ba5055fa1116de9
+B1 copy 1 rc=0 224s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 223.41s failed: 
+B1 copy 2 rc=0 224s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 223.95s failed: 
+B1 copy 3 rc=0 224s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 223.80s failed: 
+B1 copy 4 rc=0 225s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 224.57s failed: 
+B2 copy 1 rc=0 246s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 245.91s failed: 
+B2 copy 2 rc=0 246s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 245.90s failed: 
+B2 copy 3 rc=0 245s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 245.65s failed: 
+B2 copy 4 rc=0 246s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 245.90s failed: 
+B3 copy 1 rc=0 256s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 256.30s failed: 
+B3 copy 2 rc=0 257s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 257.44s failed: 
+B3 copy 3 rc=0 256s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 256.77s failed: 
+B3 copy 4 rc=0 257s test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 257.46s failed: 
+phase1: 18 of 45 faults run again
+phase2: 16 of 99 faults run again
+phase3: 9 of 71 faults run again
+phase4: 18 of 123 faults run again
+phase5: 5 of 57 faults run again
+phase6: 3 of 160 faults run again
+phase7: 9 of 71 faults run again
+phase7w: 0 of 14 faults run again
+phase7 exit 0 (3248 s) 2026-10-22T14:24:45+02:00

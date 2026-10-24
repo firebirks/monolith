@@ -1,0 +1,162 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec, 160 faults, 4 workers, unmodified run 499s, timeout 3992s
+UI1   caught     68s  a late answer of one identity is taken for the identity shown
+UI3   caught     72s  a queued message is marked delivered
+UI4   caught     73s  a confirmation blocks the contact selected instead of the one it captured
+UI2   caught    105s  a snapshot keeps the contacts of another identity
+UI6   caught     59s  a send the runtime refused clears the draft
+UI7   caught     59s  a send queued in another conversation clears this draft
+UI5   caught     75s  missed events are not followed by reading everything again
+UI8   caught     56s  a deleted identity keeps its state
+UI10  caught     45s  every event of a burst makes a read of its own
+UI9   caught     51s  a dialog of one identity stays open when another is shown
+UI11  caught     57s  an ended conversation takes a message
+UI12  caught     54s  a request no longer listed is answered
+UI13  caught     41s  an answer to no command in flight is taken for one that is
+UI16  caught     15s  a request to open a URL reaches the system
+UI14  caught     52s  a failure is told in its debug form
+UI17  caught     20s  a request or invitation number is taken for another identity
+UI15  caught     42s  Debug prints the passphrase
+UI20  caught     29s  the answer of a command names another command
+UI21  caught     45s  sessions coming and going reach the window
+UI19  caught     64s  a number is given to two references
+UI18  caught     68s  forgetting the references of one identity forgets those of the others
+UI23  caught     37s  Tor settings without the path of a cookie file are used
+UI24  caught     33s  a saved card replaces a file
+UI25  caught     33s  the size limit of a card file is moved
+UI26  caught     14s  a device is read as a card file
+UI22  caught     86s  a value of the settings file can add a line
+UI28  caught     42s  a screen draws a stock egui label
+UI27  caught     43s  the card of a closed dialog stays in memory
+UI29  caught     45s  the name a sender chose is made the title of the request
+UI30  caught     56s  a screen uses a colour of its own
+UI32  caught     53s  a disabled or busy button takes clicks
+UI31  caught     53s  a secret field keeps an undo history of what was typed
+UI33  caught     59s  the keyboard reaches what is behind an open modal
+UI34  caught     66s  a modal whose action is under way can be closed
+UI35  caught    520s  a dial reaches the SOCKS endpoint without a proof
+UI36  caught    520s  a proof counts far longer than its lifetime
+UI37  caught    524s  any SOCKS listener Tor lists counts as the configured one
+UI38  caught    531s  a failed dial leaves the proof standing
+UI39  caught    468s  a lost Onion Service leaves the proof standing
+UI40  caught    476s  dials that waited for a failed proof each make their own
+UI41  caught    470s  the answer of a filter counts as a proof
+UI43  caught     33s  the desktop client dials without the proof
+UI45  caught     52s  an over-long grapheme cluster is drawn whole
+UI44  caught     65s  a character that changes the direction of text is drawn as it is
+UI46  caught     50s  a collapsed message draws every line
+UI42  caught    514s  a status query greets a SOCKS endpoint Tor does not list
+UI48  caught     50s  a focused secret field leaves the input method on
+UI49  caught     48s  a control that takes no input reacts to the pointer
+UI47  caught     58s  undo brings back a draft that was sent
+UI52  caught     17s  the bridge says every contact holds an invitation
+UI53  caught     37s  a plain card closes Add contact as an invitation does
+UI54  caught     30s  the plain card of an accepted contact keeps Add contact open
+UI56  caught     25s  a contact added by a plain card is said to wait for an acceptance
+UI55  caught     35s  the card typed stays in Add contact once the contact is added
+UI57  caught     26s  the header says a plain card waits for an acceptance
+UI58  caught     29s  the button of the waiting notice opens no card
+UI59  caught     24s  Show my card after a plain card opens nothing
+UI60  caught     28s  the own card says the default whatever the request mode
+UI61  caught     25s  a card file read lands in Add contact after the contact was added
+UI62  caught     33s  a queued send clears what was typed while it was queued
+UI63  caught     35s  a queued send leaves its text in a draft typed on
+UI64  caught     37s  messages of an ended conversation are counted as waiting
+UI65  caught     28s  a session that saves nothing closes without a question
+UI66  caught     26s  messages not delivered let the window close without a question
+UI68  caught     11s  a close that asks first is not cancelled
+UI67  caught     26s  a close the person agreed to asks again
+UI69  caught     11s  the window is hidden while it asks
+UI70  caught     28s  Close Monolith does not close the window
+UI71  caught     26s  the question before closing is not asked over an open dialog
+UI72  caught     24s  a shortcut of the window acts behind the question before closing
+UI73  caught     32s  the next try counts from no time instead of when the attempt failed
+UI74  caught     36s  the next try stays once nothing is queued
+UI75  caught     31s  the next try is said while Tor is down
+UI76  caught     53s  the time to the next try is not said again as it passes
+UI50  caught    490s  a contact is said to hold an invitation whatever its card
+UI51  caught    496s  every card added is said to be an invitation
+UI80  caught     35s  someone not listed is unblocked
+UI81  caught     31s  a snapshot keeps the blocked people of another identity
+UI82  caught     35s  an unblock answered late re-reads the identity shown
+UI83  caught     28s  a refused unblock is told as done
+UI84  caught     15s  the number of someone unblocked is kept and names a later block
+UI85  caught     14s  an unblock the runtime refuses is told as unexpected
+UI86  caught     22s  the Unblock button of one row unblocks another person
+UI87  caught     23s  Unblock does nothing
+UI88  caught     69s  a preview reads the whole of a long message
+UI89  caught     57s  a preview cut where the reading stopped has no ellipsis
+UI77  caught    526s  a blocked handle of another identity or of an instance from before unblocks
+UI78  caught    494s  unblocking names whoever is blocked first
+UI90  caught     54s  a prepared text is kept for a message that reads otherwise
+UI79  caught    471s  the blocked list lists every record
+UI91  caught     90s  an expanded message keeps the text prepared collapsed
+UI93  caught     89s  the rows of the sidebar are not made again when the identity is read
+UI92  caught     98s  the window keeps the state of a conversation whose messages were deleted
+UI94  caught     46s  a sidebar row keeps the preview of a message that changed
+UI95  caught     42s  an unread count does not reach its sidebar row
+UI96  caught     34s  older messages read move what the reader sees
+UI97  caught     36s  a conversation neither opens nor stays at its newest message
+UI98  caught     37s  every message from the view down to the end is laid out
+UI99  caught     40s  a frame with messages misplaced by their estimates is shown
+UI100 caught     40s  a reader who scrolled up is taken back to the bottom
+UI101 caught     37s  a contact without a name has initials in the list
+UI102 caught     39s  a contact without a name has initials in the bar of its conversation
+UI103 caught     35s  egui keeps the composer of a conversation whose messages were deleted
+UI104 caught     34s  a shortcut of the window acts behind the question before blocking a sender
+UI107 caught     13s  dropping the window waits for the runtime
+UI108 caught     13s  the threads of the window are not waited for
+UI105 caught     41s  Tor is not checked again after missed events
+UI106 caught     31s  the window is not woken when the runtime thread ends
+UI110 caught     35s  a link put in place of the card file is followed
+UI109 caught     37s  a file put in place of the one looked at is read
+UI111 caught     61s  a queued send cuts a draft cleared and typed again
+UI113 caught     32s  a request is declined without a question
+UI114 caught     34s  someone is unblocked without a question
+UI115 caught     42s  a failed store is said again where it was met
+UI117 caught     55s  a message being queued is not counted before closing
+UI116 caught     59s  accepting through an invitation offers no revoke
+UI118 caught     42s  a read asked before a message was queued is taken to count it
+UI119 caught     31s  a passphrase buffer moves as it grows
+UI120 caught     42s  a contact nothing was written to is said to wait for an acceptance
+UI121 caught     29s  under Nobody the invitations are said to bring requests
+UI122 caught     33s  a wrong passphrase leaves its field unmarked
+UI123 caught     36s  a dialog says a failed store again
+UI124 caught     40s  a full fingerprint is laid out in rows of six
+UI125 caught     38s  a row of seven groups needs room for the space after it
+UI126 caught     37s  the name a sender chose gives a request card its initials
+UI127 caught     39s  a contact without a name has initials in its dialog
+UI128 caught     42s  an ended conversation is marked as blocked
+UI129 caught     44s  the markers of the list say no word under the pointer
+UI130 caught     43s  the well of a request's message has no edge
+UI131 caught     38s  the pages of the settings leave the page narrower than a narrow window's
+UI132 caught     39s  the buttons that only ask in the contact dialog are solid red
+UI133 caught     31s  messages are cut against the bar above them
+UI134 caught     34s  a click on the place to drop a card does nothing
+UI136 caught     32s  the card typed in Add contact stays in an undo history
+UI135 caught     45s  a field without history keeps one
+UI137 caught     40s  the edge of the sidebar is a stop of the Tab key
+UI138 caught     38s  a scroll bar takes the keyboard focus
+UI139 caught     40s  the bar of a scroll area cannot be dragged
+UI140 caught     41s  the edge of the sidebar cannot be dragged
+UI141 caught     48s  the scroll area of the composer has stops of the Tab key
+UI142 caught     49s  a toast covers the title of a tall dialog
+UI143 caught     45s  a toast covers the notices of a conversation
+UI144 caught     51s  the picture of the blocked people does not show them
+UI145 caught     50s  the first screens show no mark
+UI146 caught     54s  the card entry of the switcher reports nothing
+UI147 caught     40s  Share my card in the switcher opens nothing
+UI148 caught     43s  a toast over a tall dialog covers the end of its body
+UI149 caught     41s  a toast over a dialog has the outline of the dialog
+UI112 caught    560s  an added card is said as given, not as the record holds it
+UI150 caught     42s  a modal sits on half a pixel
+UI151 caught     40s  a body that scrolls is cut against nothing
+UI152 caught     33s  unblocking is confirmed in the colour of danger
+UI153 caught     44s  the question before unblocking does not say whom
+UI154 caught     34s  the list does not bring the conversation shown into view
+UI155 caught     35s  the requests leave the list while their page is shown
+UI156 caught     35s  the first start keeps its room in a short window
+UI157 caught     37s  the Tor details close at the right while Tor works
+UI158 caught     36s  a card leaves its lines half empty
+UI159 caught     27s  a sunken box is wider than the column by its outline
+UI160 caught     25s  Copy fingerprint ends inside the box by its padding
+done: {'caught': 160}; written to <repo>/mutation/results-phase6-740b671.json

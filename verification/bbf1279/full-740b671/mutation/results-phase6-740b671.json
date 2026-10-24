@@ -1,0 +1,2315 @@
+{
+ "commit": "740b6715c5e1c3c488f3397624d6eb764e763eec",
+ "unmodified_seconds": 499,
+ "timeout": 3992,
+ "results": [
+  {
+   "id": "UI1",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a late answer of one identity is taken for the identity shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_burst_of_events_makes_one_read",
+    "a_card_added_says_what_the_other_side_has_to_do_and_offers_the_own_card",
+    "a_contact_of_another_identity_accepting_raises_no_notice_over_the_one_shown",
+    "a_contact_or_an_identity_that_goes_is_forgotten_by_the_window",
+    "a_contact_without_a_name_has_a_person_for_an_avatar",
+    "a_conversation_says_whether_a_card_or_an_invitation_was_added",
+    "a_delivered_status_comes_only_from_the_runtime_and_never_from_a_position",
+    "a_dialog_takes_no_answer_that_names_another_identity",
+    "a_draft_cleared_and_typed_again_while_a_message_is_queued_stays_whole",
+    "a_draft_goes_only_once_the_runtime_queued_it",
+    "a_draft_that_stopped_starting_with_the_text_sent_keeps_all_of_it",
+    "a_failed_store_met_by_a_command_raises_no_notice_of_its_own",
+    "a_full_fingerprint_is_laid_out_in_rows_of_seven_and_six_everywhere",
+    "a_late_event_of_one_identity_changes_nothing_shown_of_another",
+    "a_long_conversation_opens_at_its_newest_message_and_lays_out_only_what_is_in_view",
+    "a_message_being_queued_or_queued_before_a_read_counts_as_undelivered",
+    "a_message_is_prepared_once_and_kept_while_it_reads_the_same",
+    "a_message_refused_for_want_of_room_says_what_to_do",
+    "a_queued_answer_for_another_conversation_clears_nothing",
+    "a_reader_who_scrolled_up_stays_put_and_each_conversation_keeps_its_place",
+    "a_refused_send_keeps_the_text_sent_and_what_was_typed_after_it",
+    "a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar",
+    "a_revision_is_never_given_twice",
+    "a_selection_in_a_message_stays_with_it_when_new_messages_arrive",
+    "a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_actions_of_a_dialog",
+    "a_waiting_contact_is_said_to_wait_for_the_same_thing_everywhere",
+    "a_waiting_delivery_says_both_sides_must_be_open_once_and_when_it_is_tried_next",
+    "accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it",
+    "alt_and_the_arrows_go_through_the_conversations_of_the_list",
+    "an_answer_to_no_command_in_flight_changes_nothing",
+    "an_ended_conversation_says_once_that_it_ended",
+    "an_expanded_message_is_prepared_again_whole",
+    "an_identity_without_contacts_is_offered_them_once",
+    "an_identity_without_contacts_offers_its_card",
+    "an_offer_to_revoke_goes_once_another_identity_is_shown",
+    "an_unblock_answered_while_another_identity_is_shown_changes_only_its_own",
+    "an_unblock_names_someone_listed_once_and_says_what_it_did",
+    "closing_a_session_that_saves_nothing_says_everything_goes",
+    "closing_with_messages_not_delivered_says_when_they_are_tried_again",
+    "declining_a_request_asks_first_and_says_it_cannot_be_undone",
+    "deleted_messages_take_their_prepared_texts_and_the_window_forgets_them",
+    "deleting_the_messages_of_a_contact_that_has_not_accepted_says_its_request_waits_too",
+    "deleting_the_messages_of_the_conversation_shown_keeps_it_shown_and_read",
+    "dialogs::tests::a_fingerprint_is_laid_out_in_two_rows",
+    "dialogs::tests::a_revoked_invitation_is_named_by_its_label",
+    "dialogs::tests::deleting_messages_names_those_not_yet_delivered",
+    "dialogs::tests::every_dialog_fixture_shows_its_dialog",
+    "dialogs::tests::the_shortcuts_of_the_window_wait_while_blocking_is_asked",
+    "escape_answers_the_question_before_closing_and_leaves_the_settings_open",
+    "every_ended_conversation_has_the_same_neutral_mark_in_the_list",
+    "messages_are_cut_clear_of_the_bar_above_them",
+    "missed_events_make_the_model_read_everything_again",
+    "no_next_try_is_said_without_a_deferral_or_while_tor_is_down",
+    "no_shortcut_acts_under_a_dialog",
+    "reading_older_messages_keeps_the_reader_where_they_are",
+    "requests::answers::the_answer_given_to_a_request_is_forgotten_once_it_is_done",
+    "the_boxes_of_a_dialog_end_where_its_actions_end",
+    "the_composer_of_a_conversation_whose_messages_are_deleted_is_forgotten",
+    "the_contact_dialog_offers_quiet_buttons_and_a_question_confirms_with_a_solid_one",
+    "the_details_of_a_contact_say_what_is_saved_when",
+    "the_first_frame_of_a_long_conversation_shows_its_newest_messages_in_place",
+    "the_identities_page_lists_who_is_blocked_and_unblocks_after_asking",
+    "the_list_brings_the_conversation_shown_into_view",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named",
+    "the_name_a_sender_chose_is_in_no_sentence_of_the_screen_or_its_dialog",
+    "the_next_try_counts_from_when_the_attempt_failed_and_goes_with_the_queue",
+    "the_own_card_says_what_a_card_alone_can_do_under_each_request_mode",
+    "the_picture_of_the_blocked_people_has_them_in_view",
+    "the_question_before_closing_keeps_the_window_unless_close_is_chosen",
+    "the_question_before_closing_puts_another_dialog_aside",
+    "the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes",
+    "the_shortcuts_of_the_window_wait_while_declining_is_asked",
+    "the_shortcuts_of_the_window_wait_while_unblocking_is_asked",
+    "the_switcher_gives_each_identity_its_counts",
+    "the_time_to_the_next_attempt_asks_for_a_frame_only_when_its_words_change",
+    "typing_while_a_message_is_queued_stays_once_it_is_queued",
+    "undelivered_messages_are_counted_over_every_identity_but_not_ended_ones",
+    "under_nobody_no_text_says_that_an_invitation_brings_a_request",
+    "what_is_typed_while_a_message_is_queued_stays_in_the_composer",
+    "window::tests::the_title_counts_what_waits_over_all_identities"
+   ],
+   "seconds": 68
+  },
+  {
+   "id": "UI2",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a snapshot keeps the contacts of another identity",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_snapshot_shows_only_what_belongs_to_its_identity",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 105
+  },
+  {
+   "id": "UI3",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "a queued message is marked delivered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "conversation::tests::a_message_is_marked_with_the_status_the_runtime_gave"
+   ],
+   "seconds": 72
+  },
+  {
+   "id": "UI4",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a confirmation blocks the contact selected instead of the one it captured",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_confirmation_acts_on_what_it_captured_not_on_the_selection",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 73
+  },
+  {
+   "id": "UI5",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "missed events are not followed by reading everything again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_or_an_identity_that_goes_is_forgotten_by_the_window",
+    "a_contact_says_whether_its_card_was_an_invitation",
+    "a_contact_that_has_not_accepted_waits_for_a_first_message_an_acceptance_or_its_card",
+    "a_snapshot_shows_only_what_belongs_to_its_identity",
+    "accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it",
+    "an_unblock_answered_while_another_identity_is_shown_changes_only_its_own",
+    "an_unblock_names_someone_listed_once_and_says_what_it_did",
+    "missed_events_make_the_model_read_everything_again",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named",
+    "the_next_try_counts_from_when_the_attempt_failed_and_goes_with_the_queue",
+    "undelivered_messages_are_counted_over_every_identity_but_not_ended_ones"
+   ],
+   "seconds": 75
+  },
+  {
+   "id": "UI6",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a send the runtime refused clears the draft",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_draft_goes_only_once_the_runtime_queued_it",
+    "a_refused_send_keeps_the_text_sent_and_what_was_typed_after_it",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 59
+  },
+  {
+   "id": "UI7",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a send queued in another conversation clears this draft",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_queued_answer_for_another_conversation_clears_nothing",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 59
+  },
+  {
+   "id": "UI8",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a deleted identity keeps its state",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_deleted_identity_takes_its_state_and_its_selection_with_it",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 56
+  },
+  {
+   "id": "UI9",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a dialog of one identity stays open when another is shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dialog_of_one_identity_closes_when_another_is_shown"
+   ],
+   "seconds": 51
+  },
+  {
+   "id": "UI10",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "every event of a burst makes a read of its own",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_burst_of_events_makes_one_read",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 45
+  },
+  {
+   "id": "UI11",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "an ended conversation takes a message",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_ended_conversation_shows_but_takes_no_message"
+   ],
+   "seconds": 57
+  },
+  {
+   "id": "UI12",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a request no longer listed is answered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_answer_to_a_replaced_request_never_reaches_the_new_one"
+   ],
+   "seconds": 54
+  },
+  {
+   "id": "UI13",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "an answer to no command in flight is taken for one that is",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_answer_to_no_command_in_flight_changes_nothing",
+    "an_unblock_answered_while_another_identity_is_shown_changes_only_its_own",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 41
+  },
+  {
+   "id": "UI14",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a failure is told in its debug form",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_store_met_by_a_command_raises_no_notice_of_its_own",
+    "a_failure_is_told_in_its_sentence_never_in_its_debug_form",
+    "an_unblock_names_someone_listed_once_and_says_what_it_did"
+   ],
+   "seconds": 52
+  },
+  {
+   "id": "UI15",
+   "path": "crates/monolith-ui-model/src/protocol.rs",
+   "what": "Debug prints the passphrase",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "no_secret_or_text_is_printed_by_debug"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI16",
+   "path": "crates/monolith-desktop/src/window.rs",
+   "what": "a request to open a URL reaches the system",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "window::tests::no_url_leaves_a_frame"
+   ],
+   "seconds": 15
+  },
+  {
+   "id": "UI17",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "a request or invitation number is taken for another identity",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_blocked_person_is_unblocked_by_a_number_of_their_identity_once",
+    "a_handle_of_one_identity_names_nothing_of_another",
+    "bridge::tests::a_number_names_nothing_for_another_identity"
+   ],
+   "seconds": 20
+  },
+  {
+   "id": "UI18",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "forgetting the references of one identity forgets those of the others",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_blocked_person_is_unblocked_by_a_number_of_their_identity_once",
+    "bridge::tests::a_forgotten_reference_is_never_given_its_number_again"
+   ],
+   "seconds": 68
+  },
+  {
+   "id": "UI19",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "a number is given to two references",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_blocked_person_is_unblocked_by_a_number_of_their_identity_once",
+    "bridge::tests::a_forgotten_reference_is_never_given_its_number_again"
+   ],
+   "seconds": 64
+  },
+  {
+   "id": "UI20",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "the answer of a command names another command",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_blocked_person_is_unblocked_by_a_number_of_their_identity_once",
+    "a_contact_added_says_whether_its_card_was_an_invitation",
+    "a_handle_of_one_identity_names_nothing_of_another",
+    "a_session_is_answered_command_by_command",
+    "bridge::tests::a_task_that_panicked_is_answered_for_its_command",
+    "closing_the_window_stops_the_runtime",
+    "messages_are_read_in_pages_up_to_the_limit"
+   ],
+   "seconds": 29
+  },
+  {
+   "id": "UI21",
+   "path": "crates/monolith-desktop/src/convert.rs",
+   "what": "sessions coming and going reach the window",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "convert::tests::presence_is_not_forwarded"
+   ],
+   "seconds": 45
+  },
+  {
+   "id": "UI22",
+   "path": "crates/monolith-desktop/src/config.rs",
+   "what": "a value of the settings file can add a line",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "config::tests::a_line_that_does_not_parse_leaves_the_default",
+    "config::tests::a_value_cannot_add_a_line"
+   ],
+   "seconds": 86
+  },
+  {
+   "id": "UI23",
+   "path": "crates/monolith-desktop/src/config.rs",
+   "what": "Tor settings without the path of a cookie file are used",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "config::tests::tor_settings_without_a_cookie_are_refused"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI24",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a saved card replaces a file",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_saved_card_never_replaces_a_file"
+   ],
+   "seconds": 33
+  },
+  {
+   "id": "UI25",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "the size limit of a card file is moved",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_card_file_is_read_only_if_it_is_small_text"
+   ],
+   "seconds": 33
+  },
+  {
+   "id": "UI26",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a device is read as a card file",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_pipe_is_never_opened_by_its_name_or_through_a_link"
+   ],
+   "seconds": 14
+  },
+  {
+   "id": "UI27",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the card of a closed dialog stays in memory",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "dialogs::tests::the_qr_lives_with_its_dialog"
+   ],
+   "seconds": 43
+  },
+  {
+   "id": "UI28",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "a screen draws a stock egui label",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_screens_use_no_stock_widget"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI29",
+   "path": "crates/monolith-ui/src/requests.rs",
+   "what": "the name a sender chose is made the title of the request",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "requests::tests::the_name_a_sender_chose_is_in_no_sentence_of_the_card",
+    "the_name_a_sender_chose_is_in_no_sentence_of_the_screen_or_its_dialog"
+   ],
+   "seconds": 45
+  },
+  {
+   "id": "UI30",
+   "path": "crates/monolith-ui/src/settings.rs",
+   "what": "a screen uses a colour of its own",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_screens_have_no_colour_font_or_size_of_their_own"
+   ],
+   "seconds": 56
+  },
+  {
+   "id": "UI31",
+   "path": "crates/monolith-ui-kit/src/text_field.rs",
+   "what": "a secret field keeps an undo history of what was typed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_focused_secret_field_turns_the_input_method_off",
+    "an_ordinary_field_can_undo_and_a_secret_one_keeps_no_history"
+   ],
+   "seconds": 53
+  },
+  {
+   "id": "UI32",
+   "path": "crates/monolith-ui-kit/src/button.rs",
+   "what": "a disabled or busy button takes clicks",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_busy_button_is_not_clicked",
+    "a_disabled_and_a_busy_button_look_different_from_an_enabled_one",
+    "a_disabled_button_is_never_clicked",
+    "a_disabled_or_busy_button_is_not_activated_from_the_keyboard",
+    "controls_that_take_no_input_tell_accessibility_they_are_disabled",
+    "the_pointer_over_a_control_that_takes_no_input_stays_an_arrow"
+   ],
+   "seconds": 53
+  },
+  {
+   "id": "UI33",
+   "path": "crates/monolith-ui-kit/src/modal.rs",
+   "what": "the keyboard reaches what is behind an open modal",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_keyboard_reaches_nothing_behind_a_modal",
+    "the_question_before_closing_keeps_the_window_unless_close_is_chosen"
+   ],
+   "seconds": 59
+  },
+  {
+   "id": "UI34",
+   "path": "crates/monolith-ui-kit/src/modal.rs",
+   "what": "a modal whose action is under way can be closed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_busy_confirmation_answers_nothing",
+    "a_click_on_the_scrim_does_not_close_a_modal_that_is_not_dismissable",
+    "escape_does_not_close_a_modal_that_is_not_dismissable"
+   ],
+   "seconds": 66
+  },
+  {
+   "id": "UI35",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a dial reaches the SOCKS endpoint without a proof",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failure_of_tor_ends_the_proof",
+    "a_proof_lets_dials_through_for_its_lifetime_only",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "dials_at_the_same_time_share_one_proof",
+    "losing_a_published_service_ends_the_proof",
+    "promoting_a_successor_is_atomic",
+    "with_the_check_on_a_dial_waits_until_tor_lists_the_socks_endpoint",
+    "without_a_proof_nothing_reaches_the_socks_endpoint"
+   ],
+   "seconds": 520
+  },
+  {
+   "id": "UI36",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a proof counts far longer than its lifetime",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_proof_lets_dials_through_for_its_lifetime_only",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "promoting_a_successor_is_atomic"
+   ],
+   "seconds": 520
+  },
+  {
+   "id": "UI37",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "any SOCKS listener Tor lists counts as the configured one",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "control::tests::socks_listeners_are_read_as_tor_lists_them",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "with_the_check_on_status_reports_a_socks_endpoint_tor_does_not_list",
+    "without_a_proof_nothing_reaches_the_socks_endpoint"
+   ],
+   "seconds": 524
+  },
+  {
+   "id": "UI38",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a failed dial leaves the proof standing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failure_of_tor_ends_the_proof"
+   ],
+   "seconds": 531
+  },
+  {
+   "id": "UI39",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a lost Onion Service leaves the proof standing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "losing_a_published_service_ends_the_proof"
+   ],
+   "seconds": 468
+  },
+  {
+   "id": "UI40",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "dials that waited for a failed proof each make their own",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "dials_at_the_same_time_share_one_proof"
+   ],
+   "seconds": 476
+  },
+  {
+   "id": "UI41",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "the answer of a filter counts as a proof",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "without_a_proof_nothing_reaches_the_socks_endpoint"
+   ],
+   "seconds": 470
+  },
+  {
+   "id": "UI42",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a status query greets a SOCKS endpoint Tor does not list",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failure_of_tor_ends_the_proof",
+    "with_the_check_on_status_reports_a_socks_endpoint_tor_does_not_list",
+    "with_the_check_on_status_says_the_socks_endpoint_was_not_tried_without_the_control_endpoint"
+   ],
+   "seconds": 514
+  },
+  {
+   "id": "UI43",
+   "path": "crates/monolith-desktop/src/config.rs",
+   "what": "the desktop client dials without the proof",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "config::tests::the_socks_endpoint_is_proved_except_on_tails_and_whonix",
+    "tests::the_runtime_proves_the_socks_endpoint_except_on_tails_and_whonix"
+   ],
+   "seconds": 33
+  },
+  {
+   "id": "UI44",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "a character that changes the direction of text is drawn as it is",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "present::tests::a_preview_reads_only_the_start_of_a_long_message",
+    "present::tests::invisible_and_direction_marks_are_shown",
+    "prose::tests::a_name_shows_its_invisible_characters"
+   ],
+   "seconds": 65
+  },
+  {
+   "id": "UI45",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "an over-long grapheme cluster is drawn whole",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "present::tests::an_over_long_cluster_is_replaced"
+   ],
+   "seconds": 52
+  },
+  {
+   "id": "UI46",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "a collapsed message draws every line",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_expanded_message_is_prepared_again_whole",
+    "present::tests::a_carriage_return_and_line_feed_count_as_one_line_break",
+    "present::tests::a_preview_has_an_ellipsis_only_where_it_cuts",
+    "present::tests::more_lines_than_the_limit_collapse_unless_expanded"
+   ],
+   "seconds": 50
+  },
+  {
+   "id": "UI47",
+   "path": "crates/monolith-ui-kit/src/composer.rs",
+   "what": "undo brings back a draft that was sent",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "undo_after_the_sent_draft_was_cleared_brings_nothing_back",
+    "undo_while_typing_keeps_the_draft_as_it_is"
+   ],
+   "seconds": 58
+  },
+  {
+   "id": "UI48",
+   "path": "crates/monolith-ui-kit/src/text_field.rs",
+   "what": "a focused secret field leaves the input method on",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_focused_secret_field_turns_the_input_method_off"
+   ],
+   "seconds": 50
+  },
+  {
+   "id": "UI49",
+   "path": "crates/monolith-ui-kit/src/interact.rs",
+   "what": "a control that takes no input reacts to the pointer",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_pointer_over_a_control_that_takes_no_input_stays_an_arrow"
+   ],
+   "seconds": 48
+  },
+  {
+   "id": "UI50",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a contact is said to hold an invitation whatever its card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plain_card_reaches_an_identity_that_wants_invitations_once_it_adds_the_card_back",
+    "an_added_card_says_whether_it_carried_an_invitation_also_after_a_restart",
+    "an_invitation_added_for_an_accepted_contact_is_said_as_the_record_holds_it"
+   ],
+   "seconds": 490
+  },
+  {
+   "id": "UI51",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "every card added is said to be an invitation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plain_card_reaches_an_identity_that_wants_invitations_once_it_adds_the_card_back",
+    "an_added_card_says_whether_it_carried_an_invitation_also_after_a_restart",
+    "an_invitation_added_for_an_accepted_contact_is_said_as_the_record_holds_it"
+   ],
+   "seconds": 496
+  },
+  {
+   "id": "UI52",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "the bridge says every contact holds an invitation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_added_says_whether_its_card_was_an_invitation"
+   ],
+   "seconds": 17
+  },
+  {
+   "id": "UI53",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a plain card closes Add contact as an invitation does",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_that_is_not_an_invitation_keeps_the_dialog_to_say_so"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI54",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "the plain card of an accepted contact keeps Add contact open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_invitation_or_the_card_of_an_accepted_contact_closes_the_dialog"
+   ],
+   "seconds": 30
+  },
+  {
+   "id": "UI55",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "the card typed stays in Add contact once the contact is added",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_that_is_not_an_invitation_keeps_the_dialog_to_say_so"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI56",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "a contact added by a plain card is said to wait for an acceptance",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_added_says_what_the_other_side_has_to_do_and_offers_the_own_card",
+    "a_conversation_says_whether_a_card_or_an_invitation_was_added"
+   ],
+   "seconds": 25
+  },
+  {
+   "id": "UI57",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "the header says a plain card waits for an acceptance",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_conversation_says_whether_a_card_or_an_invitation_was_added",
+    "a_waiting_contact_is_said_to_wait_for_the_same_thing_everywhere"
+   ],
+   "seconds": 26
+  },
+  {
+   "id": "UI58",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "the button of the waiting notice opens no card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_conversation_says_whether_a_card_or_an_invitation_was_added"
+   ],
+   "seconds": 29
+  },
+  {
+   "id": "UI59",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "Show my card after a plain card opens nothing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_card_added_says_what_the_other_side_has_to_do_and_offers_the_own_card"
+   ],
+   "seconds": 24
+  },
+  {
+   "id": "UI60",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the own card says the default whatever the request mode",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_own_card_says_what_a_card_alone_can_do_under_each_request_mode"
+   ],
+   "seconds": 28
+  },
+  {
+   "id": "UI61",
+   "path": "crates/monolith-ui/src/app.rs",
+   "what": "a card file read lands in Add contact after the contact was added",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "app::tests::a_card_file_read_after_the_contact_was_added_is_dropped"
+   ],
+   "seconds": 25
+  },
+  {
+   "id": "UI62",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a queued send clears what was typed while it was queued",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_draft_goes_only_once_the_runtime_queued_it",
+    "a_draft_that_stopped_starting_with_the_text_sent_keeps_all_of_it",
+    "typing_while_a_message_is_queued_stays_once_it_is_queued",
+    "what_is_typed_while_a_message_is_queued_stays_in_the_composer"
+   ],
+   "seconds": 33
+  },
+  {
+   "id": "UI63",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a queued send leaves its text in a draft typed on",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_draft_goes_only_once_the_runtime_queued_it",
+    "a_draft_that_stopped_starting_with_the_text_sent_keeps_all_of_it",
+    "typing_while_a_message_is_queued_stays_once_it_is_queued",
+    "what_is_typed_while_a_message_is_queued_stays_in_the_composer"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI64",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "messages of an ended conversation are counted as waiting",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_being_queued_or_queued_before_a_read_counts_as_undelivered",
+    "app::tests::closing_costs_nothing_without_an_open_profile_or_anything_to_lose",
+    "app::tests::closing_warns_of_a_session_that_saves_nothing_and_of_messages_not_delivered",
+    "undelivered_messages_are_counted_over_every_identity_but_not_ended_ones"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI65",
+   "path": "crates/monolith-ui/src/app.rs",
+   "what": "a session that saves nothing closes without a question",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "app::tests::closing_warns_of_a_session_that_saves_nothing_and_of_messages_not_delivered",
+    "closing_a_session_that_saves_nothing_says_everything_goes",
+    "window::tests::closing_what_saves_nothing_asks_first_and_hides_the_window_once_agreed"
+   ],
+   "seconds": 28
+  },
+  {
+   "id": "UI66",
+   "path": "crates/monolith-ui/src/app.rs",
+   "what": "messages not delivered let the window close without a question",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "app::tests::closing_counts_a_message_being_queued_and_one_queued_before_it_is_read_again",
+    "app::tests::closing_warns_of_a_session_that_saves_nothing_and_of_messages_not_delivered",
+    "app::tests::the_window_asks_before_it_closes_until_the_person_agrees",
+    "closing_a_session_that_saves_nothing_says_everything_goes",
+    "closing_with_messages_not_delivered_says_when_they_are_tried_again",
+    "escape_answers_the_question_before_closing_and_leaves_the_settings_open",
+    "the_question_before_closing_keeps_the_window_unless_close_is_chosen",
+    "the_question_before_closing_puts_another_dialog_aside",
+    "window::tests::closing_with_messages_not_delivered_asks_and_cancel_keeps_the_window"
+   ],
+   "seconds": 26
+  },
+  {
+   "id": "UI67",
+   "path": "crates/monolith-ui/src/app.rs",
+   "what": "a close the person agreed to asks again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "app::tests::the_window_asks_before_it_closes_until_the_person_agrees",
+    "the_question_before_closing_keeps_the_window_unless_close_is_chosen",
+    "window::tests::closing_what_saves_nothing_asks_first_and_hides_the_window_once_agreed"
+   ],
+   "seconds": 26
+  },
+  {
+   "id": "UI68",
+   "path": "crates/monolith-desktop/src/window.rs",
+   "what": "a close that asks first is not cancelled",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "window::tests::closing_what_saves_nothing_asks_first_and_hides_the_window_once_agreed",
+    "window::tests::closing_with_messages_not_delivered_asks_and_cancel_keeps_the_window"
+   ],
+   "seconds": 11
+  },
+  {
+   "id": "UI69",
+   "path": "crates/monolith-desktop/src/window.rs",
+   "what": "the window is hidden while it asks",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "window::tests::closing_what_saves_nothing_asks_first_and_hides_the_window_once_agreed",
+    "window::tests::closing_with_messages_not_delivered_asks_and_cancel_keeps_the_window"
+   ],
+   "seconds": 11
+  },
+  {
+   "id": "UI70",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "Close Monolith does not close the window",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_question_before_closing_keeps_the_window_unless_close_is_chosen",
+    "window::tests::closing_what_saves_nothing_asks_first_and_hides_the_window_once_agreed"
+   ],
+   "seconds": 28
+  },
+  {
+   "id": "UI71",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the question before closing is not asked over an open dialog",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_question_before_closing_puts_another_dialog_aside"
+   ],
+   "seconds": 26
+  },
+  {
+   "id": "UI72",
+   "path": "crates/monolith-ui/src/shell.rs",
+   "what": "a shortcut of the window acts behind the question before closing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "escape_answers_the_question_before_closing_and_leaves_the_settings_open"
+   ],
+   "seconds": 24
+  },
+  {
+   "id": "UI73",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "the next try counts from no time instead of when the attempt failed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_waiting_delivery_says_both_sides_must_be_open_once_and_when_it_is_tried_next",
+    "the_next_try_counts_from_when_the_attempt_failed_and_goes_with_the_queue",
+    "the_time_to_the_next_attempt_asks_for_a_frame_only_when_its_words_change"
+   ],
+   "seconds": 32
+  },
+  {
+   "id": "UI74",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "the next try stays once nothing is queued",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_next_try_counts_from_when_the_attempt_failed_and_goes_with_the_queue"
+   ],
+   "seconds": 36
+  },
+  {
+   "id": "UI75",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "the next try is said while Tor is down",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "no_next_try_is_said_without_a_deferral_or_while_tor_is_down"
+   ],
+   "seconds": 31
+  },
+  {
+   "id": "UI76",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "the time to the next try is not said again as it passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_time_to_the_next_attempt_asks_for_a_frame_only_when_its_words_change"
+   ],
+   "seconds": 53
+  },
+  {
+   "id": "UI77",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a blocked handle of another identity or of an instance from before unblocks",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_block_outlives_the_profile_and_a_handle_from_before_names_nothing",
+    "a_blocked_handle_of_one_identity_names_nothing_at_another"
+   ],
+   "seconds": 526
+  },
+  {
+   "id": "UI78",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "unblocking names whoever is blocked first",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_blocked_contact_is_listed_by_its_fingerprint_and_unblocked_by_its_handle"
+   ],
+   "seconds": 494
+  },
+  {
+   "id": "UI79",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "the blocked list lists every record",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_block_for_a_record_made_again_before_it_runs_ends_nothing",
+    "a_blocked_contact_is_listed_by_its_fingerprint_and_unblocked_by_its_handle"
+   ],
+   "seconds": 471
+  },
+  {
+   "id": "UI80",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "someone not listed is unblocked",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_unblock_names_someone_listed_once_and_says_what_it_did"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI81",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a snapshot keeps the blocked people of another identity",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_snapshot_shows_only_what_belongs_to_its_identity",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 31
+  },
+  {
+   "id": "UI82",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "an unblock answered late re-reads the identity shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_unblock_answered_while_another_identity_is_shown_changes_only_its_own"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI83",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a refused unblock is told as done",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_unblock_names_someone_listed_once_and_says_what_it_did"
+   ],
+   "seconds": 28
+  },
+  {
+   "id": "UI84",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "the number of someone unblocked is kept and names a later block",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_blocked_person_is_unblocked_by_a_number_of_their_identity_once"
+   ],
+   "seconds": 15
+  },
+  {
+   "id": "UI85",
+   "path": "crates/monolith-desktop/src/convert.rs",
+   "what": "an unblock the runtime refuses is told as unexpected",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_blocked_person_is_unblocked_by_a_number_of_their_identity_once"
+   ],
+   "seconds": 14
+  },
+  {
+   "id": "UI86",
+   "path": "crates/monolith-ui/src/settings.rs",
+   "what": "the Unblock button of one row unblocks another person",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_identities_page_lists_who_is_blocked_and_unblocks_after_asking"
+   ],
+   "seconds": 22
+  },
+  {
+   "id": "UI87",
+   "path": "crates/monolith-ui/src/settings.rs",
+   "what": "Unblock does nothing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_identities_page_lists_who_is_blocked_and_unblocks_after_asking",
+    "the_shortcuts_of_the_window_wait_while_unblocking_is_asked"
+   ],
+   "seconds": 23
+  },
+  {
+   "id": "UI88",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "a preview reads the whole of a long message",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "present::tests::a_preview_reads_only_the_start_of_a_long_message",
+    "the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes"
+   ],
+   "seconds": 69
+  },
+  {
+   "id": "UI89",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "a preview cut where the reading stopped has no ellipsis",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "present::tests::a_preview_reads_only_the_start_of_a_long_message",
+    "the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes"
+   ],
+   "seconds": 57
+  },
+  {
+   "id": "UI90",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a prepared text is kept for a message that reads otherwise",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_is_prepared_once_and_kept_while_it_reads_the_same"
+   ],
+   "seconds": 54
+  },
+  {
+   "id": "UI91",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "an expanded message keeps the text prepared collapsed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_expanded_message_is_prepared_again_whole"
+   ],
+   "seconds": 90
+  },
+  {
+   "id": "UI92",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "the window keeps the state of a conversation whose messages were deleted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "deleted_messages_take_their_prepared_texts_and_the_window_forgets_them",
+    "the_composer_of_a_conversation_whose_messages_are_deleted_is_forgotten"
+   ],
+   "seconds": 98
+  },
+  {
+   "id": "UI93",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "the rows of the sidebar are not made again when the identity is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_without_a_name_has_a_person_for_an_avatar",
+    "a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar",
+    "a_waiting_contact_is_said_to_wait_for_the_same_thing_everywhere",
+    "alt_and_the_arrows_go_through_the_conversations_of_the_list",
+    "an_ended_conversation_says_once_that_it_ended",
+    "every_ended_conversation_has_the_same_neutral_mark_in_the_list",
+    "the_list_brings_the_conversation_shown_into_view",
+    "the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes"
+   ],
+   "seconds": 89
+  },
+  {
+   "id": "UI94",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a sidebar row keeps the preview of a message that changed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes"
+   ],
+   "seconds": 46
+  },
+  {
+   "id": "UI95",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "an unread count does not reach its sidebar row",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI96",
+   "path": "crates/monolith-ui/src/message_list.rs",
+   "what": "older messages read move what the reader sees",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "reading_older_messages_keeps_the_reader_where_they_are"
+   ],
+   "seconds": 34
+  },
+  {
+   "id": "UI97",
+   "path": "crates/monolith-ui/src/message_list.rs",
+   "what": "a conversation neither opens nor stays at its newest message",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_long_conversation_opens_at_its_newest_message_and_lays_out_only_what_is_in_view",
+    "a_selection_in_a_message_stays_with_it_when_new_messages_arrive",
+    "messages_are_cut_clear_of_the_bar_above_them",
+    "reading_older_messages_keeps_the_reader_where_they_are",
+    "the_first_frame_of_a_long_conversation_shows_its_newest_messages_in_place"
+   ],
+   "seconds": 36
+  },
+  {
+   "id": "UI98",
+   "path": "crates/monolith-ui/src/message_list.rs",
+   "what": "every message from the view down to the end is laid out",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_long_conversation_opens_at_its_newest_message_and_lays_out_only_what_is_in_view"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI99",
+   "path": "crates/monolith-ui/src/message_list.rs",
+   "what": "a frame with messages misplaced by their estimates is shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_first_frame_of_a_long_conversation_shows_its_newest_messages_in_place"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "UI100",
+   "path": "crates/monolith-ui/src/message_list.rs",
+   "what": "a reader who scrolled up is taken back to the bottom",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_long_conversation_opens_at_its_newest_message_and_lays_out_only_what_is_in_view",
+    "a_reader_who_scrolled_up_stays_put_and_each_conversation_keeps_its_place",
+    "reading_older_messages_keeps_the_reader_where_they_are"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "UI101",
+   "path": "crates/monolith-ui/src/sidebar.rs",
+   "what": "a contact without a name has initials in the list",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_without_a_name_has_a_person_for_an_avatar",
+    "a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI102",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "a contact without a name has initials in the bar of its conversation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_without_a_name_has_a_person_for_an_avatar",
+    "a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar"
+   ],
+   "seconds": 39
+  },
+  {
+   "id": "UI103",
+   "path": "crates/monolith-ui/src/shell.rs",
+   "what": "egui keeps the composer of a conversation whose messages were deleted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_composer_of_a_conversation_whose_messages_are_deleted_is_forgotten"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI104",
+   "path": "crates/monolith-ui/src/shell.rs",
+   "what": "a shortcut of the window acts behind the question before blocking a sender",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "dialogs::tests::the_shortcuts_of_the_window_wait_while_blocking_is_asked"
+   ],
+   "seconds": 34
+  },
+  {
+   "id": "UI105",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "Tor is not checked again after missed events",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "missed_events_make_the_model_read_everything_again"
+   ],
+   "seconds": 41
+  },
+  {
+   "id": "UI106",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "the window is not woken when the runtime thread ends",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_runtime_thread_that_panics_wakes_the_window"
+   ],
+   "seconds": 31
+  },
+  {
+   "id": "UI107",
+   "path": "crates/monolith-desktop/src/window.rs",
+   "what": "dropping the window waits for the runtime",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "window::tests::dropping_the_window_waits_for_no_thread"
+   ],
+   "seconds": 13
+  },
+  {
+   "id": "UI108",
+   "path": "crates/monolith-desktop/src/lib.rs",
+   "what": "the threads of the window are not waited for",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "window::tests::a_session_that_saves_nothing_writes_no_settings_file",
+    "window::tests::dropping_the_window_waits_for_no_thread"
+   ],
+   "seconds": 13
+  },
+  {
+   "id": "UI109",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a file put in place of the one looked at is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_name_given_to_something_else_once_looked_at_is_not_read"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI110",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a link put in place of the card file is followed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_name_given_to_something_else_once_looked_at_is_not_read"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI111",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a queued send cuts a draft cleared and typed again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_draft_cleared_and_typed_again_while_a_message_is_queued_stays_whole",
+    "a_draft_that_stopped_starting_with_the_text_sent_keeps_all_of_it"
+   ],
+   "seconds": 61
+  },
+  {
+   "id": "UI112",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an added card is said as given, not as the record holds it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_invitation_added_for_an_accepted_contact_is_said_as_the_record_holds_it"
+   ],
+   "seconds": 560
+  },
+  {
+   "id": "UI113",
+   "path": "crates/monolith-ui/src/requests.rs",
+   "what": "a request is declined without a question",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "declining_a_request_asks_first_and_says_it_cannot_be_undone",
+    "the_shortcuts_of_the_window_wait_while_declining_is_asked"
+   ],
+   "seconds": 32
+  },
+  {
+   "id": "UI114",
+   "path": "crates/monolith-ui/src/settings.rs",
+   "what": "someone is unblocked without a question",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_identities_page_lists_who_is_blocked_and_unblocks_after_asking",
+    "the_shortcuts_of_the_window_wait_while_unblocking_is_asked"
+   ],
+   "seconds": 34
+  },
+  {
+   "id": "UI115",
+   "path": "crates/monolith-ui-model/src/failure.rs",
+   "what": "a failed store is said again where it was met",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_store_is_said_once_and_not_again_where_it_was_met",
+    "a_failed_store_met_by_a_command_raises_no_notice_of_its_own",
+    "failure::tests::a_failed_store_has_the_words_of_the_window_and_is_said_by_it_alone"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI116",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "accepting through an invitation offers no revoke",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it",
+    "an_offer_to_revoke_goes_once_another_identity_is_shown"
+   ],
+   "seconds": 59
+  },
+  {
+   "id": "UI117",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a message being queued is not counted before closing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_being_queued_or_queued_before_a_read_counts_as_undelivered",
+    "app::tests::closing_counts_a_message_being_queued_and_one_queued_before_it_is_read_again"
+   ],
+   "seconds": 55
+  },
+  {
+   "id": "UI118",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a read asked before a message was queued is taken to count it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_being_queued_or_queued_before_a_read_counts_as_undelivered"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI119",
+   "path": "crates/monolith-ui/src/app.rs",
+   "what": "a passphrase buffer moves as it grows",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "onboarding::tests::a_passphrase_typed_or_pasted_to_the_limit_never_moves_its_buffer"
+   ],
+   "seconds": 31
+  },
+  {
+   "id": "UI120",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a contact nothing was written to is said to wait for an acceptance",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_that_has_not_accepted_waits_for_a_first_message_an_acceptance_or_its_card",
+    "a_waiting_contact_is_said_to_wait_for_the_same_thing_everywhere"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI121",
+   "path": "crates/monolith-ui/src/settings.rs",
+   "what": "under Nobody the invitations are said to bring requests",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "under_nobody_no_text_says_that_an_invitation_brings_a_request"
+   ],
+   "seconds": 29
+  },
+  {
+   "id": "UI122",
+   "path": "crates/monolith-ui/src/onboarding.rs",
+   "what": "a wrong passphrase leaves its field unmarked",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_passphrase_that_fails_marks_its_field"
+   ],
+   "seconds": 33
+  },
+  {
+   "id": "UI123",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "a dialog says a failed store again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failed_store_is_said_once_and_not_again_where_it_was_met"
+   ],
+   "seconds": 36
+  },
+  {
+   "id": "UI124",
+   "path": "crates/monolith-ui-kit/src/fingerprint.rs",
+   "what": "a full fingerprint is laid out in rows of six",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_fingerprint_is_laid_out_in_rows_of_seven_and_six_groups",
+    "a_full_fingerprint_is_laid_out_in_rows_of_seven_and_six_everywhere",
+    "a_row_of_seven_needs_no_room_for_the_space_after_it",
+    "dialogs::tests::a_fingerprint_is_laid_out_in_two_rows"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "UI125",
+   "path": "crates/monolith-ui-kit/src/fingerprint.rs",
+   "what": "a row of seven groups needs room for the space after it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_full_fingerprint_is_laid_out_in_rows_of_seven_and_six_everywhere",
+    "a_row_of_seven_needs_no_room_for_the_space_after_it"
+   ],
+   "seconds": 38
+  },
+  {
+   "id": "UI126",
+   "path": "crates/monolith-ui/src/requests.rs",
+   "what": "the name a sender chose gives a request card its initials",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI127",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "a contact without a name has initials in its dialog",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar"
+   ],
+   "seconds": 39
+  },
+  {
+   "id": "UI128",
+   "path": "crates/monolith-ui-kit/src/rows.rs",
+   "what": "an ended conversation is marked as blocked",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "every_ended_conversation_has_the_same_neutral_mark_in_the_list"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI129",
+   "path": "crates/monolith-ui-kit/src/rows.rs",
+   "what": "the markers of the list say no word under the pointer",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_marker_says_its_word_under_the_pointer"
+   ],
+   "seconds": 44
+  },
+  {
+   "id": "UI130",
+   "path": "crates/monolith-ui-kit/src/their_words.rs",
+   "what": "the well of a request's message has no edge",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_message_sits_in_a_well_with_an_edge_in_both_themes"
+   ],
+   "seconds": 43
+  },
+  {
+   "id": "UI131",
+   "path": "crates/monolith-ui/src/settings.rs",
+   "what": "the pages of the settings leave the page narrower than a narrow window's",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_request_modes_stay_side_by_side_beside_the_pages"
+   ],
+   "seconds": 38
+  },
+  {
+   "id": "UI132",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the buttons that only ask in the contact dialog are solid red",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_contact_dialog_offers_quiet_buttons_and_a_question_confirms_with_a_solid_one"
+   ],
+   "seconds": 39
+  },
+  {
+   "id": "UI133",
+   "path": "crates/monolith-ui/src/conversation.rs",
+   "what": "messages are cut against the bar above them",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "messages_are_cut_clear_of_the_bar_above_them"
+   ],
+   "seconds": 31
+  },
+  {
+   "id": "UI134",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "a click on the place to drop a card does nothing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_click_on_the_place_to_drop_a_card_file_goes_to_its_path"
+   ],
+   "seconds": 34
+  },
+  {
+   "id": "UI135",
+   "path": "crates/monolith-ui-kit/src/text_field.rs",
+   "what": "a field without history keeps one",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_field_without_history_shows_what_is_typed_and_cannot_undo_it",
+    "the_card_typed_in_add_contact_is_kept_in_no_undo_history"
+   ],
+   "seconds": 45
+  },
+  {
+   "id": "UI136",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the card typed in Add contact stays in an undo history",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_card_typed_in_add_contact_is_kept_in_no_undo_history"
+   ],
+   "seconds": 32
+  },
+  {
+   "id": "UI137",
+   "path": "crates/monolith-ui-kit/src/chrome.rs",
+   "what": "the edge of the sidebar is a stop of the Tab key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tab_from_the_composer_and_from_the_filter_reaches_only_controls",
+    "tab_passes_over_scroll_bars_drag_areas_and_the_edge_of_the_sidebar"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "UI138",
+   "path": "crates/monolith-ui-kit/src/chrome.rs",
+   "what": "a scroll bar takes the keyboard focus",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tab_from_the_composer_and_from_the_filter_reaches_only_controls",
+    "tab_passes_over_scroll_bars_drag_areas_and_the_edge_of_the_sidebar",
+    "the_scrim_and_the_card_are_no_tab_stops"
+   ],
+   "seconds": 38
+  },
+  {
+   "id": "UI139",
+   "path": "crates/monolith-ui-kit/src/chrome.rs",
+   "what": "the bar of a scroll area cannot be dragged",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_press_on_the_bar_below_the_handle_scrolls_there",
+    "the_bar_of_a_scroll_area_is_dragged_with_the_pointer"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "UI140",
+   "path": "crates/monolith-ui-kit/src/chrome.rs",
+   "what": "the edge of the sidebar cannot be dragged",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_edge_of_the_sidebar_is_dragged_with_the_pointer_within_its_range"
+   ],
+   "seconds": 41
+  },
+  {
+   "id": "UI141",
+   "path": "crates/monolith-ui-kit/src/composer.rs",
+   "what": "the scroll area of the composer has stops of the Tab key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tab_passes_over_scroll_bars_drag_areas_and_the_edge_of_the_sidebar"
+   ],
+   "seconds": 48
+  },
+  {
+   "id": "UI142",
+   "path": "crates/monolith-ui-kit/src/toast.rs",
+   "what": "a toast covers the title of a tall dialog",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_actions_of_a_dialog",
+    "a_toast_over_a_dialog_is_outlined_more_strongly_than_the_dialog",
+    "a_toast_over_a_modal_keeps_clear_of_its_title_and_its_actions"
+   ],
+   "seconds": 49
+  },
+  {
+   "id": "UI143",
+   "path": "crates/monolith-ui/src/shell.rs",
+   "what": "a toast covers the notices of a conversation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_actions_of_a_dialog"
+   ],
+   "seconds": 45
+  },
+  {
+   "id": "UI144",
+   "path": "crates/monolith-ui/src/settings.rs",
+   "what": "the picture of the blocked people does not show them",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_picture_of_the_blocked_people_has_them_in_view"
+   ],
+   "seconds": 51
+  },
+  {
+   "id": "UI145",
+   "path": "crates/monolith-ui-kit/src/mark.rs",
+   "what": "the first screens show no mark",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_first_screens_show_the_mark_beside_the_name"
+   ],
+   "seconds": 50
+  },
+  {
+   "id": "UI146",
+   "path": "crates/monolith-ui-kit/src/identity_switcher.rs",
+   "what": "the card entry of the switcher reports nothing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_card_entry_is_shown_only_when_asked_and_reports_itself",
+    "the_identity_switcher_shares_the_card_of_the_identity_shown"
+   ],
+   "seconds": 54
+  },
+  {
+   "id": "UI147",
+   "path": "crates/monolith-ui/src/sidebar.rs",
+   "what": "Share my card in the switcher opens nothing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_identity_switcher_shares_the_card_of_the_identity_shown"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "UI148",
+   "path": "crates/monolith-ui-kit/src/toast.rs",
+   "what": "a toast over a tall dialog covers the end of its body",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_actions_of_a_dialog",
+    "a_toast_over_a_modal_keeps_clear_of_its_title_and_its_actions"
+   ],
+   "seconds": 43
+  },
+  {
+   "id": "UI149",
+   "path": "crates/monolith-ui-kit/src/toast.rs",
+   "what": "a toast over a dialog has the outline of the dialog",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_toast_over_a_dialog_is_outlined_more_strongly_than_the_dialog"
+   ],
+   "seconds": 41
+  },
+  {
+   "id": "UI150",
+   "path": "crates/monolith-ui-kit/src/modal.rs",
+   "what": "a modal sits on half a pixel",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_modal_sits_on_whole_pixels"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "UI151",
+   "path": "crates/monolith-ui-kit/src/modal.rs",
+   "what": "a body that scrolls is cut against nothing",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_body_that_scrolls_is_cut_against_a_line_above_the_actions"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "UI152",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "unblocking is confirmed in the colour of danger",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_identities_page_lists_who_is_blocked_and_unblocks_after_asking"
+   ],
+   "seconds": 33
+  },
+  {
+   "id": "UI153",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the question before unblocking does not say whom",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_identities_page_lists_who_is_blocked_and_unblocks_after_asking"
+   ],
+   "seconds": 44
+  },
+  {
+   "id": "UI154",
+   "path": "crates/monolith-ui/src/sidebar.rs",
+   "what": "the list does not bring the conversation shown into view",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_list_brings_the_conversation_shown_into_view"
+   ],
+   "seconds": 34
+  },
+  {
+   "id": "UI155",
+   "path": "crates/monolith-ui/src/sidebar.rs",
+   "what": "the requests leave the list while their page is shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_requests_stay_in_the_list_while_their_page_is_shown"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI156",
+   "path": "crates/monolith-ui/src/onboarding.rs",
+   "what": "the first start keeps its room in a short window",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_first_start_has_its_actions_in_view_in_short_windows"
+   ],
+   "seconds": 35
+  },
+  {
+   "id": "UI157",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the Tor details close at the right while Tor works",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_tor_details_close_at_the_left_whether_tor_works_or_not"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "UI158",
+   "path": "crates/monolith-ui-kit/src/text.rs",
+   "what": "a card leaves its lines half empty",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "dialogs::tests::a_card_fills_its_lines"
+   ],
+   "seconds": 36
+  },
+  {
+   "id": "UI159",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "a sunken box is wider than the column by its outline",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_boxes_of_a_dialog_end_where_its_actions_end"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "UI160",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "Copy fingerprint ends inside the box by its padding",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_boxes_of_a_dialog_end_where_its_actions_end"
+   ],
+   "seconds": 25
+  }
+ ]
+}

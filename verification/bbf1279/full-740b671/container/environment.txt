@@ -1,0 +1,9 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec
+rustc 1.95.0 (59807616e 2026-04-14)
+rustc 1.85.1 (4eb161250 2025-03-15)
+rustc 1.99.0 (b940084d7 2026-09-28)
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+Tor version 0.4.9.13.
+chutney ae3a33c63a10ab29453225242c9c5985e6f2cf1c
+strace -- version 6.1
+Linux 6.18.33.2-microsoft-standard-WSL2

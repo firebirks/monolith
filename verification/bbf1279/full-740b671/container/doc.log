@@ -1,0 +1,36 @@
+   Compiling getrandom v0.3.4
+    Checking monolith-identity v0.0.0 (/home/verifier/work/crates/monolith-identity)
+    Checking tokio v1.53.1
+    Checking monolith-ui-model v0.0.0 (/home/verifier/work/crates/monolith-ui-model)
+    Checking monolith-protocol v0.0.0 (/home/verifier/work/crates/monolith-protocol)
+    Checking ahash v0.8.12
+    Checking epaint v0.32.3
+    Checking winit v0.30.13
+    Checking monolith-storage v0.0.0 (/home/verifier/work/crates/monolith-storage)
+    Checking monolith-session v0.0.0 (/home/verifier/work/crates/monolith-session)
+    Checking egui v0.32.3
+ Documenting monolith-storage v0.0.0 (/home/verifier/work/crates/monolith-storage)
+ Documenting monolith-session v0.0.0 (/home/verifier/work/crates/monolith-session)
+    Checking monolith-tor v0.0.0 (/home/verifier/work/crates/monolith-tor)
+ Documenting monolith-tor v0.0.0 (/home/verifier/work/crates/monolith-tor)
+    Checking accesskit_winit v0.27.0
+    Checking glutin-winit v0.5.0
+    Checking monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core)
+ Documenting monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core)
+    Checking monolith-ui-kit v0.0.0 (/home/verifier/work/crates/monolith-ui-kit)
+    Checking egui_glow v0.32.3
+    Checking egui-winit v0.32.3
+    Checking eframe v0.32.3
+ Documenting monolith-ui-snapshot v0.0.0 (/home/verifier/work/crates/monolith-ui-snapshot)
+    Checking monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui)
+ Documenting monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui)
+    Checking monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime)
+ Documenting monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime)
+ Documenting monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+ Documenting monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+ Documenting monolith-ui-kit v0.0.0 (/home/verifier/work/crates/monolith-ui-kit)
+ Documenting monolith-protocol v0.0.0 (/home/verifier/work/crates/monolith-protocol)
+ Documenting monolith-ui-model v0.0.0 (/home/verifier/work/crates/monolith-ui-model)
+ Documenting monolith-identity v0.0.0 (/home/verifier/work/crates/monolith-identity)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.65s
+   Generated /vol/target/doc/monolith/index.html and 12 other files

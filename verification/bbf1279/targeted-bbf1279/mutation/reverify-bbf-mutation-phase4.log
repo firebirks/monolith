@@ -1,0 +1,20 @@
+1792795746 commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, 18 faults, 4 workers, unmodified run 451s, timeout 3608s
+1792796458 CS1   caught    711s  an older card of the active key rolls the contact back
+1792796468 CS3   caught    721s  a conflicting card is silently taken
+1792796479 CS4   caught    733s  the retired key is accepted again
+1792796484 CS2   caught    738s  a stale card is promoted
+1792796832 CS14  caught    348s  an import returns before it is durable
+1792796918 CS13  caught    439s  an import is not stamped with a generation
+1792797264 CS6   caught    806s  a newer key without an authorized successor is stale
+1792797444 CS23  caught    612s  two local identities may share a key
+1792797805 CS35  caught    541s  a write replaces the vault in place
+1792797841 CS36  caught    397s  a write does not flush the directory
+1792798196 CS38  caught    391s  KDF parameters outside the bounds are accepted
+1792798240 CS39  caught    398s  the passphrase is not normalized
+1792798586 CS40  caught    390s  a directory others can reach is accepted
+1792798641 CS41  caught    402s  the single-instance lock is not taken
+1792798950 CS64  caught    308s  an invitation is listed before it is durable
+1792799035 CS45  caught    449s  a write does not put the vault back, whatever its waiter does
+1792799261 CS11  caught   2793s  an operation works on a copy of the record outside its lock
+1792800527 CS30  caught   3608s  attempts follow each other without a delay (timeout)
+1792800527 done: {'caught': 18}; written to <repo>/mutation/results-phase4-bbf1279.json

@@ -1,0 +1,20 @@
+1792811793 commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, 18 faults, 4 workers, unmodified run 409s, timeout 3272s
+1792812487 F4    caught    694s  an unconfirmed session takes full-size frames
+1792812490 F1    caught    697s  an outer length below one padding block passes
+1792812490 F2    caught    697s  an outer length that is not whole blocks passes
+1792812500 F3    caught    707s  the outer length is not bounded by the state
+1792813180 F7    caught    690s  the message type is not checked against the state
+1792813180 F5    caught    693s  padding may be longer than necessary
+1792813193 F9    caught    692s  a failed decoder takes more input
+1792813201 F6    caught    711s  padding need not be zero
+1792813863 F10   caught    683s  decode_plaintext skips its length check
+1792813876 X1    caught    683s  text one byte over the maximum passes
+1792813878 M1    caught    698s  chat messages may arrive before confirmation
+1792813895 X2    caught    695s  text below the minimum passes
+1792814517 X3    caught    654s  carriage return allowed in free text
+1792814551 B3    survived  675s  a card with an invitation accepted inside a message
+1792814557 B4    survived  678s  the endpoint count of an embedded card not checked first
+1792814577 U1    caught    682s  the duplicate rule prefers the other side
+1792815019 U3    caught    468s  an unanswered probe keeps the older session
+1792815028 U2    caught    510s  the preferred side is the larger key
+1792815028 done: {'caught': 16, 'survived': 2}; written to <repo>/mutation/results-phase1-bbf1279.json

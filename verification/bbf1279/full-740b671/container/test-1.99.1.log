@@ -1,0 +1,1992 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling cfg-if v1.0.5
+   Compiling libc v0.2.189
+   Compiling bitflags v2.13.2
+   Compiling getrandom v0.3.4
+   Compiling zerocopy v0.8.59
+   Compiling once_cell v1.21.4
+   Compiling zeroize v1.9.0
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling typenum v1.20.1
+   Compiling rustix v1.1.5
+   Compiling hybrid-array v0.4.15
+   Compiling linux-raw-sys v0.12.1
+   Compiling autocfg v1.5.1
+   Compiling crypto-common v0.2.2
+   Compiling cmov v0.5.4
+   Compiling block-buffer v0.12.1
+   Compiling ctutils v0.4.2
+   Compiling pin-project-lite v0.2.17
+   Compiling semver v1.0.28
+   Compiling digest v0.11.3
+   Compiling cpufeatures v0.3.1
+   Compiling bytemuck_derive v1.12.1
+   Compiling rustc_version v0.4.1
+   Compiling subtle v2.6.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling curve25519-dalek v5.0.0
+   Compiling version_check v0.9.5
+   Compiling ahash v0.8.12
+   Compiling signature v3.0.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling bytemuck v1.25.2
+   Compiling ed25519 v3.0.0
+   Compiling sha2 v0.11.0
+   Compiling keccak v0.2.2
+   Compiling parking_lot_core v0.9.12
+   Compiling sha3 v0.11.0
+   Compiling ed25519-dalek v3.0.0
+   Compiling accesskit v0.19.0
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling num-traits v0.2.19
+   Compiling ttf-parser v0.25.1
+   Compiling simd-adler32 v0.3.10
+   Compiling parking_lot v0.12.5
+   Compiling monolith-identity v0.0.0 (/home/verifier/work/crates/monolith-identity)
+   Compiling emath v0.32.3
+   Compiling crc32fast v1.5.2
+   Compiling adler2 v2.0.1
+   Compiling ab_glyph_rasterizer v0.1.10
+   Compiling ecolor v0.32.3
+   Compiling profiling v1.0.18
+   Compiling nohash-hasher v0.2.0
+   Compiling miniz_oxide v0.9.1
+   Compiling miniz_oxide v0.8.9
+   Compiling flate2 v1.1.10
+   Compiling fdeflate v0.3.7
+   Compiling owned_ttf_parser v0.25.1
+   Compiling monolith-protocol v0.0.0 (/home/verifier/work/crates/monolith-protocol)
+   Compiling ab_glyph v0.2.32
+   Compiling png v0.18.1
+   Compiling epaint v0.32.3
+   Compiling inout v0.2.2
+   Compiling hmac v0.13.0
+   Compiling qrcodegen v1.8.0
+   Compiling cipher v0.5.2
+   Compiling universal-hash v0.6.1
+   Compiling poly1305 v0.9.1
+   Compiling chacha20 v0.10.2
+   Compiling aead v0.6.1
+   Compiling memchr v2.8.3
+   Compiling chacha20poly1305 v0.11.0
+   Compiling rand_core v0.9.5
+   Compiling egui v0.32.3
+   Compiling blake2 v0.11.0
+   Compiling serde_core v1.0.229
+   Compiling base64ct v1.8.3
+   Compiling tinyvec v1.13.3
+   Compiling argon2 v0.6.0
+   Compiling unicode-normalization v0.1.25
+   Compiling hkdf v0.13.0
+   Compiling tokio-macros v2.7.2
+   Compiling ppv-lite86 v0.2.21
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.5
+   Compiling bytes v1.12.1
+   Compiling rand_chacha v0.9.0
+   Compiling tokio v1.53.1
+   Compiling rand_xorshift v0.4.0
+   Compiling rand v0.9.5
+   Compiling snow v0.10.0
+   Compiling regex-syntax v0.8.11
+   Compiling monolith-ui-kit v0.0.0 (/home/verifier/work/crates/monolith-ui-kit)
+   Compiling monolith-ui-snapshot v0.0.0 (/home/verifier/work/crates/monolith-ui-snapshot)
+   Compiling unarray v0.1.4
+   Compiling serde v1.0.229
+   Compiling pkg-config v0.3.34
+   Compiling proptest v1.11.0
+   Compiling monolith-storage v0.0.0 (/home/verifier/work/crates/monolith-storage)
+   Compiling serde_derive v1.0.229
+   Compiling rand_core v0.10.1
+   Compiling x25519-dalek v3.0.0
+   Compiling monolith-tor v0.0.0 (/home/verifier/work/crates/monolith-tor)
+   Compiling libloading v0.8.9
+   Compiling winnow v1.0.4
+   Compiling equivalent v1.0.3
+   Compiling hashbrown v0.17.1
+   Compiling slab v0.4.12
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling monolith-session v0.0.0 (/home/verifier/work/crates/monolith-session)
+   Compiling indexmap v2.14.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling winnow v0.7.15
+   Compiling dlib v0.5.3
+   Compiling wayland-sys v0.31.11
+   Compiling toml_edit v0.25.17+spec-1.1.0
+   Compiling polling v3.11.0
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling cc v1.8.0
+   Compiling enumflags2_derive v0.7.12
+   Compiling proc-macro-crate v3.5.0
+   Compiling parking v2.2.1
+   Compiling enumflags2 v0.7.12
+   Compiling zvariant_utils v3.3.0
+   Compiling monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core)
+   Compiling endi v1.1.1
+   Compiling zvariant_derive v5.9.2
+   Compiling futures-core v0.3.34
+   Compiling synstructure v0.14.0
+   Compiling wayland-backend v0.3.17
+   Compiling downcast-rs v1.2.1
+   Compiling scoped-tls v1.0.1
+   Compiling crossbeam-utils v0.8.23
+   Compiling quick-xml v0.41.0
+   Compiling wayland-client v0.31.15
+   Compiling zerofrom-derive v0.1.8
+   Compiling wayland-scanner v0.31.11
+   Compiling tracing-attributes v0.1.31
+   Compiling tracing-core v0.1.36
+   Compiling futures-io v0.3.34
+   Compiling fastrand v2.5.0
+   Compiling zerofrom v0.1.8
+   Compiling tracing v0.1.44
+   Compiling concurrent-queue v2.5.0
+   Compiling yoke-derive v0.8.4
+   Compiling event-listener v5.4.2
+   Compiling stable_deref_trait v1.2.1
+   Compiling event-listener-strategy v0.5.4
+   Compiling futures-lite v2.6.1
+   Compiling yoke v0.8.3
+   Compiling zvariant v5.9.2
+   Compiling quick-xml v0.38.4
+   Compiling monolith-ui-model v0.0.0 (/home/verifier/work/crates/monolith-ui-model)
+   Compiling zerovec-derive v0.11.6
+   Compiling zbus_names v4.3.1
+   Compiling async-io v2.6.0
+   Compiling zerovec v0.11.8
+   Compiling displaydoc v0.2.7
+   Compiling errno v0.3.14
+   Compiling async-task v4.7.1
+   Compiling signal-hook-registry v1.4.8
+   Compiling wayland-protocols v0.32.12
+   Compiling async-channel v2.5.0
+   Compiling cfg_aliases v0.2.2
+   Compiling khronos_api v3.1.0
+   Compiling thiserror v1.0.69
+   Compiling atomic-waker v1.1.2
+   Compiling piper v0.2.5
+   Compiling async-signal v0.2.14
+   Compiling zbus_xml v5.1.0
+   Compiling async-lock v3.4.2
+   Compiling thiserror-impl v1.0.69
+   Compiling async-process v2.5.0
+   Compiling zbus-lockstep v0.5.2
+   Compiling blocking v1.7.0
+   Compiling async-executor v1.14.0
+   Compiling tinystr v0.8.4
+   Compiling zbus_macros v5.13.2
+   Compiling async-broadcast v0.7.2
+   Compiling ordered-stream v0.2.0
+   Compiling uuid v1.26.1
+   Compiling serde_repr v0.1.21
+   Compiling async-trait v0.1.92
+   Compiling rustix v0.38.44
+   Compiling hex v0.4.3
+   Compiling writeable v0.6.4
+   Compiling xml-rs v0.8.29
+   Compiling litemap v0.8.3
+   Compiling icu_locale_core v2.1.1
+   Compiling gl_generator v0.14.0
+   Compiling zbus v5.13.2
+   Compiling zbus-lockstep-macros v0.5.2
+   Compiling zerotrie v0.2.5
+   Compiling potential_utf v0.1.6
+   Compiling x11-dl v2.21.0
+   Compiling xkeysym v0.2.1
+   Compiling icu_properties_data v2.1.2
+   Compiling xcursor v0.3.11
+   Compiling static_assertions v1.1.0
+   Compiling percent-encoding v2.3.2
+   Compiling cursor-icon v1.2.0
+   Compiling linux-raw-sys v0.4.15
+   Compiling icu_normalizer_data v2.1.1
+   Compiling wayland-csd-frame v0.3.0
+   Compiling wayland-cursor v0.31.14
+   Compiling icu_collections v2.1.1
+   Compiling icu_provider v2.1.1
+   Compiling wayland-protocols-wlr v0.3.12
+   Compiling monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui)
+   Compiling memmap2 v0.9.11
+   Compiling atspi-common v0.9.0
+   Compiling calloop v0.13.0
+   Compiling gethostname v1.1.0
+   Compiling foldhash v0.1.5
+   Compiling as-raw-xcb-connection v1.0.1
+   Compiling smithay-client-toolkit v0.19.2
+   Compiling x11rb-protocol v0.13.2
+   Compiling hashbrown v0.15.5
+   Compiling calloop-wayland-source v0.3.0
+   Compiling icu_normalizer v2.1.1
+   Compiling icu_properties v2.1.2
+   Compiling atspi-proxies v0.9.0
+   Compiling winit v0.30.13
+   Compiling raw-window-handle v0.6.2
+   Compiling thiserror v2.0.21
+   Compiling idna_adapter v1.2.1
+   Compiling accesskit_consumer v0.28.0
+   Compiling atspi-connection v0.9.0
+   Compiling xkbcommon-dl v0.4.2
+   Compiling glutin_egl_sys v0.7.1
+   Compiling glutin_glx_sys v0.6.1
+   Compiling wayland-protocols-plasma v0.3.12
+   Compiling calloop v0.14.4
+   Compiling futures-macro v0.3.34
+   Compiling thiserror-impl v2.0.21
+   Compiling smol_str v0.2.2
+   Compiling pxfm v0.1.30
+   Compiling utf8_iter v1.0.4
+   Compiling dpi v0.1.2
+   Compiling smithay-client-toolkit v0.20.0
+   Compiling futures-task v0.3.34
+   Compiling futures-util v0.3.34
+   Compiling moxcms v0.7.11
+   Compiling idna v1.1.0
+   Compiling calloop-wayland-source v0.4.1
+   Compiling atspi v0.25.0
+   Compiling accesskit_atspi_common v0.12.0
+   Compiling form_urlencoded v1.2.2
+   Compiling wayland-protocols-misc v0.3.12
+   Compiling x11rb v0.13.2
+   Compiling wayland-protocols-experimental v20250721.0.1
+   Compiling glutin v0.32.3
+   Compiling memoffset v0.9.1
+   Compiling byteorder-lite v0.1.0
+   Compiling image v0.25.9
+   Compiling accesskit_unix v0.15.0
+   Compiling url v2.5.8
+   Compiling glutin-winit v0.5.0
+   Compiling webbrowser v1.2.4
+   Compiling accesskit_winit v0.27.0
+   Compiling arboard v3.6.1
+   Compiling smithay-clipboard v0.7.3
+   Compiling litrs v1.0.1
+   Compiling glow v0.16.0
+   Compiling web-time v1.1.0
+   Compiling egui-winit v0.32.3
+   Compiling document-features v0.2.12
+   Compiling monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime)
+   Compiling jiff-core v0.1.1
+   Compiling egui_glow v0.32.3
+   Compiling eframe v0.32.3
+   Compiling jiff v0.2.38
+   Compiling monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+   Compiling monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 14s
+     Running unittests src/main.rs (/vol/target/debug/deps/monolith-3fe0d02dc363f09b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_core-754df0e229918386)
+
+running 96 tests
+test api::tests::a_message_prints_no_text ... ok
+test contacts::tests::the_progress_of_a_rotation_counts_only_for_that_rotation ... ok
+test contacts::tests::no_operation_runs_between_the_reads_of_a_snapshot ... ok
+test contacts::tests::no_snapshot_runs_between_the_two_slots_of_a_decline ... ok
+test dialplan::tests::a_newer_card_with_other_endpoints_waits_for_the_user ... ok
+test dialplan::tests::a_pending_successor_is_never_dialed ... ok
+test dialplan::tests::after_a_promotion_the_retired_key_is_never_dialed ... ok
+test dialplan::tests::an_announced_successor_is_dialed_first ... ok
+test dialplan::tests::every_planned_card_states_the_active_key_or_its_successor ... ok
+test dialplan::tests::the_active_key_at_the_confirmed_endpoints ... ok
+test identity::tests::a_deleted_identity_keeps_no_copy_of_its_secrets ... ok
+test identity::tests::a_confirmation_counts_for_no_contact_made_again_meanwhile ... ok
+test identity::tests::a_block_or_an_import_takes_out_no_request_queued_after_it ... ok
+test identity::tests::a_message_queued_as_its_identity_is_deleted_leaves_nothing_of_it ... ok
+test identity::tests::a_message_queued_as_its_record_is_blocked_on_another_thread_is_refused ... ok
+test identity::tests::a_request_and_a_block_of_its_sender_run_in_one_order ... ok
+test identity::tests::a_request_considered_as_the_identity_is_deleted_is_not_queued ... ok
+test identity::tests::a_snapshot_is_one_cut_while_a_rotation_changes ... ok
+test identity::tests::a_message_of_an_ended_link_changes_no_contact_made_again ... ok
+test identity::tests::an_invitation_revoked_as_it_is_created_hands_out_no_card ... ok
+test identity::tests::a_snapshot_never_joins_the_progress_of_one_rotation_to_another ... ok
+test link::tests::a_close_from_the_peer_ends_the_link_and_frees_its_slot ... ok
+test link::tests::a_failed_link_waits_for_its_stream_once ... ok
+test link::tests::a_frame_sent_a_byte_at_a_time_ends_at_the_frame_deadline ... ok
+test link::tests::a_read_error_ends_the_link ... ok
+test link::tests::a_message_taken_before_a_receive_was_dropped_is_still_delivered ... ok
+test link::tests::a_stranger_evicted_as_its_first_message_is_taken_gets_nothing_delivered ... ok
+test link::tests::a_stranger_gets_the_close_after_its_first_message_and_frees_its_slot ... ok
+test link::tests::a_send_dropped_while_it_writes_leaves_the_link_terminal ... ok
+test link::tests::a_stranger_that_sends_nothing_is_closed_and_frees_its_slot ... ok
+test link::tests::a_withdrawal_ends_a_send_that_is_pending ... ok
+test link::tests::a_withdrawal_ends_a_write_of_message_3_that_is_pending ... ok
+test link::tests::a_withdrawal_at_the_moment_a_write_times_out_leaves_the_link_terminal ... ok
+test link::tests::a_withdrawn_link_waits_for_its_stream_once ... ok
+test link::tests::a_write_error_ends_the_link ... ok
+test link::tests::an_unconfirmed_session_ends_in_time ... ok
+test link::tests::message_3_is_not_written_once_the_session_is_withdrawn ... ok
+test link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next ... ok
+test messages::tests::a_conversation_is_bounded_in_bytes ... ok
+test messages::tests::a_conversation_whose_sequences_ran_out_takes_nothing_more ... ok
+test messages::tests::a_lowered_window_of_forgotten_messages_holds_from_the_next_deletion ... ok
+test messages::tests::a_queued_message_is_delivered_by_its_acknowledgement_only ... ok
+test messages::tests::a_received_message_is_stored_once ... ok
+test messages::tests::a_store_above_a_lowered_limit_is_read_and_kept_and_grows_no_further ... ok
+test link::tests::nothing_is_written_after_a_withdrawal_that_comes_between_two_writes ... ok
+test messages::tests::a_store_with_more_messages_than_a_lowered_limit_takes_none_in ... ok
+test messages::tests::debug_shows_no_text ... ok
+test messages::tests::deleted_messages_are_remembered_and_not_taken_in_again ... ok
+test messages::tests::only_a_change_wakes_the_tasks_that_follow_the_messages ... ok
+test messages::tests::pages_come_newest_last ... ok
+test messages::tests::queue_limits_refuse_without_changing_anything ... ok
+test messages::tests::reconciling_drops_deleted_identities_and_refuses_impossible_owners ... ok
+test messages::tests::the_state_holds_the_messages_of_as_many_identities_as_a_payload_can ... ok
+test persist::tests::a_cancelled_wait_loses_neither_the_vault_nor_the_outcome ... ok
+test persist::tests::a_change_is_written_though_its_waiter_was_cancelled_during_a_write ... ok
+test persist::tests::a_failed_write_keeps_the_vault_and_fails_every_wait ... ok
+test persist::tests::a_wait_finds_the_vault_back_once_its_outcome_is_out ... ok
+test persist::tests::a_wait_sees_what_a_failing_job_made_durable ... ok
+test persist::tests::a_write_that_failed_after_one_that_succeeded_keeps_its_success ... ok
+test persist::tests::an_outcome_published_between_the_check_and_the_sleep_ends_the_wait ... ok
+test persist::tests::changes_left_when_a_job_stops_for_its_waiter_are_written_next ... ok
+test persist::tests::changes_that_keep_coming_with_nobody_waiting_are_all_written ... ok
+test persist::tests::many_waiters_on_many_threads_all_finish ... ok
+test persist::tests::nothing_is_written_once_a_write_failed_and_sessions_go_first ... ok
+test rates::tests::a_bucket_gives_its_burst_at_once_and_then_one_token_per_interval ... ok
+test rates::tests::a_refused_take_takes_nothing ... ok
+test rates::tests::contacts_and_kinds_are_kept_apart ... ok
+test rates::tests::every_message_but_a_chunk_and_a_close_is_counted ... ok
+test rates::tests::every_take_is_that_of_a_bucket_of_its_own_contact_and_rate ... ok
+test rates::tests::full_buckets_are_dropped_before_the_held_ones_grow_past_the_contacts ... ok
+test rates::tests::sessions_are_counted_per_remote_identity ... ok
+test requests::tests::a_capability_is_handed_out_and_admits_only_once_durable ... ok
+test runtime::tests::a_failed_send_says_what_failed ... ok
+test runtime::tests::a_tor_check_says_tor_is_not_running_only_where_both_endpoints_were_tried ... ok
+test sessions::tests::a_probe_that_is_not_answered_closes_the_older_session ... ok
+test sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered ... ok
+test sessions::tests::a_session_of_a_retired_key_loses ... ok
+test sessions::tests::ending_a_session_that_was_not_registered_wakes_nobody ... ok
+test sessions::tests::records_are_kept_apart ... ok
+test sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order ... ok
+test sessions::tests::the_first_session_is_preferred_and_a_later_one_of_the_same_side_replaces_it ... ok
+test strangers::tests::evicted_links_are_bounded_too ... ok
+test strangers::tests::nobody_is_evicted_when_every_stranger_has_spoken ... ok
+test strangers::tests::the_first_message_and_the_eviction_race_on_one_state ... ok
+test strangers::tests::the_oldest_silent_stranger_makes_room ... ok
+test supervisor::tests::every_jitter_is_as_likely_as_any_other ... ok
+test supervisor::tests::the_delays_follow_the_reconnect_schedule ... ok
+test tests::a_peer_is_online_only_in_an_authenticated_contact_session ... ok
+test transfers::tests::a_file_message_for_a_transfer_this_session_never_saw_is_a_violation ... ok
+test transfers::tests::an_offer_is_rejected_and_only_an_abort_crosses_the_rejection ... ok
+test transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say ... ok
+test transfers::tests::only_the_last_ended_transfers_are_remembered ... ok
+test transfers::tests::other_messages_are_not_file_messages ... ok
+test messages::tests::a_store_above_any_lowered_limit_is_kept_and_takes_in_only_below_it ... ok
+test identity::tests::rotations_marks_and_snapshots_on_many_threads_stay_one_cut ... ok
+test contacts::tests::a_snapshot_is_one_cut_through_the_store ... ok
+
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 55.70s
+
+     Running tests/credentials.rs (/vol/target/debug/deps/credentials-39a728ad3ea73bb5)
+
+running 34 tests
+test a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3 ... ok
+test a_contact_deleted_or_blocked_during_the_dial_gets_no_message_3 ... ok
+test a_card_of_someone_who_is_no_contact_is_not_dialed ... ok
+test a_decision_for_one_rotation_changes_nothing_in_the_next ... ok
+test a_dial_is_admitted_against_the_contact_state_after_the_handshake ... ok
+test a_card_the_dial_plan_does_not_name_is_not_dialed ... ok
+test a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session ... ok
+test a_failed_installation_admits_nobody ... ok
+test a_key_older_than_the_announced_successor_gets_nothing ... ok
+test a_failed_write_withdraws_every_session_even_when_nobody_waits ... ok
+test a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn ... ok
+test a_late_announcement_counts_only_for_the_contact_it_was_made_to ... ok
+test a_key_retired_while_the_admission_is_made_durable_gets_no_message_3 ... ok
+test a_pending_key_does_not_receive_message_3 ... ok
+test a_request_is_made_with_the_card_of_its_session ... ok
+test a_promotion_stands_when_message_3_cannot_be_written ... ok
+test a_rotation_ends_only_after_a_durable_switch ... ok
+test a_stranger_request_reaches_the_queue_and_nothing_durable ... ok
+test a_rotation_switches_and_finishes_only_when_due ... ok
+test a_rotation_withdraws_the_link_of_the_retired_key ... ok
+test a_withdrawal_first_seen_by_send_writes_the_close ... ok
+test a_withdrawn_link_fails_at_once_every_time ... ok
+test a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed ... ok
+test an_older_card_of_the_active_key_still_receives_message_3 ... ok
+test an_announcement_is_sent_only_on_its_own_session ... ok
+test blocking_or_deleting_a_contact_withdraws_its_open_links ... ok
+test the_new_key_reaches_no_peer_before_it_is_durable ... ok
+test the_progress_of_one_rotation_never_counts_for_the_next ... ok
+test the_store_forgets_the_links_that_are_gone ... ok
+test what_a_dial_without_a_slot_recorded_survives_a_restart ... ok
+test what_a_refused_dial_recorded_survives_a_restart ... ok
+test the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further ... ok
+test what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart ... ok
+test what_an_answer_without_a_slot_recorded_survives_a_restart ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.03s
+
+     Running tests/front_end.rs (/vol/target/debug/deps/front_end-e8b4e243d347f3aa)
+
+running 16 tests
+test a_full_set_of_invitations_refuses_another_and_revokes_nothing ... ok
+test a_name_and_a_verification_go_to_the_record_they_were_set_for ... ok
+test a_blocked_handle_of_one_identity_names_nothing_at_another ... ok
+test a_blocked_contact_is_listed_by_its_fingerprint_and_unblocked_by_its_handle ... ok
+test a_request_is_listed_with_the_senders_fingerprint_and_accepted_by_its_handle ... ok
+test a_plain_card_reaches_an_identity_that_wants_invitations_once_it_adds_the_card_back ... ok
+test a_tor_check_says_what_the_endpoints_answer ... ok
+test a_request_handle_of_one_identity_names_nothing_at_another ... ok
+test an_invitation_is_listed_shown_again_and_revoked_by_its_handle ... ok
+test an_invitation_added_for_an_accepted_contact_is_said_as_the_record_holds_it ... ok
+test a_block_outlives_the_profile_and_a_handle_from_before_names_nothing ... ok
+test revoking_and_discarding_drops_the_requests_of_that_invitation_only ... ok
+test the_service_state_answers_as_the_last_event_said ... ok
+test declining_and_blocking_answer_only_the_named_request ... ok
+test an_unblocked_sender_is_left_to_the_request_mode ... ok
+test an_added_card_says_whether_it_carried_an_invitation_also_after_a_restart ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+
+     Running tests/fuzz_seeds.rs (/vol/target/debug/deps/fuzz_seeds-3a2eac0bb11e79ca)
+
+running 1 test
+test committed_seeds_are_current ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/identities.rs (/vol/target/debug/deps/identities-ac0caceaf39f2314)
+
+running 20 tests
+test a_closed_identity_shows_the_card_it_answered_with ... ok
+test a_deletion_names_the_instance_it_deletes ... ok
+test a_deleted_identity_hands_out_no_secret ... ok
+test a_dial_that_waited_for_its_slot_while_the_identity_was_deleted_opens_no_stream ... ok
+test a_session_that_outlives_its_deleted_identity_changes_nothing ... ok
+test a_new_identity_is_listed_only_once_it_is_durable ... ok
+test a_deleted_identity_admits_nobody_and_changes_nothing ... ok
+test a_rotation_to_the_same_public_key_is_refused_when_the_vault_is_opened ... ok
+test closing_the_installation_ends_the_authority_of_what_it_handed_out ... ok
+test t_mi_11_an_invitation_handle_of_one_identity_is_refused_by_another ... ok
+test t_mi_10_a_session_of_one_identity_changes_nothing_at_another ... ok
+test a_write_under_way_when_the_installation_closes_still_ends ... ok
+test an_identity_is_restored_only_if_the_vault_can_hold_it ... ok
+test t_mi_4_a_capability_of_one_identity_admits_nothing_at_another ... ok
+test t_mi_2_and_3_contact_state_belongs_to_one_identity ... ok
+test t_mi_8_every_dial_names_its_identity ... ok
+test t_mi_1_no_two_local_identities_share_a_key ... ok
+test t_mi_7_strangers_at_one_identity_change_nothing_at_another ... ok
+test the_rotation_of_one_identity_counts_for_no_other ... ok
+test t_mi_9_deleting_one_identity_leaves_the_other_as_it_was ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.94s
+
+     Running tests/invitations.rs (/vol/target/debug/deps/invitations-36ae752398f031dd)
+
+running 13 tests
+test an_answer_is_for_the_request_it_was_given_for ... ok
+test an_invitation_card_states_the_key_that_answers_when_it_is_returned ... ok
+test an_invitation_is_handed_out_only_once_it_is_durable ... ok
+test t_inv_10_another_capability_for_the_same_statement ... ok
+test request_modes_decide_what_a_stranger_can_ask ... ok
+test t_inv_11_revoking_keeps_pending_requests_unless_asked_to_discard_them ... ok
+test t_inv_5_and_6_every_dropped_request_looks_like_a_queued_one ... ok
+test t_inv_7_a_contact_accepted_from_a_revoked_capability_stays_accepted ... ok
+test t_inv_8_a_full_active_set_refuses_and_revokes_nothing ... ok
+test t_inv_9_a_label_is_never_in_a_card ... ok
+test what_arrived_counts_once ... ok
+test t_inv_1_to_4_cards_with_capabilities_admit_requests_until_revoked ... ok
+test a_request_stays_pending_when_answering_it_fails ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.73s
+
+     Running tests/link.rs (/vol/target/debug/deps/link-7e07174c6bb9d054)
+
+running 18 tests
+test a_dial_to_an_identity_without_a_record_sends_nothing_of_the_local_identity ... ok
+test a_dial_without_a_contact_slot_writes_no_message_3 ... ok
+test a_dropped_shutdown_sender_stops_the_loop ... ok
+test a_contact_refused_for_the_contact_budget_leaves_no_session_behind ... ok
+test a_silent_peer_is_dropped_after_the_handshake_timeout ... ok
+test a_stranger_through_a_valid_tor_stream_gets_only_a_close ... ok
+test a_tor_stream_carries_an_authenticated_exchange_both_ways ... ok
+test a_full_stranger_budget_evicts_the_oldest_silent_stranger ... ok
+test dials_beyond_the_dial_budget_wait_for_a_slot ... ok
+test a_stranger_finds_no_slot_while_evicted_strangers_drain ... ok
+test losing_tor_ends_the_accept_loop_and_the_publication ... ok
+test a_contact_is_never_evicted_for_a_stranger ... ok
+test local_identities_are_reached_through_their_own_services ... ok
+test reaching_the_onion_service_does_not_authenticate_another_identity ... ok
+test without_socks_or_a_service_a_dial_fails_and_tries_nothing_else ... ok
+test several_peers_handshake_at_the_same_time ... ok
+test listener_errors_do_not_end_the_accept_loop ... ok
+test the_accept_loop_bounds_handshakes_owns_its_tasks_and_ends_with_the_service ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.48s
+
+     Running tests/message_model.rs (/vol/target/debug/deps/message_model-2c7bd0fad048b9f7)
+
+running 1 test
+test the_state_machine_holds_what_the_model_holds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.79s
+
+     Running tests/messages.rs (/vol/target/debug/deps/messages-bbd4fd1312cf8883)
+
+running 27 tests
+test a_contact_made_again_does_not_inherit_the_queue_of_the_old_record ... ok
+test a_deleted_identity_restored_from_its_keys_has_no_messages ... ok
+test a_message_deleted_while_it_waits_to_be_sent_is_not_offered ... ok
+test a_message_is_queued_only_for_a_current_contact_record ... ok
+test a_message_is_stored_once_and_delivered_by_its_acknowledgement ... ok
+test a_delivered_message_stays_delivered_after_a_restart ... ok
+test a_crash_at_any_step_of_queueing_leaves_the_message_or_nothing ... ok
+test a_new_card_of_the_same_contact_keeps_its_record_and_its_queue ... ok
+test a_queue_holds_its_limit_and_refuses_one_more ... ok
+test a_message_store_that_does_not_authenticate_fails_the_installation ... ok
+test a_queued_message_is_reported_only_once_it_is_durable ... ok
+test a_queued_message_is_offered_for_sending_only_once_it_is_durable ... ok
+test a_receiver_that_crashes_before_the_message_is_durable_stores_nothing_and_acknowledges_nothing ... ok
+test a_receiver_that_crashes_after_storing_and_before_acknowledging_drops_the_retry ... ok
+test a_sender_that_crashes_before_the_delivery_is_durable_sends_again ... ok
+test a_sender_that_wrote_and_got_no_acknowledgement_sends_again_after_a_restart ... ok
+test a_vault_of_phase_4_beside_a_store_with_messages_is_refused ... ok
+test a_sender_that_crashes_before_sending_finds_the_message_queued ... ok
+test a_vault_of_phase_4_is_opened_with_identifiers_and_an_empty_message_store ... ok
+test a_vault_with_identities_and_no_message_store_opens_and_says_so ... ok
+test an_acknowledgement_reaches_only_the_conversation_of_its_session ... ok
+test blocking_ends_the_record_and_keeps_its_queue_without_sending_it ... ok
+test concurrent_copies_of_one_message_are_stored_once ... ok
+test the_queue_is_first_in_first_out ... ok
+test the_identities_of_one_installation_keep_their_messages_apart ... ok
+test what_arrived_on_a_link_that_ended_counts_for_nothing ... ok
+test a_crash_while_the_message_store_is_made_leaves_an_installation_that_opens ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.33s
+
+     Running tests/observability.rs (/vol/target/debug/deps/observability-2d6352a19912b275)
+
+running 7 tests
+test a_confirmation_is_for_a_contact_only ... ok
+test t_contact_3_a_request_after_a_deletion_is_from_an_unknown_identity ... ok
+test t_inj_text_the_vault_stores_comes_back_byte_for_byte ... ok
+test t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger ... ok
+test t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike ... ok
+test t_confirm_1_every_fate_of_a_request_looks_the_same ... ok
+test t_contact_1_a_flood_of_requests_leaves_the_vault_as_it_was ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.41s
+
+     Running tests/runtime.rs (/vol/target/debug/deps/runtime-9e722a7f52d9c148)
+
+running 56 tests
+test a_blocked_contact_gets_nothing_of_its_queue ... ok
+test a_block_for_a_record_made_again_before_it_runs_ends_nothing ... ok
+test a_connect_for_a_record_made_again_between_its_cards_dials_no_further ... ok
+test a_connect_once_the_runtime_shuts_down_dials_no_further ... ok
+test a_contact_made_again_is_not_dialed_for_the_queue_of_its_old_record ... ok
+test a_deleted_identity_stops_dialing_and_takes_no_command ... ok
+test a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing ... ok
+test a_contact_that_opens_sessions_above_its_rate_has_them_closed ... ok
+test a_failed_attempt_is_not_repeated_at_once ... ok
+test a_dial_that_fails_once_the_vault_failed_announces_no_retry ... ok
+test a_failed_vault_ends_every_attempt ... ok
+test a_failed_vault_is_reported_at_once_and_refuses_a_send ... ok
+test a_failed_message_store_ends_every_session_and_attempt ... ok
+test a_failure_of_tor_is_not_followed_by_the_active_key ... ok
+test a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded ... ok
+test a_lost_acknowledgement_is_followed_by_a_retry_the_receiver_drops ... ok
+test a_message_in_flight_is_sent_once_and_waited_for_from_then ... ok
+test a_message_queued_while_the_peer_is_away_is_delivered_once_it_is_back ... ok
+test a_peer_that_dials_in_and_never_acknowledges_does_not_reset_the_delays ... ok
+test a_contact_above_a_rate_is_slowed_and_no_other_contact_is ... ok
+test a_peer_that_never_acknowledges_is_dialed_with_growing_delays ... ok
+test a_ping_not_answered_within_its_timeout_ends_the_session ... ok
+test a_plan_whose_cards_both_fail_is_reported_once ... ok
+test a_pong_after_the_probe_was_decided_keeps_the_session ... ok
+test a_file_message_for_a_transfer_never_offered_ends_the_session ... ok
+test a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong ... ok
+test a_probed_session_that_answers_while_it_is_not_read_is_kept ... ok
+test a_probed_session_that_does_not_answer_loses_to_the_newer_one ... ok
+test a_runtime_dropped_without_a_shutdown_stops ... ok
+test a_record_with_two_sessions_is_reported_available_once ... ok
+test a_send_a_shutdown_cuts_short_says_so ... ok
+test a_send_once_the_runtime_shuts_down_says_so ... ok
+test a_send_for_a_record_deleted_while_it_waits_for_the_vault_queues_nothing ... ok
+test a_session_that_ends_with_a_message_in_flight_reports_nothing_delivered ... ok
+test a_restarted_sender_delivers_what_it_had_queued ... ok
+test a_send_its_caller_stops_waiting_for_completes ... ok
+test a_session_that_ends_with_its_service_leaves_no_registration_behind ... ok
+test a_session_that_waits_for_a_token_ends_when_it_is_closed ... ok
+test a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends ... ok
+test a_session_that_ends_with_its_record_announces_no_retry ... ok
+test a_successor_in_use_is_dialed_first_and_promoted ... ok
+test a_successor_that_does_not_answer_is_followed_by_the_active_key ... ok
+test an_identity_without_a_key_is_reported_so_and_stays_so ... ok
+test blocking_or_deleting_a_contact_ends_the_attempt_in_progress ... ok
+test a_shutdown_waits_for_a_command_under_way ... ok
+test delivery_resumes_through_tor_once_it_is_back ... ok
+test an_attempt_that_ends_between_its_cards_dials_no_further ... ok
+test no_acknowledgement_in_time_closes_the_session_and_tries_again_later ... ok
+test an_identity_deleted_while_a_send_waits_for_the_vault_fails_nothing ... ok
+test identities_of_one_runtime_keep_their_queues_and_sessions_apart ... ok
+test text_is_checked_before_anything_is_stored ... ok
+test nothing_is_dialed_without_a_queued_message_and_an_idle_session_ends ... ok
+test both_sides_sending_at_once_end_with_one_session_and_every_message_once ... ok
+test what_one_session_rejected_is_unknown_to_the_next ... ok
+test the_rate_of_a_contact_holds_across_its_sessions ... ok
+test what_cannot_follow_a_rejected_offer_ends_the_session ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.80s
+
+     Running tests/runtime_model.rs (/vol/target/debug/deps/runtime_model-3ad782b0847119ae)
+
+running 1 test
+test the_runtime_delivers_what_the_model_says ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.96s
+
+     Running tests/store.rs (/vol/target/debug/deps/store-dfe5b5ed65a196d9)
+
+running 16 tests
+test a_restart_on_disk_reproduces_the_durable_state ... ok
+test a_restart_reproduces_the_durable_state_exactly ... ok
+test a_block_that_races_an_admission_leaves_no_contact_session_standing ... ok
+test closing_an_installation_lets_go_of_its_directory_at_once ... ok
+test concurrent_operations_on_different_contacts_lose_nothing ... ok
+test an_announced_successor_is_atomic ... ok
+test beginning_a_rotation_is_atomic ... ok
+test blocking_is_atomic ... ok
+test creating_an_identity_is_atomic ... ok
+test creating_a_contact_is_atomic ... ok
+test identities_restored_or_created_never_share_a_key ... ok
+test concurrent_operations_on_one_contact_are_one_of_their_serial_orders ... ok
+test deleting_is_atomic ... ok
+test promoting_a_successor_is_atomic ... ok
+test creating_and_revoking_an_invitation_are_atomic has been running for over 60 seconds
+test creating_and_revoking_an_invitation_are_atomic ... ok
+test updating_a_card_is_atomic ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 94.24s
+
+     Running tests/structure.rs (/vol/target/debug/deps/structure-48c32ce4135a0c4a)
+
+running 10 tests
+test a_front_end_reaches_no_authority ... ok
+test a_message_leaves_only_once_it_is_durable ... ok
+test a_message_is_delivered_only_by_an_acknowledgement_a_link_received ... ok
+test a_store_key_made_for_tests_is_used_by_no_production_code ... ok
+test a_message_is_acknowledged_only_once_take_in_returned ... ok
+test no_party_of_a_local_identity_leaves_the_core ... ok
+test only_what_a_link_received_is_applied ... ok
+test no_crate_holds_state_in_a_static_or_a_thread_local ... ok
+test only_the_contact_store_admits_a_responder_and_only_dial_writes_message_3 ... ok
+test only_a_sent_announcement_counts ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/supervisor.rs (/vol/target/debug/deps/supervisor-8b263b71dcdb6b1e)
+
+running 9 tests
+test a_publication_under_way_ends_when_the_identity_is_deleted ... ok
+test a_service_published_for_a_deleted_identity_is_never_reported_available ... ok
+test an_identity_without_a_key_is_not_published ... ok
+test closing_the_installation_takes_its_services_down ... ok
+test shutdown_stops_the_supervisor_while_it_waits_or_serves ... ok
+test while_tor_cannot_publish_the_attempts_slow_down ... ok
+test the_supervisors_of_two_identities_do_not_touch_each_other ... ok
+test a_deleted_identity_is_taken_down_and_not_published_again ... ok
+test a_lost_service_is_published_again_under_the_same_name ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/tor_network.rs (/vol/target/debug/deps/tor_network-51c76214914cfde0)
+
+running 1 test
+test a_service_published_again_from_its_key_is_reached_again ... ignored, needs the private Tor network of tests/tor-network
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_desktop-2a6782e2a94c6c76)
+
+running 50 tests
+test bridge::tests::a_number_is_given_once_and_kept_for_its_reference ... ok
+test bridge::tests::a_number_names_nothing_for_another_identity ... ok
+test bridge::tests::a_forgotten_reference_is_never_given_its_number_again ... ok
+test calendar::tests::in_utc_it_agrees_with_the_fallback ... ok
+test bridge::tests::a_task_that_panicked_is_answered_for_its_command ... ok
+test config::tests::a_line_that_does_not_parse_leaves_the_default ... ok
+test config::tests::a_value_cannot_add_a_line ... ok
+test config::tests::the_socks_endpoint_is_proved_except_on_tails_and_whonix ... ok
+test config::tests::tor_settings_without_a_cookie_are_refused ... ok
+test config::tests::what_is_written_is_read_back ... ok
+test convert::tests::a_delay_below_a_second_is_never_said_to_be_none ... ok
+test convert::tests::a_failed_send_is_said_where_it_was_met_unless_the_store_failed ... ok
+test convert::tests::handles_round_trip_to_the_identifiers_they_were_made_from ... ok
+test convert::tests::presence_is_not_forwarded ... ok
+test files::tests::a_card_file_is_read_only_if_it_is_small_text ... ok
+test files::tests::a_device_is_never_read_as_a_card ... ok
+test files::tests::a_link_is_never_followed ... ok
+test files::tests::a_name_cannot_leave_the_folder ... ok
+test files::tests::a_card_goes_to_the_downloads_folder_chosen_by_the_thread_of_the_files ... ok
+test files::tests::a_name_given_to_something_else_once_looked_at_is_not_read ... ok
+test files::tests::a_pipe_is_never_opened_by_its_name_or_through_a_link ... ok
+test files::tests::a_pipe_is_opened_without_waiting_and_refused ... ok
+test local::tests::a_drive_on_a_share_is_refused_before_anything_on_it_is_looked_at ... ok
+test local::tests::a_file_is_held_here_unless_it_is_offline_or_in_the_cloud_only ... ok
+test local::tests::a_path_of_a_drive_is_looked_at_from_the_root_down_and_resolved_where_it_ends ... ok
+test files::tests::a_saved_card_never_replaces_a_file ... ok
+test local::tests::a_path_resolved_on_a_share_is_not_on_a_drive ... ok
+test local::tests::nothing_below_a_link_is_looked_at ... ok
+test local::tests::the_names_windows_keeps_for_devices_are_known_in_every_form ... ok
+test places::tests::a_mount_point_is_read_from_the_mount_table ... ok
+test places::tests::a_path_that_climbs_out_is_never_in_the_persistent_storage ... ok
+test places::tests::tails_is_known_by_its_os_release ... ok
+test system_fonts::tests::a_file_that_is_not_a_font_is_left_out ... ok
+test places::tests::tor_browser_is_looked_for_on_a_desktop_that_onedrive_moved ... ok
+test tests::a_place_named_and_refused_is_said_refused_and_not_replaced ... ok
+test tests::only_absolute_paths_are_taken ... ok
+test tests::the_runtime_proves_the_socks_endpoint_except_on_tails_and_whonix ... ok
+test window::tests::a_window_asked_to_close_is_hidden_at_once ... ok
+test window::tests::closing_that_costs_nothing_hides_the_window_at_once ... ok
+test window::tests::closing_what_saves_nothing_asks_first_and_hides_the_window_once_agreed ... ok
+test window::tests::closing_with_messages_not_delivered_asks_and_cancel_keeps_the_window ... ok
+test window::tests::a_session_that_saves_nothing_writes_no_settings_file ... ok
+test window::tests::no_url_leaves_a_frame ... ok
+test window::tests::the_icon_is_square_and_opaque_in_the_middle ... ok
+test window::tests::the_saved_size_of_the_window_is_its_size_on_the_screen_whatever_the_zoom ... ok
+test window::tests::the_title_changes_with_the_count_and_attention_is_asked_only_in_the_background ... ok
+test window::tests::the_title_counts_what_waits_over_all_identities ... ok
+test window::tests::the_first_frame_is_cleared_with_the_colour_of_the_theme ... ok
+test files::tests::closing_waits_a_while_only_for_a_job_that_hangs ... ok
+test window::tests::dropping_the_window_waits_for_no_thread ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.09s
+
+     Running unittests src/main.rs (/vol/target/debug/deps/monolith_desktop-3ac9d7f8374c855e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/boundary.rs (/vol/target/debug/deps/boundary-529bf377ec82dc30)
+
+running 3 tests
+test the_desktop_reaches_the_core_only_through_the_runtime ... ok
+test the_ui_crates_reach_no_monolith_crate_but_each_other ... ok
+test the_ui_model_depends_on_no_toolkit ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/bridge.rs (/vol/target/debug/deps/bridge-178364f1322ab9d1)
+
+running 8 tests
+test a_runtime_thread_that_panics_is_said_to_have_stopped ... ok
+test a_runtime_thread_that_panics_wakes_the_window ... ok
+test a_session_is_answered_command_by_command ... ok
+test closing_the_window_stops_the_runtime ... ok
+test a_blocked_person_is_unblocked_by_a_number_of_their_identity_once ... ok
+test a_handle_of_one_identity_names_nothing_of_another ... ok
+test a_contact_added_says_whether_its_card_was_an_invitation ... ok
+test messages_are_read_in_pages_up_to_the_limit ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_identity-4f3a1598426a5424)
+
+running 56 tests
+test base32::tests::decodes_the_rfc_vectors ... ok
+test base32::tests::decodes_lower_case ... ok
+test base32::tests::encodes_the_rfc_vectors ... ok
+test base32::tests::encoded_len_matches_the_encoder ... ok
+test base32::tests::rejects_characters_outside_the_alphabet ... ok
+test base32::tests::rejects_lengths_that_encode_nothing ... ok
+test base32::tests::rejects_nonzero_trailing_bits ... ok
+test base32::tests::every_byte_value_round_trips ... ok
+test base32::tests::rejects_output_longer_than_the_limit ... ok
+test endpoint::tests::next_stops_at_the_end_of_the_range ... ok
+test endpoint::tests::accepts_an_honestly_generated_key ... ok
+test endpoint::tests::only_a_strictly_greater_epoch_supersedes ... ok
+test endpoint::tests::debug_output_does_not_contain_key_bytes ... ok
+test endpoint::tests::zero_is_not_an_epoch ... ok
+test fingerprint::tests::compact_form_has_six_groups_of_four ... ok
+test fingerprint::tests::compact_form_is_a_prefix_of_the_full_form ... ok
+test fingerprint::tests::debug_output_shows_no_fingerprint ... ok
+test fingerprint::tests::different_identities_have_different_fingerprints ... ok
+test fingerprint::tests::full_form_has_thirteen_groups_of_four ... ok
+test endpoint::tests::rejects_the_neutral_element ... ok
+test fingerprint::tests::known_answer ... ok
+test fingerprint::tests::text_uses_only_the_base32_alphabet_and_spaces ... ok
+test key::tests::debug_output_shows_no_key_material ... ok
+test endpoint::tests::rejects_a_key_with_a_torsion_component ... ok
+test key::tests::key_validity_malformed_compressed_point ... ok
+test key::tests::key_validity_identity_point ... ok
+test key::tests::keys_are_ordered_by_bytes ... ok
+test key::tests::matches_the_rfc_8032_test_vector ... ok
+test key::tests::public_key_bytes_round_trip ... ok
+test key::tests::rejects_a_signature_by_another_key ... ok
+test key::tests::key_validity_generated_point ... ok
+test key::tests::key_validity_small_order_point ... ok
+test key::tests::key_validity_point_with_a_torsion_component ... ok
+test key::tests::verification_is_strict ... ok
+test key::tests::verifies_its_own_signatures ... ok
+test onion::tests::a_key_round_trips_through_its_service_id ... ok
+test onion::tests::a_version_other_than_three_is_refused_even_with_a_matching_checksum ... ok
+test key::tests::rejects_bytes_that_are_not_a_point ... ok
+test onion::tests::a_wrong_checksum_version_case_or_length_is_refused ... ok
+test onion::tests::an_address_of_an_invalid_key_is_refused ... ok
+test onion::tests::debug_output_shows_no_address ... ok
+test redact::tests::debug_and_display_hide_the_value ... ok
+test redact::tests::expose_returns_the_value ... ok
+test transport::tests::a_point_and_its_negative_have_the_same_montgomery_form ... ok
+test onion::tests::the_example_of_the_specification_parses_and_encodes_back ... ok
+test transport::tests::accepts_the_rfc_7748_keys_and_the_base_point ... ok
+test transport::tests::bytes_that_are_not_a_point_have_no_montgomery_form ... ok
+test transport::tests::debug_output_does_not_contain_key_bytes ... ok
+test transport::tests::montgomery_form_matches_the_published_vector ... ok
+test transport::tests::rejects_every_key_with_the_top_bit_set ... ok
+test transport::tests::rejects_every_point_of_small_order ... ok
+test transport::tests::rejects_values_that_are_not_below_the_field_prime ... ok
+test transport::tests::the_comparison_with_the_prime_looks_at_every_byte ... ok
+test transport::tests::the_small_order_list_is_the_one_in_the_specification ... ok
+test key::tests::rejects_non_canonical_encodings ... ok
+test key::tests::rejects_every_single_bit_flip_in_a_signature ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.20s
+
+     Running tests/properties.rs (/vol/target/debug/deps/properties-f8c7b2320174a195)
+
+running 12 tests
+test accepted_base32_is_canonical ... ok
+test base32_decoder_respects_its_limit ... ok
+test arbitrary_text_does_not_panic_the_base32_decoder ... ok
+test base32_round_trips ... ok
+test a_transport_key_is_the_montgomery_form_of_at_most_the_converted_key ... ok
+test arbitrary_signatures_do_not_verify ... ok
+test montgomery_forms_match_the_independent_values ... ok
+test fingerprints_differ_between_identities ... ok
+test transport_key_validity_follows_the_definition ... ok
+test signatures_verify_only_for_the_signed_message ... ok
+test generated_keys_are_valid_for_both_purposes ... ok
+test key_validity_follows_the_definition ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.27s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_protocol-9bc9bf3fa22e858a)
+
+running 197 tests
+test body::tests::chat_text_field_limits ... ok
+test body::tests::empty_messages_reject_any_body ... ok
+test body::tests::a_card_with_an_invitation_is_rejected_inside_messages ... ok
+test body::tests::file_chunk_limits ... ok
+test body::tests::file_offer_size_is_bounded ... ok
+test body::tests::invalid_text_in_a_body_is_rejected ... ok
+test body::tests::oracle_3_no_message_states_a_reason ... ok
+test body::tests::body_sizes_match_the_specification ... ok
+test body::tests::debug_output_shows_no_content ... ok
+test body::tests::presence_byte_must_be_zero_or_one ... ok
+test body::tests::samples_cover_every_message_type ... ok
+test body::tests::every_message_round_trips ... ok
+test card::tests::a_card_signed_by_another_identity_is_rejected ... ok
+test body::tests::truncated_bodies_are_rejected ... ok
+test card::tests::a_signed_card_with_an_invalid_endpoint_is_rejected ... ok
+test body::tests::trailing_bytes_are_rejected ... ok
+test card::tests::an_invitation_capability_is_erased_and_copied_only_on_purpose ... ok
+test card::tests::an_endpoint_must_not_be_the_identity_key ... ok
+test card::tests::a_signed_card_with_an_invalid_transport_key_is_rejected ... ok
+test card::tests::binary_form_round_trips ... ok
+test card::tests::card_change_outcomes ... ok
+test card::tests::debug_output_shows_nothing ... ok
+test card::tests::endpoint_count_must_be_exactly_one_in_version_1 ... ok
+test card::tests::epoch_zero_is_rejected ... ok
+test card::tests::cards_that_differ_only_in_their_capability_do_not_conflict ... ok
+test card::tests::endpoint_set_rejects_empty_duplicate_and_oversized_input ... ok
+test card::tests::field_layout_is_as_specified ... ok
+test card::tests::invitation_capabilities_compare_by_value ... ok
+test card::tests::invalid_identity_key_is_rejected ... ok
+test card::tests::key_separation_is_checked_before_the_endpoints_are_validated ... ok
+test card::tests::endpoint_sets_compare_as_sets ... ok
+test card::tests::known_answer ... ok
+test card::tests::length_must_match_the_invitation_flag ... ok
+test card::tests::known_answer_of_the_initiator_card ... ok
+test card::tests::raw_card_helper_builds_valid_cards ... ok
+test card::tests::signature_verifies_over_the_signed_bytes ... ok
+test card::tests::reserved_flag_bits_are_rejected ... ok
+test card::tests::signed_bytes_are_the_prefix_and_the_unsigned_fields ... ok
+test card::tests::text_form_rejects_bad_input ... ok
+test card::tests::text_form_rejects_nonzero_trailing_bits ... ok
+test card::tests::text_form_rejects_oversized_input_before_decoding ... ok
+test card::tests::sizes_match_the_specification ... ok
+test card::tests::text_form_accepts_lower_case_and_whitespace ... ok
+test card::tests::the_transport_key_must_not_be_an_endpoint_key_in_montgomery_form ... ok
+test card::tests::text_form_round_trips_and_is_upper_case ... ok
+test card::tests::wrong_lengths_are_rejected ... ok
+test codec::tests::a_growing_writer_keeps_every_byte_in_order ... ok
+test codec::tests::debug_output_shows_sizes_only ... ok
+test codec::tests::finish_rejects_trailing_bytes ... ok
+test codec::tests::integers_are_big_endian ... ok
+test card::tests::the_transport_key_must_not_be_the_identity_key_in_montgomery_form ... ok
+test codec::tests::presence_byte_accepts_only_zero_and_one ... ok
+test codec::tests::reading_past_the_end_fails_without_consuming ... ok
+test codec::tests::variable_field_enforces_the_maximum_before_reading ... ok
+test card::tests::wrong_version_is_rejected ... ok
+test codec::tests::variable_field_enforces_the_minimum ... ok
+test codec::tests::variable_field_rejects_truncation ... ok
+test codec::tests::variable_field_round_trips ... ok
+test codec::tests::writer_refuses_an_oversized_field_and_writes_nothing ... ok
+test contact::tests::a_kind_without_matching_credentials_is_refused ... ok
+test contact::tests::the_pending_card_is_confirmed_and_nothing_else ... ok
+test credential::tests::a_card_at_the_epoch_of_the_successor_that_says_otherwise_is_a_conflict ... ok
+test credential::tests::a_newer_active_card_drops_successors_it_supersedes ... ok
+test contact::tests::import_and_admission_agree_on_every_card ... ok
+test credential::tests::a_newer_card_with_the_active_key_advances_it ... ok
+test credential::tests::a_pending_card_of_a_peer_does_not_keep_out_the_users_own ... ok
+test credential::tests::a_newer_key_without_continuity_is_only_pending ... ok
+test credential::tests::a_pending_successor_takes_over_only_when_confirmed ... ok
+test credential::tests::a_presented_card_does_not_displace_the_users_pending_card ... ok
+test credential::tests::a_proven_key_older_than_the_announced_successor_is_stale ... ok
+test credential::tests::a_proven_successor_is_promoted_and_the_old_key_retired ... ok
+test contact::tests::every_kind_of_record_in_every_context ... ok
+test credential::tests::a_successor_announced_through_the_active_key_is_authorized ... ok
+test credential::tests::a_successor_card_older_than_the_announced_one_is_stale ... ok
+test credential::tests::an_older_card_with_the_active_key_is_the_contact ... ok
+test credential::tests::importing_for_a_requested_contact_replaces_the_card ... ok
+test credential::tests::an_announcement_needs_a_session_made_with_the_active_key ... ok
+test credential::tests::importing_for_an_accepted_contact_never_replaces_the_key ... ok
+test credential::tests::invalid_cards_never_become_successors ... ok
+test credential::tests::rotation_without_the_old_keys_fails_safely ... ok
+test credential::tests::table::a_card_of_another_identity_is_refused_from_every_source ... ok
+test credential::tests::simultaneous_rotation_on_both_sides_completes ... ok
+test credential::tests::table::the_same_card_has_the_same_relation_whatever_its_source ... ok
+test credential::tests::table::restore_accepts_exactly_the_states_of_the_invariants ... ok
+test credential::tests::the_active_key_is_admitted_and_older_cards_of_other_keys_are_not ... ok
+test credential::tests::the_card_of_a_new_contact_is_active ... ok
+test duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one ... ok
+test duplicate::tests::a_session_of_a_retired_key_never_wins ... ok
+test duplicate::tests::a_session_with_oneself_is_an_error ... ok
+test duplicate::tests::both_ends_keep_the_same_session_whatever_the_order ... ok
+test duplicate::tests::cross_direction_prefers_the_session_of_the_smaller_key ... ok
+test duplicate::tests::same_direction_keeps_the_newer_session ... ok
+test duplicate::tests::the_smaller_key_is_preferred ... ok
+test frame::tests::a_stream_that_never_completes_a_frame_holds_at_most_one_frame ... ok
+test frame::tests::body_length_must_fit_the_frame ... ok
+test frame::tests::debug_output_of_the_decoder_shows_no_payload ... ok
+test frame::tests::decoder_applies_the_limit_of_the_state ... ok
+test frame::tests::decoder_handles_any_split_of_the_stream ... ok
+test frame::tests::decoder_never_buffers_more_than_one_frame ... ok
+test frame::tests::decoder_rejects_a_bad_length_before_consuming_payload ... ok
+test frame::tests::other_parameters_follow_the_same_rules ... ok
+test frame::tests::outer_encoder_refuses_illegal_payload_lengths ... ok
+test frame::tests::outer_frame_round_trips ... ok
+test frame::tests::outer_length_rules ... ok
+test frame::tests::oversized_body_is_refused_by_the_encoder ... ok
+test frame::tests::padding_must_be_minimal ... ok
+test frame::tests::padding_must_be_zero ... ok
+test frame::tests::parameters_are_validated ... ok
+test frame::tests::plaintext_layout ... ok
+test frame::tests::plaintext_length_must_be_legal ... ok
+test frame::tests::plaintext_round_trips ... ok
+test frame::tests::provisional_parameters_give_the_documented_sizes ... ok
+test frame::tests::the_code_of_the_former_identity_proof_is_refused ... ok
+test frame::tests::the_largest_body_is_the_boundary_of_the_decoder ... ok
+test frame::tests::the_state_gate_runs_before_the_body_is_returned ... ok
+test frame::tests::unknown_type_codes_are_rejected ... ok
+test message::tests::a_confirmed_session_accepts_every_message_type ... ok
+test message::tests::codes_are_unique_and_ordered ... ok
+test message::tests::codes_round_trip ... ok
+test message::tests::nothing_is_accepted_before_the_peer_is_authenticated ... ok
+test message::tests::nothing_is_accepted_while_closing_or_closed ... ok
+test message::tests::the_code_of_the_former_identity_proof_is_not_assigned ... ok
+test message::tests::unassigned_codes_are_rejected ... ok
+test message::tests::unknown_peers_cannot_send_application_data ... ok
+test session::tests::a_request_from_an_accepted_peer_changes_nothing ... ok
+test session::tests::a_request_from_the_initiator_carries_the_card_of_the_handshake ... ok
+test session::tests::a_request_from_the_responder_states_the_authenticated_transport_key ... ok
+test session::tests::a_request_to_an_accepting_side_confirms_both ... ok
+test session::tests::a_request_with_a_card_of_another_identity_is_a_violation_for_everyone ... ok
+test session::tests::a_requested_peer_that_accepts_becomes_a_contact ... ok
+test session::tests::a_requester_cannot_tell_why_it_was_turned_away ... ok
+test session::tests::a_second_request_before_confirmation_is_a_violation ... ok
+test session::tests::a_session_is_authenticated_once ... ok
+test session::tests::a_stranger_request_is_answered_with_close_and_then_considered ... ok
+test session::tests::a_withdrawn_session_ends_and_delivers_nothing ... ok
+test session::tests::accepted_contacts_confirm_with_contact_accept ... ok
+test session::tests::an_endpoint_update_may_announce_another_transport_key ... ok
+test session::tests::an_endpoint_update_with_a_card_of_another_identity_is_a_violation ... ok
+test session::tests::an_inbound_card_with_an_invitation_is_refused ... ok
+test session::tests::an_outbound_session_accepts_only_the_identity_it_dialed ... ok
+test session::tests::blocking_or_removing_a_contact_looks_like_any_other_close ... ok
+test session::tests::close_from_the_peer_ends_the_session ... ok
+test session::tests::confirmed_sessions_ignore_late_confirmation_messages ... ok
+test session::tests::crossing_requests_accept_each_other ... ok
+test session::tests::every_emitted_send_is_permitted_by_may_send ... ok
+test session::tests::every_pair_of_standings_ends_consistently ... ok
+test session::tests::first_message_depends_only_on_the_standing ... ok
+test session::tests::importing_a_card_depends_on_the_relationship ... ok
+test session::tests::local_close_in_every_state ... ok
+test session::tests::may_send_in_every_state ... ok
+test session::tests::nothing_is_accepted_before_authentication ... ok
+test session::tests::one_sided_contact_is_never_confirmed ... ok
+test session::tests::only_requested_and_accepted_count_as_contact_records ... ok
+test session::tests::oracle_1_non_contacts_are_indistinguishable ... ok
+test session::tests::oracle_1_the_only_difference_is_invisible ... ok
+test session::tests::oracle_4_violations_emit_nothing ... ok
+test session::tests::oracle_5_nothing_but_confirmation_messages_before_confirmation ... ok
+test session::tests::requests_from_other_non_contacts_are_not_considered ... ok
+test session::tests::standing_of_an_inbound_peer_follows_the_record_and_the_card ... ok
+test session::tests::states_are_entered_in_order ... ok
+test session::tests::the_local_identity_is_refused_as_a_peer ... ok
+test session::tests::the_session_never_moves_backwards ... ok
+test session::tests::what_one_side_may_send_the_other_side_accepts ... ok
+test state::tests::authentication_cannot_be_skipped ... ok
+test state::tests::closed_is_terminal ... ok
+test state::tests::contact_state_is_reached_only_through_confirmation ... ok
+test state::tests::every_live_state_can_reach_closed ... ok
+test state::tests::only_the_two_authenticated_states_count_as_authenticated ... ok
+test state::tests::sessions_never_move_backwards_or_stay_in_place ... ok
+test text::tests::carriage_return_is_rejected_in_free_text ... ok
+test text::tests::chat_text_accepts_ordinary_text_with_tabs_and_line_feeds ... ok
+test text::tests::chat_text_length_bounds ... ok
+test text::tests::control_characters_are_rejected_everywhere ... ok
+test text::tests::debug_output_shows_no_text ... ok
+test text::tests::display_name_accepts_ordinary_names ... ok
+test text::tests::display_name_allows_only_the_ordinary_space_as_whitespace ... ok
+test text::tests::display_name_length_is_bounded_in_bytes_and_in_scalars ... ok
+test text::tests::display_name_rejects_bidirectional_controls ... ok
+test text::tests::display_name_rejects_invisible_characters ... ok
+test text::tests::display_name_rejects_leading_and_trailing_spaces ... ok
+test text::tests::display_name_rejects_line_breaks_and_tabs ... ok
+test text::tests::display_names_are_kept_as_sent_whatever_their_normalization ... ok
+test text::tests::filename_accepts_ordinary_names ... ok
+test text::tests::filename_length_bounds ... ok
+test text::tests::filename_rejects_separators_and_traversal ... ok
+test text::tests::filename_rejects_the_right_to_left_override_trick ... ok
+test text::tests::introduction_and_profile_may_be_empty_and_are_bounded ... ok
+test text::tests::invalid_utf8_is_rejected ... ok
+test text::tests::names_reject_characters_that_draw_as_nothing ... ok
+test text::tests::save_name_defuses_reserved_device_names ... ok
+test text::tests::save_name_is_never_longer_than_a_filename ... ok
+test text::tests::save_name_keeps_ordinary_names ... ok
+test text::tests::save_name_replaces_reserved_characters ... ok
+test text::tests::save_name_strips_leading_and_trailing_dots ... ok
+test credential::tests::table::every_card_from_every_source_in_every_state ... ok
+test credential::tests::the_active_key_changes_only_through_continuity_or_the_user ... ok
+test card::tests::every_single_bit_flip_is_rejected ... ok
+
+test result: ok. 197 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 52.71s
+
+     Running tests/fuzz_seeds.rs (/vol/target/debug/deps/fuzz_seeds-e2bc9aacd6c170f5)
+
+running 2 tests
+test committed_seeds_are_current ... ok
+test seeds_are_accepted_by_what_they_are_meant_for ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/properties.rs (/vol/target/debug/deps/properties-51cc6b9694634779)
+
+running 33 tests
+test a_body_decodes_only_as_its_own_type_or_canonically ... ok
+test a_body_of_the_wrong_length_is_rejected ... ok
+test a_plaintext_of_the_wrong_length_is_rejected ... ok
+test a_card_text_with_one_changed_symbol_is_rejected ... ok
+test a_damaged_card_is_rejected ... ok
+test a_session_that_is_not_authenticated_delivers_nothing ... ok
+test any_nonzero_padding_byte_is_rejected ... ok
+test arbitrary_bodies_do_not_panic_the_decoder ... ok
+test arbitrary_bytes_do_not_panic_the_card_decoder ... ok
+test arbitrary_text_is_not_a_card ... ok
+test both_ends_keep_the_same_duplicate ... ok
+test a_card_with_a_forged_field_is_rejected ... ok
+test damaged_messages_are_rejected_or_canonical ... ok
+test damaged_plaintexts_are_rejected_or_canonical ... ok
+test display_names_are_accepted_exactly_when_the_rules_say_so ... ok
+test filenames_are_accepted_exactly_when_the_rules_say_so ... ok
+test frames_are_gated_by_the_session_state ... ok
+test free_text_keeps_format_characters_and_rejects_controls ... ok
+test identities_that_are_not_contacts_see_the_same_thing ... ok
+test a_session_is_authenticated_only_after_the_handshake_and_as_the_right_identity ... ok
+test messages_round_trip ... ok
+test save_names_are_single_safe_components ... ok
+test save_names_of_device_names_are_safe ... ok
+test plaintext_round_trips ... ok
+test session_invariants_hold_for_any_sequence_of_events ... ok
+test the_frame_decoder_never_holds_more_than_one_frame ... ok
+test text_validators_accept_or_reject_without_panicking ... ok
+test the_frame_decoder_reassembles_any_split ... ok
+test well_formed_text_of_arbitrary_bytes_is_not_a_card ... ok
+test a_well_formed_card_with_another_signature_is_rejected ... ok
+test the_standing_of_an_inbound_peer_follows_the_table ... ok
+test whitespace_in_a_card_text_changes_nothing ... ok
+test cards_round_trip_in_both_forms ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.69s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_runtime-c677fbf469b0444a)
+
+running 2 tests
+test tests::a_changed_message_store_is_not_told_as_a_wrong_passphrase ... ok
+test tests::an_ephemeral_messenger_answers_its_queries_with_plain_values ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_session-ded9f692f8999aa9)
+
+running 129 tests
+test handshake::tests::a_message_buffer_takes_exactly_its_size ... ok
+test key::tests::a_buffer_of_zeros_is_not_a_key ... ok
+test handshake::tests::the_protocol_name_and_the_label_are_those_of_the_specification ... ok
+test handshake::tests::the_prologue_is_the_label_and_the_responder_identity ... ok
+test key::tests::every_seed_gives_a_valid_public_key ... ok
+test key::tests::generated_keys_differ ... ok
+test key::tests::key_separation_is_checked_when_the_party_is_made ... ok
+test key::tests::public_key_matches_rfc_7748 ... ok
+test resolver::tests::a_cipher_without_a_key_produces_no_ciphertext_and_reads_none ... ok
+test resolver::tests::an_all_zero_result_is_refused_on_its_own ... ok
+test key::tests::debug_output_shows_no_key_material ... ok
+test resolver::tests::dh_fails_without_a_key_and_with_short_buffers ... ok
+test resolver::tests::dh_refuses_every_point_of_small_order ... ok
+test resolver::tests::dh_refuses_keys_that_are_not_canonical ... ok
+test resolver::tests::dh_takes_the_key_from_the_front_of_a_longer_buffer ... ok
+test resolver::tests::generated_keys_come_from_the_random_source ... ok
+test resolver::tests::sha256_matches_the_standard_vectors ... ok
+test resolver::tests::the_cipher_handles_short_buffers_without_output ... ok
+test resolver::tests::the_cipher_matches_the_independent_vectors ... ok
+test resolver::tests::the_fixed_source_repeats_its_bytes ... ok
+test resolver::tests::the_hmac_snow_builds_from_the_hash_matches_rfc_4231 ... ok
+test resolver::tests::the_nonce_is_four_zero_bytes_and_the_counter_in_little_endian ... ok
+test resolver::tests::the_operating_system_source_fills_the_whole_buffer ... ok
+test resolver::tests::the_resolver_serves_the_one_suite_and_nothing_else ... ok
+test resolver::tests::x25519_matches_rfc_7748 ... ok
+test resolver::tests::the_cipher_opens_what_it_sealed_and_nothing_else ... ok
+test key::tests::a_local_party_signs_its_own_card ... ok
+test key::tests::a_card_from_outside_cannot_become_the_local_card ... ok
+test tests::contacts::a_card_that_contradicts_the_pinned_one_does_not_open_a_contact_session ... ok
+test tests::contacts::a_contact_that_is_blocked_while_connected_sees_an_ordinary_close ... ok
+test tests::contacts::a_card_older_than_the_active_one_opens_a_contact_session_only_with_the_active_key ... ok
+test tests::contacts::a_newer_card_with_the_active_key_keeps_the_contact ... ok
+test tests::contacts::a_dialed_card_that_was_superseded_meanwhile_gives_no_contact_session ... ok
+test tests::contacts::a_record_of_another_identity_is_refused ... ok
+test tests::contacts::a_new_key_shown_without_continuity_does_not_lock_out_the_active_one ... ok
+test tests::contacts::a_request_is_sent_once_on_a_session ... ok
+test tests::contacts::a_request_carries_the_invitation_for_this_peer_and_no_other ... ok
+test tests::contacts::accepted_contacts_confirm_each_other ... ok
+test tests::contacts::a_request_is_answered_with_close_before_it_is_considered ... ok
+test tests::contacts::crossing_requests_accept_each_other ... ok
+test tests::contacts::nothing_is_sent_on_a_confirmed_session_before_the_local_accept ... ok
+test tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one ... ok
+test tests::contacts::an_invitation_capability_changes_nothing_a_requester_can_see ... ok
+test tests::credentials::an_announcement_on_a_session_of_a_retired_key_proves_nothing ... ok
+test tests::credentials::a_rotation_through_the_active_key_retires_it_and_its_sessions ... ok
+test tests::credentials::crossing_dials_of_two_rotations_complete ... ok
+test tests::credentials::simultaneous_rotation_without_the_old_keys_fails_safely ... ok
+test tests::credentials::simultaneous_rotation_completes_while_the_old_keys_answer ... ok
+test tests::deadlines::a_confirmed_session_waits_for_the_idle_limit ... ok
+test tests::credentials::the_duplicate_rule_never_keeps_a_session_of_a_retired_key ... ok
+test tests::deadlines::a_frame_sent_a_byte_at_a_time_does_not_hold_the_session ... ok
+test tests::deadlines::a_frame_that_completes_in_time_clears_its_deadline ... ok
+test tests::deadlines::a_peer_that_is_not_a_contact_has_to_send_its_first_message_in_time ... ok
+test tests::deadlines::a_session_leaves_authenticated_unknown_in_time ... ok
+test tests::deadlines::an_ended_session_has_no_deadline_and_ignores_expiry ... ok
+test tests::contacts::every_pair_of_records_ends_consistently ... ok
+test tests::deadlines::bytes_of_an_incomplete_frame_do_not_move_the_idle_limit ... ok
+test tests::deadlines::the_age_limit_ends_a_session_that_only_receives_part_of_a_frame ... ok
+test tests::deadlines::the_close_after_a_strangers_first_message_is_due_at_once ... ok
+test tests::frames::a_close_at_the_age_limit_is_an_orderly_end ... ok
+test tests::frames::a_frame_long_after_the_age_limit_ends_the_session ... ok
+test tests::frames::a_card_of_another_identity_ends_the_session ... ok
+test tests::frames::a_frame_of_more_than_one_block_is_refused_before_confirmation ... ok
+test tests::frames::a_frame_of_another_session_or_direction_is_rejected ... ok
+test tests::frames::a_frame_is_accepted_in_any_fragmentation ... ok
+test tests::frames::a_peer_that_exceeds_the_frame_limit_ends_the_session ... ok
+test tests::frames::a_frame_that_authenticates_and_is_malformed_inside_ends_the_session ... ok
+test tests::frames::a_modified_length_prefix_ends_the_session ... ok
+test tests::frames::a_transfer_that_starts_after_the_age_limit_does_not_extend_it ... ok
+test tests::frames::an_active_transfer_extends_the_age_limit_and_no_further ... ok
+test tests::frames::application_messages_are_refused_before_the_session_is_confirmed ... ok
+test tests::frames::close_is_not_sent_like_a_message ... ok
+test tests::frames::blocking_or_removing_a_contact_looks_like_any_other_close ... ok
+test tests::frames::a_tampered_frame_ends_the_session ... ok
+test tests::frames::frames_have_the_sizes_of_the_specification ... ok
+test tests::frames::dropped_duplicated_and_reordered_frames_end_the_session ... ok
+test tests::frames::nothing_is_processed_after_a_close ... ok
+test tests::frames::messages_cross_a_confirmed_session_in_both_directions ... ok
+test tests::frames::the_age_limit_ends_a_session ... ok
+test tests::frames::the_byte_limit_ends_a_session_and_leaves_room_for_close ... ok
+test tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason ... ok
+test tests::frames::only_the_local_card_is_sent ... ok
+test tests::frames::the_frame_limit_ends_a_session_and_leaves_room_for_close ... ok
+test tests::frames::what_a_session_returns_prints_no_content ... ok
+test tests::frames::the_protocol_limits_are_the_default ... ok
+test tests::handshake::a_card_that_names_another_partys_transport_key_gives_no_session ... ok
+test tests::handshake::a_failing_random_source_fails_the_handshake ... ok
+test tests::frames::the_cipher_keys_are_dropped_when_the_session_ends ... ok
+test tests::handshake::a_party_does_not_dial_its_own_identity ... ok
+test tests::handshake::a_handshake_authenticates_both_sides ... ok
+test tests::handshake::a_payload_of_another_size_is_not_a_third_message ... ok
+test tests::handshake::a_responder_with_another_label_is_not_accepted ... ok
+test tests::handshake::a_party_acts_only_as_the_identity_that_signed_its_card ... ok
+test tests::handshake::a_second_message_of_another_handshake_is_not_accepted ... ok
+test tests::handshake::a_pinned_card_with_an_invitation_can_be_dialed ... ok
+test tests::handshake::a_transport_key_that_is_not_canonical_ends_the_handshake ... ok
+test tests::handshake::an_endpoint_without_the_transport_key_cannot_answer ... ok
+test tests::handshake::a_transport_key_of_small_order_ends_the_handshake ... ok
+test tests::handshake::a_stalled_handshake_times_out ... ok
+test tests::handshake::an_initiator_cannot_present_the_responders_own_identity ... ok
+test tests::handshake::another_noise_pattern_fails_the_first_message ... ok
+test tests::handshake::an_older_pinned_card_with_the_current_transport_key_still_reaches_the_peer ... ok
+test tests::handshake::debug_output_of_handshake_types_shows_nothing ... ok
+test tests::handshake::another_label_or_prologue_fails_the_first_message ... ok
+test tests::handshake::handshake_messages_cannot_be_reflected ... ok
+test tests::handshake::an_ephemeral_key_that_is_not_valid_ends_the_handshake ... ok
+test tests::handshake::handshake_messages_cannot_be_replayed ... ok
+test tests::handshake::handshakes_with_fresh_randomness_differ_and_complete ... ok
+test tests::handshake::no_long_term_key_appears_in_a_handshake_message ... ok
+test tests::handshake::message_3_is_made_only_for_a_responder_that_may_learn_the_local_identity ... ok
+test tests::handshake::malformed_handshake_messages_are_rejected ... ok
+test tests::handshake::the_card_in_the_third_message_must_belong_to_the_key_holder ... ok
+test tests::properties::a_handshake_message_with_any_bit_flipped_is_rejected ... ok
+test tests::properties::a_changed_byte_delivers_nothing_from_the_frame_it_is_in_or_after ... ok
+test tests::properties::a_dropped_or_repeated_frame_ends_the_session ... ok
+test tests::properties::a_session_never_sends_more_than_its_limits ... ok
+test tests::handshake::every_byte_of_every_handshake_message_is_authenticated ... ok
+test tests::properties::a_stream_split_anywhere_delivers_the_same_messages ... ok
+test tests::properties::arbitrary_bytes_are_not_a_handshake_message ... ok
+test tests::seeds::committed_seeds_are_current ... ok
+test tests::seeds::frame_seeds_are_complete_operation_lists ... ok
+test tests::seeds::handshake_seeds_are_what_their_names_say ... ok
+test tests::seeds::responder_seeds_cover_every_record ... ok
+test tests::vectors::the_handshake_reproduces_the_published_vectors ... ok
+test tests::vectors::the_parties_are_those_of_the_specification ... ok
+test tests::vectors::the_vectors_are_the_ones_in_the_specification ... ok
+test tests::seeds::seeds_named_valid_complete_a_handshake_that_is_not_the_transcript ... ok
+test tests::properties::arbitrary_bytes_never_reach_the_application ... ok
+test tests::properties::the_two_directions_do_not_depend_on_each_other ... ok
+
+test result: ok. 129 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.91s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_storage-07f34b70ddaa14b3)
+
+running 37 tests
+test dir::tests::a_crash_keeps_what_was_flushed ... ok
+test message_records::tests::anything_unknown_truncated_or_left_over_is_refused ... ok
+test disk_unix::tests::a_directory_others_can_reach_or_a_link_is_refused ... ok
+test disk_unix::tests::a_directory_is_created_private_and_locked_once ... ok
+test message_records::tests::debug_shows_no_text_and_no_identifier ... ok
+test message_records::tests::counts_above_their_limits_are_refused_before_allocating ... ok
+test message_records::tests::queue_limits_hold_when_read ... ok
+test message_records::tests::bad_fields_are_refused ... ok
+test message_records::tests::contents_survive_a_round_trip ... ok
+test messages::tests::a_changed_byte_anywhere_fails_and_nothing_is_created_twice ... ok
+test message_records::tests::impossible_states_are_refused ... ok
+test messages::tests::debug_shows_no_key ... ok
+test messages::tests::a_store_opens_with_its_key_only ... ok
+test messages::tests::a_crash_during_creation_leaves_no_store_or_a_whole_one ... ok
+test record::tests::anything_unknown_or_left_over_is_refused ... ok
+test messages::tests::a_crash_at_any_step_of_a_write_leaves_the_old_or_the_new_state ... ok
+test record::tests::debug_output_shows_no_secret ... ok
+test record::tests::generated_identifiers_differ ... ok
+test record::tests::contents_survive_a_round_trip ... ok
+test record::tests::identifiers_must_match_the_version ... ok
+test record::tests::identifiers_are_unique_and_never_zero ... ok
+test record::tests::duplicates_and_inconsistent_records_are_refused ... ok
+test record::tests::stored_credentials_keep_their_invariants ... ok
+test record::tests::version_1_is_read_and_written_back_as_it_was ... ok
+test tests::history_requires_a_persistent_vault ... ok
+test record::tests::limits_are_checked_both_ways ... ok
+test record::tests::version_2_keeps_the_identifiers ... ok
+test vault::tests::a_changed_passphrase_keeps_the_vault_key ... ok
+test vault::tests::a_passphrase_is_normalized_and_bounded ... ok
+test vault::tests::a_damaged_vault_next_to_a_complete_new_one_is_left_for_the_user ... ok
+test vault::tests::a_vault_on_disk_survives_a_new_process ... ok
+test vault::tests::a_vault_opens_with_its_passphrase_only ... ok
+test vault::tests::every_byte_of_a_vault_is_authenticated ... ok
+test vault::tests::kdf_parameters_outside_the_bounds_are_refused ... ok
+test messages::tests::the_largest_plaintext_fits_and_one_more_byte_does_not ... ok
+test vault::tests::a_creation_stopped_at_any_step_leaves_no_vault_or_a_complete_one ... ok
+test vault::tests::a_write_stopped_at_any_step_leaves_the_old_or_the_new_vault ... ok
+
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.36s
+
+     Running tests/fuzz_seeds.rs (/vol/target/debug/deps/fuzz_seeds-d577f901b69c774d)
+
+running 2 tests
+test committed_seeds_are_current ... ok
+test the_seeds_decode ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running tests/kdf_benchmark.rs (/vol/target/debug/deps/kdf_benchmark-8b5e7dfff6907ae0)
+
+running 1 test
+test unlock_times_at_the_candidate_settings ... ignored, a measurement; run it with --release on the machine to measure
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/vault_format.rs (/vol/target/debug/deps/vault_format-607ca61f8155c3db)
+
+running 2 tests
+test a_file_built_by_the_specification_opens_with_the_vault ... ok
+test what_the_vault_writes_opens_by_the_specification ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.76s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_tor-ecbe70eec5df68e9)
+
+running 39 tests
+test config::tests::only_loopback_tcp_and_absolute_socket_paths_are_endpoints ... ok
+test control::auth::tests::authchallenge_replies_are_read_exactly ... ok
+test control::auth::tests::malformed_protocolinfo_is_refused ... ok
+test control::auth::tests::only_a_regular_file_of_exactly_32_bytes_is_a_cookie ... ok
+test control::auth::tests::protocolinfo_of_a_system_tor_is_read ... ok
+test control::auth::tests::quoted_strings_decode_with_tor_s_escapes ... ok
+test control::auth::tests::safecookie_matches_the_independent_computation ... ok
+test control::command::tests::add_onion_never_carries_a_forbidden_flag_or_option ... ok
+test control::command::tests::add_onion_refuses_a_target_that_is_not_loopback ... ok
+test control::reply::tests::debug_output_shows_no_text ... ok
+test control::reply::tests::every_limit_is_enforced ... ok
+test control::reply::tests::malformed_lines_end_the_parser ... ok
+test control::reply::tests::any_fragmentation_gives_the_same_replies ... ok
+test control::reply::tests::replies_are_split_at_their_last_line ... ok
+test control::tests::a_cookie_file_is_named_without_case_only_where_files_are ... ok
+test control::command::tests::every_command_is_byte_for_byte_the_documented_one ... ok
+test control::tests::add_onion_errors_are_told_apart ... ok
+test control::tests::bootstrap_lines_keep_the_number_and_done_only ... ok
+test control::tests::getinfo_replies_are_read_strictly ... ok
+test control::tests::ok_replies_are_exact ... ok
+test control::tests::socks_listeners_are_read_as_tor_lists_them ... ok
+test secret::tests::base64_that_is_not_exactly_tor_s_form_is_refused ... ok
+test secret::tests::hex_round_trips_and_refuses_bad_input ... ok
+test secret::tests::isolation_groups_are_random_and_distinct ... ok
+test secret::tests::secrets_print_nothing ... ok
+test secret::tests::the_key_round_trips_through_base64_as_tor_writes_it ... ok
+test socks::tests::connect_replies_decode_with_their_exact_length ... ok
+test socks::tests::a_stalled_proxy_times_out ... ok
+test socks::tests::failure_codes_map_to_errors_without_a_fallback ... ok
+test socks::tests::malformed_connect_replies_are_refused ... ok
+test socks::tests::method_and_auth_replies_are_checked ... ok
+test socks::tests::requests_are_byte_for_byte_those_of_the_specification ... ok
+test socks::tests::the_isolation_token_names_nothing_about_the_target ... ok
+test status::tests::readiness_follows_both_endpoints ... ok
+test status::tests::versions_order_by_their_numbers ... ok
+test control::tests::add_onion_replies_are_read_strictly ... ok
+test status::tests::versions_parse_as_tor_reports_them ... ok
+test socks::tests::every_failure_of_the_proxy_is_an_error ... ok
+test socks::tests::a_successful_exchange_leaves_the_peer_bytes_on_the_stream ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+     Running tests/fuzz_seeds.rs (/vol/target/debug/deps/fuzz_seeds-45bf2d48309d5a72)
+
+running 1 test
+test committed_tor_seeds_are_current ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/system.rs (/vol/target/debug/deps/system-7c861ca3a7f8ea3b)
+
+running 24 tests
+test a_cookie_file_named_in_another_case_is_that_file_only_on_windows ... ok
+test a_control_endpoint_that_names_another_cookie_file_is_refused ... ok
+test a_bootstrapping_tor_is_not_ready_and_a_filter_hides_progress ... ok
+test a_failed_del_onion_is_reported_and_the_service_still_ends ... ok
+test a_server_that_does_not_know_the_cookie_never_gets_the_client_hash ... ok
+test an_old_tor_is_refused ... ok
+test an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes ... ok
+test a_failure_of_tor_ends_the_proof ... ok
+test authentication_follows_the_configuration_not_the_server ... ok
+test a_proof_lets_dials_through_for_its_lifetime_only ... ok
+test hostile_control_replies_fail_cleanly ... ok
+test a_published_service_is_owned_by_its_control_connection ... ok
+test dials_at_the_same_time_share_one_proof ... ok
+test status_reports_a_ready_tor_and_sends_only_the_allowed_commands ... ok
+test losing_the_control_connection_unpublishes_the_service ... ok
+test with_the_check_off_a_dial_asks_the_control_endpoint_nothing ... ok
+test malformed_add_onion_replies_publish_nothing ... ok
+test losing_a_published_service_ends_the_proof ... ok
+test with_the_check_on_status_reports_a_socks_endpoint_tor_does_not_list ... ok
+test with_the_check_on_status_says_the_socks_endpoint_was_not_tried_without_the_control_endpoint ... ok
+test with_the_check_on_a_dial_waits_until_tor_lists_the_socks_endpoint ... ok
+test without_a_socks_endpoint_there_is_no_connection_at_all ... ok
+test two_published_services_coexist_and_each_owns_its_listener ... ok
+test without_a_proof_nothing_reaches_the_socks_endpoint ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_ui-570633c9e04be361)
+
+running 32 tests
+test app::tests::a_card_file_read_after_the_contact_was_added_is_dropped ... ok
+test app::tests::a_card_file_read_is_taken_only_by_the_dialog_that_asked ... ok
+test app::tests::closing_costs_nothing_without_an_open_profile_or_anything_to_lose ... ok
+test app::tests::closing_counts_a_message_being_queued_and_one_queued_before_it_is_read_again ... ok
+test app::tests::closing_warns_of_a_session_that_saves_nothing_and_of_messages_not_delivered ... ok
+test app::tests::the_window_asks_before_it_closes_until_the_person_agrees ... ok
+test conversation::tests::a_contact_that_has_not_accepted_has_no_notice_of_delivery ... ok
+test conversation::tests::a_message_is_marked_with_the_status_the_runtime_gave ... ok
+test conversation::tests::the_next_try_is_said_roughly_and_said_again_when_the_words_change ... ok
+test conversation::tests::while_tor_is_down_the_wait_is_put_on_tor_not_on_the_contact ... ok
+test app::tests::a_dropped_card_file_is_read_for_the_dialog_it_was_dropped_on ... ok
+test dialogs::tests::a_revoked_invitation_is_named_by_its_label ... ok
+test dialogs::tests::an_error_goes_under_the_field_it_belongs_to ... ok
+test dialogs::tests::a_fingerprint_is_laid_out_in_two_rows ... ok
+test dialogs::tests::a_card_fills_its_lines ... ok
+test dialogs::tests::deleting_messages_names_those_not_yet_delivered ... ok
+test dialogs::tests::blocking_from_a_request_blocks_only_the_request_it_was_asked_for ... ok
+test dialogs::tests::cancelling_the_question_blocks_nobody ... ok
+test dialogs::tests::the_question_before_closing_says_what_goes_and_what_waits ... ok
+test dialogs::tests::the_shortcuts_of_the_window_wait_while_blocking_is_asked ... ok
+test dialogs::tests::no_identity_is_made_while_tor_is_unavailable ... ok
+test requests::answers::the_answer_given_to_a_request_is_forgotten_once_it_is_done ... ok
+test requests::tests::a_request_without_a_name_leaves_the_fingerprint_to_the_advice_under_the_list ... ok
+test requests::tests::a_request_without_a_name_says_that_none_comes_with_it ... ok
+test requests::tests::accept_suggests_the_name_as_it_was_sent ... ok
+test requests::tests::the_invitation_a_request_came_through_is_named_as_a_name ... ok
+test requests::tests::the_name_a_sender_chose_is_in_no_sentence_of_the_card ... ok
+test settings::tests::the_warning_under_nobody_counts_the_active_invitations ... ok
+test sidebar::tests::an_identity_in_the_switcher_says_its_contacts_new_messages_and_requests ... ok
+test onboarding::tests::a_passphrase_typed_or_pasted_to_the_limit_never_moves_its_buffer ... ok
+test dialogs::tests::every_dialog_fixture_shows_its_dialog ... ok
+test dialogs::tests::the_qr_lives_with_its_dialog ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+     Running tests/idle.rs (/vol/target/debug/deps/idle-0de9e563bdee83c3)
+
+running 4 tests
+test a_spinner_draws_while_it_turns ... ok
+test the_tor_state_pulses_four_times_a_second_while_tor_connects_and_not_with_reduced_motion ... ok
+test the_time_to_the_next_attempt_asks_for_a_frame_only_when_its_words_change ... ok
+test a_settled_window_asks_for_no_frame ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.40s
+
+     Running tests/keyboard.rs (/vol/target/debug/deps/keyboard-96739a874ffc4ea3)
+
+running 4 tests
+test ctrl_f_gives_the_filter_the_focus ... ok
+test no_shortcut_acts_under_a_dialog ... ok
+test alt_and_the_arrows_go_through_the_conversations_of_the_list ... ok
+test tab_from_the_composer_and_from_the_filter_reaches_only_controls ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/layout.rs (/vol/target/debug/deps/layout-1a2426e473a28445)
+
+running 2 tests
+test the_settings_scroll_in_the_smallest_window ... ok
+test the_first_start_scrolls_in_the_smallest_window ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running tests/screens.rs (/vol/target/debug/deps/screens-7412a696f31b8954)
+
+running 5 tests
+test a_line_continuation_is_not_text ... ok
+test the_scan_sees_through_strings_but_not_code ... ok
+test no_text_of_a_screen_has_a_run_of_spaces_or_a_raw_line_break ... ok
+test the_screens_have_no_colour_font_or_size_of_their_own ... ok
+test the_screens_use_no_stock_widget ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/views.rs (/vol/target/debug/deps/views-7c7d07ab4ebd3f71)
+
+running 75 tests
+test a_contact_without_a_name_has_a_person_for_an_avatar ... ok
+test a_click_on_the_place_to_drop_a_card_file_goes_to_its_path ... ok
+test a_control_port_that_does_not_answer_is_named_where_tor_may_be_running ... ok
+test a_data_folder_refused_at_the_start_is_said_so_and_not_as_storage_to_unlock ... ok
+test a_draft_cleared_and_typed_again_while_a_message_is_queued_stays_whole ... ok
+test a_card_added_says_what_the_other_side_has_to_do_and_offers_the_own_card ... ok
+test a_failed_store_is_said_once_and_not_again_where_it_was_met ... ok
+test a_conversation_says_whether_a_card_or_an_invitation_was_added ... ok
+test a_message_refused_for_want_of_room_says_what_to_do ... ok
+test a_long_conversation_opens_at_its_newest_message_and_lays_out_only_what_is_in_view ... ok
+test a_name_field_takes_no_more_than_a_name_may_hold ... ok
+test a_full_fingerprint_is_laid_out_in_rows_of_seven_and_six_everywhere ... ok
+test a_narrow_list_says_the_state_of_tor ... ok
+test a_narrow_window_lists_the_settings_pages_then_shows_one_with_a_way_back ... ok
+test a_passphrase_is_cut_at_the_longest_the_vault_takes ... ok
+test a_passphrase_that_fails_marks_its_field ... ok
+test a_request_and_a_contact_without_a_name_have_a_person_for_an_avatar ... ok
+test a_selection_in_a_message_stays_with_it_when_new_messages_arrive ... ok
+test a_reader_who_scrolled_up_stays_put_and_each_conversation_keeps_its_place ... ok
+test a_toast_over_a_dialog_is_outlined_more_strongly_than_the_dialog ... ok
+test a_toast_covers_neither_the_notices_of_a_conversation_nor_the_title_and_actions_of_a_dialog ... ok
+test a_wide_window_shows_the_pages_beside_the_page ... ok
+test accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it ... ok
+test a_waiting_contact_is_said_to_wait_for_the_same_thing_everywhere ... ok
+test an_ended_conversation_says_once_that_it_ended ... ok
+test a_waiting_delivery_says_both_sides_must_be_open_once_and_when_it_is_tried_next ... ok
+test an_identity_that_blocked_nobody_says_so_in_one_line ... ok
+test an_identity_has_the_same_colour_in_the_list_and_in_the_settings ... ok
+test an_identity_without_contacts_is_offered_them_once ... ok
+test an_identity_without_contacts_offers_its_card ... ok
+test before_the_first_identity_the_list_offers_nothing_it_cannot_do ... ok
+test an_offer_to_revoke_goes_once_another_identity_is_shown ... ok
+test closing_a_session_that_saves_nothing_says_everything_goes ... ok
+test closing_with_messages_not_delivered_says_when_they_are_tried_again ... ok
+test deleting_the_messages_of_a_contact_that_has_not_accepted_says_its_request_waits_too ... ok
+test declining_a_request_asks_first_and_says_it_cannot_be_undone ... ok
+test escape_answers_the_question_before_closing_and_leaves_the_settings_open ... ok
+test escape_closes_a_dialog_over_the_settings_before_it_leaves_them ... ok
+test every_ended_conversation_has_the_same_neutral_mark_in_the_list ... ok
+test escape_leaves_the_settings ... ok
+test messages_are_cut_clear_of_the_bar_above_them ... ok
+test my_card_is_one_click_from_the_list ... ok
+test no_next_try_is_said_without_a_deferral_or_while_tor_is_down ... ok
+test a_failed_store_is_said_on_every_view ... ok
+test notices_end_with_a_period_and_empty_states_have_titles_without_one ... ok
+test the_boxes_of_a_dialog_end_where_its_actions_end ... ok
+test the_card_typed_in_add_contact_is_kept_in_no_undo_history ... ok
+test the_composer_of_a_conversation_whose_messages_are_deleted_is_forgotten ... ok
+test the_data_and_about_pages_say_what_is_kept_apart_and_nothing_twice ... ok
+test the_details_of_a_contact_say_what_is_saved_when ... ok
+test the_contact_dialog_offers_quiet_buttons_and_a_question_confirms_with_a_solid_one ... ok
+test the_first_frame_of_a_long_conversation_shows_its_newest_messages_in_place ... ok
+test the_first_screens_say_where_the_profile_is_kept_only_when_asked ... ok
+test the_first_start_says_how_to_choose_a_passphrase_and_who_can_write ... ok
+test the_first_screens_show_the_mark_beside_the_name ... ok
+test the_first_start_has_its_actions_in_view_in_short_windows ... ok
+test reading_older_messages_keeps_the_reader_where_they_are ... ok
+test the_list_brings_the_conversation_shown_into_view ... ok
+test the_identity_switcher_shares_the_card_of_the_identity_shown ... ok
+test the_name_a_sender_chose_is_in_no_sentence_of_the_screen_or_its_dialog ... ok
+test the_picture_of_the_blocked_people_has_them_in_view ... ok
+test the_question_before_closing_puts_another_dialog_aside ... ok
+test the_own_card_says_what_a_card_alone_can_do_under_each_request_mode ... ok
+test the_question_before_closing_keeps_the_window_unless_close_is_chosen ... ok
+test the_requests_stay_in_the_list_while_their_page_is_shown ... ok
+test the_shortcuts_of_the_window_wait_while_declining_is_asked ... ok
+test the_identities_page_lists_who_is_blocked_and_unblocks_after_asking ... ok
+test the_request_modes_stay_side_by_side_beside_the_pages ... ok
+test the_switcher_gives_each_identity_its_counts ... ok
+test the_shortcuts_of_the_window_wait_while_unblocking_is_asked ... ok
+test under_nobody_no_text_says_that_an_invitation_brings_a_request ... ok
+test tor_is_said_the_same_in_its_details_and_in_the_settings ... ok
+test the_tor_details_close_at_the_left_whether_tor_works_or_not ... ok
+test what_is_typed_while_a_message_is_queued_stays_in_the_composer ... ok
+test the_tor_settings_say_when_they_are_saved_and_how_they_take_effect ... ok
+
+test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_ui_kit-1f55ceeed75a9956)
+
+running 14 tests
+test avatar::tests::fnv1a_matches_the_reference_vectors ... ok
+test avatar::tests::color_index_is_stable_and_in_range ... ok
+test avatar::tests::initials_of_two_words ... ok
+test avatar::tests::initials_of_one_word_and_empty ... ok
+test avatar::tests::initials_skip_punctuation ... ok
+test avatar::tests::initials_work_for_any_script ... ok
+test qr::tests::a_dense_code_grows_to_three_pixels_a_module_within_its_limit ... ok
+test qr::tests::debug_does_not_show_modules ... ok
+test qr::tests::finder_patterns_are_in_three_corners ... ok
+test qr::tests::encoding_is_deterministic ... ok
+test qr::tests::module_pixels_are_whole_and_at_least_one ... ok
+test qr::tests::outside_the_code_is_light ... ok
+test qr::tests::short_text_makes_the_smallest_code ... ok
+test qr::tests::data_over_the_limit_is_refused ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/accessibility.rs (/vol/target/debug/deps/accessibility-9dde8e4f10c572cb)
+
+running 5 tests
+test an_enabled_button_is_not_reported_disabled ... ok
+test tab_passes_over_message_bubbles_and_the_frame_of_the_search_field ... ok
+test tab_passes_over_scroll_bars_drag_areas_and_the_edge_of_the_sidebar ... ok
+test the_pointer_over_a_control_that_takes_no_input_stays_an_arrow ... ok
+test controls_that_take_no_input_tell_accessibility_they_are_disabled ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/avatar.rs (/vol/target/debug/deps/avatar-8d28232eeeab723b)
+
+running 2 tests
+test an_avatar_shows_initials_unless_it_is_asked_not_to ... ok
+test an_anonymous_avatar_draws_a_person_and_keeps_its_name_for_a_screen_reader ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/bubble.rs (/vol/target/debug/deps/bubble-4e152d3477088f03)
+
+running 17 tests
+test a_bubble_without_a_collapse_has_no_show_more ... ok
+test a_long_message_wraps_inside_its_share_of_the_width ... ok
+test a_double_click_selects_a_word_and_copy_takes_only_that_word ... ok
+test a_bubble_and_its_colours_differ_by_direction ... ok
+test a_message_paints_its_text_and_its_time ... ok
+test a_message_is_delivered_only_when_the_caller_says_so ... ok
+test a_queued_and_a_delivered_message_draw_different_glyphs ... ok
+test a_selection_stays_with_its_message_when_the_list_above_changes ... ok
+test a_received_message_ignores_a_status_it_is_given ... ok
+test an_outgoing_message_without_a_status_draws_no_glyph ... ok
+test show_more_is_reported_when_its_control_is_clicked ... ok
+test only_the_last_bubble_of_a_run_has_the_pointed_corner ... ok
+test outgoing_bubbles_sit_at_the_right_and_incoming_ones_at_the_left ... ok
+test a_run_without_a_break_opportunity_is_broken_inside_its_share_of_the_width ... ok
+test text_that_looks_like_a_link_is_painted_as_it_is ... ok
+test the_status_mark_says_its_state_in_words_under_the_pointer ... ok
+test the_status_widget_draws_one_glyph_per_state_and_the_label ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/button.rs (/vol/target/debug/deps/button-43b92f1bbc617095)
+
+running 10 tests
+test a_button_in_a_disabled_ui_is_not_clicked ... ok
+test a_click_reports_a_labelled_enabled_button_to_accessibility ... ok
+test a_busy_button_is_not_clicked ... ok
+test a_disabled_button_is_never_clicked ... ok
+test a_disabled_and_a_busy_button_look_different_from_an_enabled_one ... ok
+test a_focused_button_is_activated_by_enter_and_by_space ... ok
+test an_enabled_button_is_clicked_by_a_press_and_release_on_it ... ok
+test a_press_that_leaves_the_button_before_the_release_is_not_a_click ... ok
+test a_disabled_or_busy_button_is_not_activated_from_the_keyboard ... ok
+test every_kind_and_size_of_button_is_clicked_alike ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/chrome.rs (/vol/target/debug/deps/chrome-68637955edb558be)
+
+running 4 tests
+test the_edge_of_the_sidebar_is_dragged_with_the_pointer_within_its_range ... ok
+test a_press_on_the_bar_below_the_handle_scrolls_there ... ok
+test the_wheel_scrolls_the_list_and_text_is_not_dragged ... ok
+test the_bar_of_a_scroll_area_is_dragged_with_the_pointer ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/composer.rs (/vol/target/debug/deps/composer-386461fb991c5928)
+
+running 4 tests
+test forget_removes_the_state_egui_keeps_for_the_composer ... ok
+test undo_while_typing_keeps_the_draft_as_it_is ... ok
+test undo_after_the_sent_draft_was_cleared_brings_nothing_back ... ok
+test enter_while_an_input_method_composes_sends_nothing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/contrast.rs (/vol/target/debug/deps/contrast-be0d6fc93e3354f2)
+
+running 4 tests
+test a_translucent_colour_is_laid_over_its_surface ... ok
+test hairlines_and_outlines_show_on_every_surface_in_both_themes ... ok
+test wells_fields_and_cards_stand_out_from_what_they_are_drawn_on_in_both_themes ... ok
+test text_is_readable_on_everything_it_is_drawn_on_in_both_themes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fingerprint.rs (/vol/target/debug/deps/fingerprint-9ea1ed90dfc64077)
+
+running 3 tests
+test a_narrow_fingerprint_puts_fewer_groups_on_a_row ... ok
+test a_row_of_seven_needs_no_room_for_the_space_after_it ... ok
+test a_fingerprint_is_laid_out_in_rows_of_seven_and_six_groups ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/focus.rs (/vol/target/debug/deps/focus-b0c911df58ca1c1f)
+
+running 6 tests
+test focus_given_by_a_screen_shows_no_ring_and_focus_reached_with_tab_does ... ok
+test a_text_field_focused_by_a_screen_has_its_accent_border_and_no_ring ... ok
+test a_text_field_reached_with_tab_has_the_ring ... ok
+test a_pointer_press_hides_the_ring_until_the_next_tab ... ok
+test the_composer_focused_by_a_screen_has_a_quiet_border_and_no_ring ... ok
+test the_composer_reached_with_tab_has_the_ring ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/identity_switcher.rs (/vol/target/debug/deps/identity_switcher-daeeadcf5dc5a6f4)
+
+running 10 tests
+test a_click_on_the_trigger_opens_the_list ... ok
+test a_click_outside_closes_the_list_without_choosing ... ok
+test a_second_click_on_the_trigger_closes_the_list ... ok
+test choosing_the_current_identity_still_reports_its_key ... ok
+test escape_closes_the_list ... ok
+test set_open_opens_and_closes_the_list_from_outside ... ok
+test choosing_an_entry_returns_its_key_and_closes_the_list ... ok
+test the_trigger_shows_the_current_identity_and_the_popup_is_closed ... ok
+test the_card_entry_is_shown_only_when_asked_and_reports_itself ... ok
+test the_new_and_manage_entries_report_themselves_and_close_the_list ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/modal.rs (/vol/target/debug/deps/modal-29a60e6001170dfb)
+
+running 19 tests
+test a_click_on_the_card_does_not_close_the_modal ... ok
+test a_click_on_the_scrim_asks_a_dismissable_modal_to_close ... ok
+test a_busy_confirmation_answers_nothing ... ok
+test a_body_that_scrolls_is_cut_against_a_line_above_the_actions ... ok
+test a_click_on_the_scrim_does_not_close_a_modal_that_is_not_dismissable ... ok
+test a_confirmation_shows_its_message_and_both_answers ... ok
+test a_modal_paints_its_title_subtitle_body_and_actions ... ok
+test a_modal_sits_on_whole_pixels ... ok
+test a_short_modal_is_only_as_tall_as_its_content ... ok
+test a_tall_modal_keeps_its_title_and_actions_inside_the_smallest_window ... ok
+test a_toast_over_a_modal_keeps_clear_of_its_title_and_its_actions ... ok
+test enter_on_a_new_confirmation_cancels_instead_of_destroying ... ok
+test escape_asks_a_dismissable_modal_to_close ... ok
+test escape_cancels_a_confirmation ... ok
+test escape_does_not_close_a_modal_that_is_not_dismissable ... ok
+test the_body_of_a_tall_modal_scrolls_under_the_wheel ... ok
+test nothing_behind_a_modal_can_be_clicked ... ok
+test the_scrim_and_the_card_are_no_tab_stops ... ok
+test the_keyboard_reaches_nothing_behind_a_modal ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/motion.rs (/vol/target/debug/deps/motion-dbd8b708120fe95e)
+
+running 3 tests
+test the_connecting_pulse_is_still_with_reduced_motion ... ok
+test the_connecting_pulse_asks_for_four_frames_a_second ... ok
+test the_first_frame_of_an_empty_state_shows_its_actions_centred ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/request_card.rs (/vol/target/debug/deps/request_card-f6897b8d89896638)
+
+running 6 tests
+test a_name_a_sender_chose_stays_in_the_box_of_their_words ... ok
+test block_is_at_the_left_and_accept_at_the_right ... ok
+test a_screen_reader_hears_the_name_a_sender_chose_only_in_the_box_of_their_words ... ok
+test enter_on_the_first_stop_accepts_and_never_blocks ... ok
+test tab_reaches_accept_and_decline_before_block ... ok
+test the_message_sits_in_a_well_with_an_edge_in_both_themes ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/rows.rs (/vol/target/debug/deps/rows-94de9b8dfb734ed2)
+
+running 13 tests
+test a_conversation_row_tells_a_screen_reader_its_markers_in_words ... ok
+test a_click_reports_a_selectable_row_with_its_label_and_state_to_accessibility ... ok
+test a_disabled_row_is_not_clicked_and_its_neighbour_still_is ... ok
+test a_preview_that_reads_like_a_marker_is_told_as_a_message_after_them ... ok
+test a_click_selects_the_row_that_was_clicked_and_no_other ... ok
+test a_marker_says_its_word_under_the_pointer ... ok
+test distinct_keys_give_distinct_ids_and_equal_keys_equal_ones ... ok
+test every_waiting_marker_says_what_it_waits_for ... ok
+test a_disabled_row_renders_differently_from_an_enabled_one ... ok
+test an_anonymous_row_draws_a_person_instead_of_initials ... ok
+test rows_do_not_overlap_in_one_frame ... ok
+test rows_paint_their_names ... ok
+test a_selected_row_renders_differently_from_an_unselected_one ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/text_field.rs (/vol/target/debug/deps/text_field-6e5a9df1f33ceb45)
+
+running 14 tests
+test a_secret_field_cuts_typed_and_pasted_text_at_its_limit ... ok
+test a_field_that_is_not_enabled_takes_no_text ... ok
+test a_focused_secret_field_turns_the_input_method_off ... ok
+test a_field_without_history_shows_what_is_typed_and_cannot_undo_it ... ok
+test a_secret_field_masks_what_it_shows ... ok
+test an_error_is_shown_under_the_field_and_makes_it_taller ... ok
+test enter_in_a_focused_field_reports_a_submission ... ok
+test an_enter_that_commits_an_input_method_is_no_submission ... ok
+test forget_removes_the_state_egui_keeps_for_the_field ... ok
+test an_ordinary_field_can_undo_and_a_secret_one_keeps_no_history ... ok
+test help_is_shown_unless_there_is_an_error ... ok
+test the_byte_limit_cuts_typed_and_pasted_text_at_a_character ... ok
+test the_character_limit_cuts_typed_and_pasted_text ... ok
+test typed_text_reaches_the_bound_string ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/theme.rs (/vol/target/debug/deps/theme-2dcea80310ca8cb0)
+
+running 4 tests
+test reduced_motion_stops_the_caret_blinking_and_scrolling_from_gliding ... ok
+test a_scroll_bar_shows_a_faint_handle_at_rest ... ok
+test the_sidebar_edge_under_the_pointer_takes_a_colour_of_the_theme ... ok
+test text_is_a_text_target_only_where_it_is_selectable ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/toast.rs (/vol/target/debug/deps/toast-03c445609bf869bf)
+
+running 4 tests
+test a_toast_sits_at_the_top_centre_under_the_top_bar ... ok
+test toasts_shown_in_an_area_are_centred_on_it ... ok
+test a_toast_is_a_live_region_and_an_error_interrupts ... ok
+test a_new_toast_goes_under_the_last_and_inside_the_window_in_the_frame_it_comes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_ui_model-ee476d1752bbcdae)
+
+running 18 tests
+test failure::tests::a_failed_store_has_the_words_of_the_window_and_is_said_by_it_alone ... ok
+test failure::tests::a_failure_that_stops_the_user_says_what_to_do_next ... ok
+test present::tests::a_draft_of_white_space_or_over_the_limit_is_not_sendable ... ok
+test present::tests::a_carriage_return_and_line_feed_count_as_one_line_break ... ok
+test present::tests::a_preview_has_an_ellipsis_only_where_it_cuts ... ok
+test present::tests::a_preview_is_one_line_and_cut_with_an_ellipsis ... ok
+test present::tests::a_preview_reads_only_the_start_of_a_long_message ... ok
+test present::tests::an_over_long_cluster_is_replaced ... ok
+test present::tests::invisible_and_direction_marks_are_shown ... ok
+test present::tests::more_lines_than_the_limit_collapse_unless_expanded ... ok
+test present::tests::names_fall_back_to_the_fingerprint ... ok
+test present::tests::tag_and_other_format_characters_are_shown ... ok
+test present::tests::times_are_short_and_relative ... ok
+test present::tests::utc_dates_are_right ... ok
+test prose::tests::a_name_shows_its_invisible_characters ... ok
+test prose::tests::a_name_stays_a_span_of_its_own_whatever_it_holds ... ok
+test prose::tests::a_run_of_spaces_in_a_name_is_drawn_as_one ... ok
+test prose::tests::nothing_of_a_sentence_is_in_its_debug_form ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fuzz_seeds.rs (/vol/target/debug/deps/fuzz_seeds-ef4fe3d483aef799)
+
+running 1 test
+test committed_seeds_are_current ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/model.rs (/vol/target/debug/deps/model-289d63fd5923009b)
+
+running 45 tests
+test a_burst_of_events_makes_one_read ... ok
+test a_card_that_is_not_an_invitation_keeps_the_dialog_to_say_so ... ok
+test a_confirmation_acts_on_what_it_captured_not_on_the_selection ... ok
+test a_contact_made_again_inherits_nothing_of_the_old_record ... ok
+test a_contact_of_another_identity_accepting_raises_no_notice_over_the_one_shown ... ok
+test a_contact_or_an_identity_that_goes_is_forgotten_by_the_window ... ok
+test a_contact_says_whether_its_card_was_an_invitation ... ok
+test a_contact_that_has_not_accepted_waits_for_a_first_message_an_acceptance_or_its_card ... ok
+test a_conversation_of_another_identity_cannot_be_selected ... ok
+test a_declined_request_and_a_blocked_sender_are_told_apart ... ok
+test a_deleted_identity_takes_its_state_and_its_selection_with_it ... ok
+test a_delivered_status_comes_only_from_the_runtime_and_never_from_a_position ... ok
+test a_dialog_of_one_identity_closes_when_another_is_shown ... ok
+test a_dialog_opened_again_is_another_instance ... ok
+test a_dialog_takes_no_answer_that_names_another_identity ... ok
+test a_draft_goes_only_once_the_runtime_queued_it ... ok
+test a_draft_that_stopped_starting_with_the_text_sent_keeps_all_of_it ... ok
+test a_failed_store_met_by_a_command_raises_no_notice_of_its_own ... ok
+test a_failed_store_raises_no_notice_of_its_own ... ok
+test a_failure_is_told_in_its_sentence_never_in_its_debug_form ... ok
+test a_late_event_of_one_identity_changes_nothing_shown_of_another ... ok
+test a_message_being_queued_or_queued_before_a_read_counts_as_undelivered ... ok
+test a_message_is_prepared_once_and_kept_while_it_reads_the_same ... ok
+test a_queued_answer_for_another_conversation_clears_nothing ... ok
+test a_refused_send_keeps_the_text_sent_and_what_was_typed_after_it ... ok
+test a_revision_is_never_given_twice ... ok
+test a_snapshot_shows_only_what_belongs_to_its_identity ... ok
+test accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it ... ok
+test an_answer_to_a_replaced_request_never_reaches_the_new_one ... ok
+test an_answer_to_no_command_in_flight_changes_nothing ... ok
+test an_ended_conversation_shows_but_takes_no_message ... ok
+test an_expanded_message_is_prepared_again_whole ... ok
+test an_invitation_command_carries_the_identity_of_its_invitation ... ok
+test an_invitation_or_the_card_of_an_accepted_contact_closes_the_dialog ... ok
+test an_unblock_answered_while_another_identity_is_shown_changes_only_its_own ... ok
+test an_unblock_names_someone_listed_once_and_says_what_it_did ... ok
+test an_unlock_that_fails_stays_on_the_unlock_screen ... ok
+test deleted_messages_take_their_prepared_texts_and_the_window_forgets_them ... ok
+test deleting_the_messages_of_the_conversation_shown_keeps_it_shown_and_read ... ok
+test missed_events_make_the_model_read_everything_again ... ok
+test no_secret_or_text_is_printed_by_debug ... ok
+test the_next_try_counts_from_when_the_attempt_failed_and_goes_with_the_queue ... ok
+test the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes ... ok
+test typing_while_a_message_is_queued_stays_once_it_is_queued ... ok
+test undelivered_messages_are_counted_over_every_identity_but_not_ended_ones ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/properties.rs (/vol/target/debug/deps/properties-e1e2e1002ef0a4fe)
+
+running 1 test
+test the_model_shows_what_the_runtime_said_and_acts_on_what_was_named ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.94s
+
+     Running unittests src/lib.rs (/vol/target/debug/deps/monolith_ui_snapshot-366671d2cf4b42f1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_desktop
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_identity
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_session
+
+running 1 test
+test crates/monolith-session/src/key.rs - key::LocalParty (line 92) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Doc-tests monolith_storage
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_tor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_ui
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_ui_kit
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_ui_model
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_ui_snapshot
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

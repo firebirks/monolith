@@ -1,0 +1,18 @@
+1792807330 commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, 16 faults, 4 workers, unmodified run 404s, timeout 3232s
+1792807910 T4    caught    580s  canonical check compares from the least significant byte
+1792808139 T7    caught    809s  Montgomery form never detected
+1792808156 T1    caught    826s  the field prime itself counts as canonical
+1792808407 K2    caught    268s  local card signed by another identity than the local one
+1792808592 K1    caught    682s  32 zero bytes accepted as a transport secret key
+1792808845 K3    caught    688s  local card states a transport key the party does not hold
+1792809000 K4    caught    593s  a card from outside can be adopted as the local card
+1792809266 C7    caught    674s  a lower epoch counts as newer
+1792809412 CAP2  survived  568s  a dropped capability is not erased
+1792809587 CAP3  survived  587s  capabilities compared with an early exit
+1792809738 R11   caught    471s  DH takes the key from the end of the buffer
+1792809768 T6    caught   2437s  Montgomery form comparison inverted
+1792809892 H2    caught    480s  initiator binds its own identity in the prologue
+1792809953 H4    caught    367s  initiator expects its own transport key
+1792810145 S15   survived  408s  may_send ignores a failed or closed session
+1792810161 S24   survived  394s  keys kept after an internal failure of seal
+1792810161 done: {'caught': 12, 'survived': 4}; written to <repo>/mutation/results-phase2-bbf1279.json

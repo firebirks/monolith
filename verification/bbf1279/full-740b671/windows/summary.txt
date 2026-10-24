@@ -1,0 +1,21 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec started 2026-10-19T17:41:18
+rustc 1.95.0 (59807616e 2026-04-14) / rustc 1.85.1 (4eb161250 2025-03-15)
+fmt exit 0 (2 s)
+clippy exit 0 (28 s)
+clippy-fixtures exit 0 (4 s)
+doc exit 0 (9 s)
+test-1.95.0 exit 0 (586 s)
+check-1.85.1 exit 0 (31 s)
+test-1.85.1 exit 0 (643 s)
+package exit 0 (99 s)
+package monolith-desktop-0.0.0-windows-x86_64.zip 4575549 bytes sha256 534b6ae2dc5f57204d3114842a9ee63ee722c72179bfd738fc2130bb71015658
+scenarios exit 0 (125 s)
+tor-smoke-memory exit 0 (14 s)
+screens exit 0 (499 s)
+measure exit 0 (22 s)
+idle: working set 150 MB, private 142 MB, cpu over 10 s 16 ms, cpu since start 594 ms
+idle client closed with code 0
+gui-build exit 0 (13 s)
+gui-light exit 0
+gui-dark exit 0
+done 2026-10-19T18:16:14

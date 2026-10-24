@@ -1,0 +1,307 @@
+{
+ "commit": "bbf1279439ea9f58703e10415f2ffa2f5321eeed",
+ "unmodified_seconds": 409,
+ "timeout": 3272,
+ "results": [
+  {
+   "id": "F1",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "an outer length below one padding block passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::outer_encoder_refuses_illegal_payload_lengths",
+    "frame::tests::outer_length_rules"
+   ],
+   "seconds": 697
+  },
+  {
+   "id": "F2",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "an outer length that is not whole blocks passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::outer_encoder_refuses_illegal_payload_lengths",
+    "frame::tests::outer_length_rules",
+    "tests::frames::a_modified_length_prefix_ends_the_session"
+   ],
+   "seconds": 697
+  },
+  {
+   "id": "F3",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "the outer length is not bounded by the state",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::decoder_applies_the_limit_of_the_state",
+    "frame::tests::outer_length_rules",
+    "tests::frames::a_frame_of_more_than_one_block_is_refused_before_confirmation",
+    "the_frame_decoder_never_holds_more_than_one_frame"
+   ],
+   "seconds": 707
+  },
+  {
+   "id": "F4",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "an unconfirmed session takes full-size frames",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::decoder_applies_the_limit_of_the_state",
+    "frame::tests::other_parameters_follow_the_same_rules",
+    "frame::tests::outer_length_rules",
+    "frame::tests::parameters_are_validated",
+    "frame::tests::plaintext_length_must_be_legal",
+    "frame::tests::provisional_parameters_give_the_documented_sizes",
+    "tests::frames::a_frame_of_more_than_one_block_is_refused_before_confirmation"
+   ],
+   "seconds": 694
+  },
+  {
+   "id": "F5",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "padding may be longer than necessary",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plaintext_of_the_wrong_length_is_rejected",
+    "frame::tests::padding_must_be_minimal",
+    "tests::frames::a_frame_that_authenticates_and_is_malformed_inside_ends_the_session"
+   ],
+   "seconds": 693
+  },
+  {
+   "id": "F6",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "padding need not be zero",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "any_nonzero_padding_byte_is_rejected",
+    "damaged_plaintexts_are_rejected_or_canonical",
+    "frame::tests::padding_must_be_zero",
+    "frame::tests::the_largest_body_is_the_boundary_of_the_decoder",
+    "tests::frames::a_frame_that_authenticates_and_is_malformed_inside_ends_the_session"
+   ],
+   "seconds": 711
+  },
+  {
+   "id": "F7",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "the message type is not checked against the state",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::the_state_gate_runs_before_the_body_is_returned",
+    "frames_are_gated_by_the_session_state"
+   ],
+   "seconds": 690
+  },
+  {
+   "id": "F9",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "a failed decoder takes more input",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "frame::tests::decoder_applies_the_limit_of_the_state"
+   ],
+   "seconds": 692
+  },
+  {
+   "id": "F10",
+   "path": "crates/monolith-protocol/src/frame.rs",
+   "what": "decode_plaintext skips its length check",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plaintext_of_the_wrong_length_is_rejected",
+    "frame::tests::plaintext_length_must_be_legal",
+    "frame::tests::the_state_gate_runs_before_the_body_is_returned"
+   ],
+   "seconds": 683
+  },
+  {
+   "id": "M1",
+   "path": "crates/monolith-protocol/src/message.rs",
+   "what": "chat messages may arrive before confirmation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "body::tests::oracle_3_no_message_states_a_reason",
+    "committed_seeds_are_current",
+    "frame::tests::the_state_gate_runs_before_the_body_is_returned",
+    "message::tests::unknown_peers_cannot_send_application_data",
+    "tests::contacts::a_retired_transport_key_is_useless_against_a_contact_that_knows_the_new_one",
+    "tests::contacts::peers_that_are_not_contacts_see_the_same_bytes_whatever_the_reason",
+    "tests::frames::application_messages_are_refused_before_the_session_is_confirmed"
+   ],
+   "seconds": 698
+  },
+  {
+   "id": "X1",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "text one byte over the maximum passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "text::tests::chat_text_length_bounds",
+    "text::tests::display_name_length_is_bounded_in_bytes_and_in_scalars",
+    "text::tests::filename_length_bounds",
+    "text::tests::introduction_and_profile_may_be_empty_and_are_bounded",
+    "text_is_checked_before_anything_is_stored"
+   ],
+   "seconds": 683
+  },
+  {
+   "id": "X2",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "text below the minimum passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "free_text_keeps_format_characters_and_rejects_controls",
+    "text::tests::chat_text_length_bounds",
+    "text::tests::filename_length_bounds",
+    "text_is_checked_before_anything_is_stored"
+   ],
+   "seconds": 695
+  },
+  {
+   "id": "X3",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "carriage return allowed in free text",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "free_text_keeps_format_characters_and_rejects_controls",
+    "text::tests::carriage_return_is_rejected_in_free_text",
+    "text_is_checked_before_anything_is_stored"
+   ],
+   "seconds": 654
+  },
+  {
+   "id": "B3",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "a card with an invitation accepted inside a message",
+   "group": "",
+   "expect": "survives: equivalent. The card is taken with the length of a card without capability, 171 bytes; one whose flag announces a capability needs 187 and fails to decode before this check is reached",
+   "verdict": "survived",
+   "seeds_only": false,
+   "failed": [],
+   "seconds": 675
+  },
+  {
+   "id": "B4",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "the endpoint count of an embedded card not checked first",
+   "group": "",
+   "expect": "survives: equivalent. Without it the same input is still refused, by take() or by ContactCard::decode; take() returns a slice and allocates nothing. Only the local error category can differ",
+   "verdict": "survived",
+   "seeds_only": false,
+   "failed": [],
+   "seconds": 678
+  },
+  {
+   "id": "U1",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "the duplicate rule prefers the other side",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session",
+    "a_pong_after_the_probe_was_decided_keeps_the_session",
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept",
+    "a_probed_session_that_does_not_answer_loses_to_the_newer_one",
+    "both_ends_keep_the_same_duplicate",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::a_session_of_a_retired_key_never_wins",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "duplicate::tests::cross_direction_prefers_the_session_of_the_smaller_key",
+    "sessions::tests::a_probe_that_is_not_answered_closes_the_older_session",
+    "sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered",
+    "sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order"
+   ],
+   "seconds": 682
+  },
+  {
+   "id": "U2",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "the preferred side is the larger key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session",
+    "a_pong_after_the_probe_was_decided_keeps_the_session",
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept",
+    "a_probed_session_that_does_not_answer_loses_to_the_newer_one",
+    "both_ends_keep_the_same_duplicate",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::a_session_of_a_retired_key_never_wins",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "duplicate::tests::cross_direction_prefers_the_session_of_the_smaller_key",
+    "duplicate::tests::the_smaller_key_is_preferred",
+    "sessions::tests::a_probe_that_is_not_answered_closes_the_older_session",
+    "sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered",
+    "sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order"
+   ],
+   "seconds": 510
+  },
+  {
+   "id": "U3",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "an unanswered probe keeps the older session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept",
+    "a_probed_session_that_does_not_answer_loses_to_the_newer_one",
+    "both_ends_keep_the_same_duplicate",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "sessions::tests::a_probe_that_is_not_answered_closes_the_older_session",
+    "sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered",
+    "sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order"
+   ],
+   "seconds": 468
+  }
+ ]
+}

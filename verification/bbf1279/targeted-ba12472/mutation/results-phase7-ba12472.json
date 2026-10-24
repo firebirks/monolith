@@ -1,0 +1,434 @@
+{
+ "commit": "ba12472cb87e70b7c62c55a856faa200f0f8f7fc",
+ "unmodified_seconds": 424,
+ "timeout": 3392,
+ "results": [
+  {
+   "id": "HR1",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "only the first card of a dial plan is dialed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plan_whose_cards_both_fail_is_reported_once",
+    "a_successor_that_does_not_answer_is_followed_by_the_active_key",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic"
+   ],
+   "seconds": 488
+  },
+  {
+   "id": "HR3",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a failure of Tor is followed by the next card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failure_of_tor_is_not_followed_by_the_active_key",
+    "beginning_a_rotation_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next"
+   ],
+   "seconds": 480
+  },
+  {
+   "id": "HR4",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "an attempt that is over dials the next card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_connect_for_a_record_made_again_between_its_cards_dials_no_further",
+    "a_connect_once_the_runtime_shuts_down_dials_no_further"
+   ],
+   "seconds": 519
+  },
+  {
+   "id": "HR17",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a file offer is ignored, not rejected",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "promoting_a_successor_is_atomic",
+    "what_cannot_follow_a_rejected_offer_ends_the_session",
+    "what_one_session_rejected_is_unknown_to_the_next"
+   ],
+   "seconds": 470
+  },
+  {
+   "id": "HR18",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a file message for a transfer never offered is ignored",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_message_for_a_transfer_never_offered_ends_the_session",
+    "transfers::tests::a_file_message_for_a_transfer_this_session_never_saw_is_a_violation",
+    "transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say",
+    "transfers::tests::only_the_last_ended_transfers_are_remembered",
+    "what_one_session_rejected_is_unknown_to_the_next"
+   ],
+   "seconds": 488
+  },
+  {
+   "id": "HR19",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a rejected offer is not remembered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded",
+    "transfers::tests::an_offer_is_rejected_and_only_an_abort_crosses_the_rejection",
+    "transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say",
+    "transfers::tests::only_the_last_ended_transfers_are_remembered"
+   ],
+   "seconds": 506
+  },
+  {
+   "id": "HR24",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an acknowledgement of nothing keeps a session open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing"
+   ],
+   "seconds": 459
+  },
+  {
+   "id": "HR25",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a message held already keeps a session open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing"
+   ],
+   "seconds": 498
+  },
+  {
+   "id": "HR26",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "the time a message is handled counts against the probe",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept"
+   ],
+   "seconds": 477
+  },
+  {
+   "id": "HR27",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "the Ping of a probe decided is forgotten: its Pong is a violation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session",
+    "a_pong_after_the_probe_was_decided_keeps_the_session",
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong"
+   ],
+   "seconds": 474
+  },
+  {
+   "id": "HR28",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a Ping never answered does not end the session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session"
+   ],
+   "seconds": 445
+  },
+  {
+   "id": "HR29",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a probe sends a second Ping while one is outstanding",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong"
+   ],
+   "seconds": 494
+  },
+  {
+   "id": "HR31",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session that ended with its record announces a retry",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_that_ends_with_its_record_announces_no_retry"
+   ],
+   "seconds": 482
+  },
+  {
+   "id": "HR32",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a dial that failed once no attempt follows announces a retry",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_that_fails_once_the_vault_failed_announces_no_retry"
+   ],
+   "seconds": 488
+  },
+  {
+   "id": "HR33",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a block or a deletion names its contact before its work runs",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_block_for_a_record_made_again_before_it_runs_ends_nothing"
+   ],
+   "seconds": 489
+  },
+  {
+   "id": "HR34",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a send queues for a record that ended while it waited for the vault",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_for_a_record_deleted_while_it_waits_for_the_vault_queues_nothing",
+    "identity::tests::a_message_queued_as_its_record_is_blocked_on_another_thread_is_refused"
+   ],
+   "seconds": 494
+  },
+  {
+   "id": "HR35",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "chat messages are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "the_rate_of_a_contact_holds_across_its_sessions"
+   ],
+   "seconds": 482
+  },
+  {
+   "id": "HR36",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "control messages are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "rates::tests::every_message_but_a_chunk_and_a_close_is_counted"
+   ],
+   "seconds": 461
+  },
+  {
+   "id": "HR37",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "file offers are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is"
+   ],
+   "seconds": 498
+  },
+  {
+   "id": "HR38",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "profiles are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is"
+   ],
+   "seconds": 496
+  },
+  {
+   "id": "HR39",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "a bucket holds twice its burst",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "a_contact_that_opens_sessions_above_its_rate_has_them_closed",
+    "rates::tests::a_bucket_gives_its_burst_at_once_and_then_one_token_per_interval",
+    "rates::tests::a_refused_take_takes_nothing",
+    "rates::tests::contacts_and_kinds_are_kept_apart",
+    "rates::tests::every_take_is_that_of_a_bucket_of_its_own_contact_and_rate",
+    "rates::tests::sessions_are_counted_per_remote_identity",
+    "the_rate_of_a_contact_holds_across_its_sessions"
+   ],
+   "seconds": 455
+  },
+  {
+   "id": "HR40",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a new session of a contact gives back what the last one took",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_rate_of_a_contact_holds_across_its_sessions"
+   ],
+   "seconds": 482
+  },
+  {
+   "id": "HR41",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "the sessions a contact opens are not counted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_that_opens_sessions_above_its_rate_has_them_closed"
+   ],
+   "seconds": 474
+  },
+  {
+   "id": "HR42",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session that waits for a token does not end when it is closed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_that_waits_for_a_token_ends_when_it_is_closed"
+   ],
+   "seconds": 486
+  },
+  {
+   "id": "HR47",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an identity without a key is reported stopped",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_identity_without_a_key_is_reported_so_and_stays_so"
+   ],
+   "seconds": 482
+  },
+  {
+   "id": "HR49",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a send once the runtime shuts down is said to have no identity",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_once_the_runtime_shuts_down_says_so"
+   ],
+   "seconds": 471
+  },
+  {
+   "id": "HR50",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a send a shutdown cuts short is said to be a failed store",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_a_shutdown_cuts_short_says_so"
+   ],
+   "seconds": 473
+  },
+  {
+   "id": "HR76",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session the scheduler waited on ends without announcing the retry",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends"
+   ],
+   "seconds": 463
+  },
+  {
+   "id": "HR77",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a connect dials its next card once the runtime shuts down",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_connect_once_the_runtime_shuts_down_dials_no_further"
+   ],
+   "seconds": 369
+  },
+  {
+   "id": "HR85",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a chunk for an offer this side rejected is discarded",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "transfers::tests::an_offer_is_rejected_and_only_an_abort_crosses_the_rejection",
+    "transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say",
+    "what_cannot_follow_a_rejected_offer_ends_the_session"
+   ],
+   "seconds": 365
+  }
+ ]
+}

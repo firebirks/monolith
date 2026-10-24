@@ -1,0 +1,4 @@
+total 6436
+drwxr-xr-x 3 <user> <user>    4096 Oct 19 19:07 monolith-desktop-0.0.0-linux-x86_64
+-rw-r--r-- 1 <user> <user> 6580134 Oct 19 19:07 monolith-desktop-0.0.0-linux-x86_64.tar.gz
+-rw-r--r-- 1 <user> <user>     109 Oct 19 19:07 monolith-desktop-0.0.0-linux-x86_64.tar.gz.sha256

@@ -1,0 +1,192 @@
+{
+ "commit": "740b6715c5e1c3c488f3397624d6eb764e763eec",
+ "unmodified_seconds": 540,
+ "timeout": 1200,
+ "results": [
+  {
+   "id": "HR12",
+   "path": "crates/monolith-desktop/src/local.rs",
+   "what": "a link or a junction on the way is followed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_card_behind_a_junction_is_never_read",
+    "local::tests::nothing_below_a_link_is_looked_at"
+   ],
+   "seconds": 37
+  },
+  {
+   "id": "HR13",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a card file opened is not compared with the one looked at",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_name_given_to_another_file_once_looked_at_is_not_read_on_windows"
+   ],
+   "seconds": 14
+  },
+  {
+   "id": "HR14",
+   "path": "crates/monolith-desktop/src/local.rs",
+   "what": "a name of a device is taken as a file of this computer",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "config::tests::tor_settings_without_a_cookie_are_refused",
+    "local::tests::only_a_plain_path_on_a_drive_is_named_here"
+   ],
+   "seconds": 16
+  },
+  {
+   "id": "HR15",
+   "path": "crates/monolith-desktop/src/lib.rs",
+   "what": "a cookie file on another computer is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tests::a_cookie_on_another_computer_is_never_read"
+   ],
+   "seconds": 16
+  },
+  {
+   "id": "HR16",
+   "path": "crates/monolith-desktop/src/lib.rs",
+   "what": "a data directory or settings file on another computer is taken",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tests::a_place_on_another_computer_is_not_taken"
+   ],
+   "seconds": 14
+  },
+  {
+   "id": "HR44",
+   "path": "crates/monolith-storage/src/disk_windows.rs",
+   "what": "a rename another process blocks is tried once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "disk_windows::tests::a_rename_of_a_file_held_for_good_fails_in_bounded_time",
+    "disk_windows::tests::a_rename_waits_a_little_for_a_file_another_process_holds"
+   ],
+   "seconds": 378
+  },
+  {
+   "id": "HR46",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "the cookie file Tor names is compared with case on Windows",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cookie_file_named_in_another_case_is_that_file_only_on_windows"
+   ],
+   "seconds": 439
+  },
+  {
+   "id": "HR69",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a card file swapped for one of the same length is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_name_given_to_another_file_once_looked_at_is_not_read_on_windows"
+   ],
+   "seconds": 36
+  },
+  {
+   "id": "HR70",
+   "path": "crates/monolith-desktop/src/local.rs",
+   "what": "a name with a stream or a dot or space at its end is a file name",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "local::tests::only_a_plain_path_on_a_drive_is_named_here"
+   ],
+   "seconds": 20
+  },
+  {
+   "id": "HR71",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a card file opened offline or in the cloud only is read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_card_file_that_went_offline_once_looked_at_is_not_read"
+   ],
+   "seconds": 23
+  },
+  {
+   "id": "HR72",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a card is saved in a folder that is not of this computer",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_card_behind_a_junction_is_never_read"
+   ],
+   "seconds": 19
+  },
+  {
+   "id": "HR73",
+   "path": "crates/monolith-desktop/src/config.rs",
+   "what": "a cookie path not named as a file of this computer is taken",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "config::tests::tor_settings_without_a_cookie_are_refused"
+   ],
+   "seconds": 19
+  },
+  {
+   "id": "HR74",
+   "path": "crates/monolith-desktop/src/places.rs",
+   "what": "a downloads folder that is a junction is followed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_downloads_folder_that_is_a_junction_is_not_followed"
+   ],
+   "seconds": 20
+  },
+  {
+   "id": "HR75",
+   "path": "crates/monolith-storage/src/disk_windows.rs",
+   "what": "a removal another process blocks is tried once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "disk_windows::tests::a_removal_waits_a_little_for_a_file_another_process_holds"
+   ],
+   "seconds": 438
+  }
+ ]
+}

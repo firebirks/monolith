@@ -1,0 +1,94 @@
+candidate bbf1279439ea9f58703e10415f2ffa2f5321eeed
+phase1: 18 of 45 faults run again
+  F1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  F2: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  F3: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  F4: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  F5: crates/monolith-core/tests/store.rs holds creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  F6: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  F7: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  F9: crates/monolith-core/tests/store.rs holds creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  F10: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  M1: crates/monolith-core/tests/store.rs holds creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  X1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  X2: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  X3: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  B3: crates/monolith-core/tests/store.rs holds an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  B4: crates/monolith-core/tests/store.rs holds promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  U1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, deleting_is_atomic, which caught the fault
+  U2: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  U3: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, which caught the fault
+  python3 mutation/run.py phase1 <workers> F1 F2 F3 F4 F5 F6 F7 F9 F10 M1 X1 X2 X3 B3 B4 U1 U2 U3
+phase2: 16 of 99 faults run again
+  T1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, which caught the fault
+  T4: crates/monolith-core/tests/store.rs holds a_block_that_races_an_admission_leaves_no_contact_session_standing, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, concurrent_operations_on_different_contacts_lose_nothing, creating_a_contact_is_atomic, creating_an_identity_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, identities_restored_or_created_never_share_a_key, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  T6: crates/monolith-core/tests/store.rs holds a_block_that_races_an_admission_leaves_no_contact_session_standing, a_restart_on_disk_reproduces_the_durable_state, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, closing_an_installation_lets_go_of_its_directory_at_once, concurrent_operations_on_different_contacts_lose_nothing, concurrent_operations_on_one_contact_are_one_of_their_serial_orders, creating_a_contact_is_atomic, creating_an_identity_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, identities_restored_or_created_never_share_a_key, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  T7: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  K1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  K2: crates/monolith-core/tests/store.rs holds a_block_that_races_an_admission_leaves_no_contact_session_standing, a_restart_on_disk_reproduces_the_durable_state, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, concurrent_operations_on_different_contacts_lose_nothing, concurrent_operations_on_one_contact_are_one_of_their_serial_orders, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, identities_restored_or_created_never_share_a_key, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  K3: crates/monolith-core/tests/store.rs holds a_block_that_races_an_admission_leaves_no_contact_session_standing, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, identities_restored_or_created_never_share_a_key, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  K4: crates/monolith-core/tests/store.rs changed and the fault was caught by (non-zero exit, no failing test named)
+  C7: crates/monolith-core/tests/store.rs holds a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CAP2: crates/monolith-core/tests/store.rs changed and the fault survived
+  CAP3: crates/monolith-core/tests/store.rs changed and the fault survived
+  R11: crates/monolith-core/tests/store.rs holds a_block_that_races_an_admission_leaves_no_contact_session_standing, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  H2: crates/monolith-core/tests/store.rs holds a_block_that_races_an_admission_leaves_no_contact_session_standing, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  H4: crates/monolith-core/tests/store.rs holds a_block_that_races_an_admission_leaves_no_contact_session_standing, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  S15: crates/monolith-core/tests/store.rs changed and the fault survived
+  S24: crates/monolith-core/tests/store.rs changed and the fault survived
+  python3 mutation/run.py phase2 <workers> T1 T4 T6 T7 K1 K2 K3 K4 C7 CAP2 CAP3 R11 H2 H4 S15 S24
+phase3: 9 of 71 faults run again
+  N1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  N2: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  Q1: crates/monolith-core/tests/store.rs changed and the fault was caught by (timeout)
+  Q2: crates/monolith-core/tests/store.rs holds creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  Q14: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  Q18: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  Q29: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, which caught the fault
+  CR4: crates/monolith-core/tests/store.rs holds a_restart_reproduces_the_durable_state_exactly, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CR9: crates/monolith-core/tests/store.rs holds a_restart_reproduces_the_durable_state_exactly, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  python3 mutation/run.py phase3 <workers> N1 N2 Q1 Q2 Q14 Q18 Q29 CR4 CR9
+phase4: 18 of 123 faults run again
+  CS1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  CS2: crates/monolith-core/tests/store.rs holds promoting_a_successor_is_atomic, which caught the fault
+  CS3: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  CS4: crates/monolith-core/tests/store.rs holds creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  CS6: crates/monolith-core/tests/store.rs holds a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CS11: crates/monolith-core/tests/store.rs holds a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CS13: crates/monolith-core/tests/store.rs holds creating_a_contact_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CS14: crates/monolith-core/tests/store.rs holds creating_a_contact_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CS23: crates/monolith-core/tests/store.rs holds identities_restored_or_created_never_share_a_key, which caught the fault
+  CS30: crates/monolith-core/tests/store.rs changed and the fault was caught by (timeout)
+  CS35: crates/monolith-core/tests/store.rs holds an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_an_identity_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CS36: crates/monolith-core/tests/store.rs holds an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_an_identity_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CS38: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  CS39: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  CS40: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  CS41: crates/monolith-core/tests/store.rs holds a_restart_on_disk_reproduces_the_durable_state, which caught the fault
+  CS45: crates/monolith-core/tests/store.rs holds a_restart_on_disk_reproduces_the_durable_state, a_restart_reproduces_the_durable_state_exactly, an_announced_successor_is_atomic, beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, updating_a_card_is_atomic, which caught the fault
+  CS64: crates/monolith-core/tests/store.rs holds creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  python3 mutation/run.py phase4 <workers> CS1 CS2 CS3 CS4 CS6 CS11 CS13 CS14 CS23 CS30 CS35 CS36 CS38 CS39 CS40 CS41 CS45 CS64
+phase5: 5 of 57 faults run again
+  MR9: crates/monolith-core/tests/store.rs changed and the fault was caught by (timeout)
+  MR25: crates/monolith-core/tests/store.rs changed and the fault was caught by (timeout)
+  MR26: crates/monolith-core/tests/store.rs changed and the fault was caught by (timeout)
+  MR44: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  MR48: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  python3 mutation/run.py phase5 <workers> MR9 MR25 MR26 MR44 MR48
+phase6: 3 of 160 faults run again
+  UI35: crates/monolith-core/tests/store.rs holds creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  UI36: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  UI37: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  python3 mutation/run.py phase6 <workers> UI35 UI36 UI37
+phase7: 9 of 71 faults run again
+  HR1: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  HR2: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  HR3: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, which caught the fault
+  HR17: crates/monolith-core/tests/store.rs holds creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  HR21: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  HR22: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, blocking_is_atomic, creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, which caught the fault
+  HR23: crates/monolith-core/tests/store.rs holds creating_a_contact_is_atomic, creating_and_revoking_an_invitation_are_atomic, deleting_is_atomic, promoting_a_successor_is_atomic, which caught the fault
+  HR56: crates/monolith-core/tests/store.rs holds blocking_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  HR57: crates/monolith-core/tests/store.rs holds beginning_a_rotation_is_atomic, creating_a_contact_is_atomic, which caught the fault
+  python3 mutation/run.py phase7 <workers> HR1 HR2 HR3 HR17 HR21 HR22 HR23 HR56 HR57
+phase7w: 0 of 14 faults run again

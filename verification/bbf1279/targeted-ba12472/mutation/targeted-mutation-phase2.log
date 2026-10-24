@@ -1,0 +1,18 @@
+commit ba12472cb87e70b7c62c55a856faa200f0f8f7fc, 16 faults, 4 workers, unmodified run 404s, timeout 3232s
+K2    caught    155s  local card signed by another identity than the local one
+T4    caught    515s  canonical check compares from the least significant byte
+K3    caught    555s  local card states a transport key the party does not hold
+K4    caught    672s  a card from outside can be adopted as the local card
+CAP2  survived  964s  a dropped capability is not erased
+C7    caught   1062s  a lower epoch counts as newer
+CAP3  survived  907s  capabilities compared with an early exit
+R8    caught    573s  a message that fails authentication is opened
+R11   caught    577s  DH takes the key from the end of the buffer
+H2    caught    489s  initiator binds its own identity in the prologue
+H4    caught    471s  initiator expects its own transport key
+T6    caught   2660s  Montgomery form comparison inverted
+H15   caught    636s  OutboundPeer::admit ignores its record
+S15   survived  542s  may_send ignores a failed or closed session
+S24   survived  471s  keys kept after an internal failure of seal
+H16   caught   1133s  outbound admission uses what was held when the dial began
+done: {'caught': 12, 'survived': 4}; written to <repo>/mutation/results-phase2-ba12472.json

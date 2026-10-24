@@ -1,0 +1,131 @@
+{
+ "commit": "bbf1279439ea9f58703e10415f2ffa2f5321eeed",
+ "unmodified_seconds": 507,
+ "timeout": 4056,
+ "results": [
+  {
+   "id": "HR1",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "only the first card of a dial plan is dialed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plan_whose_cards_both_fail_is_reported_once",
+    "a_successor_that_does_not_answer_is_followed_by_the_active_key"
+   ],
+   "seconds": 567
+  },
+  {
+   "id": "HR2",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "the next card is dialed after a card that answered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next"
+   ],
+   "seconds": 533
+  },
+  {
+   "id": "HR3",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a failure of Tor is followed by the next card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failure_of_tor_is_not_followed_by_the_active_key",
+    "link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next"
+   ],
+   "seconds": 566
+  },
+  {
+   "id": "HR17",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a file offer is ignored, not rejected",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded",
+    "what_cannot_follow_a_rejected_offer_ends_the_session",
+    "what_one_session_rejected_is_unknown_to_the_next"
+   ],
+   "seconds": 550
+  },
+  {
+   "id": "HR21",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "the queue of a contact ignores a lowered limit",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "messages::tests::a_store_above_a_lowered_limit_is_read_and_kept_and_grows_no_further",
+    "messages::tests::a_store_above_any_lowered_limit_is_kept_and_takes_in_only_below_it"
+   ],
+   "seconds": 543
+  },
+  {
+   "id": "HR22",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "the store takes messages in past a lowered limit",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "messages::tests::a_store_above_any_lowered_limit_is_kept_and_takes_in_only_below_it",
+    "messages::tests::a_store_with_more_messages_than_a_lowered_limit_takes_none_in"
+   ],
+   "seconds": 553
+  },
+  {
+   "id": "HR23",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "a lowered window of forgotten messages is not applied",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "messages::tests::a_lowered_window_of_forgotten_messages_holds_from_the_next_deletion"
+   ],
+   "seconds": 525
+  },
+  {
+   "id": "HR56",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a SOCKS endpoint not tried is said not to answer",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "with_the_check_on_status_says_the_socks_endpoint_was_not_tried_without_the_control_endpoint"
+   ],
+   "seconds": 531
+  },
+  {
+   "id": "HR57",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a control endpoint that does not answer is said to be Tor not running",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "runtime::tests::a_tor_check_says_tor_is_not_running_only_where_both_endpoints_were_tried"
+   ],
+   "seconds": 306
+  }
+ ]
+}

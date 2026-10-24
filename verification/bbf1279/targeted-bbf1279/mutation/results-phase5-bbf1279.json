@@ -1,0 +1,79 @@
+{
+ "commit": "bbf1279439ea9f58703e10415f2ffa2f5321eeed",
+ "unmodified_seconds": 452,
+ "timeout": 3616,
+ "results": [
+  {
+   "id": "MR9",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a failed attempt is followed by the next at once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)",
+    "a_failed_attempt_is_not_repeated_at_once",
+    "a_failure_of_tor_is_not_followed_by_the_active_key",
+    "a_plan_whose_cards_both_fail_is_reported_once",
+    "a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends"
+   ],
+   "seconds": 3616
+  },
+  {
+   "id": "MR25",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an idle session never ends",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)"
+   ],
+   "seconds": 3616
+  },
+  {
+   "id": "MR26",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a message whose acknowledgement does not come keeps its session waiting",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)"
+   ],
+   "seconds": 3616
+  },
+  {
+   "id": "MR44",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a scheduler goes on after the vault failed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_that_fails_once_the_vault_failed_announces_no_retry",
+    "a_failed_vault_ends_every_attempt"
+   ],
+   "seconds": 618
+  },
+  {
+   "id": "MR48",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a message queued as its identity is deleted is added after the deletion",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_for_a_record_deleted_while_it_waits_for_the_vault_queues_nothing",
+    "identity::tests::a_message_queued_as_its_identity_is_deleted_leaves_nothing_of_it",
+    "identity::tests::a_message_queued_as_its_record_is_blocked_on_another_thread_is_refused"
+   ],
+   "seconds": 824
+  }
+ ]
+}

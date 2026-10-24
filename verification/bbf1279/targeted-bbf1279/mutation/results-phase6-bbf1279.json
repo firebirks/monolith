@@ -1,0 +1,53 @@
+{
+ "commit": "bbf1279439ea9f58703e10415f2ffa2f5321eeed",
+ "unmodified_seconds": 456,
+ "timeout": 3648,
+ "results": [
+  {
+   "id": "UI35",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a dial reaches the SOCKS endpoint without a proof",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failure_of_tor_ends_the_proof",
+    "a_proof_lets_dials_through_for_its_lifetime_only",
+    "dials_at_the_same_time_share_one_proof",
+    "losing_a_published_service_ends_the_proof",
+    "with_the_check_on_a_dial_waits_until_tor_lists_the_socks_endpoint",
+    "without_a_proof_nothing_reaches_the_socks_endpoint"
+   ],
+   "seconds": 436
+  },
+  {
+   "id": "UI36",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a proof counts far longer than its lifetime",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_proof_lets_dials_through_for_its_lifetime_only"
+   ],
+   "seconds": 426
+  },
+  {
+   "id": "UI37",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "any SOCKS listener Tor lists counts as the configured one",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::tests::socks_listeners_are_read_as_tor_lists_them",
+    "with_the_check_on_status_reports_a_socks_endpoint_tor_does_not_list",
+    "without_a_proof_nothing_reaches_the_socks_endpoint"
+   ],
+   "seconds": 422
+  }
+ ]
+}

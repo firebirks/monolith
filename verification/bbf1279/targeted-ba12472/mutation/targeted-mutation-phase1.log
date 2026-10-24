@@ -1,0 +1,12 @@
+commit ba12472cb87e70b7c62c55a856faa200f0f8f7fc, 8 faults, 4 workers, unmodified run 450s, timeout 3600s
+X2    caught    726s  text below the minimum passes
+X3    caught    741s  carriage return allowed in free text
+B3    caught    743s  a card with an invitation accepted inside a message
+X1    caught    779s  text one byte over the maximum passes
+B4    caught    743s  the endpoint count of an embedded card not checked first
+U2    caught    734s  the preferred side is the larger key
+U1    caught    754s  the duplicate rule prefers the other side
+U3    caught    726s  an unanswered probe keeps the older session
+done: {'caught': 8}; written to <repo>/mutation/results-phase1-ba12472.json
+UNEXPECTED B3: caught, expected survives: equivalent. The card is taken with the length of a card without capability, 171 bytes; one whose flag announces a capability needs 187 and fails to decode before this check is reached
+UNEXPECTED B4: caught, expected survives: equivalent. Without it the same input is still refused, by take() or by ContactCard::decode; take() returns a slice and allocates nothing. Only the local error category can differ

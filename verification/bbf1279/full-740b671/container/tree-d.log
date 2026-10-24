@@ -1,0 +1,416 @@
+calloop v0.13.0
+|-- calloop-wayland-source v0.3.0
+|   `-- smithay-client-toolkit v0.19.2
+|       `-- winit v0.30.13
+|           |-- accesskit_winit v0.27.0
+|           |   `-- egui-winit v0.32.3
+|           |       `-- eframe v0.32.3
+|           |           `-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|           |-- eframe v0.32.3 (*)
+|           |-- egui-winit v0.32.3 (*)
+|           `-- glutin-winit v0.5.0
+|               `-- eframe v0.32.3 (*)
+|-- smithay-client-toolkit v0.19.2 (*)
+`-- winit v0.30.13 (*)
+
+calloop v0.14.4
+|-- calloop-wayland-source v0.4.1
+|   `-- smithay-client-toolkit v0.20.0
+|       `-- smithay-clipboard v0.7.3
+|           `-- egui-winit v0.32.3 (*)
+`-- smithay-client-toolkit v0.20.0 (*)
+
+calloop-wayland-source v0.3.0 (*)
+
+calloop-wayland-source v0.4.1 (*)
+
+hashbrown v0.15.5
+`-- accesskit_consumer v0.28.0
+    `-- accesskit_atspi_common v0.12.0
+        `-- accesskit_unix v0.15.0
+            `-- accesskit_winit v0.27.0 (*)
+
+hashbrown v0.17.1
+`-- indexmap v2.14.2
+    `-- toml_edit v0.25.17+spec-1.1.0
+        `-- proc-macro-crate v3.5.0
+            |-- zbus_macros v5.13.2 (proc-macro)
+            |   `-- zbus v5.13.2
+            |       |-- accesskit_unix v0.15.0 (*)
+            |       |-- atspi-common v0.9.0
+            |       |   |-- accesskit_atspi_common v0.12.0 (*)
+            |       |   |-- atspi v0.25.0
+            |       |   |   `-- accesskit_unix v0.15.0 (*)
+            |       |   |-- atspi-connection v0.9.0
+            |       |   |   `-- atspi v0.25.0 (*)
+            |       |   `-- atspi-proxies v0.9.0
+            |       |       |-- atspi v0.25.0 (*)
+            |       |       `-- atspi-connection v0.9.0 (*)
+            |       |-- atspi-connection v0.9.0 (*)
+            |       `-- atspi-proxies v0.9.0 (*)
+            `-- zvariant_derive v5.9.2 (proc-macro)
+                `-- zvariant v5.9.2
+                    |-- accesskit_atspi_common v0.12.0 (*)
+                    |-- atspi-common v0.9.0 (*)
+                    |-- zbus v5.13.2 (*)
+                    |-- zbus-lockstep v0.5.2
+                    |   |-- atspi-common v0.9.0 (*)
+                    |   `-- zbus-lockstep-macros v0.5.2 (proc-macro)
+                    |       `-- atspi-common v0.9.0 (*)
+                    |-- zbus-lockstep-macros v0.5.2 (proc-macro) (*)
+                    |-- zbus_macros v5.13.2 (proc-macro) (*)
+                    |-- zbus_names v4.3.1
+                    |   |-- atspi-common v0.9.0 (*)
+                    |   |-- zbus v5.13.2 (*)
+                    |   |-- zbus_macros v5.13.2 (proc-macro) (*)
+                    |   `-- zbus_xml v5.1.0
+                    |       |-- zbus-lockstep v0.5.2 (*)
+                    |       `-- zbus-lockstep-macros v0.5.2 (proc-macro) (*)
+                    `-- zbus_xml v5.1.0 (*)
+
+linux-raw-sys v0.4.15
+`-- rustix v0.38.44
+    |-- calloop v0.13.0 (*)
+    |-- calloop-wayland-source v0.3.0 (*)
+    |-- smithay-client-toolkit v0.19.2 (*)
+    `-- winit v0.30.13 (*)
+
+linux-raw-sys v0.12.1
+`-- rustix v1.1.5
+    |-- async-io v2.6.0
+    |   |-- async-process v2.5.0
+    |   |   `-- zbus v5.13.2 (*)
+    |   |-- async-signal v0.2.14
+    |   |   `-- async-process v2.5.0 (*)
+    |   `-- zbus v5.13.2 (*)
+    |-- async-process v2.5.0 (*)
+    |-- async-signal v0.2.14 (*)
+    |-- calloop v0.14.4 (*)
+    |-- calloop-wayland-source v0.4.1 (*)
+    |-- gethostname v1.1.0
+    |   `-- x11rb v0.13.2
+    |       |-- arboard v3.6.1
+    |       |   `-- egui-winit v0.32.3 (*)
+    |       `-- winit v0.30.13 (*)
+    |-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+    |-- monolith-storage v0.0.0 (/home/verifier/work/crates/monolith-storage)
+    |   |-- monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+    |   |-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core)
+    |   |   |-- monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+    |   |   `-- monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime)
+    |   |       `-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+    |   `-- monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime) (*)
+    |-- polling v3.11.0
+    |   |-- async-io v2.6.0 (*)
+    |   |-- calloop v0.13.0 (*)
+    |   `-- calloop v0.14.4 (*)
+    |-- smithay-client-toolkit v0.20.0 (*)
+    |-- wayland-backend v0.3.17
+    |   |-- calloop-wayland-source v0.3.0 (*)
+    |   |-- calloop-wayland-source v0.4.1 (*)
+    |   |-- smithay-client-toolkit v0.19.2 (*)
+    |   |-- smithay-client-toolkit v0.20.0 (*)
+    |   |-- smithay-clipboard v0.7.3 (*)
+    |   |-- wayland-client v0.31.15
+    |   |   |-- calloop-wayland-source v0.3.0 (*)
+    |   |   |-- calloop-wayland-source v0.4.1 (*)
+    |   |   |-- smithay-client-toolkit v0.19.2 (*)
+    |   |   |-- smithay-client-toolkit v0.20.0 (*)
+    |   |   |-- wayland-cursor v0.31.14
+    |   |   |   |-- smithay-client-toolkit v0.19.2 (*)
+    |   |   |   `-- smithay-client-toolkit v0.20.0 (*)
+    |   |   |-- wayland-protocols v0.32.12
+    |   |   |   |-- smithay-client-toolkit v0.19.2 (*)
+    |   |   |   |-- smithay-client-toolkit v0.20.0 (*)
+    |   |   |   |-- wayland-protocols-experimental v20250721.0.1
+    |   |   |   |   `-- smithay-client-toolkit v0.20.0 (*)
+    |   |   |   |-- wayland-protocols-misc v0.3.12
+    |   |   |   |   `-- smithay-client-toolkit v0.20.0 (*)
+    |   |   |   |-- wayland-protocols-plasma v0.3.12
+    |   |   |   |   `-- winit v0.30.13 (*)
+    |   |   |   |-- wayland-protocols-wlr v0.3.12
+    |   |   |   |   |-- smithay-client-toolkit v0.19.2 (*)
+    |   |   |   |   `-- smithay-client-toolkit v0.20.0 (*)
+    |   |   |   `-- winit v0.30.13 (*)
+    |   |   |-- wayland-protocols-experimental v20250721.0.1 (*)
+    |   |   |-- wayland-protocols-misc v0.3.12 (*)
+    |   |   |-- wayland-protocols-plasma v0.3.12 (*)
+    |   |   |-- wayland-protocols-wlr v0.3.12 (*)
+    |   |   `-- winit v0.30.13 (*)
+    |   |-- wayland-csd-frame v0.3.0
+    |   |   |-- smithay-client-toolkit v0.19.2 (*)
+    |   |   `-- smithay-client-toolkit v0.20.0 (*)
+    |   |-- wayland-protocols v0.32.12 (*)
+    |   |-- wayland-protocols-experimental v20250721.0.1 (*)
+    |   |-- wayland-protocols-misc v0.3.12 (*)
+    |   |-- wayland-protocols-plasma v0.3.12 (*)
+    |   |-- wayland-protocols-wlr v0.3.12 (*)
+    |   `-- winit v0.30.13 (*)
+    |-- wayland-client v0.31.15 (*)
+    |-- wayland-cursor v0.31.14 (*)
+    |-- x11rb v0.13.2 (*)
+    `-- zbus v5.13.2 (*)
+
+log v0.4.34
+`-- gl_generator v0.14.0
+    [build-dependencies]
+    |-- glutin_egl_sys v0.7.1
+    |   `-- glutin v0.32.3
+    |       |-- eframe v0.32.3 (*)
+    |       `-- glutin-winit v0.5.0 (*)
+    `-- glutin_glx_sys v0.6.1
+        `-- glutin v0.32.3 (*)
+
+log v0.4.34
+|-- arboard v3.6.1 (*)
+|-- calloop v0.13.0 (*)
+|-- eframe v0.32.3 (*)
+|-- egui v0.32.3
+|   |-- eframe v0.32.3 (*)
+|   |-- egui-winit v0.32.3 (*)
+|   |-- egui_glow v0.32.3
+|   |   `-- eframe v0.32.3 (*)
+|   |-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|   |-- monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui)
+|   |   `-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|   |-- monolith-ui-kit v0.0.0 (/home/verifier/work/crates/monolith-ui-kit)
+|   |   |-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|   |   `-- monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui) (*)
+|   `-- monolith-ui-snapshot v0.0.0 (/home/verifier/work/crates/monolith-ui-snapshot)
+|       [dev-dependencies]
+|       |-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|       |-- monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui) (*)
+|       `-- monolith-ui-kit v0.0.0 (/home/verifier/work/crates/monolith-ui-kit) (*)
+|-- egui-winit v0.32.3 (*)
+|-- egui_glow v0.32.3 (*)
+|-- epaint v0.32.3
+|   `-- egui v0.32.3 (*)
+|-- smithay-client-toolkit v0.19.2 (*)
+|-- smithay-client-toolkit v0.20.0 (*)
+|-- tracing v0.1.44
+|   |-- calloop v0.14.4 (*)
+|   |-- winit v0.30.13 (*)
+|   `-- zbus v5.13.2 (*)
+|-- wayland-sys v0.31.11
+|   |-- glutin v0.32.3 (*)
+|   `-- wayland-backend v0.3.17 (*)
+|-- webbrowser v1.2.4
+|   `-- egui-winit v0.32.3 (*)
+`-- xkbcommon-dl v0.4.2
+    `-- winit v0.30.13 (*)
+
+miniz_oxide v0.8.9
+`-- png v0.18.1
+    |-- image v0.25.9
+    |   |-- arboard v3.6.1 (*)
+    |   `-- eframe v0.32.3 (*)
+    `-- monolith-ui-snapshot v0.0.0 (/home/verifier/work/crates/monolith-ui-snapshot) (*)
+
+miniz_oxide v0.9.1
+`-- flate2 v1.1.10
+    `-- png v0.18.1 (*)
+
+quick-xml v0.38.4
+`-- zbus_xml v5.1.0 (*)
+
+quick-xml v0.41.0
+`-- wayland-scanner v0.31.11 (proc-macro)
+    |-- smithay-client-toolkit v0.19.2 (*)
+    |-- smithay-client-toolkit v0.20.0 (*)
+    |-- wayland-client v0.31.15 (*)
+    |-- wayland-protocols v0.32.12 (*)
+    |-- wayland-protocols-experimental v20250721.0.1 (*)
+    |-- wayland-protocols-misc v0.3.12 (*)
+    |-- wayland-protocols-plasma v0.3.12 (*)
+    `-- wayland-protocols-wlr v0.3.12 (*)
+
+rand_core v0.9.5
+|-- rand v0.9.5
+|   `-- proptest v1.11.0
+|       [dev-dependencies]
+|       |-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core) (*)
+|       |-- monolith-identity v0.0.0 (/home/verifier/work/crates/monolith-identity)
+|       |   |-- monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+|       |   |-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core) (*)
+|       |   |-- monolith-protocol v0.0.0 (/home/verifier/work/crates/monolith-protocol)
+|       |   |   |-- monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+|       |   |   |-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core) (*)
+|       |   |   |-- monolith-session v0.0.0 (/home/verifier/work/crates/monolith-session)
+|       |   |   |   |-- monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+|       |   |   |   `-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core) (*)
+|       |   |   |-- monolith-storage v0.0.0 (/home/verifier/work/crates/monolith-storage) (*)
+|       |   |   `-- monolith-tor v0.0.0 (/home/verifier/work/crates/monolith-tor)
+|       |   |       |-- monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+|       |   |       |-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core) (*)
+|       |   |       `-- monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime) (*)
+|       |   |       [dev-dependencies]
+|       |   |       `-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|       |   |-- monolith-session v0.0.0 (/home/verifier/work/crates/monolith-session) (*)
+|       |   |-- monolith-storage v0.0.0 (/home/verifier/work/crates/monolith-storage) (*)
+|       |   `-- monolith-tor v0.0.0 (/home/verifier/work/crates/monolith-tor) (*)
+|       |   [dev-dependencies]
+|       |   `-- monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime) (*)
+|       |-- monolith-protocol v0.0.0 (/home/verifier/work/crates/monolith-protocol) (*)
+|       |-- monolith-session v0.0.0 (/home/verifier/work/crates/monolith-session) (*)
+|       |-- monolith-storage v0.0.0 (/home/verifier/work/crates/monolith-storage) (*)
+|       `-- monolith-ui-model v0.0.0 (/home/verifier/work/crates/monolith-ui-model)
+|           |-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|           `-- monolith-ui v0.0.0 (/home/verifier/work/crates/monolith-ui) (*)
+|-- rand_chacha v0.9.0
+|   `-- proptest v1.11.0 (*)
+`-- rand_xorshift v0.4.0
+    `-- proptest v1.11.0 (*)
+
+rand_core v0.10.1
+`-- x25519-dalek v3.0.0
+    `-- monolith-session v0.0.0 (/home/verifier/work/crates/monolith-session) (*)
+
+rustix v0.38.44 (*)
+
+rustix v1.1.5 (*)
+
+smithay-client-toolkit v0.19.2 (*)
+
+smithay-client-toolkit v0.20.0 (*)
+
+syn v2.0.119
+|-- curve25519-dalek-derive v0.1.1 (proc-macro)
+|   `-- curve25519-dalek v5.0.0
+|       |-- ed25519-dalek v3.0.0
+|       |   `-- monolith-identity v0.0.0 (/home/verifier/work/crates/monolith-identity) (*)
+|       |   [dev-dependencies]
+|       |   `-- monolith-protocol v0.0.0 (/home/verifier/work/crates/monolith-protocol) (*)
+|       `-- x25519-dalek v3.0.0 (*)
+|-- enumflags2_derive v0.7.12 (proc-macro)
+|   `-- enumflags2 v0.7.12
+|       |-- atspi-common v0.9.0 (*)
+|       |-- zbus v5.13.2 (*)
+|       `-- zvariant v5.9.2 (*)
+|-- thiserror-impl v1.0.69 (proc-macro)
+|   `-- thiserror v1.0.69
+|       |-- accesskit_atspi_common v0.12.0 (*)
+|       |-- calloop v0.13.0 (*)
+|       `-- smithay-client-toolkit v0.19.2 (*)
+|-- tracing-attributes v0.1.31 (proc-macro)
+|   `-- tracing v0.1.44 (*)
+|-- zbus-lockstep-macros v0.5.2 (proc-macro) (*)
+|-- zbus_macros v5.13.2 (proc-macro) (*)
+|-- zvariant_derive v5.9.2 (proc-macro) (*)
+`-- zvariant_utils v3.3.0
+    |-- zbus_macros v5.13.2 (proc-macro) (*)
+    |-- zvariant v5.9.2 (*)
+    `-- zvariant_derive v5.9.2 (proc-macro) (*)
+
+syn v3.0.9
+|-- async-trait v0.1.92 (proc-macro)
+|   `-- zbus v5.13.2 (*)
+|-- bytemuck_derive v1.12.1 (proc-macro)
+|   `-- bytemuck v1.25.2
+|       |-- ecolor v0.32.3
+|       |   `-- epaint v0.32.3 (*)
+|       |-- egui-winit v0.32.3 (*)
+|       |-- egui_glow v0.32.3 (*)
+|       |-- emath v0.32.3
+|       |   |-- ecolor v0.32.3 (*)
+|       |   |-- egui v0.32.3 (*)
+|       |   `-- epaint v0.32.3 (*)
+|       |-- epaint v0.32.3 (*)
+|       |-- image v0.25.9 (*)
+|       `-- winit v0.30.13 (*)
+|-- displaydoc v0.2.7 (proc-macro)
+|   |-- icu_collections v2.1.1
+|   |   |-- icu_normalizer v2.1.1
+|   |   |   `-- idna_adapter v1.2.1
+|   |   |       `-- idna v1.1.0
+|   |   |           `-- url v2.5.8
+|   |   |               `-- webbrowser v1.2.4 (*)
+|   |   `-- icu_properties v2.1.2
+|   |       `-- idna_adapter v1.2.1 (*)
+|   |-- icu_locale_core v2.1.1
+|   |   |-- icu_properties v2.1.2 (*)
+|   |   `-- icu_provider v2.1.1
+|   |       |-- icu_normalizer v2.1.1 (*)
+|   |       `-- icu_properties v2.1.2 (*)
+|   |-- icu_provider v2.1.1 (*)
+|   |-- tinystr v0.8.4
+|   |   `-- icu_locale_core v2.1.1 (*)
+|   `-- zerotrie v0.2.5
+|       |-- icu_properties v2.1.2 (*)
+|       `-- icu_provider v2.1.1 (*)
+|-- futures-macro v0.3.34 (proc-macro)
+|   `-- futures-util v0.3.34
+|       `-- accesskit_unix v0.15.0 (*)
+|-- serde_derive v1.0.229 (proc-macro)
+|   `-- serde v1.0.229
+|       |-- accesskit_atspi_common v0.12.0 (*)
+|       |-- accesskit_unix v0.15.0 (*)
+|       |-- atspi-common v0.9.0 (*)
+|       |-- atspi-proxies v0.9.0 (*)
+|       |-- enumflags2 v0.7.12 (*)
+|       |-- quick-xml v0.38.4 (*)
+|       |-- zbus v5.13.2 (*)
+|       |-- zbus_names v4.3.1 (*)
+|       |-- zbus_xml v5.1.0 (*)
+|       |-- zvariant v5.9.2 (*)
+|       `-- zvariant_utils v3.3.0 (*)
+|-- serde_repr v0.1.21 (proc-macro)
+|   `-- zbus v5.13.2 (*)
+|-- synstructure v0.14.0
+|   |-- yoke-derive v0.8.4 (proc-macro)
+|   |   `-- yoke v0.8.3
+|   |       |-- icu_collections v2.1.1 (*)
+|   |       |-- icu_provider v2.1.1 (*)
+|   |       |-- zerotrie v0.2.5 (*)
+|   |       `-- zerovec v0.11.8
+|   |           |-- icu_collections v2.1.1 (*)
+|   |           |-- icu_locale_core v2.1.1 (*)
+|   |           |-- icu_normalizer v2.1.1 (*)
+|   |           |-- icu_properties v2.1.2 (*)
+|   |           |-- icu_provider v2.1.1 (*)
+|   |           |-- potential_utf v0.1.6
+|   |           |   `-- icu_collections v2.1.1 (*)
+|   |           `-- tinystr v0.8.4 (*)
+|   `-- zerofrom-derive v0.1.8 (proc-macro)
+|       `-- zerofrom v0.1.8
+|           |-- icu_collections v2.1.1 (*)
+|           |-- icu_provider v2.1.1 (*)
+|           |-- yoke v0.8.3 (*)
+|           |-- zerotrie v0.2.5 (*)
+|           `-- zerovec v0.11.8 (*)
+|-- thiserror-impl v2.0.21 (proc-macro)
+|   `-- thiserror v2.0.21
+|       `-- smithay-client-toolkit v0.20.0 (*)
+|-- tokio-macros v2.7.2 (proc-macro)
+|   `-- tokio v1.53.1
+|       |-- monolith-cli v0.0.0 (/home/verifier/work/crates/monolith-cli)
+|       |-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core) (*)
+|       |-- monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+|       |-- monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime) (*)
+|       `-- monolith-tor v0.0.0 (/home/verifier/work/crates/monolith-tor) (*)
+|       [dev-dependencies]
+|       |-- monolith-core v0.0.0 (/home/verifier/work/crates/monolith-core) (*)
+|       |-- monolith-runtime v0.0.0 (/home/verifier/work/crates/monolith-runtime) (*)
+|       `-- monolith-tor v0.0.0 (/home/verifier/work/crates/monolith-tor) (*)
+|-- yoke-derive v0.8.4 (proc-macro) (*)
+|-- zerofrom-derive v0.1.8 (proc-macro) (*)
+`-- zerovec-derive v0.11.6 (proc-macro)
+    `-- zerovec v0.11.8 (*)
+
+thiserror v1.0.69 (*)
+
+thiserror v2.0.21 (*)
+
+thiserror-impl v1.0.69 (proc-macro) (*)
+
+thiserror-impl v2.0.21 (proc-macro) (*)
+
+winnow v0.7.15
+|-- zbus v5.13.2 (*)
+|-- zbus_names v4.3.1 (*)
+|-- zvariant v5.9.2 (*)
+`-- zvariant_utils v3.3.0 (*)
+
+winnow v1.0.4
+|-- toml_edit v0.25.17+spec-1.1.0 (*)
+`-- toml_parser v1.1.5+spec-1.1.0
+    `-- toml_edit v0.25.17+spec-1.1.0 (*)

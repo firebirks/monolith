@@ -1,0 +1,11 @@
+commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, 9 faults, 4 workers, unmodified run 507s, timeout 4056s
+HR2   caught    533s  the next card is dialed after a card that answered
+HR17  caught    550s  a file offer is ignored, not rejected
+HR3   caught    566s  a failure of Tor is followed by the next card
+HR1   caught    567s  only the first card of a dial plan is dialed
+HR21  caught    543s  the queue of a contact ignores a lowered limit
+HR23  caught    525s  a lowered window of forgotten messages is not applied
+HR56  caught    531s  a SOCKS endpoint not tried is said not to answer
+HR22  caught    553s  the store takes messages in past a lowered limit
+HR57  caught    306s  a control endpoint that does not answer is said to be Tor not running
+done: {'caught': 9}; written to <repo>/mutation/results-phase7-bbf1279.json

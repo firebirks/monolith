@@ -1,0 +1,10 @@
+commit bbf1279439ea9f58703e10415f2ffa2f5321eeed started 2026-10-22T12:58:26
+rustc 1.95.0 (59807616e 2026-04-14) / rustc 1.85.1 (4eb161250 2025-03-15)
+status: 0 changed paths
+fmt exit 0 (2 s)
+clippy exit 0 (38 s)
+clippy-fixtures exit 0 (6 s)
+test-core-1.95.0 exit 0 (393 s)
+test-core-1.85.1 exit 0 (369 s)
+status after: 0 changed paths
+done 2026-10-22T13:11:57

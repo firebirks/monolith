@@ -1,0 +1,90 @@
+2026-10-23T22:13:08 start, available 11.16 GB, C: free 65.1 GB
+2026-10-23T22:13:09 available 11.14 GB, in WSL 11.2 GB, C: free 65.1 GB, Debian up, stopped: no
+2026-10-23T22:23:15 available 5.33 GB, in WSL 10.9 GB, C: free 77.2 GB, Debian up, stopped: no
+2026-10-23T22:28:33 page cache dropped (1 times in all), available 3.63 -> 7.65 GB
+2026-10-23T22:33:16 available 11.88 GB, in WSL 10.9 GB, C: free 76.3 GB, Debian up, stopped: no
+2026-10-23T22:43:23 available 4.25 GB, in WSL 9.7 GB, C: free 74.6 GB, Debian up, stopped: no
+2026-10-23T22:45:37 page cache dropped (2 times in all), available 3.98 -> 6.96 GB
+2026-10-23T22:53:42 available 9.12 GB, in WSL 11 GB, C: free 74.5 GB, Debian up, stopped: no
+2026-10-23T23:03:49 available 6.42 GB, in WSL 11 GB, C: free 73.9 GB, Debian up, stopped: no
+2026-10-23T23:07:03 page cache dropped (3 times in all), available 3.84 -> 6.14 GB
+2026-10-23T23:14:09 available 9.15 GB, in WSL 11.1 GB, C: free 71.8 GB, Debian up, stopped: no
+2026-10-23T23:20:08 page cache dropped (4 times in all), available 2.39 -> 5.96 GB
+2026-10-23T23:24:12 available 9.64 GB, in WSL 10.8 GB, C: free 69.6 GB, Debian up, stopped: no
+2026-10-23T23:34:19 available 8.73 GB, in WSL 10.9 GB, C: free 69.3 GB, Debian up, stopped: no
+2026-10-23T23:44:28 available 8.71 GB, in WSL 11 GB, C: free 68.5 GB, Debian up, stopped: no
+2026-10-23T23:54:39 available 8.28 GB, in WSL 11 GB, C: free 65.8 GB, Debian up, stopped: no
+2026-10-24T00:04:49 available 7.61 GB, in WSL 11 GB, C: free 60.2 GB, Debian up, stopped: no
+2026-10-24T00:14:58 available 8.31 GB, in WSL 11 GB, C: free 59.3 GB, Debian up, stopped: no
+2026-10-24T00:25:05 available 7.4 GB, in WSL 11 GB, C: free 57.6 GB, Debian up, stopped: no
+2026-10-24T00:35:13 available 4.16 GB, in WSL 10.9 GB, C: free 57.2 GB, Debian up, stopped: no
+2026-10-24T00:36:46 page cache dropped (5 times in all), available 3.91 -> 8.21 GB
+2026-10-24T00:45:32 available 9.09 GB, in WSL 11 GB, C: free 56.6 GB, Debian up, stopped: no
+2026-10-24T00:49:49 page cache dropped (6 times in all), available 2.72 -> 6.42 GB
+2026-10-24T00:55:50 available 9.58 GB, in WSL 9.9 GB, C: free 56.5 GB, Debian up, stopped: no
+2026-10-24T01:01:50 page cache dropped (7 times in all), available 3.15 -> 5.86 GB
+2026-10-24T01:05:53 available 7.95 GB, in WSL 10.4 GB, C: free 56.5 GB, Debian up, stopped: no
+2026-10-24T01:16:01 available 5.2 GB, in WSL 10.5 GB, C: free 56.5 GB, Debian up, stopped: no
+2026-10-24T01:26:08 available 5.02 GB, in WSL 10.6 GB, C: free 56.6 GB, Debian up, stopped: no
+2026-10-24T01:36:15 available 5.01 GB, in WSL 10.2 GB, C: free 56.6 GB, Debian up, stopped: no
+2026-10-24T01:46:21 available 5.27 GB, in WSL 11 GB, C: free 56.6 GB, Debian up, stopped: no
+2026-10-24T01:56:26 available 5.28 GB, in WSL 11 GB, C: free 56.6 GB, Debian up, stopped: no
+2026-10-24T02:06:32 available 5.09 GB, in WSL 11 GB, C: free 56.1 GB, Debian up, stopped: no
+2026-10-24T02:16:31 page cache dropped (8 times in all), available 3.03 -> 4.94 GB
+2026-10-24T02:16:51 available 6.16 GB, in WSL 11.1 GB, C: free 56.1 GB, Debian up, stopped: no
+2026-10-24T02:26:57 available 8.01 GB, in WSL 10.5 GB, C: free 56.1 GB, Debian up, stopped: no
+2026-10-24T02:37:00 page cache dropped (9 times in all), available 2.64 -> 5.4 GB
+2026-10-24T02:37:00 available 5.4 GB, in WSL 10.9 GB, C: free 56.1 GB, Debian up, stopped: no
+2026-10-24T02:47:06 available 8.09 GB, in WSL 10.6 GB, C: free 56.1 GB, Debian up, stopped: no
+2026-10-24T02:50:45 page cache dropped (10 times in all), available 3.94 -> 5.01 GB
+2026-10-24T02:57:10 available 6.01 GB, in WSL 10.5 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T03:07:15 available 7.05 GB, in WSL 11 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T03:17:21 available 12.72 GB, in WSL 11.1 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T03:27:26 available 12.75 GB, in WSL 11.1 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T03:37:31 available 9.62 GB, in WSL 10.7 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T03:47:37 available 7.37 GB, in WSL 11 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T03:55:53 page cache dropped (11 times in all), available 2.67 -> 5.56 GB
+2026-10-24T03:57:54 available 12.88 GB, in WSL 10.9 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T04:02:51 page cache dropped (12 times in all), available 2.67 -> 5.44 GB
+2026-10-24T04:08:14 available 11.53 GB, in WSL 10.4 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T04:18:21 available 5.2 GB, in WSL 10.5 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T04:28:27 available 4.26 GB, in WSL 10.3 GB, C: free 58.1 GB, Debian up, stopped: no
+2026-10-24T04:30:22 page cache dropped (13 times in all), available 3.83 -> 6.79 GB
+2026-10-24T04:38:47 available 7.63 GB, in WSL 10.6 GB, C: free 58.1 GB, Debian up, stopped: no
+2026-10-24T04:43:23 page cache dropped (14 times in all), available 3.54 -> 7.46 GB
+2026-10-24T04:49:07 available 11.77 GB, in WSL 11 GB, C: free 58.1 GB, Debian up, stopped: no
+2026-10-24T04:59:13 available 6.52 GB, in WSL 10.9 GB, C: free 58.1 GB, Debian up, stopped: no
+2026-10-24T05:06:49 page cache dropped (15 times in all), available 3.86 -> 5.71 GB
+2026-10-24T05:09:31 available 11.8 GB, in WSL 10.9 GB, C: free 58 GB, Debian up, stopped: no
+2026-10-24T05:17:10 page cache dropped (16 times in all), available 2.53 -> 5.14 GB
+2026-10-24T05:19:31 available 11.5 GB, in WSL 9.9 GB, C: free 58 GB, Debian up, stopped: no
+2026-10-24T05:28:53 page cache dropped (17 times in all), available 2.52 -> 5.26 GB
+2026-10-24T05:29:34 available 10.41 GB, in WSL 10.9 GB, C: free 58 GB, Debian up, stopped: no
+2026-10-24T05:39:40 available 10.36 GB, in WSL 10.6 GB, C: free 58 GB, Debian up, stopped: no
+2026-10-24T05:40:33 page cache dropped (18 times in all), available 2.52 -> 7.36 GB
+2026-10-24T05:49:59 available 11.57 GB, in WSL 11 GB, C: free 58.2 GB, Debian up, stopped: no
+2026-10-24T05:51:54 page cache dropped (19 times in all), available 2.75 -> 4.29 GB
+2026-10-24T05:59:59 available 8.46 GB, in WSL 10.9 GB, C: free 58 GB, Debian up, stopped: no
+2026-10-24T06:10:05 available 4.9 GB, in WSL 10.7 GB, C: free 58 GB, Debian up, stopped: no
+2026-10-24T06:20:10 available 14.36 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T06:30:15 available 14.31 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T06:40:20 available 14.35 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T06:50:25 available 14.35 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T07:00:30 available 14.19 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T07:10:34 available 14.18 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T07:20:39 available 14.37 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T07:30:44 available 14.26 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T07:40:49 available 14.42 GB, in WSL - GB, C: free 58 GB, Debian down, stopped: no
+2026-10-24T07:50:53 available 14.29 GB, in WSL - GB, C: free 58.1 GB, Debian down, stopped: no
+2026-10-24T08:00:58 available 14.33 GB, in WSL - GB, C: free 58.1 GB, Debian down, stopped: no
+2026-10-24T08:11:03 available 14.3 GB, in WSL - GB, C: free 57.9 GB, Debian down, stopped: no
+2026-10-24T08:21:08 available 14.2 GB, in WSL - GB, C: free 57.9 GB, Debian down, stopped: no
+2026-10-24T08:31:13 available 14.15 GB, in WSL - GB, C: free 57.9 GB, Debian down, stopped: no
+2026-10-24T08:41:17 available 14.29 GB, in WSL - GB, C: free 57.9 GB, Debian down, stopped: no
+2026-10-24T08:51:22 available 14.19 GB, in WSL - GB, C: free 57.9 GB, Debian down, stopped: no
+2026-10-24T09:01:27 available 14.1 GB, in WSL - GB, C: free 57.9 GB, Debian down, stopped: no
+2026-10-24T09:11:32 available 14.24 GB, in WSL - GB, C: free 57.9 GB, Debian down, stopped: no
+2026-10-24T09:30:11 start, available 16.83 GB, C: free 75.8 GB
+2026-10-24T09:30:11 available 16.82 GB, in WSL - GB, C: free 75.8 GB, Debian down, stopped: no
+2026-10-24T09:40:18 available 16.36 GB, in WSL - GB, C: free 73 GB, Debian down, stopped: no
+2026-10-24T09:50:26 available 16.04 GB, in WSL 11.2 GB, C: free 67.5 GB, Debian up, stopped: no

@@ -1,0 +1,84 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile:
+#1 transferring dockerfile: 143B 0.6s done
+#1 DONE 0.9s
+
+#2 [internal] load metadata for docker.io/library/monolith-verify:phase5
+#2 DONE 0.3s
+
+#3 [internal] load .dockerignore
+#3 transferring context:
+#3 transferring context: 2B 0.0s done
+#3 DONE 0.3s
+
+#4 [1/2] FROM docker.io/library/monolith-verify:phase5@sha256:9e0a6432b1d8b602f6cfe68179809af09956a02ef82d8e2a3c2313cceaab55ff
+#4 resolve docker.io/library/monolith-verify:phase5@sha256:9e0a6432b1d8b602f6cfe68179809af09956a02ef82d8e2a3c2313cceaab55ff
+#4 resolve docker.io/library/monolith-verify:phase5@sha256:9e0a6432b1d8b602f6cfe68179809af09956a02ef82d8e2a3c2313cceaab55ff 0.4s done
+#4 DONE 0.4s
+
+#4 [1/2] FROM docker.io/library/monolith-verify:phase5@sha256:9e0a6432b1d8b602f6cfe68179809af09956a02ef82d8e2a3c2313cceaab55ff
+#4 DONE 0.8s
+
+#5 [2/2] RUN rustup toolchain install 1.99.1 --profile minimal
+#5 0.848 info: syncing channel updates for 1.99.1-x86_64-unknown-linux-gnu
+#5 2.724 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#5 2.725 info: downloading 3 components
+#5 47.35 
+#5 47.36   1.99.1-x86_64-unknown-linux-gnu installed - rustc 1.99.1 (58cf8f9c3 2026-10-13)
+#5 47.36 
+#5 47.36 info: checking for self-update (current version: 1.29.1)
+#5 DONE 49.6s
+
+#6 exporting to image
+#6 exporting layers
+#6 exporting layers 19.9s done
+#6 exporting manifest sha256:9a7ef93860789dd6960ee20fd03d90c57114c7de2d8b8b9d948612913132c8a1 0.0s done
+#6 exporting config sha256:b5c35b9678458ec6880019e5de9ca8d68c67e6689b5215da8a6e556eedb7ecb7 0.0s done
+#6 exporting attestation manifest sha256:5f5e7bfc62606b9351546c5de32314b4b4e3f82207d340d0c0bb5db93e1d830d 0.0s done
+#6 exporting manifest list sha256:67c25a944bfa857511178bc16abff00185de0a795420c4e41d580429f212686d
+#6 exporting manifest list sha256:67c25a944bfa857511178bc16abff00185de0a795420c4e41d580429f212686d 0.0s done
+#6 naming to docker.io/library/monolith-verify:phase7 done
+#6 unpacking to docker.io/library/monolith-verify:phase7
+#6 unpacking to docker.io/library/monolith-verify:phase7 2.6s done
+#6 DONE 22.6s
+image built 2026-10-19T17:44:02
+exported 740b6715c5e1c3c488f3397624d6eb764e763eec 2026-10-19T17:44:03
+54061705ffbfa53a0700b19ce6c3f49d3ec191f04c7b722a2c71695926652c91
+container started 2026-10-19T17:44:06
+--- restarted after the volume was given to the verifier user 2026-10-19T17:46:08
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 143B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/monolith-verify:phase5
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/2] FROM docker.io/library/monolith-verify:phase5@sha256:9e0a6432b1d8b602f6cfe68179809af09956a02ef82d8e2a3c2313cceaab55ff
+#4 resolve docker.io/library/monolith-verify:phase5@sha256:9e0a6432b1d8b602f6cfe68179809af09956a02ef82d8e2a3c2313cceaab55ff 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN rustup toolchain install 1.99.1 --profile minimal
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:9a7ef93860789dd6960ee20fd03d90c57114c7de2d8b8b9d948612913132c8a1 done
+#6 exporting config sha256:b5c35b9678458ec6880019e5de9ca8d68c67e6689b5215da8a6e556eedb7ecb7 done
+#6 exporting attestation manifest sha256:c406d1335fbaa5a590e4853a8e893a3eaae8f0d37d6113bf6909cc3be3042bee
+#6 exporting attestation manifest sha256:c406d1335fbaa5a590e4853a8e893a3eaae8f0d37d6113bf6909cc3be3042bee 0.0s done
+#6 exporting manifest list sha256:8bb7ddeba199aab688082c85315bb9c143492e12c0be26d42ed7a21e6f11e8e9 0.0s done
+#6 naming to docker.io/library/monolith-verify:phase7 done
+#6 unpacking to docker.io/library/monolith-verify:phase7 0.0s done
+#6 DONE 0.1s
+image built 2026-10-19T17:46:10
+exported 740b6715c5e1c3c488f3397624d6eb764e763eec 2026-10-19T17:46:11
+2a6074a25005a66fb2b19e0be12027978b72ac3f4c60616394d9f7bb5b9a49e3
+container started 2026-10-19T17:46:11

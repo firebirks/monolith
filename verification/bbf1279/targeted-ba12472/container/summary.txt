@@ -1,0 +1,7 @@
+fmt exit 0 (1 s)
+clippy exit 0 (96 s)
+clippy-fixtures exit 0 (3 s)
+test-core-1.95.0 exit 0 (382 s)
+test-core-1.85.1 exit 0 (362 s)
+test-core-1.99.1 exit 0 (313 s)
+done

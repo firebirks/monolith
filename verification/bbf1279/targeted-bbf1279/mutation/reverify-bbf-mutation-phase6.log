@@ -1,0 +1,5 @@
+1792788191 commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, 3 faults, 4 workers, unmodified run 456s, timeout 3648s
+1792788613 UI37  caught    422s  any SOCKS listener Tor lists counts as the configured one
+1792788617 UI36  caught    426s  a proof counts far longer than its lifetime
+1792788627 UI35  caught    436s  a dial reaches the SOCKS endpoint without a proof
+1792788627 done: {'caught': 3}; written to <repo>/mutation/results-phase6-bbf1279.json

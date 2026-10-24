@@ -1,0 +1,70 @@
+   Compiling typenum v1.20.1
+   Compiling cfg-if v1.0.5
+   Compiling zeroize v1.9.0
+   Compiling cmov v0.5.4
+   Compiling semver v1.0.28
+   Compiling libc v0.2.189
+   Compiling proc-macro2 v1.0.107
+   Compiling cpufeatures v0.3.1
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling ctutils v0.4.2
+   Compiling getrandom v0.3.4
+   Compiling subtle v2.6.1
+   Compiling rustc_version v0.4.1
+   Compiling signature v3.0.0
+   Compiling keccak v0.2.2
+   Compiling ed25519 v3.0.0
+   Compiling zerocopy v0.8.59
+   Compiling bitflags v2.13.2
+   Compiling curve25519-dalek v5.0.0
+   Compiling snow v0.10.0
+   Compiling rustix v1.1.5
+   Compiling autocfg v1.5.1
+   Compiling hybrid-array v0.4.15
+   Compiling bytes v1.12.1
+   Compiling tinyvec v1.13.3
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling syn v2.0.119
+   Compiling inout v0.2.2
+   Compiling num-traits v0.2.19
+   Compiling linux-raw-sys v0.12.1
+   Compiling rand_core v0.10.1
+   Compiling pin-project-lite v0.2.17
+   Compiling base64ct v1.8.3
+   Compiling unicode-normalization v0.1.25
+   Compiling mio v1.2.3
+   Compiling rand_core v0.9.5
+   Compiling digest v0.11.3
+   Compiling universal-hash v0.6.1
+   Compiling cipher v0.5.2
+   Compiling sha2 v0.11.0
+   Compiling sha3 v0.11.0
+   Compiling chacha20 v0.10.2
+   Compiling hmac v0.13.0
+   Compiling poly1305 v0.9.1
+   Compiling aead v0.6.1
+   Compiling blake2 v0.11.0
+   Compiling socket2 v0.6.5
+   Compiling chacha20poly1305 v0.11.0
+   Compiling hkdf v0.13.0
+   Compiling rand_xorshift v0.4.0
+   Compiling argon2 v0.6.0
+   Compiling rand v0.9.5
+   Compiling tokio v1.53.1
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_chacha v0.9.0
+   Compiling proptest v1.11.0
+   Compiling ed25519-dalek v3.0.0
+   Compiling x25519-dalek v3.0.0
+   Compiling monolith-identity v0.0.0 (<repo>/crates/monolith-identity)
+   Compiling monolith-protocol v0.0.0 (<repo>/crates/monolith-protocol)
+   Compiling monolith-storage v0.0.0 (<repo>/crates/monolith-storage)
+   Compiling monolith-session v0.0.0 (<repo>/crates/monolith-session)
+   Compiling monolith-tor v0.0.0 (<repo>/crates/monolith-tor)
+   Compiling monolith-core v0.0.0 (<repo>/crates/monolith-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.45s

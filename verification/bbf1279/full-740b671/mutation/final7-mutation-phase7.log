@@ -1,0 +1,73 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec, 71 faults, 4 workers, unmodified run 529s, timeout 4232s
+HR3   caught    519s  a failure of Tor is followed by the next card
+HR2   caught    527s  the next card is dialed after a card that answered
+HR1   caught    530s  only the first card of a dial plan is dialed
+HR4   caught    531s  an attempt that is over dials the next card
+HR5   caught     98s  the name a sender chose is put in the caption of the card
+HR7   caught    105s  the Accept dialog puts the name a sender chose in its sentence
+HR6   caught    110s  a name in a sentence of the client is drawn as its words
+HR9   caught     21s  a file offline or in the cloud only counts as held on the disk
+HR8   caught    109s  a name in a sentence of the model becomes words of the client
+HR10  caught     36s  a name of a device with an extension or spaces is a file name
+HR11  caught     38s  a path resolved on a share counts as one on a drive
+HR17  caught    506s  a file offer is ignored, not rejected
+HR19  caught    475s  a rejected offer is not remembered
+HR18  caught    507s  a file message for a transfer never offered is ignored
+HR20  caught    514s  the ended transfers of a session are remembered without bound
+HR23  caught    505s  a lowered window of forgotten messages is not applied
+HR22  caught    523s  the store takes messages in past a lowered limit
+HR21  caught    526s  the queue of a contact ignores a lowered limit
+HR24  caught    556s  an acknowledgement of nothing keeps a session open
+HR25  caught    556s  a message held already keeps a session open
+HR26  caught    581s  the time a message is handled counts against the probe
+HR27  caught    595s  the Ping of a probe decided is forgotten: its Pong is a violation
+HR28  caught    611s  a Ping never answered does not end the session
+HR29  caught    577s  a probe sends a second Ping while one is outstanding
+HR30  caught    588s  a probed session whose key was retired meanwhile wins
+HR31  caught    601s  a session that ended with its record announces a retry
+HR32  caught    570s  a dial that failed once no attempt follows announces a retry
+HR33  caught    603s  a block or a deletion names its contact before its work runs
+HR34  caught    614s  a send queues for a record that ended while it waited for the vault
+HR35  caught    646s  chat messages are not paced
+HR36  caught    648s  control messages are not paced
+HR37  caught    633s  file offers are not paced
+HR38  caught    713s  profiles are not paced
+HR39  caught    667s  a bucket holds twice its burst
+HR40  caught    658s  a new session of a contact gives back what the last one took
+HR41  caught    590s  the sessions a contact opens are not counted
+HR45  caught    531s  a cookie file named in another case is refused where files have no case
+HR42  caught    568s  a session that waits for a token does not end when it is closed
+HR47  caught    550s  an identity without a key is reported stopped
+HR48  caught    462s  every byte is taken for the jitter
+HR52  caught     69s  a send at shutdown is said nowhere
+HR49  caught    508s  a send once the runtime shuts down is said to have no identity
+HR50  caught    520s  a send a shutdown cuts short is said to be a failed store
+HR53  caught     71s  tag characters are drawn as they are
+HR54  caught     52s  white initials below 4.5 to 1 on a light avatar colour
+HR51  caught    531s  a failed random source is said to be a failed store
+HR55  caught     53s  a name field takes more bytes than a name may hold
+HR58  caught     10s  the saved size of the window is divided by the zoom
+HR59  caught      9s  a card is saved in the home folder though it has a downloads folder
+HR60  caught     29s  a contact of another identity accepting raises a notice over the one shown
+HR61  caught     10s  a place named and refused at the start is not said refused
+HR62  caught     27s  a data folder refused is explained as storage to unlock
+HR43  caught    495s  what an ended record took is not forgotten
+HR64  caught     49s  a changed message store is told as a wrong passphrase
+HR65  caught    118s  an Enter while an input method composes sends the draft
+HR66  caught     42s  an Enter in the frame of a commit sends the draft
+HR56  caught    562s  a SOCKS endpoint not tried is said not to answer
+HR57  caught    553s  a control endpoint that does not answer is said to be Tor not running
+HR67  caught     39s  an Enter after a composition begun and committed in its frame sends the draft
+HR68  caught     18s  a drive on a share is looked at folder by folder before it is refused
+HR78  caught     66s  an Enter that commits an input method submits a field
+HR79  caught     46s  a commit after the input method stopped is not the end of a composition
+HR80  caught     39s  accept suggests the copy of a name drawn with its marks
+HR63  caught    621s  a changed message store is told as the vault's authentication
+HR81  caught     34s  an offer to revoke stays once another identity is shown
+HR82  caught     45s  the avatar of a request gives a screen reader the name the sender chose
+HR83  caught     40s  a preview is told to a screen reader before the markers, not as a message
+HR84  caught     41s  a run of spaces in a name in a sentence of the client is drawn whole
+HR76  caught    550s  a session the scheduler waited on ends without announcing the retry
+HR77  caught    535s  a connect dials its next card once the runtime shuts down
+HR85  caught    427s  a chunk for an offer this side rejected is discarded
+done: {'caught': 71}; written to <repo>/mutation/results-phase7-740b671.json

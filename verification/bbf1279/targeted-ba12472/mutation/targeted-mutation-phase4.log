@@ -1,0 +1,43 @@
+commit ba12472cb87e70b7c62c55a856faa200f0f8f7fc, 41 faults, 4 workers, unmodified run 431s, timeout 3448s
+CS4   caught    653s  the retired key is accepted again
+CS2   caught    678s  a stale card is promoted
+CS3   caught    701s  a conflicting card is silently taken
+CS1   caught    703s  an older card of the active key rolls the contact back
+CS8   caught    544s  a block leaves the contact's sessions standing
+CS5   caught    627s  an import judges a card older than the successor apart from an admission
+CS7   caught    601s  an import of a blocked identity makes a contact
+CS6   caught    727s  a newer key without an authorized successor is stale
+CS12  caught    387s  a confirmation needs no contact
+CS9   caught    558s  a deletion leaves the contact's sessions standing
+CS10  caught    734s  a session that no longer stands is forgotten but not withdrawn
+CS14  caught    563s  an import returns before it is durable
+CS15  caught    603s  message 3 is written before the admission is durable
+CS13  caught    834s  an import is not stamped with a generation
+CS16  caught    481s  message 3 is written without looking at the withdrawal
+CS17  caught    434s  a contact session takes no slot of the contact budget
+CS44  caught    430s  message 3 is written before a contact slot is taken
+CS18  caught    448s  the active set takes one capability more than its bound
+CS19  caught    424s  a request with a capability outside the active set is queued
+CS20  caught    434s  the quota per capability is one larger
+CS21  caught    417s  revoking and discarding removes every pending request
+CS22  caught    435s  an isolation group is shared between contacts
+CS23  caught    429s  two local identities may share a key
+CS11  caught   2708s  an operation works on a copy of the record outside its lock
+CS24  caught    461s  the newest silent stranger is evicted instead of the oldest
+CS25  caught    434s  a stranger that has spoken is evicted
+CS26  caught    464s  evicted links that have not ended are not bounded
+CS27  caught    516s  the stranger budget holds one more
+CS28  caught    581s  an evicted stranger's first message is still delivered
+CS31  caught    698s  the switch to the new key is due at once
+CS32  caught    676s  the old key is dropped at once
+CS33  caught    736s  the pending successor is dialed first
+CS34  caught    532s  the confirmed card is dialed whatever key it states
+CS29  caught   1829s  the service is published again under a new key
+CS36  caught    313s  a write does not flush the directory
+CS35  caught    359s  a write replaces the vault in place
+CS37  caught    394s  the header is not authenticated with the payload
+CS46  caught    422s  a deleted identity is not closed
+CS45  caught    489s  a write does not put the vault back, whatever its waiter does
+CS55  caught    381s  a failed write withdraws nothing when no waiter is left
+CS30  caught   3448s  attempts follow each other without a delay (timeout)
+done: {'caught': 41}; written to <repo>/mutation/results-phase4-ba12472.json

@@ -1,0 +1,245 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling cfg-if v1.0.5
+   Compiling typenum v1.20.1
+   Compiling zeroize v1.9.0
+   Compiling windows-link v0.2.1
+   Compiling cmov v0.5.4
+   Compiling semver v1.0.28
+   Compiling stable_deref_trait v1.2.1
+   Compiling cpufeatures v0.3.1
+   Compiling smallvec v1.16.3
+   Compiling bitflags v2.13.2
+   Compiling khronos_api v3.1.0
+   Compiling cfg_aliases v0.2.2
+   Compiling autocfg v1.5.1
+   Compiling windows-link v0.1.3
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling version_check v0.9.5
+   Compiling parking_lot_core v0.9.12
+   Compiling subtle v2.6.1
+   Compiling zerocopy v0.8.59
+   Compiling rustc_version v0.4.1
+   Compiling unicode-segmentation v1.13.3
+   Compiling ctutils v0.4.2
+   Compiling once_cell v1.21.4
+   Compiling scopeguard v1.2.0
+   Compiling pin-project-lite v0.2.17
+   Compiling ahash v0.8.12
+   Compiling writeable v0.6.4
+   Compiling log v0.4.34
+   Compiling accesskit v0.19.0
+   Compiling simd-adler32 v0.3.10
+   Compiling curve25519-dalek v5.0.0
+   Compiling xml-rs v0.8.29
+   Compiling ttf-parser v0.25.1
+   Compiling hybrid-array v0.4.15
+   Compiling litemap v0.8.3
+   Compiling lock_api v0.4.14
+   Compiling windows-strings v0.4.2
+   Compiling windows-targets v0.52.6
+   Compiling windows-result v0.3.4
+   Compiling icu_properties_data v2.1.2
+   Compiling signature v3.0.0
+   Compiling adler2 v2.0.1
+   Compiling ab_glyph_rasterizer v0.1.10
+   Compiling icu_normalizer_data v2.1.1
+   Compiling crc32fast v1.5.2
+   Compiling parking_lot v0.12.5
+   Compiling ed25519 v3.0.0
+   Compiling gl_generator v0.14.0
+   Compiling keccak v0.2.2
+   Compiling profiling v1.0.18
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling inout v0.2.2
+   Compiling nohash-hasher v0.2.0
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling miniz_oxide v0.9.1
+   Compiling windows-sys v0.52.0
+   Compiling num-traits v0.2.19
+   Compiling getrandom v0.3.4
+   Compiling windows_x86_64_msvc v0.53.1
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling windows-threading v0.1.0
+   Compiling winit v0.30.13
+   Compiling windows-sys v0.61.2
+   Compiling flate2 v1.1.10
+   Compiling digest v0.11.3
+   Compiling sha2 v0.11.0
+   Compiling sha3 v0.11.0
+   Compiling cipher v0.5.2
+   Compiling universal-hash v0.6.1
+   Compiling foldhash v0.1.5
+   Compiling owned_ttf_parser v0.25.1
+   Compiling raw-window-handle v0.6.2
+   Compiling tracing-core v0.1.36
+   Compiling ab_glyph v0.2.32
+   Compiling hashbrown v0.15.5
+   Compiling chacha20 v0.10.2
+   Compiling poly1305 v0.9.1
+   Compiling png v0.18.1
+   Compiling tracing v0.1.44
+   Compiling hmac v0.13.0
+   Compiling aead v0.6.1
+   Compiling glutin_egl_sys v0.7.1
+   Compiling glutin_wgl_sys v0.6.1
+   Compiling snow v0.10.0
+   Compiling percent-encoding v2.3.2
+   Compiling utf8_iter v1.0.4
+   Compiling cursor-icon v1.2.0
+   Compiling pxfm v0.1.30
+   Compiling smol_str v0.2.2
+   Compiling dpi v0.1.2
+   Compiling form_urlencoded v1.2.2
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.5
+   Compiling chacha20poly1305 v0.11.0
+   Compiling synstructure v0.14.0
+   Compiling windows-targets v0.53.5
+   Compiling accesskit_consumer v0.28.0
+   Compiling blake2 v0.11.0
+   Compiling memoffset v0.9.1
+   Compiling glutin v0.32.3
+   Compiling error-code v3.4.0
+   Compiling base64ct v1.8.3
+   Compiling rand_core v0.10.1
+   Compiling bytes v1.12.1
+   Compiling tinyvec v1.13.3
+   Compiling byteorder-lite v0.1.0
+   Compiling static_assertions v1.1.0
+   Compiling argon2 v0.6.0
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling windows-implement v0.60.2
+   Compiling windows-interface v0.59.3
+   Compiling clipboard-win v5.4.1
+   Compiling unicode-normalization v0.1.25
+   Compiling windows-sys v0.60.2
+   Compiling hkdf v0.13.0
+   Compiling glutin-winit v0.5.0
+   Compiling libloading v0.8.9
+   Compiling winapi v0.3.9
+   Compiling windows-core v0.61.2
+   Compiling qrcodegen v1.8.0
+   Compiling moxcms v0.7.11
+   Compiling jiff-tzdb v0.1.9
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling bytemuck_derive v1.12.1
+   Compiling ed25519-dalek v3.0.0
+   Compiling windows-collections v0.2.0
+   Compiling windows-future v0.2.1
+   Compiling monolith-identity v0.0.0 (<repo>\crates\monolith-identity)
+   Compiling windows-numerics v0.2.0
+   Compiling tokio-macros v2.7.2
+   Compiling x25519-dalek v3.0.0
+   Compiling monolith-protocol v0.0.0 (<repo>\crates\monolith-protocol)
+   Compiling windows v0.61.3
+   Compiling litrs v1.0.1
+   Compiling web-time v1.1.0
+   Compiling glow v0.16.0
+   Compiling zerofrom v0.1.8
+   Compiling jiff-tzdb-platform v0.1.3
+   Compiling bytemuck v1.25.2
+   Compiling yoke v0.8.3
+   Compiling windows-sys v0.59.0
+   Compiling tokio v1.53.1
+   Compiling monolith-session v0.0.0 (<repo>\crates\monolith-session)
+   Compiling monolith-storage v0.0.0 (<repo>\crates\monolith-storage)
+   Compiling emath v0.32.3
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling ecolor v0.32.3
+   Compiling document-features v0.2.12
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling epaint v0.32.3
+   Compiling monolith-ui-model v0.0.0 (<repo>\crates\monolith-ui-model)
+   Compiling icu_locale_core v2.1.1
+   Compiling icu_collections v2.1.1
+   Compiling jiff-core v0.1.1
+   Compiling icu_provider v2.1.1
+   Compiling egui v0.32.3
+   Compiling image v0.25.9
+   Compiling icu_properties v2.1.2
+   Compiling icu_normalizer v2.1.1
+   Compiling jiff v0.2.38
+   Compiling monolith-tor v0.0.0 (<repo>\crates\monolith-tor)
+   Compiling idna_adapter v1.2.1
+   Compiling idna v1.1.0
+   Compiling arboard v3.6.1
+   Compiling monolith-core v0.0.0 (<repo>\crates\monolith-core)
+   Compiling url v2.5.8
+   Compiling webbrowser v1.2.4
+   Compiling monolith-ui-kit v0.0.0 (<repo>\crates\monolith-ui-kit)
+   Compiling egui_glow v0.32.3
+   Compiling monolith-runtime v0.0.0 (<repo>\crates\monolith-runtime)
+   Compiling accesskit_windows v0.27.0
+   Compiling monolith-ui-snapshot v0.0.0 (<repo>\crates\monolith-ui-snapshot)
+   Compiling accesskit_winit v0.27.0
+   Compiling monolith-ui v0.0.0 (<repo>\crates\monolith-ui)
+   Compiling egui-winit v0.32.3
+   Compiling eframe v0.32.3
+   Compiling monolith-desktop v0.0.0 (<repo>\crates\monolith-desktop)
+    Finished `release` profile [optimized] target(s) in 1m 31s
+     Running `<work>\win-target\release\examples\scenarios.exe <work>\out-windows\scenarios`
+A. First launch, an identity, an invitation
+  alice: the first start is shown (0.0 s)
+  alice: started (0.0 s)
+  alice: the profile is open (0.6 s)
+  alice: identity Personal is made and shown (0.0 s)
+  alice: the invitation is made (0.0 s)
+B. Two clients become contacts and talk
+  bob: started (0.0 s)
+  bob: the profile is open (0.5 s)
+  bob: identity Bob is made and shown (0.0 s)
+  bob: the contact is added and shown (0.0 s)
+  bob: "Hello Alice, it is Bob." is queued (0.0 s)
+  alice: Bob's request arrives (0.0 s)
+  alice: the request is accepted and shown (0.0 s)
+  bob: "Hello Alice, it is Bob." is Delivered (5.1 s)
+  alice: "Hello Alice, it is Bob." is Received (0.0 s)
+  alice: "Hi Bob, welcome." is queued (0.0 s)
+  alice: "Hi Bob, welcome." is Delivered (0.0 s)
+  bob: "Hi Bob, welcome." is Received (0.0 s)
+C. Bob is offline: messages wait, then are delivered
+  bob: the runtime stopped (0.0 s)
+  alice: "Are you there?" is queued (0.0 s)
+  alice: "I will wait." is queued (0.0 s)
+  alice: an attempt to deliver failed (0.0 s)
+  bob: started (0.0 s)
+  bob: the profile is open (0.5 s)
+  alice: "Are you there?" is Delivered (13.5 s)
+  alice: "I will wait." is Delivered (0.0 s)
+D. Tor stops, the window stays usable, Tor comes back
+  alice: Tor is shown unavailable (0.0 s)
+  alice: "Sent while Tor was down." is queued (0.0 s)
+  alice: Tor is shown working again (6.5 s)
+  alice: "Sent while Tor was down." is Delivered (2.2 s)
+E. Two identities, switched while messages arrive
+  alice: identity Work is made and shown (0.1 s)
+  bob: the identity is read (0.0 s)
+  bob: the conversation is shown (0.0 s)
+  bob: "Message 0 while Alice switches" is queued (0.1 s)
+  bob: "Message 1 while Alice switches" is queued (0.1 s)
+  bob: "Message 2 while Alice switches" is queued (0.1 s)
+  bob: "Message 3 while Alice switches" is queued (0.0 s)
+  bob: "Message 4 while Alice switches" is queued (0.0 s)
+  bob: "Message 5 while Alice switches" is queued (0.0 s)
+  alice: "Message 5 while Alice switches" is Received (0.0 s)
+F. Blocking and deleting while the conversation is open
+  alice: the conversation is ended (0.0 s)
+  alice: the conversation is gone (0.0 s)
+G. Alice's client starts again and shows what was kept
+  alice: the runtime stopped (0.0 s)
+  alice: started (0.0 s)
+  alice: the profile is open (0.6 s)
+  alice: Personal is read (0.0 s)
+  alice: the runtime stopped (0.0 s)
+  bob: the runtime stopped (0.0 s)
+all scenarios passed in 32 s; pictures in <work>\out-windows\scenarios

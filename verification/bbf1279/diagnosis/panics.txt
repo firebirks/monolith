@@ -1,0 +1,590 @@
+== <home>/repro-out/B1-1.log
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (249771) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (249773) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (249772) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (249879) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (249933) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (249946) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B1-2.log
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (249770) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (249810) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (249828) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (249883) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (249940) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (249947) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B1-3.log
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (249785) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (249790) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (249788) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (249878) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (249932) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (249945) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B1-4.log
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (249789) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (249794) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (249791) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (249874) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (249931) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (249948) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-1.log
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250156) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250115) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250117) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250221) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250281) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250298) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-2.log
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250121) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250114) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250116) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250218) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250278) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250297) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-3.log
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250127) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250119) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250122) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250217) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250277) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250299) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-4.log
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250139) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250144) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250140) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250225) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250279) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250300) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B3-1.log
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250501) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250504) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250579) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250638) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250649) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B3-2.log
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250471) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250482) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250571) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250637) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250653) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B3-3.log
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250511) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250513) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250580) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250635) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250650) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B3-4.log
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250489) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250490) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250578) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250639) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250651) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-1.log
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250156) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250115) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250117) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250221) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250281) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250298) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (253957) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (253956) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (254021) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (254078) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (254090) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-2.log
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250121) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250114) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250116) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250218) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250278) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250297) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (253924) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (253923) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (254018) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (254075) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-3.log
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250127) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250119) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250122) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250217) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250277) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250299) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (253878) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (253873) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (253998) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (254065) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (254085) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+== <home>/repro-out/B2-4.log
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (250139) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (250144) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (250140) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (250225) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (250279) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (250300) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+--
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (253984) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (253983) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (254025) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (254077) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+

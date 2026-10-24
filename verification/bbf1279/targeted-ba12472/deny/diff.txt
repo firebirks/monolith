@@ -1,0 +1,12 @@
+base 740b6715c5e1c3c488f3397624d6eb764e763eec, candidate ba12472cb87e70b7c62c55a856faa200f0f8f7fc
+changed files:
+M	.cargo/audit.toml
+M	crates/monolith-core/tests/runtime.rs
+M	deny.toml
+M	docs/DEPENDENCIES.md
+M	mutation/README.md
+A	mutation/affected.py
+lockfile and manifests against the base (nothing below means no change):
+(end)
+Cargo.lock at 740b6715c5e1c3c488f3397624d6eb764e763eec: 91fd0c057ba1576db043396fd1f46cd16cc36d9b25d461f692bc104c3b415e78
+Cargo.lock at ba12472cb87e70b7c62c55a856faa200f0f8f7fc: 91fd0c057ba1576db043396fd1f46cd16cc36d9b25d461f692bc104c3b415e78

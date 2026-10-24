@@ -1,0 +1,11 @@
+1792802188 commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, 9 faults, 4 workers, unmodified run 441s, timeout 3528s
+1792802687 Q2    caught    500s  another host name than the onion name is requested
+1792802842 N2    caught    655s  an upper-case or out-of-alphabet ServiceID is accepted
+1792802850 N1    caught    662s  a ServiceID with a wrong checksum or version is accepted
+1792803080 Q14   survived  393s  bytes after a reply are accepted
+1792803280 Q29   survived  430s  the connection code does not check the endpoint again
+1792803303 Q18   survived  461s  a returned key of the wrong length is used
+1792803644 CR4   caught    564s  a promotion keeps the old key active
+1792803691 CR9   caught    411s  an import for an accepted contact replaces the key
+1792805716 Q1    caught   3528s  the stream to the SOCKS endpoint is used without SOCKS (timeout)
+1792805716 done: {'caught': 6, 'survived': 3}; written to <repo>/mutation/results-phase3-bbf1279.json

@@ -1,0 +1,150 @@
+error[unmaintained]: `zbus_names` is unmaintained
+    +- <repo>/Cargo.lock:390:1
+    |
+390 | zbus_names 4.3.1 registry+https://github.com/rust-lang/crates.io-index
+    | ====================================================================== unmaintained advisory detected
+    |
+    | ID: RUSTSEC-2026-0371
+    | Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0371
+    | The `zbus_names` crate is no longer maintained as a standalone crate.
+      
+      It has been merged into [`zbus`](https://crates.io/crates/zbus) starting with version `6.0.0`, as its `names` module.
+      
+      Users should migrate to [`zbus`](https://crates.io/crates/zbus), with its default features disabled if they only need the D-Bus name types.
+    | Announcement: https://github.com/z-galaxy/zbus/issues/2043
+    | Solution: No safe upgrade is available!
+    | zbus_names v4.3.1
+      |-- atspi-common v0.9.0
+      |   |-- accesskit_atspi_common v0.12.0
+      |   |   `-- accesskit_unix v0.15.0
+      |   |       `-- accesskit_winit v0.27.0
+      |   |           `-- egui-winit v0.32.3
+      |   |               `-- eframe v0.32.3
+      |   |                   `-- monolith-desktop v0.0.0
+      |   |-- atspi v0.25.0
+      |   |   `-- accesskit_unix v0.15.0 (*)
+      |   |-- atspi-connection v0.9.0
+      |   |   `-- atspi v0.25.0 (*)
+      |   `-- atspi-proxies v0.9.0
+      |       |-- atspi v0.25.0 (*)
+      |       `-- atspi-connection v0.9.0 (*)
+      |-- zbus v5.13.2
+      |   |-- accesskit_unix v0.15.0 (*)
+      |   |-- atspi-common v0.9.0 (*)
+      |   |-- atspi-connection v0.9.0 (*)
+      |   `-- atspi-proxies v0.9.0 (*)
+      |-- zbus_macros v5.13.2
+      |   `-- zbus v5.13.2 (*)
+      `-- zbus_xml v5.1.0
+          |-- zbus-lockstep v0.5.2
+          |   |-- atspi-common v0.9.0 (*)
+          |   `-- zbus-lockstep-macros v0.5.2
+          |       `-- atspi-common v0.9.0 (*)
+          `-- zbus-lockstep-macros v0.5.2 (*)
+
+error[unmaintained]: `zvariant` is unmaintained
+    +- <repo>/Cargo.lock:402:1
+    |
+402 | zvariant 5.9.2 registry+https://github.com/rust-lang/crates.io-index
+    | ==================================================================== unmaintained advisory detected
+    |
+    | ID: RUSTSEC-2026-0370
+    | Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0370
+    | The `zvariant` crate is no longer maintained as a standalone crate.
+      
+      It has been merged into [`zbus`](https://crates.io/crates/zbus) starting with version `6.0.0`, as its `wire` module.
+      
+      Users should migrate to [`zbus`](https://crates.io/crates/zbus), with its default features disabled if they only need the D-Bus wire format. Users of the GVariant format should migrate to [`zgvariant`](https://crates.io/crates/zgvariant).
+    | Announcement: https://github.com/z-galaxy/zbus/issues/2043
+    | Solution: No safe upgrade is available!
+    | zvariant v5.9.2
+      |-- accesskit_atspi_common v0.12.0
+      |   `-- accesskit_unix v0.15.0
+      |       `-- accesskit_winit v0.27.0
+      |           `-- egui-winit v0.32.3
+      |               `-- eframe v0.32.3
+      |                   `-- monolith-desktop v0.0.0
+      |-- atspi-common v0.9.0
+      |   |-- accesskit_atspi_common v0.12.0 (*)
+      |   |-- atspi v0.25.0
+      |   |   `-- accesskit_unix v0.15.0 (*)
+      |   |-- atspi-connection v0.9.0
+      |   |   `-- atspi v0.25.0 (*)
+      |   `-- atspi-proxies v0.9.0
+      |       |-- atspi v0.25.0 (*)
+      |       `-- atspi-connection v0.9.0 (*)
+      |-- zbus v5.13.2
+      |   |-- accesskit_unix v0.15.0 (*)
+      |   |-- atspi-common v0.9.0 (*)
+      |   |-- atspi-connection v0.9.0 (*)
+      |   `-- atspi-proxies v0.9.0 (*)
+      |-- zbus-lockstep v0.5.2
+      |   |-- atspi-common v0.9.0 (*)
+      |   `-- zbus-lockstep-macros v0.5.2
+      |       `-- atspi-common v0.9.0 (*)
+      |-- zbus-lockstep-macros v0.5.2 (*)
+      |-- zbus_macros v5.13.2
+      |   `-- zbus v5.13.2 (*)
+      |-- zbus_names v4.3.1
+      |   |-- atspi-common v0.9.0 (*)
+      |   |-- zbus v5.13.2 (*)
+      |   |-- zbus_macros v5.13.2 (*)
+      |   `-- zbus_xml v5.1.0
+      |       |-- zbus-lockstep v0.5.2 (*)
+      |       `-- zbus-lockstep-macros v0.5.2 (*)
+      `-- zbus_xml v5.1.0 (*)
+
+error[unmaintained]: `zvariant_derive` is unmaintained
+    +- <repo>/Cargo.lock:403:1
+    |
+403 | zvariant_derive 5.9.2 registry+https://github.com/rust-lang/crates.io-index
+    | =========================================================================== unmaintained advisory detected
+    |
+    | ID: RUSTSEC-2026-0372
+    | Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0372
+    | The `zvariant_derive` crate is no longer maintained as a standalone crate.
+      
+      Its derive macros are provided by [`zbus`](https://crates.io/crates/zbus) starting with version `6.0.0`.
+      
+      Users should migrate to [`zbus`](https://crates.io/crates/zbus), with its default features disabled if they only need the D-Bus wire format.
+    | Announcement: https://github.com/z-galaxy/zbus/issues/2043
+    | Solution: No safe upgrade is available!
+    | zvariant_derive v5.9.2
+      `-- zvariant v5.9.2
+          |-- accesskit_atspi_common v0.12.0
+          |   `-- accesskit_unix v0.15.0
+          |       `-- accesskit_winit v0.27.0
+          |           `-- egui-winit v0.32.3
+          |               `-- eframe v0.32.3
+          |                   `-- monolith-desktop v0.0.0
+          |-- atspi-common v0.9.0
+          |   |-- accesskit_atspi_common v0.12.0 (*)
+          |   |-- atspi v0.25.0
+          |   |   `-- accesskit_unix v0.15.0 (*)
+          |   |-- atspi-connection v0.9.0
+          |   |   `-- atspi v0.25.0 (*)
+          |   `-- atspi-proxies v0.9.0
+          |       |-- atspi v0.25.0 (*)
+          |       `-- atspi-connection v0.9.0 (*)
+          |-- zbus v5.13.2
+          |   |-- accesskit_unix v0.15.0 (*)
+          |   |-- atspi-common v0.9.0 (*)
+          |   |-- atspi-connection v0.9.0 (*)
+          |   `-- atspi-proxies v0.9.0 (*)
+          |-- zbus-lockstep v0.5.2
+          |   |-- atspi-common v0.9.0 (*)
+          |   `-- zbus-lockstep-macros v0.5.2
+          |       `-- atspi-common v0.9.0 (*)
+          |-- zbus-lockstep-macros v0.5.2 (*)
+          |-- zbus_macros v5.13.2
+          |   `-- zbus v5.13.2 (*)
+          |-- zbus_names v4.3.1
+          |   |-- atspi-common v0.9.0 (*)
+          |   |-- zbus v5.13.2 (*)
+          |   |-- zbus_macros v5.13.2 (*)
+          |   `-- zbus_xml v5.1.0
+          |       |-- zbus-lockstep v0.5.2 (*)
+          |       `-- zbus-lockstep-macros v0.5.2 (*)
+          `-- zbus_xml v5.1.0 (*)
+
+advisories FAILED, bans ok, licenses ok, sources ok

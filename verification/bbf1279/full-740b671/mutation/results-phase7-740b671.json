@@ -1,0 +1,1039 @@
+{
+ "commit": "740b6715c5e1c3c488f3397624d6eb764e763eec",
+ "unmodified_seconds": 529,
+ "timeout": 4232,
+ "results": [
+  {
+   "id": "HR1",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "only the first card of a dial plan is dialed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_plan_whose_cards_both_fail_is_reported_once",
+    "a_successor_that_does_not_answer_is_followed_by_the_active_key",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic"
+   ],
+   "seconds": 530
+  },
+  {
+   "id": "HR2",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "the next card is dialed after a card that answered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next"
+   ],
+   "seconds": 527
+  },
+  {
+   "id": "HR3",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "a failure of Tor is followed by the next card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_failure_of_tor_is_not_followed_by_the_active_key",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next",
+    "promoting_a_successor_is_atomic"
+   ],
+   "seconds": 519
+  },
+  {
+   "id": "HR4",
+   "path": "crates/monolith-core/src/link.rs",
+   "what": "an attempt that is over dials the next card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_connect_for_a_record_made_again_between_its_cards_dials_no_further",
+    "a_connect_once_the_runtime_shuts_down_dials_no_further",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic"
+   ],
+   "seconds": 531
+  },
+  {
+   "id": "HR5",
+   "path": "crates/monolith-ui/src/requests.rs",
+   "what": "the name a sender chose is put in the caption of the card",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "requests::tests::the_name_a_sender_chose_is_in_no_sentence_of_the_card",
+    "the_name_a_sender_chose_is_in_no_sentence_of_the_screen_or_its_dialog"
+   ],
+   "seconds": 98
+  },
+  {
+   "id": "HR6",
+   "path": "crates/monolith-ui-kit/src/line.rs",
+   "what": "a name in a sentence of the client is drawn as its words",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_name_a_sender_chose_stays_in_the_box_of_their_words"
+   ],
+   "seconds": 110
+  },
+  {
+   "id": "HR7",
+   "path": "crates/monolith-ui/src/dialogs.rs",
+   "what": "the Accept dialog puts the name a sender chose in its sentence",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_name_a_sender_chose_is_in_no_sentence_of_the_screen_or_its_dialog"
+   ],
+   "seconds": 105
+  },
+  {
+   "id": "HR8",
+   "path": "crates/monolith-ui-model/src/prose.rs",
+   "what": "a name in a sentence of the model becomes words of the client",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "accepting_a_request_that_came_through_an_invitation_offers_to_revoke_it",
+    "conversation::tests::while_tor_is_down_the_wait_is_put_on_tor_not_on_the_contact",
+    "dialogs::tests::a_revoked_invitation_is_named_by_its_label",
+    "dialogs::tests::deleting_messages_names_those_not_yet_delivered",
+    "prose::tests::a_name_shows_its_invisible_characters",
+    "prose::tests::a_name_stays_a_span_of_its_own_whatever_it_holds",
+    "prose::tests::a_run_of_spaces_in_a_name_is_drawn_as_one"
+   ],
+   "seconds": 109
+  },
+  {
+   "id": "HR9",
+   "path": "crates/monolith-desktop/src/local.rs",
+   "what": "a file offline or in the cloud only counts as held on the disk",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "local::tests::a_file_is_held_here_unless_it_is_offline_or_in_the_cloud_only"
+   ],
+   "seconds": 21
+  },
+  {
+   "id": "HR10",
+   "path": "crates/monolith-desktop/src/local.rs",
+   "what": "a name of a device with an extension or spaces is a file name",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "local::tests::the_names_windows_keeps_for_devices_are_known_in_every_form"
+   ],
+   "seconds": 36
+  },
+  {
+   "id": "HR11",
+   "path": "crates/monolith-desktop/src/local.rs",
+   "what": "a path resolved on a share counts as one on a drive",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "local::tests::a_drive_on_a_share_is_refused_before_anything_on_it_is_looked_at",
+    "local::tests::a_path_of_a_drive_is_looked_at_from_the_root_down_and_resolved_where_it_ends",
+    "local::tests::a_path_resolved_on_a_share_is_not_on_a_drive"
+   ],
+   "seconds": 38
+  },
+  {
+   "id": "HR17",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a file offer is ignored, not rejected",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "what_cannot_follow_a_rejected_offer_ends_the_session",
+    "what_one_session_rejected_is_unknown_to_the_next"
+   ],
+   "seconds": 506
+  },
+  {
+   "id": "HR18",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a file message for a transfer never offered is ignored",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_message_for_a_transfer_never_offered_ends_the_session",
+    "promoting_a_successor_is_atomic",
+    "transfers::tests::a_file_message_for_a_transfer_this_session_never_saw_is_a_violation",
+    "transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say",
+    "transfers::tests::only_the_last_ended_transfers_are_remembered",
+    "what_one_session_rejected_is_unknown_to_the_next"
+   ],
+   "seconds": 507
+  },
+  {
+   "id": "HR19",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a rejected offer is not remembered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "transfers::tests::an_offer_is_rejected_and_only_an_abort_crosses_the_rejection",
+    "transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say",
+    "transfers::tests::only_the_last_ended_transfers_are_remembered"
+   ],
+   "seconds": 475
+  },
+  {
+   "id": "HR20",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "the ended transfers of a session are remembered without bound",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say",
+    "transfers::tests::only_the_last_ended_transfers_are_remembered"
+   ],
+   "seconds": 514
+  },
+  {
+   "id": "HR21",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "the queue of a contact ignores a lowered limit",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "messages::tests::a_store_above_a_lowered_limit_is_read_and_kept_and_grows_no_further",
+    "messages::tests::a_store_above_any_lowered_limit_is_kept_and_takes_in_only_below_it"
+   ],
+   "seconds": 526
+  },
+  {
+   "id": "HR22",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "the store takes messages in past a lowered limit",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "messages::tests::a_store_above_any_lowered_limit_is_kept_and_takes_in_only_below_it",
+    "messages::tests::a_store_with_more_messages_than_a_lowered_limit_takes_none_in"
+   ],
+   "seconds": 523
+  },
+  {
+   "id": "HR23",
+   "path": "crates/monolith-core/src/messages.rs",
+   "what": "a lowered window of forgotten messages is not applied",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "messages::tests::a_lowered_window_of_forgotten_messages_holds_from_the_next_deletion",
+    "promoting_a_successor_is_atomic"
+   ],
+   "seconds": 505
+  },
+  {
+   "id": "HR24",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an acknowledgement of nothing keeps a session open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing"
+   ],
+   "seconds": 556
+  },
+  {
+   "id": "HR25",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a message held already keeps a session open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing",
+    "promoting_a_successor_is_atomic"
+   ],
+   "seconds": 556
+  },
+  {
+   "id": "HR26",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "the time a message is handled counts against the probe",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept",
+    "beginning_a_rotation_is_atomic",
+    "creating_a_contact_is_atomic"
+   ],
+   "seconds": 581
+  },
+  {
+   "id": "HR27",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "the Ping of a probe decided is forgotten: its Pong is a violation",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session",
+    "a_pong_after_the_probe_was_decided_keeps_the_session",
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "beginning_a_rotation_is_atomic",
+    "creating_a_contact_is_atomic"
+   ],
+   "seconds": 595
+  },
+  {
+   "id": "HR28",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a Ping never answered does not end the session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session"
+   ],
+   "seconds": 611
+  },
+  {
+   "id": "HR29",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a probe sends a second Ping while one is outstanding",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "promoting_a_successor_is_atomic"
+   ],
+   "seconds": 577
+  },
+  {
+   "id": "HR30",
+   "path": "crates/monolith-core/src/sessions.rs",
+   "what": "a probed session whose key was retired meanwhile wins",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered"
+   ],
+   "seconds": 588
+  },
+  {
+   "id": "HR31",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session that ended with its record announces a retry",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_that_ends_with_its_record_announces_no_retry"
+   ],
+   "seconds": 601
+  },
+  {
+   "id": "HR32",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a dial that failed once no attempt follows announces a retry",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dial_that_fails_once_the_vault_failed_announces_no_retry"
+   ],
+   "seconds": 570
+  },
+  {
+   "id": "HR33",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a block or a deletion names its contact before its work runs",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_block_for_a_record_made_again_before_it_runs_ends_nothing"
+   ],
+   "seconds": 603
+  },
+  {
+   "id": "HR34",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a send queues for a record that ended while it waited for the vault",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_for_a_record_deleted_while_it_waits_for_the_vault_queues_nothing",
+    "identity::tests::a_message_queued_as_its_record_is_blocked_on_another_thread_is_refused"
+   ],
+   "seconds": 614
+  },
+  {
+   "id": "HR35",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "chat messages are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "the_rate_of_a_contact_holds_across_its_sessions"
+   ],
+   "seconds": 646
+  },
+  {
+   "id": "HR36",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "control messages are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "rates::tests::every_message_but_a_chunk_and_a_close_is_counted"
+   ],
+   "seconds": 648
+  },
+  {
+   "id": "HR37",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "file offers are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is"
+   ],
+   "seconds": 633
+  },
+  {
+   "id": "HR38",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "profiles are not paced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "creating_a_contact_is_atomic",
+    "promoting_a_successor_is_atomic",
+    "updating_a_card_is_atomic"
+   ],
+   "seconds": 713
+  },
+  {
+   "id": "HR39",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "a bucket holds twice its burst",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_above_a_rate_is_slowed_and_no_other_contact_is",
+    "a_contact_that_opens_sessions_above_its_rate_has_them_closed",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "rates::tests::a_bucket_gives_its_burst_at_once_and_then_one_token_per_interval",
+    "rates::tests::a_refused_take_takes_nothing",
+    "rates::tests::contacts_and_kinds_are_kept_apart",
+    "rates::tests::every_take_is_that_of_a_bucket_of_its_own_contact_and_rate",
+    "rates::tests::sessions_are_counted_per_remote_identity",
+    "the_rate_of_a_contact_holds_across_its_sessions"
+   ],
+   "seconds": 667
+  },
+  {
+   "id": "HR40",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a new session of a contact gives back what the last one took",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "the_rate_of_a_contact_holds_across_its_sessions"
+   ],
+   "seconds": 658
+  },
+  {
+   "id": "HR41",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "the sessions a contact opens are not counted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_that_opens_sessions_above_its_rate_has_them_closed"
+   ],
+   "seconds": 590
+  },
+  {
+   "id": "HR42",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session that waits for a token does not end when it is closed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_that_waits_for_a_token_ends_when_it_is_closed"
+   ],
+   "seconds": 568
+  },
+  {
+   "id": "HR45",
+   "path": "crates/monolith-tor/src/control/mod.rs",
+   "what": "a cookie file named in another case is refused where files have no case",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "control::tests::a_cookie_file_is_named_without_case_only_where_files_are"
+   ],
+   "seconds": 531
+  },
+  {
+   "id": "HR47",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "an identity without a key is reported stopped",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_identity_without_a_key_is_reported_so_and_stays_so"
+   ],
+   "seconds": 550
+  },
+  {
+   "id": "HR48",
+   "path": "crates/monolith-core/src/supervisor.rs",
+   "what": "every byte is taken for the jitter",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "supervisor::tests::every_jitter_is_as_likely_as_any_other"
+   ],
+   "seconds": 462
+  },
+  {
+   "id": "HR49",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a send once the runtime shuts down is said to have no identity",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_once_the_runtime_shuts_down_says_so"
+   ],
+   "seconds": 508
+  },
+  {
+   "id": "HR50",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a send a shutdown cuts short is said to be a failed store",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_send_a_shutdown_cuts_short_says_so"
+   ],
+   "seconds": 520
+  },
+  {
+   "id": "HR51",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a failed random source is said to be a failed store",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "runtime::tests::a_failed_send_says_what_failed"
+   ],
+   "seconds": 531
+  },
+  {
+   "id": "HR52",
+   "path": "crates/monolith-desktop/src/convert.rs",
+   "what": "a send at shutdown is said nowhere",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "convert::tests::a_failed_send_is_said_where_it_was_met_unless_the_store_failed"
+   ],
+   "seconds": 69
+  },
+  {
+   "id": "HR43",
+   "path": "crates/monolith-core/src/rates.rs",
+   "what": "what an ended record took is not forgotten",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "rates::tests::contacts_and_kinds_are_kept_apart",
+    "rates::tests::every_take_is_that_of_a_bucket_of_its_own_contact_and_rate"
+   ],
+   "seconds": 495
+  },
+  {
+   "id": "HR53",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "tag characters are drawn as they are",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "present::tests::tag_and_other_format_characters_are_shown"
+   ],
+   "seconds": 71
+  },
+  {
+   "id": "HR54",
+   "path": "crates/monolith-ui-kit/src/theme.rs",
+   "what": "white initials below 4.5 to 1 on a light avatar colour",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "text_is_readable_on_everything_it_is_drawn_on_in_both_themes"
+   ],
+   "seconds": 52
+  },
+  {
+   "id": "HR55",
+   "path": "crates/monolith-ui-kit/src/text_field.rs",
+   "what": "a name field takes more bytes than a name may hold",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_name_field_takes_no_more_than_a_name_may_hold",
+    "the_byte_limit_cuts_typed_and_pasted_text_at_a_character"
+   ],
+   "seconds": 53
+  },
+  {
+   "id": "HR56",
+   "path": "crates/monolith-tor/src/system.rs",
+   "what": "a SOCKS endpoint not tried is said not to answer",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "with_the_check_on_status_says_the_socks_endpoint_was_not_tried_without_the_control_endpoint"
+   ],
+   "seconds": 562
+  },
+  {
+   "id": "HR57",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a control endpoint that does not answer is said to be Tor not running",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "creating_a_contact_is_atomic",
+    "runtime::tests::a_tor_check_says_tor_is_not_running_only_where_both_endpoints_were_tried"
+   ],
+   "seconds": 553
+  },
+  {
+   "id": "HR58",
+   "path": "crates/monolith-desktop/src/window.rs",
+   "what": "the saved size of the window is divided by the zoom",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "window::tests::the_saved_size_of_the_window_is_its_size_on_the_screen_whatever_the_zoom"
+   ],
+   "seconds": 10
+  },
+  {
+   "id": "HR59",
+   "path": "crates/monolith-desktop/src/files.rs",
+   "what": "a card is saved in the home folder though it has a downloads folder",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "files::tests::a_card_goes_to_the_downloads_folder_chosen_by_the_thread_of_the_files"
+   ],
+   "seconds": 9
+  },
+  {
+   "id": "HR60",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a contact of another identity accepting raises a notice over the one shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_of_another_identity_accepting_raises_no_notice_over_the_one_shown",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 29
+  },
+  {
+   "id": "HR61",
+   "path": "crates/monolith-desktop/src/lib.rs",
+   "what": "a place named and refused at the start is not said refused",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tests::a_place_named_and_refused_is_said_refused_and_not_replaced"
+   ],
+   "seconds": 10
+  },
+  {
+   "id": "HR62",
+   "path": "crates/monolith-ui/src/onboarding.rs",
+   "what": "a data folder refused is explained as storage to unlock",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_data_folder_refused_at_the_start_is_said_so_and_not_as_storage_to_unlock"
+   ],
+   "seconds": 27
+  },
+  {
+   "id": "HR63",
+   "path": "crates/monolith-core/src/identity.rs",
+   "what": "a changed message store is told as the vault's authentication",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_message_store_that_does_not_authenticate_fails_the_installation"
+   ],
+   "seconds": 621
+  },
+  {
+   "id": "HR64",
+   "path": "crates/monolith-runtime/src/lib.rs",
+   "what": "a changed message store is told as a wrong passphrase",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "tests::a_changed_message_store_is_not_told_as_a_wrong_passphrase"
+   ],
+   "seconds": 49
+  },
+  {
+   "id": "HR65",
+   "path": "crates/monolith-ui-kit/src/composer.rs",
+   "what": "an Enter while an input method composes sends the draft",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "enter_while_an_input_method_composes_sends_nothing"
+   ],
+   "seconds": 118
+  },
+  {
+   "id": "HR66",
+   "path": "crates/monolith-ui-kit/src/ime.rs",
+   "what": "an Enter in the frame of a commit sends the draft",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_enter_that_commits_an_input_method_is_no_submission",
+    "enter_while_an_input_method_composes_sends_nothing"
+   ],
+   "seconds": 42
+  },
+  {
+   "id": "HR67",
+   "path": "crates/monolith-ui-kit/src/ime.rs",
+   "what": "an Enter after a composition begun and committed in its frame sends the draft",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "enter_while_an_input_method_composes_sends_nothing"
+   ],
+   "seconds": 39
+  },
+  {
+   "id": "HR68",
+   "path": "crates/monolith-desktop/src/local.rs",
+   "what": "a drive on a share is looked at folder by folder before it is refused",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "local::tests::a_drive_on_a_share_is_refused_before_anything_on_it_is_looked_at",
+    "local::tests::a_path_of_a_drive_is_looked_at_from_the_root_down_and_resolved_where_it_ends",
+    "local::tests::nothing_below_a_link_is_looked_at"
+   ],
+   "seconds": 18
+  },
+  {
+   "id": "HR76",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a session the scheduler waited on ends without announcing the retry",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends"
+   ],
+   "seconds": 550
+  },
+  {
+   "id": "HR77",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a connect dials its next card once the runtime shuts down",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_connect_once_the_runtime_shuts_down_dials_no_further"
+   ],
+   "seconds": 535
+  },
+  {
+   "id": "HR78",
+   "path": "crates/monolith-ui-kit/src/text_field.rs",
+   "what": "an Enter that commits an input method submits a field",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_enter_that_commits_an_input_method_is_no_submission"
+   ],
+   "seconds": 66
+  },
+  {
+   "id": "HR79",
+   "path": "crates/monolith-ui-kit/src/ime.rs",
+   "what": "a commit after the input method stopped is not the end of a composition",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "enter_while_an_input_method_composes_sends_nothing"
+   ],
+   "seconds": 46
+  },
+  {
+   "id": "HR80",
+   "path": "crates/monolith-ui/src/requests.rs",
+   "what": "accept suggests the copy of a name drawn with its marks",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "requests::tests::accept_suggests_the_name_as_it_was_sent"
+   ],
+   "seconds": 39
+  },
+  {
+   "id": "HR81",
+   "path": "crates/monolith-ui/src/app.rs",
+   "what": "an offer to revoke stays once another identity is shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_offer_to_revoke_goes_once_another_identity_is_shown"
+   ],
+   "seconds": 34
+  },
+  {
+   "id": "HR82",
+   "path": "crates/monolith-ui-kit/src/request_card.rs",
+   "what": "the avatar of a request gives a screen reader the name the sender chose",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_screen_reader_hears_the_name_a_sender_chose_only_in_the_box_of_their_words"
+   ],
+   "seconds": 45
+  },
+  {
+   "id": "HR83",
+   "path": "crates/monolith-ui-kit/src/rows.rs",
+   "what": "a preview is told to a screen reader before the markers, not as a message",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_preview_that_reads_like_a_marker_is_told_as_a_message_after_them"
+   ],
+   "seconds": 40
+  },
+  {
+   "id": "HR84",
+   "path": "crates/monolith-ui-model/src/prose.rs",
+   "what": "a run of spaces in a name in a sentence of the client is drawn whole",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "prose::tests::a_run_of_spaces_in_a_name_is_drawn_as_one"
+   ],
+   "seconds": 41
+  },
+  {
+   "id": "HR85",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a chunk for an offer this side rejected is discarded",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "transfers::tests::an_offer_is_rejected_and_only_an_abort_crosses_the_rejection",
+    "transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say",
+    "what_cannot_follow_a_rejected_offer_ends_the_session"
+   ],
+   "seconds": 427
+  }
+ ]
+}

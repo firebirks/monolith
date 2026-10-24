@@ -1,0 +1,6 @@
+2026-10-22T11:52:51+02:00 binary <home>/repro-target/debug/deps/store-6b86cbde12e69c0c nproc=8 clk_tck=100 MemTotal: 12248696 kB SwapTotal: 4194304 kB 
+2026-10-22T11:56:27+02:00 copy 1 rc=0 elapsed=208.7s user=380.7s sys=21.7s failed:  panics: 0
+2026-10-22T11:56:27+02:00 copy 2 rc=0 elapsed=207.2s user=380.2s sys=21.3s failed:  panics: 0
+2026-10-22T11:56:27+02:00 copy 3 rc=0 elapsed=207.9s user=380.6s sys=21.5s failed:  panics: 0
+2026-10-22T11:56:27+02:00 copy 4 rc=0 elapsed=208.2s user=380.5s sys=21.8s failed:  panics: 0
+2026-10-22T11:56:27+02:00 D done

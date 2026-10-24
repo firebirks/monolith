@@ -1,0 +1,27 @@
+   Compiling getrandom v0.3.4
+    Checking monolith-identity v0.0.0 (<repo>\crates\monolith-identity)
+    Checking tokio v1.53.1
+    Checking monolith-ui-kit v0.0.0 (<repo>\crates\monolith-ui-kit)
+    Checking monolith-ui-model v0.0.0 (<repo>\crates\monolith-ui-model)
+ Documenting monolith-ui-kit v0.0.0 (<repo>\crates\monolith-ui-kit)
+ Documenting monolith-ui-snapshot v0.0.0 (<repo>\crates\monolith-ui-snapshot)
+ Documenting monolith-identity v0.0.0 (<repo>\crates\monolith-identity)
+ Documenting monolith-ui-model v0.0.0 (<repo>\crates\monolith-ui-model)
+    Checking monolith-protocol v0.0.0 (<repo>\crates\monolith-protocol)
+ Documenting monolith-protocol v0.0.0 (<repo>\crates\monolith-protocol)
+    Checking monolith-session v0.0.0 (<repo>\crates\monolith-session)
+    Checking monolith-storage v0.0.0 (<repo>\crates\monolith-storage)
+ Documenting monolith-session v0.0.0 (<repo>\crates\monolith-session)
+ Documenting monolith-storage v0.0.0 (<repo>\crates\monolith-storage)
+    Checking monolith-ui v0.0.0 (<repo>\crates\monolith-ui)
+ Documenting monolith-ui v0.0.0 (<repo>\crates\monolith-ui)
+    Checking monolith-tor v0.0.0 (<repo>\crates\monolith-tor)
+ Documenting monolith-tor v0.0.0 (<repo>\crates\monolith-tor)
+    Checking monolith-core v0.0.0 (<repo>\crates\monolith-core)
+ Documenting monolith-core v0.0.0 (<repo>\crates\monolith-core)
+    Checking monolith-runtime v0.0.0 (<repo>\crates\monolith-runtime)
+ Documenting monolith-runtime v0.0.0 (<repo>\crates\monolith-runtime)
+ Documenting monolith-cli v0.0.0 (<repo>\crates\monolith-cli)
+ Documenting monolith-desktop v0.0.0 (<repo>\crates\monolith-desktop)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.69s
+   Generated <work>\win-target\doc\monolith\index.html and 12 other files

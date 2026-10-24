@@ -1,0 +1,58 @@
+   Compiling monolith-desktop v0.0.0 (/home/verifier/work/crates/monolith-desktop)
+    Finished `release` profile [optimized] target(s) in 7.48s
+     Running `/vol/target/release/examples/scenarios /out/scenarios`
+A. First launch, an identity, an invitation
+  alice: the first start is shown (0.0 s)
+  alice: started (0.0 s)
+  alice: the profile is open (0.8 s)
+  alice: identity Personal is made and shown (0.0 s)
+  alice: the invitation is made (0.0 s)
+B. Two clients become contacts and talk
+  bob: started (0.0 s)
+  bob: the profile is open (0.8 s)
+  bob: identity Bob is made and shown (0.0 s)
+  bob: the contact is added and shown (0.0 s)
+  bob: "Hello Alice, it is Bob." is queued (0.0 s)
+  alice: Bob's request arrives (0.0 s)
+  alice: the request is accepted and shown (0.0 s)
+  bob: "Hello Alice, it is Bob." is Delivered (13.1 s)
+  alice: "Hello Alice, it is Bob." is Received (0.0 s)
+  alice: "Hi Bob, welcome." is queued (0.0 s)
+  alice: "Hi Bob, welcome." is Delivered (0.0 s)
+  bob: "Hi Bob, welcome." is Received (0.0 s)
+C. Bob is offline: messages wait, then are delivered
+  bob: the runtime stopped (0.0 s)
+  alice: "Are you there?" is queued (0.0 s)
+  alice: "I will wait." is queued (0.0 s)
+  alice: an attempt to deliver failed (0.0 s)
+  bob: started (0.0 s)
+  bob: the profile is open (0.9 s)
+  alice: "Are you there?" is Delivered (11.1 s)
+  alice: "I will wait." is Delivered (0.0 s)
+D. Tor stops, the window stays usable, Tor comes back
+  alice: Tor is shown unavailable (0.0 s)
+  alice: "Sent while Tor was down." is queued (0.0 s)
+  alice: Tor is shown working again (8.0 s)
+  alice: "Sent while Tor was down." is Delivered (0.0 s)
+E. Two identities, switched while messages arrive
+  alice: identity Work is made and shown (0.0 s)
+  bob: the identity is read (0.0 s)
+  bob: the conversation is shown (0.0 s)
+  bob: "Message 0 while Alice switches" is queued (0.0 s)
+  bob: "Message 1 while Alice switches" is queued (0.0 s)
+  bob: "Message 2 while Alice switches" is queued (0.0 s)
+  bob: "Message 3 while Alice switches" is queued (0.0 s)
+  bob: "Message 4 while Alice switches" is queued (0.0 s)
+  bob: "Message 5 while Alice switches" is queued (0.0 s)
+  alice: "Message 5 while Alice switches" is Received (0.0 s)
+F. Blocking and deleting while the conversation is open
+  alice: the conversation is ended (0.0 s)
+  alice: the conversation is gone (0.0 s)
+G. Alice's client starts again and shows what was kept
+  alice: the runtime stopped (0.0 s)
+  alice: started (0.0 s)
+  alice: the profile is open (1.0 s)
+  alice: Personal is read (0.0 s)
+  alice: the runtime stopped (0.0 s)
+  bob: the runtime stopped (0.0 s)
+all scenarios passed in 38 s; pictures in /out/scenarios

@@ -1,0 +1,21 @@
+{
+ "commit": "ba12472cb87e70b7c62c55a856faa200f0f8f7fc",
+ "unmodified_seconds": 401,
+ "timeout": 3208,
+ "results": [
+  {
+   "id": "UI79",
+   "path": "crates/monolith-core/src/contacts.rs",
+   "what": "the blocked list lists every record",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_block_for_a_record_made_again_before_it_runs_ends_nothing",
+    "a_blocked_contact_is_listed_by_its_fingerprint_and_unblocked_by_its_handle"
+   ],
+   "seconds": 275
+  }
+ ]
+}

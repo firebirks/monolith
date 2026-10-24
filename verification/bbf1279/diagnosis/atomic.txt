@@ -1,0 +1,9 @@
+an_announced_successor_is_atomic
+beginning_a_rotation_is_atomic
+blocking_is_atomic
+creating_a_contact_is_atomic
+creating_an_identity_is_atomic
+creating_and_revoking_an_invitation_are_atomic
+deleting_is_atomic
+promoting_a_successor_is_atomic
+updating_a_card_is_atomic

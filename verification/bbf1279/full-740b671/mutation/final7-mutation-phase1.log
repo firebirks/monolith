@@ -1,0 +1,47 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec, 45 faults, 4 workers, unmodified run 402s, timeout 3216s
+F3    caught    673s  the outer length is not bounded by the state
+F2    caught    683s  an outer length that is not whole blocks passes
+F4    caught    685s  an unconfirmed session takes full-size frames
+F1    caught    685s  an outer length below one padding block passes
+F5    caught    668s  padding may be longer than necessary
+F6    caught    666s  padding need not be zero
+F7    caught    681s  the message type is not checked against the state
+F8    caught    716s  the decoder checks every length against the confirmed limit
+M1    caught    651s  chat messages may arrive before confirmation
+F9    caught    678s  a failed decoder takes more input
+F10   caught    706s  decode_plaintext skips its length check
+D1    caught    679s  a field one byte over its maximum is read
+X1    caught    669s  text one byte over the maximum passes
+D2    caught    685s  any non-zero presence byte means present
+X2    caught    676s  text below the minimum passes
+X3    caught    676s  carriage return allowed in free text
+X5    caught    652s  names may start or end with a space
+X4    caught    681s  name-only forbidden characters allowed in names
+X6    caught    657s  noncharacters allowed
+X7    caught    681s  bidirectional overrides allowed in names
+X9    caught    647s  '..' allowed as a file name
+X8    caught    681s  backslash allowed in file names
+X10   caught    665s  display names may exceed the scalar limit
+X11   caught    694s  reserved device names are saved as they are
+CP1   caught    661s  card signature not verified
+CP2   caught    645s  reserved flag bits accepted
+CP3   caught    680s  more than one endpoint accepted
+CP4   caught    703s  trailing bytes after a card accepted
+CP5   caught    664s  card version not checked
+CP6   caught    709s  text form prefix not checked
+B1    caught    717s  trailing bytes after a body accepted
+B2    caught    690s  file offer size not bounded on receive
+I1    caught    363s  keys with a torsion component accepted
+B3    survived  687s  a card with an invitation accepted inside a message
+B4    survived  647s  the endpoint count of an embedded card not checked first
+B5    caught    675s  an empty file chunk accepted
+I2    caught    685s  the identity element accepted
+I3    caught    673s  lenient signature verification
+E1    caught    668s  an equal epoch supersedes
+E2    caught    681s  epoch zero accepted
+U1    caught    688s  the duplicate rule prefers the other side
+U3    caught    690s  an unanswered probe keeps the older session
+U2    caught    692s  the preferred side is the larger key
+L1    caught    642s  a message not permitted in the state is processed
+L2    caught    465s  a declined identity is treated as requested
+done: {'caught': 43, 'survived': 2}; written to <repo>/mutation/results-phase1-740b671.json

@@ -1,0 +1,13 @@
+2026-10-22T12:33:33+02:00 candidate: binary <home>/c3-target-candidate/debug/deps/store-6b86cbde12e69c0c
+2026-10-22T12:33:33+02:00 candidate: target <home>/c3-target-candidate; source <repo> at ba12472cb87e70b7c62c55a856faa200f0f8f7fc, changed files: 
+2026-10-22T12:33:33+02:00 candidate: limit line: 38:            tokio::time::timeout(core::time::Duration::from_secs(120), future)
+2026-10-22T12:33:33+02:00 candidate: mtime 2026-10-22 12:33:21.261349518 +0200 size 43250080 sha256 3fa048cdbd79781890931c33081620f791e7d3b06d5b17663b24fcf43cc63020
+2026-10-22T12:33:33+02:00 long: binary <home>/c3-target-long/debug/deps/store-6b86cbde12e69c0c
+2026-10-22T12:33:33+02:00 long: target <home>/c3-target-long; source <repo> at ba12472cb87e70b7c62c55a856faa200f0f8f7fc, changed files:  M crates/monolith-core/tests/common/mod.rs 
+2026-10-22T12:33:33+02:00 long: limit line: 38:            tokio::time::timeout(core::time::Duration::from_secs(3600), future)
+2026-10-22T12:33:33+02:00 long: mtime 2026-10-22 12:33:33.101352390 +0200 size 43250088 sha256 45feafab9e6c20ced4634b269740b1e5a4d12681fafe3c93bd7af3338e382641
+2026-10-22T12:36:20+02:00 candidate run 1 rc=101 167.3s timeouts=8 other-panics=0 failed: an_announced_successor_is_atomic beginning_a_rotation_is_atomic promoting_a_successor_is_atomic creating_a_contact_is_atomic updating_a_card_is_atomic creating_and_revoking_an_invitation_are_atomic blocking_is_atomic deleting_is_atomic 
+2026-10-22T12:39:09+02:00 candidate run 2 rc=101 169.1s timeouts=8 other-panics=0 failed: creating_a_contact_is_atomic an_announced_successor_is_atomic blocking_is_atomic deleting_is_atomic creating_and_revoking_an_invitation_are_atomic beginning_a_rotation_is_atomic promoting_a_successor_is_atomic updating_a_card_is_atomic 
+2026-10-22T12:44:25+02:00 long run 1 rc=0 315.7s timeouts=0 other-panics=0 failed: 
+2026-10-22T12:50:04+02:00 long run 2 rc=0 339.0s timeouts=0 other-panics=0 failed: 
+2026-10-22T12:50:04+02:00 C3b done

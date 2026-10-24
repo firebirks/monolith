@@ -1,0 +1,17 @@
+commit ba12472cb87e70b7c62c55a856faa200f0f8f7fc, 4 workers, 2026-10-21T11:51:45+02:00
+phase1: 8 of 45 faults run again
+phase2: 16 of 99 faults run again
+phase3: 5 of 71 faults run again
+phase4: 41 of 123 faults run again
+phase5: 30 of 57 faults run again
+phase6: 1 of 160 faults run again
+phase7: 30 of 71 faults run again
+phase7w: 14 of 14 faults run again
+phase7 exit 0 (5397 s) 2026-10-21T13:21:44+02:00
+phase6 exit 0 (1874 s) 2026-10-21T13:52:58+02:00
+phase5 exit 0 (8223 s) 2026-10-21T16:10:01+02:00
+phase4 exit 0 (9529 s) 2026-10-21T18:48:50+02:00
+phase3 exit 1 (6001 s) 2026-10-21T20:28:51+02:00
+phase2 exit 0 (4971 s) 2026-10-21T21:51:42+02:00
+phase1 exit 1 (3248 s) 2026-10-21T22:45:50+02:00
+done

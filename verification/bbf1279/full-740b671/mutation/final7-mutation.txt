@@ -1,0 +1,10 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec, 4 workers, 2026-10-19T20:15:18+02:00
+phase7 exit 0 (8626 s) 2026-10-19T22:39:04+02:00
+phase6 exit 0 (5211 s) 2026-10-20T00:05:55+02:00
+phase5 exit 1 (11062 s) 2026-10-20T03:10:17+02:00
+resumed 2026-10-20T12:33:30+02:00: phase4 kept 37, runs again 86, 4 workers
+phase4 resumed exit 0 (12678 s) 2026-10-20T16:04:48+02:00
+phase3 exit 0 (11442 s) 2026-10-20T19:15:30+02:00
+phase2 exit 0 (18486 s) 2026-10-21T00:23:36+02:00
+phase1 exit 0 (9334 s) 2026-10-21T02:59:10+02:00
+done

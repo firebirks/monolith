@@ -1,0 +1,73 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec, 71 faults, 4 workers, unmodified run 407s, timeout 3256s
+Q2    caught    471s  another host name than the onion name is requested
+N2    caught    625s  an upper-case or out-of-alphabet ServiceID is accepted
+N1    caught    657s  a ServiceID with a wrong checksum or version is accepted
+Q3    caught    368s  a TCP endpoint that is not loopback is accepted
+Q4    caught    360s  the listener binds every interface
+Q5    caught    390s  the greeting offers no authentication
+Q6    caught    387s  a proxy that skips authentication is accepted
+Q7    caught    362s  every group sends the same isolation token
+Q8    caught    389s  the SAFECOOKIE server hash is not checked
+Q9    caught    366s  SAFECOOKIE is tried when the server does not offer it
+Q10   caught    391s  a control line is not bounded while it is read
+Q11   caught    385s  a control reply is not bounded in size
+Q12   caught    376s  a control reply is not bounded in lines
+Q13   caught    388s  asynchronous events are taken as replies
+Q14   survived  365s  bytes after a reply are accepted
+Q15   caught    380s  another GETINFO key is sent
+Q16   caught    412s  ADD_ONION asks for a detached service
+Q17   caught    406s  non-anonymous mode is reported as an ordinary failure
+Q18   survived  416s  a returned key of the wrong length is used
+Q19   caught    391s  a returned key without padding is accepted
+Q20   caught    382s  a service published from a key need not be that key's
+Q21   caught    369s  a Tor below the baseline may publish
+Q1    caught   3256s  the stream to the SOCKS endpoint is used without SOCKS (timeout)
+Q22   caught    389s  a lost control connection still counts as published
+Q23   caught    415s  a control connection with data or at its end counts as alive
+Q24   caught    407s  close does not send DEL_ONION
+Q25   caught    418s  the inbound handshake budget of an identity is larger
+Q26   caught    473s  an inbound handshake waits longer than HANDSHAKE_TIMEOUT
+Q27   caught    465s  an endpoint naming another cookie file is used
+Q28   caught    451s  a cookie file others can write is read
+Q29   survived  452s  the connection code does not check the endpoint again
+Q30   caught    449s  a stranger is answered without an unknown-session slot
+Q31   caught    476s  a dial takes no dial slot
+CR1   caught    642s  a newer key without continuity takes over at once
+CR2   caught    670s  a pending successor gets the standing of the record
+CR3   caught    636s  an EndpointUpdate from a session of another key authorizes
+CR4   caught    740s  a promotion keeps the old key active
+CR5   caught    603s  a promotion does not record the retired key
+CR6   caught    616s  a card with the retired key is not refused
+CR7   caught    735s  a session of another key still stands for the contact
+CR8   caught    627s  a pending successor other than the one shown is confirmed
+CR9   caught    604s  an import for an accepted contact replaces the key
+CR10  caught    655s  a withdrawn session keeps its standing and stays open
+CR12  caught    471s  a withdrawn link delivers what is in its buffer
+CR11  caught    649s  the duplicate rule does not look at credentials
+CR13  caught    486s  a withdrawn link still sends
+CR14  caught    578s  a withdrawal does not wake a waiting link
+CR15  caught    547s  a withdrawn session sends no Close
+CR16  caught    517s  a link that is over waits for the peer on a later call
+CR17  caught    517s  a dropped link does not report that it ended
+CR18  caught    497s  message 3 is made for a peer that may not learn the local identity
+CR19  caught    532s  a contact refused for the budget does not report that its link ended
+CR20  caught    690s  a presented card displaces the pending card the user imported
+CR21  caught    673s  a card at the epoch of the successor that says otherwise is taken
+CR22  caught    511s  the write of message 3 ignores the withdrawal
+CR23  caught    718s  the identity predicate uses the stale-card shortcut
+CR25  caught    537s  every byte of a frame restarts its deadline
+CR24  caught    728s  an older card of the active key is stale
+CR26  caught    556s  UNKNOWN_FIRST_MESSAGE_TIMEOUT is not applied
+CR27  caught    521s  UNKNOWN_SESSION_TIMEOUT is not applied
+CR28  caught    531s  the age limit waits for a complete frame
+CR29  caught    544s  a deadline ends the session and keeps the slot
+CR30  caught    549s  a read error leaves the session usable
+CR31  caught    572s  bytes of an incomplete frame move the idle limit
+CR32  caught    551s  a Close the session decided waits for the caller
+CR34  caught    532s  a withdrawal does not end a pending send
+CR33  caught    627s  a message that ends the session leaves the link open
+CR39  caught    488s  a link that ended waits for its stream again
+CR35  caught    693s  a proven key older than the announced successor is held pending
+CR40  caught    471s  a dial refused before message 3 loses its admission
+Q32   caught    456s  a listener error ends the accept loop
+done: {'caught': 68, 'survived': 3}; written to <repo>/mutation/results-phase3-740b671.json

@@ -1,0 +1,183 @@
+{
+ "commit": "ba12472cb87e70b7c62c55a856faa200f0f8f7fc",
+ "unmodified_seconds": 450,
+ "timeout": 3600,
+ "results": [
+  {
+   "id": "X1",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "text one byte over the maximum passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "text::tests::chat_text_length_bounds",
+    "text::tests::display_name_length_is_bounded_in_bytes_and_in_scalars",
+    "text::tests::filename_length_bounds",
+    "text::tests::introduction_and_profile_may_be_empty_and_are_bounded",
+    "text_is_checked_before_anything_is_stored"
+   ],
+   "seconds": 779
+  },
+  {
+   "id": "X2",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "text below the minimum passes",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "filenames_are_accepted_exactly_when_the_rules_say_so",
+    "free_text_keeps_format_characters_and_rejects_controls",
+    "promoting_a_successor_is_atomic",
+    "text::tests::chat_text_length_bounds",
+    "text::tests::filename_length_bounds",
+    "text_is_checked_before_anything_is_stored"
+   ],
+   "seconds": 726
+  },
+  {
+   "id": "X3",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "carriage return allowed in free text",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "free_text_keeps_format_characters_and_rejects_controls",
+    "text::tests::carriage_return_is_rejected_in_free_text",
+    "text_is_checked_before_anything_is_stored"
+   ],
+   "seconds": 741
+  },
+  {
+   "id": "B3",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "a card with an invitation accepted inside a message",
+   "group": "",
+   "expect": "survives: equivalent. The card is taken with the length of a card without capability, 171 bytes; one whose flag announces a capability needs 187 and fails to decode before this check is reached",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_announced_successor_is_atomic",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic"
+   ],
+   "seconds": 743
+  },
+  {
+   "id": "B4",
+   "path": "crates/monolith-protocol/src/body.rs",
+   "what": "the endpoint count of an embedded card not checked first",
+   "group": "",
+   "expect": "survives: equivalent. Without it the same input is still refused, by take() or by ContactCard::decode; take() returns a slice and allocates nothing. Only the local error category can differ",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "promoting_a_successor_is_atomic",
+    "updating_a_card_is_atomic"
+   ],
+   "seconds": 743
+  },
+  {
+   "id": "U1",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "the duplicate rule prefers the other side",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session",
+    "a_pong_after_the_probe_was_decided_keeps_the_session",
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept",
+    "a_probed_session_that_does_not_answer_loses_to_the_newer_one",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "both_ends_keep_the_same_duplicate",
+    "creating_a_contact_is_atomic",
+    "deleting_is_atomic",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::a_session_of_a_retired_key_never_wins",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "duplicate::tests::cross_direction_prefers_the_session_of_the_smaller_key",
+    "sessions::tests::a_probe_that_is_not_answered_closes_the_older_session",
+    "sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered",
+    "sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order"
+   ],
+   "seconds": 754
+  },
+  {
+   "id": "U2",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "the preferred side is the larger key",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_ping_not_answered_within_its_timeout_ends_the_session",
+    "a_pong_after_the_probe_was_decided_keeps_the_session",
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept",
+    "a_probed_session_that_does_not_answer_loses_to_the_newer_one",
+    "beginning_a_rotation_is_atomic",
+    "blocking_is_atomic",
+    "both_ends_keep_the_same_duplicate",
+    "creating_a_contact_is_atomic",
+    "creating_and_revoking_an_invitation_are_atomic",
+    "deleting_is_atomic",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::a_session_of_a_retired_key_never_wins",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "duplicate::tests::cross_direction_prefers_the_session_of_the_smaller_key",
+    "duplicate::tests::the_smaller_key_is_preferred",
+    "sessions::tests::a_probe_that_is_not_answered_closes_the_older_session",
+    "sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered",
+    "sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order"
+   ],
+   "seconds": 734
+  },
+  {
+   "id": "U3",
+   "path": "crates/monolith-protocol/src/duplicate.rs",
+   "what": "an unanswered probe keeps the older session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong",
+    "a_probed_session_that_answers_while_it_is_not_read_is_kept",
+    "a_probed_session_that_does_not_answer_loses_to_the_newer_one",
+    "beginning_a_rotation_is_atomic",
+    "both_ends_keep_the_same_duplicate",
+    "duplicate::tests::a_dead_preferred_session_loses_to_the_newer_one",
+    "duplicate::tests::both_ends_keep_the_same_session_whatever_the_order",
+    "sessions::tests::a_probe_that_is_not_answered_closes_the_older_session",
+    "sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered",
+    "sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order"
+   ],
+   "seconds": 726
+  }
+ ]
+}

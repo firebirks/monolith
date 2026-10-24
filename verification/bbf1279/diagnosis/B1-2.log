@@ -1,0 +1,73 @@
+
+running 16 tests
+test concurrent_operations_on_different_contacts_lose_nothing ... ok
+test a_restart_on_disk_reproduces_the_durable_state ... ok
+test a_restart_reproduces_the_durable_state_exactly ... ok
+test closing_an_installation_lets_go_of_its_directory_at_once ... ok
+test a_block_that_races_an_admission_leaves_no_contact_session_standing ... ok
+test an_announced_successor_is_atomic has been running for over 60 seconds
+test beginning_a_rotation_is_atomic has been running for over 60 seconds
+test blocking_is_atomic has been running for over 60 seconds
+test concurrent_operations_on_one_contact_are_one_of_their_serial_orders has been running for over 60 seconds
+test creating_a_contact_is_atomic has been running for over 60 seconds
+test creating_an_identity_is_atomic has been running for over 60 seconds
+test creating_an_identity_is_atomic ... ok
+test identities_restored_or_created_never_share_a_key ... ok
+test creating_and_revoking_an_invitation_are_atomic has been running for over 60 seconds
+test deleting_is_atomic has been running for over 60 seconds
+test an_announced_successor_is_atomic ... FAILED
+test beginning_a_rotation_is_atomic ... FAILED
+test blocking_is_atomic ... FAILED
+test creating_a_contact_is_atomic ... FAILED
+test promoting_a_successor_is_atomic has been running for over 60 seconds
+test creating_and_revoking_an_invitation_are_atomic ... FAILED
+test deleting_is_atomic ... FAILED
+test updating_a_card_is_atomic has been running for over 60 seconds
+test concurrent_operations_on_one_contact_are_one_of_their_serial_orders ... ok
+test promoting_a_successor_is_atomic ... ok
+test updating_a_card_is_atomic ... ok
+
+failures:
+
+---- an_announced_successor_is_atomic stdout ----
+
+thread 'an_announced_successor_is_atomic' (249770) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- beginning_a_rotation_is_atomic stdout ----
+
+thread 'beginning_a_rotation_is_atomic' (249810) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- blocking_is_atomic stdout ----
+
+thread 'blocking_is_atomic' (249828) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_a_contact_is_atomic stdout ----
+
+thread 'creating_a_contact_is_atomic' (249883) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- creating_and_revoking_an_invitation_are_atomic stdout ----
+
+thread 'creating_and_revoking_an_invitation_are_atomic' (249940) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+---- deleting_is_atomic stdout ----
+
+thread 'deleting_is_atomic' (249947) panicked at crates/monolith-core/tests/common/mod.rs:40:18:
+the test did not end in time: Elapsed(())
+
+
+failures:
+    an_announced_successor_is_atomic
+    beginning_a_rotation_is_atomic
+    blocking_is_atomic
+    creating_a_contact_is_atomic
+    creating_and_revoking_an_invitation_are_atomic
+    deleting_is_atomic
+
+test result: FAILED. 10 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 197.77s
+

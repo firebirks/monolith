@@ -1,0 +1,499 @@
+   Compiling typenum v1.20.1
+   Compiling zeroize v1.9.0
+   Compiling cmov v0.5.4
+   Compiling cfg-if v1.0.5
+   Compiling semver v1.0.28
+   Compiling proc-macro2 v1.0.107
+   Compiling cpufeatures v0.3.1
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling getrandom v0.3.4
+   Compiling subtle v2.6.1
+   Compiling signature v3.0.0
+   Compiling windows-link v0.2.1
+   Compiling zerocopy v0.8.59
+   Compiling autocfg v1.5.1
+   Compiling rand_core v0.10.1
+   Compiling keccak v0.2.2
+   Compiling windows-sys v0.61.2
+   Compiling tinyvec v1.13.3
+   Compiling ed25519 v3.0.0
+   Compiling pin-project-lite v0.2.17
+   Compiling bytes v1.12.1
+   Compiling ctutils v0.4.2
+   Compiling base64ct v1.8.3
+   Compiling rustc_version v0.4.1
+   Compiling unarray v0.1.4
+   Compiling bitflags v2.13.2
+   Compiling regex-syntax v0.8.11
+   Compiling num-traits v0.2.19
+   Compiling unicode-normalization v0.1.25
+   Compiling curve25519-dalek v5.0.0
+   Compiling snow v0.10.0
+   Compiling hybrid-array v0.4.15
+   Compiling rand_core v0.9.5
+   Compiling rand v0.9.5
+   Compiling rand_xorshift v0.4.0
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling inout v0.2.2
+   Compiling syn v2.0.119
+   Compiling digest v0.11.3
+   Compiling cipher v0.5.2
+   Compiling universal-hash v0.6.1
+   Compiling aead v0.6.1
+   Compiling poly1305 v0.9.1
+   Compiling sha2 v0.11.0
+   Compiling sha3 v0.11.0
+   Compiling hmac v0.13.0
+   Compiling blake2 v0.11.0
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.3
+   Compiling chacha20 v0.10.2
+   Compiling hkdf v0.13.0
+   Compiling argon2 v0.6.0
+   Compiling chacha20poly1305 v0.11.0
+   Compiling tokio v1.53.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_chacha v0.9.0
+   Compiling proptest v1.11.0
+   Compiling ed25519-dalek v3.0.0
+   Compiling x25519-dalek v3.0.0
+   Compiling monolith-identity v0.0.0 (<repo>\crates\monolith-identity)
+   Compiling monolith-protocol v0.0.0 (<repo>\crates\monolith-protocol)
+   Compiling monolith-storage v0.0.0 (<repo>\crates\monolith-storage)
+   Compiling monolith-session v0.0.0 (<repo>\crates\monolith-session)
+   Compiling monolith-tor v0.0.0 (<repo>\crates\monolith-tor)
+   Compiling monolith-core v0.0.0 (<repo>\crates\monolith-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.95s
+     Running unittests src\lib.rs (<work>\win-target\debug\deps\monolith_core-017253e15a055461.exe)
+
+running 96 tests
+test api::tests::a_message_prints_no_text ... ok
+test dialplan::tests::the_active_key_at_the_confirmed_endpoints ... ok
+test dialplan::tests::every_planned_card_states_the_active_key_or_its_successor ... ok
+test dialplan::tests::a_newer_card_with_other_endpoints_waits_for_the_user ... ok
+test identity::tests::a_deleted_identity_keeps_no_copy_of_its_secrets ... ok
+test dialplan::tests::a_pending_successor_is_never_dialed ... ok
+test contacts::tests::the_progress_of_a_rotation_counts_only_for_that_rotation ... ok
+test identity::tests::a_message_queued_as_its_identity_is_deleted_leaves_nothing_of_it ... ok
+test dialplan::tests::an_announced_successor_is_dialed_first ... ok
+test identity::tests::a_message_queued_as_its_record_is_blocked_on_another_thread_is_refused ... ok
+test identity::tests::a_confirmation_counts_for_no_contact_made_again_meanwhile ... ok
+test identity::tests::an_invitation_revoked_as_it_is_created_hands_out_no_card ... ok
+test identity::tests::a_request_and_a_block_of_its_sender_run_in_one_order ... ok
+test dialplan::tests::after_a_promotion_the_retired_key_is_never_dialed ... ok
+test contacts::tests::no_snapshot_runs_between_the_two_slots_of_a_decline ... ok
+test identity::tests::a_request_considered_as_the_identity_is_deleted_is_not_queued ... ok
+test identity::tests::a_block_or_an_import_takes_out_no_request_queued_after_it ... ok
+test contacts::tests::no_operation_runs_between_the_reads_of_a_snapshot ... ok
+test link::tests::a_close_from_the_peer_ends_the_link_and_frees_its_slot ... ok
+test identity::tests::a_snapshot_never_joins_the_progress_of_one_rotation_to_another ... ok
+test link::tests::a_failed_link_waits_for_its_stream_once ... ok
+test identity::tests::a_snapshot_is_one_cut_while_a_rotation_changes ... ok
+test link::tests::a_read_error_ends_the_link ... ok
+test link::tests::a_frame_sent_a_byte_at_a_time_ends_at_the_frame_deadline ... ok
+test link::tests::a_stranger_that_sends_nothing_is_closed_and_frees_its_slot ... ok
+test link::tests::only_a_card_that_did_not_answer_is_followed_by_the_next ... ok
+test link::tests::a_withdrawal_ends_a_send_that_is_pending ... ok
+test link::tests::a_message_taken_before_a_receive_was_dropped_is_still_delivered ... ok
+test link::tests::a_stranger_evicted_as_its_first_message_is_taken_gets_nothing_delivered ... ok
+test link::tests::a_withdrawal_ends_a_write_of_message_3_that_is_pending ... ok
+test identity::tests::a_message_of_an_ended_link_changes_no_contact_made_again ... ok
+test link::tests::a_withdrawn_link_waits_for_its_stream_once ... ok
+test messages::tests::a_conversation_whose_sequences_ran_out_takes_nothing_more ... ok
+test link::tests::a_write_error_ends_the_link ... ok
+test link::tests::a_stranger_gets_the_close_after_its_first_message_and_frees_its_slot ... ok
+test messages::tests::a_received_message_is_stored_once ... ok
+test messages::tests::a_lowered_window_of_forgotten_messages_holds_from_the_next_deletion ... ok
+test messages::tests::a_queued_message_is_delivered_by_its_acknowledgement_only ... ok
+test messages::tests::debug_shows_no_text ... ok
+test messages::tests::a_store_above_a_lowered_limit_is_read_and_kept_and_grows_no_further ... ok
+test messages::tests::only_a_change_wakes_the_tasks_that_follow_the_messages ... ok
+test messages::tests::a_store_with_more_messages_than_a_lowered_limit_takes_none_in ... ok
+test messages::tests::pages_come_newest_last ... ok
+test link::tests::message_3_is_not_written_once_the_session_is_withdrawn ... ok
+test persist::tests::a_failed_write_keeps_the_vault_and_fails_every_wait ... ok
+test persist::tests::a_wait_finds_the_vault_back_once_its_outcome_is_out ... ok
+test persist::tests::a_wait_sees_what_a_failing_job_made_durable ... ok
+test persist::tests::a_write_that_failed_after_one_that_succeeded_keeps_its_success ... ok
+test persist::tests::an_outcome_published_between_the_check_and_the_sleep_ends_the_wait ... ok
+test persist::tests::changes_left_when_a_job_stops_for_its_waiter_are_written_next ... ok
+test messages::tests::reconciling_drops_deleted_identities_and_refuses_impossible_owners ... ok
+test persist::tests::many_waiters_on_many_threads_all_finish ... ok
+test messages::tests::deleted_messages_are_remembered_and_not_taken_in_again ... ok
+test rates::tests::a_bucket_gives_its_burst_at_once_and_then_one_token_per_interval ... ok
+test rates::tests::a_refused_take_takes_nothing ... ok
+test rates::tests::contacts_and_kinds_are_kept_apart ... ok
+test rates::tests::every_message_but_a_chunk_and_a_close_is_counted ... ok
+test persist::tests::a_change_is_written_though_its_waiter_was_cancelled_during_a_write ... ok
+test persist::tests::changes_that_keep_coming_with_nobody_waiting_are_all_written ... ok
+test rates::tests::sessions_are_counted_per_remote_identity ... ok
+test rates::tests::full_buckets_are_dropped_before_the_held_ones_grow_past_the_contacts ... ok
+test requests::tests::a_capability_is_handed_out_and_admits_only_once_durable ... ok
+test runtime::tests::a_failed_send_says_what_failed ... ok
+test runtime::tests::a_tor_check_says_tor_is_not_running_only_where_both_endpoints_were_tried ... ok
+test sessions::tests::a_probe_that_is_not_answered_closes_the_older_session ... ok
+test sessions::tests::ending_a_session_that_was_not_registered_wakes_nobody ... ok
+test sessions::tests::a_probed_session_whose_key_was_retired_meanwhile_loses_though_it_answered ... ok
+test sessions::tests::a_session_of_a_retired_key_loses ... ok
+test sessions::tests::records_are_kept_apart ... ok
+test sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order ... ok
+test persist::tests::a_cancelled_wait_loses_neither_the_vault_nor_the_outcome ... ok
+test sessions::tests::the_first_session_is_preferred_and_a_later_one_of_the_same_side_replaces_it ... ok
+test link::tests::an_unconfirmed_session_ends_in_time ... ok
+test strangers::tests::evicted_links_are_bounded_too ... ok
+test strangers::tests::nobody_is_evicted_when_every_stranger_has_spoken ... ok
+test strangers::tests::the_oldest_silent_stranger_makes_room ... ok
+test supervisor::tests::every_jitter_is_as_likely_as_any_other ... ok
+test supervisor::tests::the_delays_follow_the_reconnect_schedule ... ok
+test tests::a_peer_is_online_only_in_an_authenticated_contact_session ... ok
+test transfers::tests::a_file_message_for_a_transfer_this_session_never_saw_is_a_violation ... ok
+test transfers::tests::an_offer_is_rejected_and_only_an_abort_crosses_the_rejection ... ok
+test transfers::tests::only_the_last_ended_transfers_are_remembered ... ok
+test transfers::tests::other_messages_are_not_file_messages ... ok
+test messages::tests::the_state_holds_the_messages_of_as_many_identities_as_a_payload_can ... ok
+test persist::tests::nothing_is_written_once_a_write_failed_and_sessions_go_first ... ok
+test messages::tests::a_conversation_is_bounded_in_bytes ... ok
+test link::tests::a_withdrawal_at_the_moment_a_write_times_out_leaves_the_link_terminal ... ok
+test link::tests::a_send_dropped_while_it_writes_leaves_the_link_terminal ... ok
+test messages::tests::queue_limits_refuse_without_changing_anything ... ok
+test strangers::tests::the_first_message_and_the_eviction_race_on_one_state ... ok
+test link::tests::nothing_is_written_after_a_withdrawal_that_comes_between_two_writes ... ok
+test transfers::tests::every_file_message_is_answered_as_the_rejected_offers_say ... ok
+test rates::tests::every_take_is_that_of_a_bucket_of_its_own_contact_and_rate ... ok
+test messages::tests::a_store_above_any_lowered_limit_is_kept_and_takes_in_only_below_it ... ok
+test identity::tests::rotations_marks_and_snapshots_on_many_threads_stay_one_cut ... ok
+test contacts::tests::a_snapshot_is_one_cut_through_the_store has been running for over 60 seconds
+test contacts::tests::a_snapshot_is_one_cut_through_the_store ... ok
+
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 68.56s
+
+     Running tests\credentials.rs (<work>\win-target\debug\deps\credentials-7ac5fc878d7ab0b8.exe)
+
+running 34 tests
+test a_dial_is_admitted_against_the_contact_state_after_the_handshake ... ok
+test a_card_that_conflicts_at_the_same_epoch_does_not_receive_message_3 ... ok
+test a_pending_key_does_not_receive_message_3 ... ok
+test a_contact_deleted_or_blocked_during_the_dial_gets_no_message_3 ... ok
+test a_decision_for_one_rotation_changes_nothing_in_the_next ... ok
+test a_link_that_waits_for_the_peer_wakes_up_when_it_is_withdrawn ... ok
+test a_failed_installation_admits_nobody ... ok
+test a_request_is_made_with_the_card_of_its_session ... ok
+test a_promotion_stands_when_message_3_cannot_be_written ... ok
+test a_late_announcement_counts_only_for_the_contact_it_was_made_to ... ok
+test a_card_of_someone_who_is_no_contact_is_not_dialed ... ok
+test a_key_older_than_the_announced_successor_gets_nothing ... ok
+test a_stranger_request_reaches_the_queue_and_nothing_durable ... ok
+test a_dial_cancelled_while_its_admission_is_made_durable_leaves_no_session ... ok
+test a_card_the_dial_plan_does_not_name_is_not_dialed ... ok
+test an_older_card_of_the_active_key_still_receives_message_3 ... ok
+test a_failed_write_withdraws_every_session_even_when_nobody_waits ... ok
+test a_withdrawal_first_seen_by_send_writes_the_close ... ok
+test a_withdrawn_link_fails_at_once_every_time ... ok
+test a_rotation_ends_only_after_a_durable_switch ... ok
+test a_key_retired_while_the_admission_is_made_durable_gets_no_message_3 ... ok
+test a_rotation_withdraws_the_link_of_the_retired_key ... ok
+test a_rotation_switches_and_finishes_only_when_due ... ok
+test the_store_forgets_the_links_that_are_gone ... ok
+test an_announcement_is_sent_only_on_its_own_session ... ok
+test blocking_or_deleting_a_contact_withdraws_its_open_links ... ok
+test the_progress_of_one_rotation_never_counts_for_the_next ... ok
+test the_new_key_reaches_no_peer_before_it_is_durable ... ok
+test what_a_dial_without_a_slot_recorded_survives_a_restart ... ok
+test what_an_answer_without_a_slot_recorded_survives_a_restart ... ok
+test what_a_refused_dial_recorded_survives_a_restart ... ok
+test a_late_announcement_counts_for_nothing_once_its_contact_or_session_changed ... ok
+test what_an_answer_without_a_slot_for_strangers_recorded_survives_a_restart ... ok
+test the_progress_of_a_rotation_survives_a_restart_with_it_and_no_further ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.87s
+
+     Running tests\front_end.rs (<work>\win-target\debug\deps\front_end-81d812ecdf2cc3cc.exe)
+
+running 16 tests
+test a_tor_check_says_what_the_endpoints_answer ... ok
+test a_full_set_of_invitations_refuses_another_and_revokes_nothing ... ok
+test the_service_state_answers_as_the_last_event_said ... ok
+test an_invitation_is_listed_shown_again_and_revoked_by_its_handle ... ok
+test a_name_and_a_verification_go_to_the_record_they_were_set_for ... ok
+test a_blocked_handle_of_one_identity_names_nothing_at_another ... ok
+test revoking_and_discarding_drops_the_requests_of_that_invitation_only ... ok
+test a_request_is_listed_with_the_senders_fingerprint_and_accepted_by_its_handle ... ok
+test a_blocked_contact_is_listed_by_its_fingerprint_and_unblocked_by_its_handle ... ok
+test a_plain_card_reaches_an_identity_that_wants_invitations_once_it_adds_the_card_back ... ok
+test an_invitation_added_for_an_accepted_contact_is_said_as_the_record_holds_it ... ok
+test a_request_handle_of_one_identity_names_nothing_at_another ... ok
+test declining_and_blocking_answer_only_the_named_request ... ok
+test an_unblocked_sender_is_left_to_the_request_mode ... ok
+test a_block_outlives_the_profile_and_a_handle_from_before_names_nothing ... ok
+test an_added_card_says_whether_it_carried_an_invitation_also_after_a_restart ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
+
+     Running tests\fuzz_seeds.rs (<work>\win-target\debug\deps\fuzz_seeds-af47cde038bcaa2d.exe)
+
+running 1 test
+test committed_seeds_are_current ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\identities.rs (<work>\win-target\debug\deps\identities-0623b20e31f5fde7.exe)
+
+running 20 tests
+test a_closed_identity_shows_the_card_it_answered_with ... ok
+test a_deletion_names_the_instance_it_deletes ... ok
+test a_deleted_identity_hands_out_no_secret ... ok
+test t_mi_11_an_invitation_handle_of_one_identity_is_refused_by_another ... ok
+test a_dial_that_waited_for_its_slot_while_the_identity_was_deleted_opens_no_stream ... ok
+test a_session_that_outlives_its_deleted_identity_changes_nothing ... ok
+test t_mi_10_a_session_of_one_identity_changes_nothing_at_another ... ok
+test closing_the_installation_ends_the_authority_of_what_it_handed_out ... ok
+test t_mi_8_every_dial_names_its_identity ... ok
+test t_mi_4_a_capability_of_one_identity_admits_nothing_at_another ... ok
+test a_new_identity_is_listed_only_once_it_is_durable ... ok
+test t_mi_2_and_3_contact_state_belongs_to_one_identity ... ok
+test the_rotation_of_one_identity_counts_for_no_other ... ok
+test t_mi_1_no_two_local_identities_share_a_key ... ok
+test a_rotation_to_the_same_public_key_is_refused_when_the_vault_is_opened ... ok
+test a_write_under_way_when_the_installation_closes_still_ends ... ok
+test t_mi_7_strangers_at_one_identity_change_nothing_at_another ... ok
+test an_identity_is_restored_only_if_the_vault_can_hold_it ... ok
+test a_deleted_identity_admits_nobody_and_changes_nothing ... ok
+test t_mi_9_deleting_one_identity_leaves_the_other_as_it_was ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+
+     Running tests\invitations.rs (<work>\win-target\debug\deps\invitations-23b2da851394ae19.exe)
+
+running 13 tests
+test t_inv_9_a_label_is_never_in_a_card ... ok
+test t_inv_8_a_full_active_set_refuses_and_revokes_nothing ... ok
+test what_arrived_counts_once ... ok
+test an_answer_is_for_the_request_it_was_given_for ... ok
+test t_inv_7_a_contact_accepted_from_a_revoked_capability_stays_accepted ... ok
+test t_inv_10_another_capability_for_the_same_statement ... ok
+test an_invitation_card_states_the_key_that_answers_when_it_is_returned ... ok
+test an_invitation_is_handed_out_only_once_it_is_durable ... ok
+test t_inv_11_revoking_keeps_pending_requests_unless_asked_to_discard_them ... ok
+test t_inv_5_and_6_every_dropped_request_looks_like_a_queued_one ... ok
+test request_modes_decide_what_a_stranger_can_ask ... ok
+test t_inv_1_to_4_cards_with_capabilities_admit_requests_until_revoked ... ok
+test a_request_stays_pending_when_answering_it_fails ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 41.67s
+
+     Running tests\link.rs (<work>\win-target\debug\deps\link-fa80e1c5f213dfe8.exe)
+
+running 18 tests
+test a_dropped_shutdown_sender_stops_the_loop ... ok
+test a_silent_peer_is_dropped_after_the_handshake_timeout ... ok
+test losing_tor_ends_the_accept_loop_and_the_publication ... ok
+test reaching_the_onion_service_does_not_authenticate_another_identity ... ok
+test a_dial_to_an_identity_without_a_record_sends_nothing_of_the_local_identity ... ok
+test a_stranger_through_a_valid_tor_stream_gets_only_a_close ... ok
+test without_socks_or_a_service_a_dial_fails_and_tries_nothing_else ... ok
+test a_dial_without_a_contact_slot_writes_no_message_3 ... ok
+test a_contact_refused_for_the_contact_budget_leaves_no_session_behind ... ok
+test a_tor_stream_carries_an_authenticated_exchange_both_ways ... ok
+test dials_beyond_the_dial_budget_wait_for_a_slot ... ok
+test local_identities_are_reached_through_their_own_services ... ok
+test several_peers_handshake_at_the_same_time ... ok
+test a_full_stranger_budget_evicts_the_oldest_silent_stranger ... ok
+test a_stranger_finds_no_slot_while_evicted_strangers_drain ... ok
+test a_contact_is_never_evicted_for_a_stranger ... ok
+test listener_errors_do_not_end_the_accept_loop ... ok
+test the_accept_loop_bounds_handshakes_owns_its_tasks_and_ends_with_the_service ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.94s
+
+     Running tests\message_model.rs (<work>\win-target\debug\deps\message_model-13df9890937727c7.exe)
+
+running 1 test
+test the_state_machine_holds_what_the_model_holds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.08s
+
+     Running tests\messages.rs (<work>\win-target\debug\deps\messages-859ab4e7ecae526f.exe)
+
+running 27 tests
+test a_message_is_stored_once_and_delivered_by_its_acknowledgement ... ok
+test a_new_card_of_the_same_contact_keeps_its_record_and_its_queue ... ok
+test a_queue_holds_its_limit_and_refuses_one_more ... ok
+test a_message_is_queued_only_for_a_current_contact_record ... ok
+test a_contact_made_again_does_not_inherit_the_queue_of_the_old_record ... ok
+test a_message_deleted_while_it_waits_to_be_sent_is_not_offered ... ok
+test a_message_store_that_does_not_authenticate_fails_the_installation ... ok
+test a_receiver_that_crashes_before_the_message_is_durable_stores_nothing_and_acknowledges_nothing ... ok
+test a_queued_message_is_reported_only_once_it_is_durable ... ok
+test an_acknowledgement_reaches_only_the_conversation_of_its_session ... ok
+test a_deleted_identity_restored_from_its_keys_has_no_messages ... ok
+test a_queued_message_is_offered_for_sending_only_once_it_is_durable ... ok
+test blocking_ends_the_record_and_keeps_its_queue_without_sending_it ... ok
+test a_sender_that_crashes_before_the_delivery_is_durable_sends_again ... ok
+test a_sender_that_wrote_and_got_no_acknowledgement_sends_again_after_a_restart ... ok
+test concurrent_copies_of_one_message_are_stored_once ... ok
+test what_arrived_on_a_link_that_ended_counts_for_nothing ... ok
+test the_queue_is_first_in_first_out ... ok
+test a_vault_of_phase_4_beside_a_store_with_messages_is_refused ... ok
+test the_identities_of_one_installation_keep_their_messages_apart ... ok
+test a_vault_with_identities_and_no_message_store_opens_and_says_so ... ok
+test a_vault_of_phase_4_is_opened_with_identifiers_and_an_empty_message_store ... ok
+test a_delivered_message_stays_delivered_after_a_restart ... ok
+test a_receiver_that_crashes_after_storing_and_before_acknowledging_drops_the_retry ... ok
+test a_crash_at_any_step_of_queueing_leaves_the_message_or_nothing ... ok
+test a_sender_that_crashes_before_sending_finds_the_message_queued ... ok
+test a_crash_while_the_message_store_is_made_leaves_an_installation_that_opens ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.85s
+
+     Running tests\observability.rs (<work>\win-target\debug\deps\observability-d2f63f96dffbabbb.exe)
+
+running 7 tests
+test a_confirmation_is_for_a_contact_only ... ok
+test t_contact_3_a_request_after_a_deletion_is_from_an_unknown_identity ... ok
+test t_oracle_7_a_contact_blocked_or_deleted_in_a_session_sees_a_close_then_a_stranger ... ok
+test t_inj_text_the_vault_stores_comes_back_byte_for_byte ... ok
+test t_oracle_6_with_the_stranger_budget_full_every_non_contact_is_treated_alike ... ok
+test t_confirm_1_every_fate_of_a_request_looks_the_same ... ok
+test t_contact_1_a_flood_of_requests_leaves_the_vault_as_it_was ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.45s
+
+     Running tests\runtime.rs (<work>\win-target\debug\deps\runtime-278760c1938da874.exe)
+
+running 56 tests
+test a_contact_made_again_is_not_dialed_for_the_queue_of_its_old_record ... ok
+test a_deleted_identity_stops_dialing_and_takes_no_command ... ok
+test a_blocked_contact_gets_nothing_of_its_queue ... ok
+test a_block_for_a_record_made_again_before_it_runs_ends_nothing ... ok
+test a_failed_attempt_is_not_repeated_at_once ... ok
+test a_connect_once_the_runtime_shuts_down_dials_no_further ... ok
+test a_message_in_flight_is_sent_once_and_waited_for_from_then ... ok
+test a_connect_for_a_record_made_again_between_its_cards_dials_no_further ... ok
+test a_failure_of_tor_is_not_followed_by_the_active_key ... ok
+test a_lost_acknowledgement_is_followed_by_a_retry_the_receiver_drops ... ok
+test a_failed_vault_is_reported_at_once_and_refuses_a_send ... ok
+test a_failed_vault_ends_every_attempt ... ok
+test a_dial_that_fails_once_the_vault_failed_announces_no_retry ... ok
+test a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded ... ok
+test a_message_queued_while_the_peer_is_away_is_delivered_once_it_is_back ... ok
+test a_contact_that_opens_sessions_above_its_rate_has_them_closed ... ok
+test a_runtime_dropped_without_a_shutdown_stops ... ok
+test a_peer_that_dials_in_and_never_acknowledges_does_not_reset_the_delays ... ok
+test a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing ... ok
+test a_failed_message_store_ends_every_session_and_attempt ... ok
+test a_peer_that_never_acknowledges_is_dialed_with_growing_delays ... ok
+test a_pong_after_the_probe_was_decided_keeps_the_session ... ok
+test a_plan_whose_cards_both_fail_is_reported_once ... ok
+test a_ping_not_answered_within_its_timeout_ends_the_session ... ok
+test a_send_once_the_runtime_shuts_down_says_so ... ok
+test a_probe_asked_while_a_ping_is_outstanding_waits_for_its_pong ... ok
+test a_probed_session_that_answers_while_it_is_not_read_is_kept ... ok
+test a_record_with_two_sessions_is_reported_available_once ... ok
+test a_probed_session_that_does_not_answer_loses_to_the_newer_one ... ok
+test a_session_that_ends_with_a_message_in_flight_reports_nothing_delivered ... ok
+test a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends ... ok
+test a_session_that_ends_with_its_service_leaves_no_registration_behind ... ok
+test an_identity_without_a_key_is_reported_so_and_stays_so ... ok
+test a_session_that_waits_for_a_token_ends_when_it_is_closed ... ok
+test a_successor_that_does_not_answer_is_followed_by_the_active_key ... ok
+test a_successor_in_use_is_dialed_first_and_promoted ... ok
+test a_send_a_shutdown_cuts_short_says_so ... ok
+test blocking_or_deleting_a_contact_ends_the_attempt_in_progress ... ok
+test delivery_resumes_through_tor_once_it_is_back ... ok
+test text_is_checked_before_anything_is_stored ... ok
+test a_send_for_a_record_deleted_while_it_waits_for_the_vault_queues_nothing ... ok
+test no_acknowledgement_in_time_closes_the_session_and_tries_again_later ... ok
+test nothing_is_dialed_without_a_queued_message_and_an_idle_session_ends ... ok
+test a_session_that_ends_with_its_record_announces_no_retry ... ok
+test identities_of_one_runtime_keep_their_queues_and_sessions_apart ... ok
+test a_shutdown_waits_for_a_command_under_way ... ok
+test a_restarted_sender_delivers_what_it_had_queued ... ok
+test a_send_its_caller_stops_waiting_for_completes ... ok
+test what_one_session_rejected_is_unknown_to_the_next ... ok
+test an_identity_deleted_while_a_send_waits_for_the_vault_fails_nothing ... ok
+test the_rate_of_a_contact_holds_across_its_sessions ... ok
+test an_attempt_that_ends_between_its_cards_dials_no_further ... ok
+test a_file_message_for_a_transfer_never_offered_ends_the_session ... ok
+test both_sides_sending_at_once_end_with_one_session_and_every_message_once ... ok
+test a_contact_above_a_rate_is_slowed_and_no_other_contact_is ... ok
+test what_cannot_follow_a_rejected_offer_ends_the_session ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.10s
+
+     Running tests\runtime_model.rs (<work>\win-target\debug\deps\runtime_model-a83e500434fa53f8.exe)
+
+running 1 test
+test the_runtime_delivers_what_the_model_says ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 53.21s
+
+     Running tests\store.rs (<work>\win-target\debug\deps\store-7b3fe1dc0bf78835.exe)
+
+running 16 tests
+test concurrent_operations_on_different_contacts_lose_nothing ... ok
+test identities_restored_or_created_never_share_a_key ... ok
+test a_restart_on_disk_reproduces_the_durable_state ... ok
+test a_restart_reproduces_the_durable_state_exactly ... ok
+test closing_an_installation_lets_go_of_its_directory_at_once ... ok
+test a_block_that_races_an_admission_leaves_no_contact_session_standing ... ok
+test creating_an_identity_is_atomic ... ok
+test an_announced_successor_is_atomic ... ok
+test deleting_is_atomic ... ok
+test blocking_is_atomic ... ok
+test beginning_a_rotation_is_atomic ... ok
+test promoting_a_successor_is_atomic ... ok
+test updating_a_card_is_atomic ... ok
+test creating_a_contact_is_atomic ... ok
+test concurrent_operations_on_one_contact_are_one_of_their_serial_orders ... ok
+test creating_and_revoking_an_invitation_are_atomic has been running for over 60 seconds
+test creating_and_revoking_an_invitation_are_atomic ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.24s
+
+     Running tests\structure.rs (<work>\win-target\debug\deps\structure-f706a306c8a94df8.exe)
+
+running 10 tests
+test no_party_of_a_local_identity_leaves_the_core ... ok
+test a_store_key_made_for_tests_is_used_by_no_production_code ... ok
+test only_what_a_link_received_is_applied ... ok
+test a_message_leaves_only_once_it_is_durable ... ok
+test a_front_end_reaches_no_authority ... ok
+test no_crate_holds_state_in_a_static_or_a_thread_local ... ok
+test a_message_is_delivered_only_by_an_acknowledgement_a_link_received ... ok
+test a_message_is_acknowledged_only_once_take_in_returned ... ok
+test only_a_sent_announcement_counts ... ok
+test only_the_contact_store_admits_a_responder_and_only_dial_writes_message_3 ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests\supervisor.rs (<work>\win-target\debug\deps\supervisor-949d69bfef795801.exe)
+
+running 9 tests
+test a_publication_under_way_ends_when_the_identity_is_deleted ... ok
+test shutdown_stops_the_supervisor_while_it_waits_or_serves ... ok
+test closing_the_installation_takes_its_services_down ... ok
+test a_service_published_for_a_deleted_identity_is_never_reported_available ... ok
+test an_identity_without_a_key_is_not_published ... ok
+test while_tor_cannot_publish_the_attempts_slow_down ... ok
+test the_supervisors_of_two_identities_do_not_touch_each_other ... ok
+test a_lost_service_is_published_again_under_the_same_name ... ok
+test a_deleted_identity_is_taken_down_and_not_published_again ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests\tor_network.rs (<work>\win-target\debug\deps\tor_network-bec447dedf5a12ea.exe)
+
+running 1 test
+test a_service_published_again_from_its_key_is_reached_again ... ignored, needs the private Tor network of tests/tor-network
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests monolith_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

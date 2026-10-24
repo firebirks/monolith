@@ -1,0 +1,29 @@
+    Fetching advisory database from `https://github.com/RustSec/advisory-db.git`
+      Loaded 1338 security advisories (from <home>/.cargo/advisory-db)
+    Updating crates.io index
+    Scanning Cargo.lock for vulnerabilities (445 crate dependencies)
+Crate:     zbus_names
+Version:   4.3.1
+Warning:   unmaintained
+Title:     `zbus_names` is unmaintained
+Date:      2026-10-16
+ID:        RUSTSEC-2026-0371
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0371
+
+Crate:     zvariant
+Version:   5.9.2
+Warning:   unmaintained
+Title:     `zvariant` is unmaintained
+Date:      2026-10-16
+ID:        RUSTSEC-2026-0370
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0370
+
+Crate:     zvariant_derive
+Version:   5.9.2
+Warning:   unmaintained
+Title:     `zvariant_derive` is unmaintained
+Date:      2026-10-16
+ID:        RUSTSEC-2026-0372
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0372
+
+warning: 3 allowed warnings found

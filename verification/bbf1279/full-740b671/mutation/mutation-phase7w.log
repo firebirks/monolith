@@ -1,0 +1,16 @@
+commit 740b6715c5e1c3c488f3397624d6eb764e763eec, 14 faults, 1 workers, unmodified run 540s, timeout 1200s
+HR12  caught     37s  a link or a junction on the way is followed
+HR13  caught     14s  a card file opened is not compared with the one looked at
+HR14  caught     16s  a name of a device is taken as a file of this computer
+HR15  caught     16s  a cookie file on another computer is read
+HR16  caught     14s  a data directory or settings file on another computer is taken
+HR44  caught    378s  a rename another process blocks is tried once
+HR46  caught    439s  the cookie file Tor names is compared with case on Windows
+HR69  caught     36s  a card file swapped for one of the same length is read
+HR70  caught     20s  a name with a stream or a dot or space at its end is a file name
+HR71  caught     23s  a card file opened offline or in the cloud only is read
+HR72  caught     19s  a card is saved in a folder that is not of this computer
+HR73  caught     19s  a cookie path not named as a file of this computer is taken
+HR74  caught     20s  a downloads folder that is a junction is followed
+HR75  caught    438s  a removal another process blocks is tried once
+done: {'caught': 14}; written to <winhome>\VSCodeProjects\Monolith\mutation\results-phase7w-740b671.json

@@ -1,0 +1,7 @@
+1792790375 commit bbf1279439ea9f58703e10415f2ffa2f5321eeed, 5 faults, 4 workers, unmodified run 452s, timeout 3616s
+1792790993 MR44  caught    618s  a scheduler goes on after the vault failed
+1792791817 MR48  caught    824s  a message queued as its identity is deleted is added after the deletion
+1792793991 MR25  caught   3616s  an idle session never ends (timeout)
+1792793991 MR9   caught   3616s  a failed attempt is followed by the next at once (timeout)
+1792793991 MR26  caught   3616s  a message whose acknowledgement does not come keeps its session waiting (timeout)
+1792793991 done: {'caught': 5}; written to <repo>/mutation/results-phase5-bbf1279.json

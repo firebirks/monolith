@@ -1,0 +1,7 @@
+commit d22adda9df1ef9353e20a13b2218c520dd27b282, candidate 740b6715c5e1c3c488f3397624d6eb764e763eec
+ .cargo/audit.toml    |  7 +++++++
+ deny.toml            | 10 ++++++++++
+ docs/DEPENDENCIES.md | 18 ++++++++++++++++--
+ 3 files changed, 33 insertions(+), 2 deletions(-)
+lockfile, manifests and code against the candidate:
+(nothing above this line means no change)

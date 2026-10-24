@@ -1,0 +1,4053 @@
+0monolith-cli v0.0.0 (<repo>/crates/monolith-cli)
+1getrandom v0.3.4
+2libc v0.2.189
+2r-efi v5.3.0
+2wasip2 v1.0.1+wasi-0.2.4
+3wit-bindgen v0.46.0
+2cfg-if feature "default"
+3cfg-if v1.0.5
+1zeroize v1.9.0
+1monolith-core feature "default" (command-line)
+2monolith-core v0.0.0 (<repo>/crates/monolith-core)
+3getrandom v0.3.4 (*)
+3monolith-identity feature "default" (command-line)
+4monolith-identity v0.0.0 (<repo>/crates/monolith-identity)
+5sha2 v0.11.0
+6cfg-if feature "default" (*)
+6cpufeatures feature "default"
+7cpufeatures v0.3.1
+8libc v0.2.189
+6digest feature "default"
+7digest v0.11.3
+8zeroize v1.9.0
+8block-buffer feature "default"
+9block-buffer v0.12.1
+10zeroize v1.9.0
+10hybrid-array feature "default"
+11hybrid-array v0.4.15
+12typenum feature "const-generics"
+13typenum v1.20.1
+12typenum feature "default"
+13typenum v1.20.1
+8crypto-common feature "default"
+9crypto-common v0.2.2
+10hybrid-array feature "default" (*)
+8ctutils feature "default"
+9ctutils v0.4.2
+10cmov feature "default"
+11cmov v0.5.4
+7digest feature "block-api"
+8digest v0.11.3 (*)
+5sha3 v0.11.0
+6digest feature "default" (*)
+6keccak feature "default"
+7keccak v0.2.2
+8cfg-if feature "default" (*)
+8cpufeatures feature "default" (*)
+5ed25519-dalek feature "fast"
+6ed25519-dalek v3.0.0
+7ed25519 v3.0.0
+8signature v3.0.0
+7sha2 v0.11.0 (*)
+7subtle v2.6.1
+7zeroize v1.9.0
+7curve25519-dalek feature "digest"
+8curve25519-dalek v5.0.0
+9fiat-crypto v0.3.0
+9zeroize v1.9.0
+9cfg-if feature "default" (*)
+9cpufeatures feature "default" (*)
+9curve25519-dalek-derive feature "default"
+10curve25519-dalek-derive v0.1.1 (proc-macro)
+11proc-macro2 feature "default"
+12proc-macro2 v1.0.107
+13unicode-ident feature "default"
+14unicode-ident v1.0.26
+12proc-macro2 feature "proc-macro"
+13proc-macro2 v1.0.107 (*)
+11quote feature "default"
+12quote v1.0.47
+13proc-macro2 v1.0.107 (*)
+12quote feature "proc-macro"
+13quote v1.0.47 (*)
+13proc-macro2 feature "proc-macro" (*)
+11syn feature "default"
+12syn v2.0.119
+13proc-macro2 v1.0.107 (*)
+13quote v1.0.47 (*)
+13unicode-ident feature "default" (*)
+12syn feature "clone-impls"
+13syn v2.0.119 (*)
+12syn feature "derive"
+13syn v2.0.119 (*)
+12syn feature "parsing"
+13syn v2.0.119 (*)
+12syn feature "printing"
+13syn v2.0.119 (*)
+12syn feature "proc-macro"
+13syn v2.0.119 (*)
+13proc-macro2 feature "proc-macro" (*)
+13quote feature "proc-macro" (*)
+11syn feature "full"
+12syn v2.0.119 (*)
+9digest feature "block-api" (*)
+9subtle feature "const-generics"
+10subtle v2.6.1
+9rustc_version feature "default"
+10rustc_version v0.4.1
+11semver feature "default"
+12semver v1.0.28
+12semver feature "std"
+13semver v1.0.28
+6curve25519-dalek feature "precomputed-tables"
+7curve25519-dalek v5.0.0 (*)
+5ed25519-dalek feature "zeroize"
+6ed25519-dalek v3.0.0 (*)
+6curve25519-dalek feature "zeroize"
+7curve25519-dalek v5.0.0 (*)
+5proptest feature "std"
+6proptest v1.11.0
+7num-traits v0.2.19
+8autocfg feature "default"
+9autocfg v1.5.1
+7rand_chacha v0.9.0
+8rand_core feature "default"
+9rand_core v0.9.5
+10getrandom feature "default"
+11getrandom v0.3.4 (*)
+8ppv-lite86 feature "simd"
+9ppv-lite86 v0.2.21
+10zerocopy feature "default"
+11zerocopy v0.8.59
+12zerocopy-derive feature "default"
+13zerocopy-derive v0.8.59 (proc-macro)
+14proc-macro2 feature "default" (*)
+14quote feature "default" (*)
+14syn feature "default" (*)
+14syn feature "full" (*)
+10zerocopy feature "simd"
+11zerocopy v0.8.59 (*)
+7bitflags feature "default"
+8bitflags v2.13.2
+7rand feature "alloc"
+8rand v0.9.5
+9rand_core v0.9.5 (*)
+7rand_xorshift feature "default"
+8rand_xorshift v0.4.0
+9rand_core feature "default" (*)
+7regex-syntax feature "default"
+8regex-syntax v0.8.11
+8regex-syntax feature "std"
+9regex-syntax v0.8.11
+8regex-syntax feature "unicode"
+9regex-syntax v0.8.11
+9regex-syntax feature "unicode-age"
+10regex-syntax v0.8.11
+9regex-syntax feature "unicode-bool"
+10regex-syntax v0.8.11
+9regex-syntax feature "unicode-case"
+10regex-syntax v0.8.11
+9regex-syntax feature "unicode-gencat"
+10regex-syntax v0.8.11
+9regex-syntax feature "unicode-perl"
+10regex-syntax v0.8.11
+9regex-syntax feature "unicode-script"
+10regex-syntax v0.8.11
+9regex-syntax feature "unicode-segment"
+10regex-syntax v0.8.11
+7unarray feature "default"
+8unarray v0.1.4
+6proptest feature "regex-syntax"
+7proptest v1.11.0 (*)
+6num-traits feature "std"
+7num-traits v0.2.19 (*)
+6rand feature "os_rng"
+7rand v0.9.5 (*)
+7rand_core feature "os_rng"
+8rand_core v0.9.5 (*)
+6rand feature "std"
+7rand v0.9.5 (*)
+7rand feature "alloc" (*)
+7rand_core feature "std"
+8rand_core v0.9.5 (*)
+8getrandom feature "std"
+9getrandom v0.3.4 (*)
+3zeroize feature "alloc"
+4zeroize v1.9.0
+3monolith-protocol feature "default" (command-line)
+4monolith-protocol v0.0.0 (<repo>/crates/monolith-protocol)
+5subtle v2.6.1
+5zeroize v1.9.0
+5monolith-identity feature "default" (command-line) (*)
+5ed25519-dalek feature "fast" (*)
+5ed25519-dalek feature "zeroize" (*)
+5proptest feature "std" (*)
+3monolith-session feature "default" (command-line)
+4monolith-session v0.0.0 (<repo>/crates/monolith-session)
+5getrandom v0.3.4 (*)
+5snow v0.10.0
+6subtle v2.6.1
+6rustc_version feature "default" (*)
+5zeroize v1.9.0
+5monolith-identity feature "default" (command-line) (*)
+5sha2 feature "zeroize"
+6sha2 v0.11.0 (*)
+6digest feature "zeroize"
+7digest v0.11.3 (*)
+7block-buffer feature "zeroize"
+8block-buffer v0.12.1 (*)
+5monolith-protocol feature "default" (command-line) (*)
+5chacha20poly1305 feature "zeroize"
+6chacha20poly1305 v0.11.0
+7aead v0.6.1
+8crypto-common feature "default" (*)
+8inout feature "default"
+9inout v0.2.2
+10hybrid-array feature "default" (*)
+7zeroize v1.9.0
+7chacha20 feature "xchacha"
+8chacha20 v0.10.2
+9zeroize v1.9.0
+9cfg-if feature "default" (*)
+9cpufeatures feature "default" (*)
+9cipher feature "default"
+10cipher v0.5.2
+11block-buffer feature "default" (*)
+11crypto-common feature "default" (*)
+11inout feature "default" (*)
+9cipher feature "stream-wrapper"
+10cipher v0.5.2 (*)
+10cipher feature "block-buffer"
+11cipher v0.5.2 (*)
+8chacha20 feature "cipher"
+9chacha20 v0.10.2 (*)
+7cipher feature "default" (*)
+7poly1305 feature "default"
+8poly1305 v0.9.1
+9cpufeatures feature "default" (*)
+9universal-hash feature "default"
+10universal-hash v0.6.1
+11crypto-common feature "default" (*)
+11ctutils feature "default" (*)
+6chacha20 feature "zeroize"
+7chacha20 v0.10.2 (*)
+5x25519-dalek feature "static_secrets"
+6x25519-dalek v3.0.0
+7curve25519-dalek v5.0.0 (*)
+7rand_core v0.10.1
+7zeroize v1.9.0
+5x25519-dalek feature "zeroize"
+6x25519-dalek v3.0.0 (*)
+6curve25519-dalek feature "zeroize" (*)
+5proptest feature "std" (*)
+3monolith-storage feature "default" (command-line)
+4monolith-storage v0.0.0 (<repo>/crates/monolith-storage)
+5getrandom v0.3.4 (*)
+5hkdf v0.13.0
+6hmac feature "default"
+7hmac v0.13.0
+8digest feature "default" (*)
+8digest feature "mac"
+9digest v0.11.3 (*)
+5sha2 v0.11.0 (*)
+5unicode-normalization v0.1.25
+6tinyvec feature "alloc"
+7tinyvec v1.13.3
+6tinyvec feature "default"
+7tinyvec v1.13.3
+5monolith-identity feature "default" (command-line) (*)
+5zeroize feature "alloc" (*)
+5monolith-protocol feature "default" (command-line) (*)
+5chacha20poly1305 feature "zeroize" (*)
+5argon2 feature "alloc"
+6argon2 v0.6.0
+7blake2 v0.11.0
+8digest feature "default" (*)
+8digest feature "mac" (*)
+7zeroize v1.9.0
+7cpufeatures feature "default" (*)
+7base64ct feature "default"
+8base64ct v1.8.3
+5argon2 feature "zeroize"
+6argon2 v0.6.0 (*)
+5rustix feature "fs"
+6rustix v1.1.5
+7bitflags v2.13.2
+7errno v0.3.14
+8libc v0.2.189
+8windows-sys feature "Win32_Foundation"
+9windows-sys v0.61.2
+10windows-link v0.2.1
+9windows-sys feature "Win32"
+10windows-sys v0.61.2 (*)
+10windows-sys feature "Win32_Foundation" (*)
+8windows-sys feature "Win32_System_Diagnostics_Debug"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Win32_System_Diagnostics"
+10windows-sys v0.61.2 (*)
+10windows-sys feature "Win32_System"
+11windows-sys v0.61.2 (*)
+11windows-sys feature "Win32" (*)
+8windows-sys feature "default"
+9windows-sys v0.61.2 (*)
+7libc v0.2.189
+7windows-sys feature "Win32_Foundation" (*)
+7windows-sys feature "Win32_Networking_WinSock"
+8windows-sys v0.61.2 (*)
+8windows-sys feature "Win32_Networking"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Win32" (*)
+7windows-sys feature "default" (*)
+7linux-raw-sys feature "auxvec"
+8linux-raw-sys v0.12.1
+7linux-raw-sys feature "elf"
+8linux-raw-sys v0.12.1
+7linux-raw-sys feature "errno"
+8linux-raw-sys v0.12.1
+7linux-raw-sys feature "general"
+8linux-raw-sys v0.12.1
+7linux-raw-sys feature "ioctl"
+8linux-raw-sys v0.12.1
+7linux-raw-sys feature "no_std"
+8linux-raw-sys v0.12.1
+5rustix feature "process"
+6rustix v1.1.5 (*)
+6linux-raw-sys feature "prctl"
+7linux-raw-sys v0.12.1
+5rustix feature "std"
+6rustix v1.1.5 (*)
+6libc feature "std"
+7libc v0.2.189
+6bitflags feature "std"
+7bitflags v2.13.2
+6rustix feature "alloc"
+7rustix v1.1.5 (*)
+6errno feature "std"
+7errno v0.3.14 (*)
+7libc feature "std" (*)
+5zeroize v1.9.0
+5proptest feature "std" (*)
+3monolith-tor feature "default" (command-line)
+4monolith-tor v0.0.0 (<repo>/crates/monolith-tor)
+5getrandom v0.3.4 (*)
+5hmac v0.13.0 (*)
+5sha2 v0.11.0 (*)
+5subtle v2.6.1
+5monolith-identity feature "default" (command-line) (*)
+5zeroize feature "alloc" (*)
+5monolith-protocol feature "default" (command-line) (*)
+5tokio feature "io-util"
+6tokio v1.53.1
+7mio v1.2.3
+8libc feature "default"
+9libc v0.2.189
+9libc feature "std" (*)
+8windows-sys feature "Wdk_Foundation"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Wdk"
+10windows-sys v0.61.2 (*)
+10windows-sys feature "Win32_Foundation" (*)
+8windows-sys feature "Wdk_Storage_FileSystem"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Wdk_Storage"
+10windows-sys v0.61.2 (*)
+10windows-sys feature "Wdk" (*)
+8windows-sys feature "Wdk_System_IO"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Wdk_System"
+10windows-sys v0.61.2 (*)
+10windows-sys feature "Wdk" (*)
+8windows-sys feature "Win32_Foundation" (*)
+8windows-sys feature "Win32_Networking_WinSock" (*)
+8windows-sys feature "Win32_Security"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Win32" (*)
+8windows-sys feature "Win32_Storage_FileSystem"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Win32_Storage"
+10windows-sys v0.61.2 (*)
+10windows-sys feature "Win32" (*)
+8windows-sys feature "Win32_System_IO"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Win32_System" (*)
+8windows-sys feature "Win32_System_WindowsProgramming"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Win32_System" (*)
+8windows-sys feature "default" (*)
+8wasi feature "default"
+9wasi v0.11.1+wasi-snapshot-preview1
+9wasi feature "std"
+10wasi v0.11.1+wasi-snapshot-preview1
+7libc feature "default" (*)
+7windows-sys feature "default" (*)
+7bytes feature "default"
+8bytes v1.12.1
+8bytes feature "std"
+9bytes v1.12.1
+7mio feature "os-ext"
+8mio v1.2.3 (*)
+8windows-sys feature "Win32_Security" (*)
+8windows-sys feature "Win32_System_Pipes"
+9windows-sys v0.61.2 (*)
+9windows-sys feature "Win32_System" (*)
+8mio feature "os-poll"
+9mio v1.2.3 (*)
+7mio feature "os-poll" (*)
+7pin-project-lite feature "default"
+8pin-project-lite v0.2.17
+7socket2 feature "all"
+8socket2 v0.6.5
+9libc feature "default" (*)
+9windows-sys feature "Win32_Foundation" (*)
+9windows-sys feature "Win32_Networking_WinSock" (*)
+9windows-sys feature "Win32_System_IO" (*)
+9windows-sys feature "Win32_System_Threading"
+10windows-sys v0.61.2 (*)
+10windows-sys feature "Win32_System" (*)
+9windows-sys feature "Win32_System_WindowsProgramming" (*)
+9windows-sys feature "default" (*)
+7socket2 feature "default"
+8socket2 v0.6.5 (*)
+7tokio-macros feature "default"
+8tokio-macros v2.7.2 (proc-macro)
+9proc-macro2 feature "default" (*)
+9quote feature "default" (*)
+9syn feature "default"
+10syn v3.0.9
+11proc-macro2 v1.0.107 (*)
+11quote v1.0.47 (*)
+11unicode-ident feature "default" (*)
+10syn feature "clone-impls"
+11syn v3.0.9 (*)
+10syn feature "derive"
+11syn v3.0.9 (*)
+10syn feature "parsing"
+11syn v3.0.9 (*)
+10syn feature "printing"
+11syn v3.0.9 (*)
+10syn feature "proc-macro"
+11syn v3.0.9 (*)
+11proc-macro2 feature "proc-macro" (*)
+11quote feature "proc-macro" (*)
+9syn feature "full"
+10syn v3.0.9 (*)
+6tokio feature "bytes"
+7tokio v1.53.1 (*)
+5tokio feature "net"
+6tokio v1.53.1 (*)
+6windows-sys feature "Win32_Foundation" (*)
+6windows-sys feature "Win32_Security" (*)
+6windows-sys feature "Win32_Storage_FileSystem" (*)
+6windows-sys feature "Win32_System_Pipes" (*)
+6windows-sys feature "Win32_System_SystemServices"
+7windows-sys v0.61.2 (*)
+7windows-sys feature "Win32_System" (*)
+6tokio feature "libc"
+7tokio v1.53.1 (*)
+6tokio feature "mio"
+7tokio v1.53.1 (*)
+6tokio feature "socket2"
+7tokio v1.53.1 (*)
+6tokio feature "windows-sys"
+7tokio v1.53.1 (*)
+6mio feature "net"
+7mio v1.2.3 (*)
+6mio feature "os-ext" (*)
+6mio feature "os-poll" (*)
+5tokio feature "sync"
+6tokio v1.53.1 (*)
+5tokio feature "time"
+6tokio v1.53.1 (*)
+5tokio feature "io-util" (*)
+5tokio feature "net" (*)
+5tokio feature "rt"
+6tokio v1.53.1 (*)
+5tokio feature "sync" (*)
+5tokio feature "test-util"
+6tokio v1.53.1 (*)
+6tokio feature "rt" (*)
+6tokio feature "sync" (*)
+6tokio feature "time" (*)
+5tokio feature "time" (*)
+3tokio feature "io-util" (*)
+3tokio feature "rt" (*)
+3tokio feature "sync" (*)
+3tokio feature "time" (*)
+3zeroize v1.9.0
+3proptest feature "std" (*)
+3tokio feature "io-util" (*)
+3tokio feature "rt" (*)
+3tokio feature "rt-multi-thread"
+4tokio v1.53.1 (*)
+4tokio feature "rt" (*)
+3tokio feature "sync" (*)
+3tokio feature "test-util" (*)
+3tokio feature "time" (*)
+1monolith-identity feature "default" (command-line) (*)
+1monolith-protocol feature "default" (command-line) (*)
+1monolith-session feature "default" (command-line) (*)
+1monolith-storage feature "default" (command-line) (*)
+1monolith-tor feature "default" (command-line) (*)
+1tokio feature "io-util" (*)
+1tokio feature "rt" (*)
+1tokio feature "sync" (*)
+1tokio feature "time" (*)
+
+0monolith-core v0.0.0 (<repo>/crates/monolith-core) (*)
+
+0monolith-desktop v0.0.0 (<repo>/crates/monolith-desktop)
+1egui v0.32.3
+2emath v0.32.3
+3bytemuck feature "default"
+4bytemuck v1.25.2
+5bytemuck_derive feature "default"
+6bytemuck_derive v1.12.1 (proc-macro)
+7proc-macro2 feature "default" (*)
+7quote feature "default" (*)
+7syn feature "default" (*)
+3bytemuck feature "derive"
+4bytemuck v1.25.2 (*)
+4bytemuck feature "bytemuck_derive"
+5bytemuck v1.25.2 (*)
+2epaint v0.32.3
+3ecolor v0.32.3
+4emath v0.32.3 (*)
+4bytemuck feature "default" (*)
+4bytemuck feature "derive" (*)
+3emath v0.32.3 (*)
+3profiling v1.0.18
+3ahash feature "no-rng"
+4ahash v0.8.12
+5getrandom feature "default" (*)
+5cfg-if feature "default" (*)
+5zerocopy feature "simd" (*)
+5once_cell feature "alloc"
+6once_cell v1.21.4
+6once_cell feature "race"
+7once_cell v1.21.4
+5version_check feature "default"
+6version_check v0.9.5
+3ahash feature "std"
+4ahash v0.8.12 (*)
+3bytemuck feature "default" (*)
+3bytemuck feature "derive" (*)
+3ab_glyph feature "default"
+4ab_glyph v0.2.32
+5ab_glyph_rasterizer v0.1.10
+5owned_ttf_parser v0.25.1
+6ttf-parser v0.25.1
+4ab_glyph feature "gvar-alloc"
+5ab_glyph v0.2.32 (*)
+5owned_ttf_parser feature "gvar-alloc"
+6owned_ttf_parser v0.25.1 (*)
+6owned_ttf_parser feature "std"
+7owned_ttf_parser v0.25.1 (*)
+7ttf-parser feature "std"
+8ttf-parser v0.25.1
+6ttf-parser feature "gvar-alloc"
+7ttf-parser v0.25.1
+7ttf-parser feature "std" (*)
+4ab_glyph feature "std"
+5ab_glyph v0.2.32 (*)
+5ab_glyph_rasterizer feature "default"
+6ab_glyph_rasterizer v0.1.10
+6ab_glyph_rasterizer feature "std"
+7ab_glyph_rasterizer v0.1.10
+5owned_ttf_parser feature "default"
+6owned_ttf_parser v0.25.1 (*)
+6owned_ttf_parser feature "apple-layout"
+7owned_ttf_parser v0.25.1 (*)
+7ttf-parser feature "apple-layout"
+8ttf-parser v0.25.1
+6owned_ttf_parser feature "glyph-names"
+7owned_ttf_parser v0.25.1 (*)
+7ttf-parser feature "glyph-names"
+8ttf-parser v0.25.1
+6owned_ttf_parser feature "opentype-layout"
+7owned_ttf_parser v0.25.1 (*)
+7ttf-parser feature "opentype-layout"
+8ttf-parser v0.25.1
+6owned_ttf_parser feature "std" (*)
+6owned_ttf_parser feature "variable-fonts"
+7owned_ttf_parser v0.25.1 (*)
+7ttf-parser feature "variable-fonts"
+8ttf-parser v0.25.1
+4ab_glyph feature "variable-fonts"
+5ab_glyph v0.2.32 (*)
+5owned_ttf_parser feature "variable-fonts" (*)
+3log feature "default"
+4log v0.4.34
+3log feature "std"
+4log v0.4.34
+4log feature "alloc"
+5log v0.4.34
+3nohash-hasher feature "default"
+4nohash-hasher v0.2.0
+4nohash-hasher feature "std"
+5nohash-hasher v0.2.0
+3parking_lot feature "default"
+4parking_lot v0.12.5
+5lock_api feature "default"
+6lock_api v0.4.14
+7scopeguard v1.2.0
+6lock_api feature "atomic_usize"
+7lock_api v0.4.14 (*)
+5parking_lot_core feature "default"
+6parking_lot_core v0.9.12
+7cfg-if feature "default" (*)
+7libc feature "default" (*)
+7windows-link feature "default"
+8windows-link v0.2.1
+7redox_syscall feature "default"
+8redox_syscall v0.5.18
+9bitflags feature "default" (*)
+8redox_syscall feature "userspace"
+9redox_syscall v0.5.18 (*)
+7smallvec feature "default"
+8smallvec v1.16.3
+2profiling v1.0.18
+2bitflags feature "default" (*)
+2ahash feature "no-rng" (*)
+2ahash feature "std" (*)
+2accesskit feature "default"
+3accesskit v0.19.0
+2log feature "default" (*)
+2log feature "std" (*)
+2nohash-hasher feature "default" (*)
+2smallvec feature "default" (*)
+2unicode-segmentation feature "default"
+3unicode-segmentation v1.13.3
+1zeroize feature "alloc" (*)
+1rustix feature "fs" (*)
+1rustix feature "process" (*)
+1rustix feature "std" (*)
+1tokio feature "macros"
+2tokio v1.53.1 (*)
+2tokio feature "tokio-macros"
+3tokio v1.53.1 (*)
+1tokio feature "rt" (*)
+1tokio feature "sync" (*)
+1tokio feature "time" (*)
+1eframe feature "accesskit"
+2eframe v0.32.3
+3egui_glow v0.32.3
+4profiling v1.0.18
+4ahash feature "no-rng" (*)
+4ahash feature "std" (*)
+4bytemuck feature "default" (*)
+4egui feature "bytemuck"
+5egui v0.32.3 (*)
+5epaint feature "bytemuck"
+6epaint v0.32.3 (*)
+6emath feature "bytemuck"
+7emath v0.32.3 (*)
+6ecolor feature "bytemuck"
+7ecolor v0.32.3 (*)
+4log feature "default" (*)
+4log feature "std" (*)
+4memoffset feature "default"
+5memoffset v0.9.1
+6autocfg feature "default" (*)
+4wasm-bindgen feature "default"
+5wasm-bindgen v0.2.129
+6once_cell v1.21.4
+6cfg-if feature "default" (*)
+6wasm-bindgen-macro feature "default"
+7wasm-bindgen-macro v0.2.129 (proc-macro)
+8quote feature "default" (*)
+8wasm-bindgen-macro-support feature "default"
+9wasm-bindgen-macro-support v0.2.129
+10proc-macro2 feature "default" (*)
+10quote feature "default" (*)
+10syn feature "default" (*)
+10syn feature "extra-traits"
+11syn v3.0.9 (*)
+10syn feature "full" (*)
+10syn feature "visit"
+11syn v3.0.9 (*)
+10syn feature "visit-mut"
+11syn v3.0.9 (*)
+10bumpalo feature "default"
+11bumpalo v3.20.3
+10wasm-bindgen-shared feature "default"
+11wasm-bindgen-shared v0.2.129
+12unicode-ident feature "default" (*)
+6wasm-bindgen-shared feature "default" (*)
+6rustversion feature "default"
+7rustversion v1.0.23 (proc-macro)
+5wasm-bindgen feature "std"
+6wasm-bindgen v0.2.129 (*)
+4web-sys feature "console"
+5web-sys v0.3.106
+6js-sys v0.3.106
+7futures-util v0.3.34
+8futures-core v0.3.34
+8futures-macro v0.3.34 (proc-macro)
+9proc-macro2 feature "default" (*)
+9quote feature "default" (*)
+9syn feature "default" (*)
+9syn feature "full" (*)
+8futures-task v0.3.34
+8slab v0.4.12
+8pin-project-lite feature "default" (*)
+7wasm-bindgen v0.2.129 (*)
+7cfg-if feature "default" (*)
+6wasm-bindgen v0.2.129 (*)
+4web-sys feature "default"
+5web-sys v0.3.106 (*)
+5web-sys feature "std"
+6web-sys v0.3.106 (*)
+6js-sys feature "std"
+7js-sys v0.3.106 (*)
+7futures-util feature "std"
+8futures-util v0.3.34 (*)
+8futures-core feature "std"
+9futures-core v0.3.34
+9futures-core feature "alloc"
+10futures-core v0.3.34
+8slab feature "std"
+9slab v0.4.12
+8futures-util feature "alloc"
+9futures-util v0.3.34 (*)
+9futures-core feature "alloc" (*)
+9futures-util feature "slab"
+10futures-util v0.3.34 (*)
+9futures-task feature "alloc"
+10futures-task v0.3.34
+8futures-util feature "slab" (*)
+8futures-task feature "std"
+9futures-task v0.3.34
+9futures-task feature "alloc" (*)
+7js-sys feature "futures-util"
+8js-sys v0.3.106 (*)
+7wasm-bindgen feature "std" (*)
+6wasm-bindgen feature "std" (*)
+4glow feature "default"
+5glow v0.16.0
+6js-sys feature "default"
+7js-sys v0.3.106 (*)
+7js-sys feature "std" (*)
+7js-sys feature "unsafe-eval"
+8js-sys v0.3.106 (*)
+6wasm-bindgen feature "default" (*)
+6web-sys feature "AngleInstancedArrays"
+7web-sys v0.3.106 (*)
+6web-sys feature "Document"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget"
+8web-sys v0.3.106 (*)
+7web-sys feature "Node"
+8web-sys v0.3.106 (*)
+8web-sys feature "EventTarget" (*)
+6web-sys feature "Element"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+7web-sys feature "Node" (*)
+6web-sys feature "ExtBlendMinmax"
+7web-sys v0.3.106 (*)
+6web-sys feature "ExtColorBufferFloat"
+7web-sys v0.3.106 (*)
+6web-sys feature "ExtColorBufferHalfFloat"
+7web-sys v0.3.106 (*)
+6web-sys feature "ExtDisjointTimerQuery"
+7web-sys v0.3.106 (*)
+6web-sys feature "ExtFragDepth"
+7web-sys v0.3.106 (*)
+6web-sys feature "ExtSRgb"
+7web-sys v0.3.106 (*)
+6web-sys feature "ExtShaderTextureLod"
+7web-sys v0.3.106 (*)
+6web-sys feature "ExtTextureFilterAnisotropic"
+7web-sys v0.3.106 (*)
+6web-sys feature "HtmlCanvasElement"
+7web-sys v0.3.106 (*)
+7web-sys feature "Element" (*)
+7web-sys feature "EventTarget" (*)
+7web-sys feature "HtmlElement"
+8web-sys v0.3.106 (*)
+8web-sys feature "Element" (*)
+8web-sys feature "EventTarget" (*)
+8web-sys feature "Node" (*)
+7web-sys feature "Node" (*)
+6web-sys feature "HtmlImageElement"
+7web-sys v0.3.106 (*)
+7web-sys feature "Element" (*)
+7web-sys feature "EventTarget" (*)
+7web-sys feature "HtmlElement" (*)
+7web-sys feature "Node" (*)
+6web-sys feature "HtmlVideoElement"
+7web-sys v0.3.106 (*)
+7web-sys feature "Element" (*)
+7web-sys feature "EventTarget" (*)
+7web-sys feature "HtmlElement" (*)
+7web-sys feature "HtmlMediaElement"
+8web-sys v0.3.106 (*)
+8web-sys feature "Element" (*)
+8web-sys feature "EventTarget" (*)
+8web-sys feature "HtmlElement" (*)
+8web-sys feature "Node" (*)
+7web-sys feature "Node" (*)
+6web-sys feature "ImageBitmap"
+7web-sys v0.3.106 (*)
+6web-sys feature "ImageData"
+7web-sys v0.3.106 (*)
+6web-sys feature "OesElementIndexUint"
+7web-sys v0.3.106 (*)
+6web-sys feature "OesStandardDerivatives"
+7web-sys v0.3.106 (*)
+6web-sys feature "OesTextureFloat"
+7web-sys v0.3.106 (*)
+6web-sys feature "OesTextureFloatLinear"
+7web-sys v0.3.106 (*)
+6web-sys feature "OesTextureHalfFloat"
+7web-sys v0.3.106 (*)
+6web-sys feature "OesTextureHalfFloatLinear"
+7web-sys v0.3.106 (*)
+6web-sys feature "OesVertexArrayObject"
+7web-sys v0.3.106 (*)
+6web-sys feature "OvrMultiview2"
+7web-sys v0.3.106 (*)
+6web-sys feature "VideoFrame"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGl2RenderingContext"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlActiveInfo"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlBuffer"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlFramebuffer"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlProgram"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlQuery"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlRenderbuffer"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlRenderingContext"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlSampler"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlShader"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlShaderPrecisionFormat"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlSync"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlTexture"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlTransformFeedback"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlUniformLocation"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebGlVertexArrayObject"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglColorBufferFloat"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglCompressedTextureAstc"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglCompressedTextureEtc"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglCompressedTextureEtc1"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglCompressedTexturePvrtc"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglCompressedTextureS3tc"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglCompressedTextureS3tcSrgb"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglDebugRendererInfo"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglDebugShaders"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglDepthTexture"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglDrawBuffers"
+7web-sys v0.3.106 (*)
+6web-sys feature "WebglLoseContext"
+7web-sys v0.3.106 (*)
+6web-sys feature "Window"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "default" (*)
+6slotmap feature "default"
+7slotmap v1.1.1
+8version_check feature "default" (*)
+7slotmap feature "std"
+8slotmap v1.1.1 (*)
+3profiling v1.0.18
+3ahash feature "no-rng" (*)
+3ahash feature "std" (*)
+3bytemuck feature "default" (*)
+3document-features feature "default"
+4document-features v0.2.12 (proc-macro)
+5litrs feature "default"
+6litrs v1.0.1
+3egui feature "bytemuck" (*)
+3egui feature "log"
+4egui v0.32.3 (*)
+4epaint feature "log"
+5epaint v0.32.3 (*)
+3log feature "default" (*)
+3log feature "std" (*)
+3parking_lot feature "default" (*)
+3egui-winit feature "clipboard"
+4egui-winit v0.32.3
+5profiling v1.0.18
+5winit v0.30.13
+6bytemuck v1.25.2 (*)
+6concurrent-queue v2.5.0
+7crossbeam-utils v0.8.23
+6ndk v0.9.0
+7bitflags feature "default" (*)
+7log feature "default" (*)
+7thiserror feature "default"
+8thiserror v1.0.69
+9thiserror-impl feature "default"
+10thiserror-impl v1.0.69 (proc-macro)
+11proc-macro2 feature "default" (*)
+11quote feature "default" (*)
+11syn feature "default" (*)
+7raw-window-handle feature "default"
+8raw-window-handle v0.6.2
+7jni-sys feature "default"
+8jni-sys v0.3.1
+9jni-sys feature "default"
+10jni-sys v0.4.1
+11jni-sys-macros feature "default"
+12jni-sys-macros v0.4.1 (proc-macro)
+13quote feature "default" (*)
+13syn feature "default" (*)
+13syn feature "full" (*)
+7ndk-sys feature "default"
+8ndk-sys v0.6.0+11769913
+9jni-sys feature "default" (*)
+7num_enum feature "default"
+8num_enum v0.7.6
+9num_enum_derive v0.7.6 (proc-macro)
+10proc-macro2 feature "default" (*)
+10quote feature "default" (*)
+10syn feature "default" (*)
+10syn feature "derive" (*)
+10syn feature "extra-traits"
+11syn v2.0.119 (*)
+10syn feature "parsing" (*)
+10proc-macro-crate feature "default"
+11proc-macro-crate v3.5.0
+12toml_edit feature "parse"
+13toml_edit v0.25.17+spec-1.1.0
+14indexmap feature "default"
+15indexmap v2.14.2
+16equivalent v1.0.3
+16hashbrown v0.17.1
+15indexmap feature "std"
+16indexmap v2.14.2 (*)
+14indexmap feature "std" (*)
+14toml_datetime feature "default"
+15toml_datetime v1.1.2+spec-1.1.0
+15toml_datetime feature "std"
+16toml_datetime v1.1.2+spec-1.1.0
+16toml_datetime feature "alloc"
+17toml_datetime v1.1.2+spec-1.1.0
+14toml_parser feature "default"
+15toml_parser v1.1.5+spec-1.1.0
+16winnow v1.0.4
+15toml_parser feature "std"
+16toml_parser v1.1.5+spec-1.1.0 (*)
+16toml_parser feature "alloc"
+17toml_parser v1.1.5+spec-1.1.0 (*)
+14winnow feature "default"
+15winnow v1.0.4
+15winnow feature "ascii"
+16winnow v1.0.4
+16winnow feature "parser"
+17winnow v1.0.4
+15winnow feature "binary"
+16winnow v1.0.4
+16winnow feature "parser" (*)
+15winnow feature "std"
+16winnow v1.0.4
+16winnow feature "alloc"
+17winnow v1.0.4
+9rustversion feature "default" (*)
+8num_enum feature "std"
+9num_enum v0.7.6 (*)
+9num_enum_derive feature "std"
+10num_enum_derive v0.7.6 (proc-macro) (*)
+10num_enum_derive feature "proc-macro-crate"
+11num_enum_derive v0.7.6 (proc-macro) (*)
+6orbclient v0.3.55
+7libc feature "default" (*)
+7libredox feature "default"
+8libredox v0.1.25
+9libc feature "default" (*)
+9bitflags feature "default" (*)
+9plain feature "default"
+10plain v0.2.3
+9redox_syscall feature "default"
+10redox_syscall v0.9.4
+11bitflags feature "default" (*)
+10redox_syscall feature "userspace"
+11redox_syscall v0.9.4 (*)
+8libredox feature "base"
+9libredox v0.1.25 (*)
+9libredox feature "libc"
+10libredox v0.1.25 (*)
+8libredox feature "call"
+9libredox v0.1.25 (*)
+9libredox feature "base" (*)
+8libredox feature "numa"
+9libredox v0.1.25 (*)
+9libredox feature "redox_syscall"
+10libredox v0.1.25 (*)
+8libredox feature "protocol"
+9libredox v0.1.25 (*)
+9libredox feature "bitflags"
+10libredox v0.1.25 (*)
+9libredox feature "plain"
+10libredox v0.1.25 (*)
+9libredox feature "redox_syscall" (*)
+8libredox feature "redox_syscall" (*)
+8libredox feature "std"
+9libredox v0.1.25 (*)
+9libredox feature "base" (*)
+6tracing v0.1.44
+7tracing-core v0.1.36
+8once_cell feature "default"
+9once_cell v1.21.4
+9once_cell feature "std"
+10once_cell v1.21.4
+10once_cell feature "alloc" (*)
+7pin-project-lite feature "default" (*)
+7log feature "default" (*)
+7tracing-attributes feature "default"
+8tracing-attributes v0.1.31 (proc-macro)
+9proc-macro2 feature "default" (*)
+9quote feature "default" (*)
+9syn feature "clone-impls" (*)
+9syn feature "extra-traits" (*)
+9syn feature "full" (*)
+9syn feature "parsing" (*)
+9syn feature "printing" (*)
+9syn feature "proc-macro" (*)
+9syn feature "visit-mut"
+10syn v2.0.119 (*)
+6libc feature "default" (*)
+6bitflags feature "default" (*)
+6ahash feature "default"
+7ahash v0.8.12 (*)
+7ahash feature "runtime-rng"
+8ahash v0.8.12 (*)
+8ahash feature "getrandom"
+9ahash v0.8.12 (*)
+7ahash feature "std" (*)
+6ahash feature "no-rng" (*)
+6unicode-segmentation feature "default" (*)
+6objc2 feature "default"
+7objc2 v0.5.3
+8objc-sys v0.3.5
+8objc2-encode v4.1.0
+7objc2 feature "std"
+8objc2 v0.5.3 (*)
+8objc2 feature "alloc"
+9objc2 v0.5.3 (*)
+9objc-sys feature "alloc"
+10objc-sys v0.3.5
+9objc2-encode feature "alloc"
+10objc2-encode v4.1.0
+8objc-sys feature "std"
+9objc-sys v0.3.5
+9objc-sys feature "alloc" (*)
+8objc2-encode feature "std"
+9objc2-encode v4.1.0
+9objc2-encode feature "alloc" (*)
+6objc2 feature "relax-sign-encoding"
+7objc2 v0.5.3 (*)
+6objc2-app-kit feature "NSAppearance"
+7objc2-app-kit v0.2.2
+8bitflags v2.13.2
+8objc2 v0.5.3 (*)
+8objc2-foundation v0.2.2
+9bitflags v2.13.2
+9block2 v0.5.1
+10objc2 v0.5.3 (*)
+9objc2 v0.5.3 (*)
+9dispatch feature "default"
+10dispatch v0.2.0
+7objc2-foundation feature "NSArray"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags"
+9objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSBundle"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSCoder"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSObject"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSString"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+6objc2-app-kit feature "NSApplication"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags"
+8objc2-app-kit v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSData"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSDate"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSDictionary"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSError"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSException"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSNotification"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSObjCRuntime"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSUserActivity"
+8objc2-foundation v0.2.2 (*)
+6objc2-app-kit feature "NSBitmapImageRep"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSData" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSButton"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSAttributedString"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSColor"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSBundle" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSControl"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSAttributedString" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSFormatter"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSRange"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSCursor"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSObject" (*)
+6objc2-app-kit feature "NSDragging"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSObjCRuntime" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+6objc2-app-kit feature "NSEvent"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSSet"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSGraphics"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSGraphicsContext"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSImage"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSBundle" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSData" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSItemProvider"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSLocale"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+6objc2-app-kit feature "NSImageRep"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSData" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+6objc2-app-kit feature "NSMenu"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSZone"
+8objc2-foundation v0.2.2 (*)
+6objc2-app-kit feature "NSMenuItem"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSAttributedString" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSOpenGLView"
+7objc2-app-kit v0.2.2 (*)
+6objc2-app-kit feature "NSPasteboard"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSData" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSFileWrapper"
+8objc2-foundation v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+6objc2-app-kit feature "NSResponder"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSError" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSUndoManager"
+8objc2-foundation v0.2.2 (*)
+6objc2-app-kit feature "NSRunningApplication"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+6objc2-app-kit feature "NSScreen"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSTextInputClient"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSAttributedString" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSRange" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSTextInputContext"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSView"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSAttributedString" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSData" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObjCRuntime" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSRange" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "NSWindow"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "bitflags" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSData" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSError" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObjCRuntime" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+7objc2-foundation feature "NSUndoManager" (*)
+7objc2-foundation feature "NSValue"
+8objc2-foundation v0.2.2 (*)
+6objc2-app-kit feature "NSWindowScripting"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSScriptCommand"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSScriptStandardSuiteCommands"
+8objc2-foundation v0.2.2 (*)
+6objc2-app-kit feature "NSWindowTabGroup"
+7objc2-app-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-app-kit feature "default"
+7objc2-app-kit v0.2.2 (*)
+7objc2-app-kit feature "std"
+8objc2-app-kit v0.2.2 (*)
+8bitflags feature "std" (*)
+8objc2 feature "std" (*)
+8objc2-app-kit feature "alloc"
+9objc2-app-kit v0.2.2 (*)
+9objc2 feature "alloc" (*)
+9objc2-foundation feature "alloc"
+10objc2-foundation v0.2.2 (*)
+10objc2 feature "alloc" (*)
+10block2 feature "alloc"
+11block2 v0.5.1 (*)
+11objc2 feature "alloc" (*)
+8objc2-foundation feature "std"
+9objc2-foundation v0.2.2 (*)
+9bitflags feature "std" (*)
+9objc2 feature "std" (*)
+9objc2-foundation feature "alloc" (*)
+9block2 feature "std"
+10block2 v0.5.1 (*)
+10objc2 feature "std" (*)
+10block2 feature "alloc" (*)
+6objc2-foundation feature "NSArray" (*)
+6objc2-foundation feature "NSAttributedString" (*)
+6objc2-foundation feature "NSData" (*)
+6objc2-foundation feature "NSDictionary" (*)
+6objc2-foundation feature "NSDistributedNotificationCenter"
+7objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "bitflags" (*)
+6objc2-foundation feature "NSEnumerator"
+7objc2-foundation v0.2.2 (*)
+6objc2-foundation feature "NSGeometry" (*)
+6objc2-foundation feature "NSKeyValueObserving"
+7objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "bitflags" (*)
+6objc2-foundation feature "NSNotification" (*)
+6objc2-foundation feature "NSObjCRuntime" (*)
+6objc2-foundation feature "NSOperation"
+7objc2-foundation v0.2.2 (*)
+6objc2-foundation feature "NSPathUtilities"
+7objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "bitflags" (*)
+6objc2-foundation feature "NSProcessInfo"
+7objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "bitflags" (*)
+6objc2-foundation feature "NSRunLoop"
+7objc2-foundation v0.2.2 (*)
+6objc2-foundation feature "NSSet" (*)
+6objc2-foundation feature "NSString" (*)
+6objc2-foundation feature "NSThread"
+7objc2-foundation v0.2.2 (*)
+6objc2-foundation feature "NSValue" (*)
+6objc2-foundation feature "block2"
+7objc2-foundation v0.2.2 (*)
+6objc2-foundation feature "default"
+7objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "std" (*)
+6objc2-foundation feature "dispatch"
+7objc2-foundation v0.2.2 (*)
+6block2 feature "default"
+7block2 v0.5.1 (*)
+7block2 feature "std" (*)
+6atomic-waker feature "default"
+7atomic-waker v1.1.2
+6raw-window-handle feature "default" (*)
+6raw-window-handle feature "std"
+7raw-window-handle v0.6.2
+7raw-window-handle feature "alloc"
+8raw-window-handle v0.6.2
+6android-activity feature "default"
+7android-activity v0.6.1
+8ndk v0.9.0 (*)
+8libc feature "default" (*)
+8bitflags feature "default" (*)
+8log feature "default" (*)
+8android-properties feature "default"
+9android-properties v0.2.2
+8jni feature "default"
+9jni v0.22.4
+10cfg-if feature "default" (*)
+10windows-link feature "default" (*)
+10log feature "default" (*)
+10combine feature "default"
+11combine v4.6.8
+12memchr v2.8.3
+12bytes feature "default" (*)
+11combine feature "std"
+12combine v4.6.8 (*)
+12memchr feature "std"
+13memchr v2.8.3
+13memchr feature "alloc"
+14memchr v2.8.3
+12combine feature "alloc"
+13combine v4.6.8 (*)
+12combine feature "bytes"
+13combine v4.6.8 (*)
+10jni-macros feature "default"
+11jni-macros v0.22.4 (proc-macro)
+12proc-macro2 feature "default" (*)
+12quote feature "default" (*)
+12syn feature "default" (*)
+12syn feature "full" (*)
+12simd_cesu8 feature "default"
+13simd_cesu8 v1.2.0
+14simdutf8 v0.1.5
+14rustc_version feature "default" (*)
+13simd_cesu8 feature "std"
+14simd_cesu8 v1.2.0 (*)
+14simdutf8 feature "std"
+15simdutf8 v0.1.5
+12rustc_version feature "default" (*)
+10simd_cesu8 feature "default" (*)
+10jni-sys feature "default" (*)
+10thiserror feature "default"
+11thiserror v2.0.21
+12thiserror-impl feature "default"
+13thiserror-impl v2.0.21 (proc-macro)
+14proc-macro2 feature "default" (*)
+14quote feature "default" (*)
+14syn feature "default" (*)
+11thiserror feature "std"
+12thiserror v2.0.21 (*)
+10walkdir feature "default"
+11walkdir v2.5.0
+12same-file feature "default"
+13same-file v1.0.6
+14winapi-util feature "default"
+15winapi-util v0.1.11
+16windows-sys feature "Win32_Foundation"
+17windows-sys v0.61.2
+18windows-link v0.2.1
+17windows-sys feature "Win32"
+18windows-sys v0.61.2 (*)
+18windows-sys feature "Win32_Foundation" (*)
+16windows-sys feature "Win32_Storage_FileSystem"
+17windows-sys v0.61.2 (*)
+17windows-sys feature "Win32_Storage"
+18windows-sys v0.61.2 (*)
+18windows-sys feature "Win32" (*)
+16windows-sys feature "Win32_System_Console"
+17windows-sys v0.61.2 (*)
+17windows-sys feature "Win32_System"
+18windows-sys v0.61.2 (*)
+18windows-sys feature "Win32" (*)
+16windows-sys feature "Win32_System_SystemInformation"
+17windows-sys v0.61.2 (*)
+17windows-sys feature "Win32_System" (*)
+16windows-sys feature "default"
+17windows-sys v0.61.2 (*)
+12winapi-util feature "default" (*)
+8thiserror feature "default" (*)
+8ndk-sys feature "default" (*)
+8num_enum feature "default" (*)
+8ndk-context feature "default"
+9ndk-context v0.1.1
+8cc feature "default"
+9cc v1.8.0
+10jobserver v0.1.34
+11getrandom feature "default" (*)
+11getrandom feature "std" (*)
+11libc feature "default"
+12libc v0.2.189
+12libc feature "std"
+13libc v0.2.189
+10libc v0.2.189
+10find-msvc-tools feature "default"
+11find-msvc-tools v0.1.14
+10shlex feature "default"
+11shlex v2.0.1
+11shlex feature "std"
+12shlex v2.0.1
+8cc feature "parallel"
+9cc v1.8.0 (*)
+6calloop feature "default"
+7calloop v0.13.0
+8bitflags feature "default" (*)
+8log feature "default" (*)
+8slab feature "default"
+9slab v0.4.12
+9slab feature "std" (*)
+8polling feature "default"
+9polling v3.11.0
+10cfg-if feature "default" (*)
+10rustix feature "event"
+11rustix v1.1.5 (*)
+10rustix feature "fs" (*)
+10rustix feature "pipe"
+11rustix v1.1.5 (*)
+10rustix feature "process" (*)
+10rustix feature "std" (*)
+10rustix feature "time"
+11rustix v1.1.5 (*)
+10windows-sys feature "Wdk_Foundation" (*)
+10windows-sys feature "Wdk_Storage_FileSystem" (*)
+10windows-sys feature "Win32_Foundation" (*)
+10windows-sys feature "Win32_Networking_WinSock" (*)
+10windows-sys feature "Win32_Security" (*)
+10windows-sys feature "Win32_Storage_FileSystem" (*)
+10windows-sys feature "Win32_System_IO" (*)
+10windows-sys feature "Win32_System_LibraryLoader"
+11windows-sys v0.61.2 (*)
+11windows-sys feature "Win32_System" (*)
+10windows-sys feature "Win32_System_Threading" (*)
+10windows-sys feature "Win32_System_WindowsProgramming" (*)
+10windows-sys feature "default" (*)
+10pin-project-lite feature "default" (*)
+10concurrent-queue feature "default"
+11concurrent-queue v2.5.0 (*)
+11concurrent-queue feature "std"
+12concurrent-queue v2.5.0 (*)
+10hermit-abi feature "default"
+11hermit-abi v0.5.3
+8thiserror feature "default" (*)
+8rustix feature "event"
+9rustix v0.38.44
+10bitflags v2.13.2
+10errno v0.3.14 (*)
+10libc v0.2.189
+10linux-raw-sys feature "elf"
+11linux-raw-sys v0.4.15
+10linux-raw-sys feature "errno"
+11linux-raw-sys v0.4.15
+10linux-raw-sys feature "general"
+11linux-raw-sys v0.4.15
+10linux-raw-sys feature "ioctl"
+11linux-raw-sys v0.4.15
+10linux-raw-sys feature "no_std"
+11linux-raw-sys v0.4.15
+10windows-sys feature "Win32_Foundation"
+11windows-sys v0.59.0
+12windows-targets feature "default"
+13windows-targets v0.52.6
+14windows_aarch64_gnullvm feature "default"
+15windows_aarch64_gnullvm v0.52.6
+14windows_aarch64_msvc feature "default"
+15windows_aarch64_msvc v0.52.6
+14windows_i686_gnu feature "default"
+15windows_i686_gnu v0.52.6
+14windows_i686_gnullvm feature "default"
+15windows_i686_gnullvm v0.52.6
+14windows_i686_msvc feature "default"
+15windows_i686_msvc v0.52.6
+14windows_x86_64_gnu feature "default"
+15windows_x86_64_gnu v0.52.6
+14windows_x86_64_gnullvm feature "default"
+15windows_x86_64_gnullvm v0.52.6
+14windows_x86_64_msvc feature "default"
+15windows_x86_64_msvc v0.52.6
+11windows-sys feature "Win32"
+12windows-sys v0.59.0 (*)
+12windows-sys feature "Win32_Foundation" (*)
+10windows-sys feature "Win32_NetworkManagement_IpHelper"
+11windows-sys v0.59.0 (*)
+11windows-sys feature "Win32_NetworkManagement"
+12windows-sys v0.59.0 (*)
+12windows-sys feature "Win32" (*)
+10windows-sys feature "Win32_Networking_WinSock"
+11windows-sys v0.59.0 (*)
+11windows-sys feature "Win32_Networking"
+12windows-sys v0.59.0 (*)
+12windows-sys feature "Win32" (*)
+10windows-sys feature "Win32_System_Threading"
+11windows-sys v0.59.0 (*)
+11windows-sys feature "Win32_System"
+12windows-sys v0.59.0 (*)
+12windows-sys feature "Win32" (*)
+10windows-sys feature "default"
+11windows-sys v0.59.0 (*)
+8rustix feature "fs"
+9rustix v0.38.44 (*)
+8rustix feature "pipe"
+9rustix v0.38.44 (*)
+8rustix feature "std"
+9rustix v0.38.44 (*)
+9libc feature "std" (*)
+9bitflags feature "std" (*)
+9errno feature "std" (*)
+9rustix feature "alloc"
+10rustix v0.38.44 (*)
+9rustix feature "libc-extra-traits"
+10rustix v0.38.44 (*)
+10libc feature "extra_traits"
+11libc v0.2.189
+6rustix feature "process"
+7rustix v0.38.44 (*)
+7linux-raw-sys feature "prctl"
+8linux-raw-sys v0.4.15
+6rustix feature "std" (*)
+6rustix feature "system"
+7rustix v0.38.44 (*)
+7linux-raw-sys feature "system"
+8linux-raw-sys v0.4.15
+6rustix feature "thread"
+7rustix v0.38.44 (*)
+7linux-raw-sys feature "prctl" (*)
+6core-foundation feature "default"
+7core-foundation v0.9.4
+8core-foundation-sys v0.8.7
+8libc feature "default" (*)
+7core-foundation feature "link"
+8core-foundation v0.9.4 (*)
+8core-foundation-sys feature "link"
+9core-foundation-sys v0.8.7
+6core-graphics feature "default"
+7core-graphics v0.23.2
+8core-foundation v0.9.4 (*)
+8core-graphics-types v0.1.3
+9core-foundation v0.9.4 (*)
+9libc feature "default" (*)
+9bitflags feature "default"
+10bitflags v1.3.2
+8libc feature "default" (*)
+8bitflags feature "default" (*)
+8foreign-types feature "default"
+9foreign-types v0.5.0
+10foreign-types-macros feature "default"
+11foreign-types-macros v0.2.4 (proc-macro)
+12proc-macro2 feature "default" (*)
+12quote feature "default" (*)
+12syn feature "default" (*)
+12syn feature "full" (*)
+10foreign-types-shared feature "default"
+11foreign-types-shared v0.3.1
+9foreign-types feature "std"
+10foreign-types v0.5.0 (*)
+10foreign-types-macros feature "std"
+11foreign-types-macros v0.2.4 (proc-macro) (*)
+7core-graphics feature "link"
+8core-graphics v0.23.2 (*)
+8core-foundation feature "link" (*)
+8core-graphics-types feature "link"
+9core-graphics-types v0.1.3 (*)
+9core-foundation feature "link" (*)
+6cursor-icon feature "default"
+7cursor-icon v1.2.0
+7cursor-icon feature "std"
+8cursor-icon v1.2.0
+8cursor-icon feature "alloc"
+9cursor-icon v1.2.0
+6dpi feature "default"
+7dpi v0.1.2
+7dpi feature "std"
+8dpi v0.1.2
+6js-sys feature "default" (*)
+6wasm-bindgen feature "default" (*)
+6memmap2 feature "default"
+7memmap2 v0.9.11
+8libc feature "default" (*)
+6objc2-ui-kit feature "UIApplication"
+7objc2-ui-kit v0.2.2
+8bitflags v2.13.2
+8objc2 v0.5.3 (*)
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSData" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSError" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObjCRuntime" (*)
+7objc2-foundation feature "NSSet" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+7objc2-foundation feature "NSUserActivity" (*)
+7objc2-ui-kit feature "bitflags"
+8objc2-ui-kit v0.2.2 (*)
+8objc2-foundation feature "bitflags" (*)
+6objc2-ui-kit feature "UIDevice"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSUUID"
+8objc2-foundation v0.2.2 (*)
+6objc2-ui-kit feature "UIEvent"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSSet" (*)
+7objc2-ui-kit feature "bitflags" (*)
+6objc2-ui-kit feature "UIGeometry"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSValue" (*)
+7objc2-ui-kit feature "bitflags" (*)
+6objc2-ui-kit feature "UIGestureRecognizer"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSValue" (*)
+6objc2-ui-kit feature "UIOrientation"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-ui-kit feature "bitflags" (*)
+6objc2-ui-kit feature "UIPanGestureRecognizer"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-ui-kit feature "bitflags" (*)
+6objc2-ui-kit feature "UIPinchGestureRecognizer"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+6objc2-ui-kit feature "UIResponder"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSAttributedString" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSSet" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSUndoManager" (*)
+7objc2-foundation feature "NSUserActivity" (*)
+6objc2-ui-kit feature "UIRotationGestureRecognizer"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+6objc2-ui-kit feature "UIScreen"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-ui-kit feature "UIScreenMode"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSGeometry" (*)
+6objc2-ui-kit feature "UITapGestureRecognizer"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSCoder" (*)
+6objc2-ui-kit feature "UITextInput"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSAttributedString" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObjCRuntime" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSRange" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-ui-kit feature "UITextInputTraits"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-ui-kit feature "UITouch"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSValue" (*)
+7objc2-ui-kit feature "bitflags" (*)
+6objc2-ui-kit feature "UITraitCollection"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-ui-kit feature "UIView"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-ui-kit feature "bitflags" (*)
+6objc2-ui-kit feature "UIViewController"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSBundle" (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSDate" (*)
+7objc2-foundation feature "NSExtensionContext"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSExtensionRequestHandling"
+8objc2-foundation v0.2.2 (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObjCRuntime" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-ui-kit feature "UIWindow"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-foundation feature "NSCoder" (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSNotification" (*)
+7objc2-foundation feature "NSObject" (*)
+7objc2-foundation feature "NSString" (*)
+6objc2-ui-kit feature "default"
+7objc2-ui-kit v0.2.2 (*)
+7objc2-ui-kit feature "std"
+8objc2-ui-kit v0.2.2 (*)
+8bitflags feature "std" (*)
+8objc2 feature "std" (*)
+8objc2-foundation feature "std" (*)
+8objc2-ui-kit feature "alloc"
+9objc2-ui-kit v0.2.2 (*)
+9objc2 feature "alloc" (*)
+9objc2-foundation feature "alloc" (*)
+6percent-encoding feature "default"
+7percent-encoding v2.3.2
+7percent-encoding feature "std"
+8percent-encoding v2.3.2
+8percent-encoding feature "alloc"
+9percent-encoding v2.3.2
+6pin-project feature "default"
+7pin-project v1.1.13
+8pin-project-internal feature "default"
+9pin-project-internal v1.1.13 (proc-macro)
+10proc-macro2 feature "default" (*)
+10quote feature "default" (*)
+10syn feature "clone-impls" (*)
+10syn feature "full" (*)
+10syn feature "parsing" (*)
+10syn feature "printing" (*)
+10syn feature "proc-macro" (*)
+10syn feature "visit-mut" (*)
+6redox_syscall feature "default"
+7redox_syscall v0.4.1
+8bitflags feature "default" (*)
+6smithay-client-toolkit feature "calloop"
+7smithay-client-toolkit v0.19.2
+8libc feature "default" (*)
+8bitflags feature "default" (*)
+8log feature "default" (*)
+8thiserror feature "default" (*)
+8calloop feature "default" (*)
+8rustix feature "default"
+9rustix v0.38.44 (*)
+9rustix feature "std" (*)
+9rustix feature "use-libc-auxv"
+10rustix v0.38.44 (*)
+8rustix feature "fs" (*)
+8rustix feature "pipe" (*)
+8rustix feature "shm"
+9rustix v0.38.44 (*)
+9rustix feature "fs" (*)
+8cursor-icon feature "default" (*)
+8memmap2 feature "default" (*)
+8calloop-wayland-source feature "default"
+9calloop-wayland-source v0.3.0
+10calloop feature "default" (*)
+10rustix feature "std" (*)
+10wayland-backend feature "default"
+11wayland-backend v0.3.17
+12rustix feature "default"
+13rustix v1.1.5 (*)
+13rustix feature "std" (*)
+12rustix feature "event" (*)
+12rustix feature "fs" (*)
+12rustix feature "net"
+13rustix v1.1.5 (*)
+13linux-raw-sys feature "if_ether"
+14linux-raw-sys v0.12.1
+13linux-raw-sys feature "net"
+14linux-raw-sys v0.12.1
+13linux-raw-sys feature "netlink"
+14linux-raw-sys v0.12.1
+13linux-raw-sys feature "xdp"
+14linux-raw-sys v0.12.1
+12rustix feature "process" (*)
+12smallvec feature "const_generics"
+13smallvec v1.16.3
+12smallvec feature "const_new"
+13smallvec v1.16.3
+13smallvec feature "const_generics" (*)
+12smallvec feature "default" (*)
+12smallvec feature "union"
+13smallvec v1.16.3
+12downcast-rs feature "default"
+13downcast-rs v1.2.1
+13downcast-rs feature "std"
+14downcast-rs v1.2.1
+12scoped-tls feature "default"
+13scoped-tls v1.0.1
+12wayland-sys feature "default"
+13wayland-sys v0.31.11
+14once_cell feature "default" (*)
+14log feature "default" (*)
+14dlib feature "default"
+15dlib v0.5.3
+16libloading feature "default"
+17libloading v0.8.9
+18cfg-if feature "default" (*)
+18windows-link feature "default" (*)
+14pkg-config feature "default"
+15pkg-config v0.3.34
+12cc feature "default" (*)
+10wayland-client feature "default"
+11wayland-client v0.31.15
+12bitflags feature "default" (*)
+12rustix feature "default" (*)
+12rustix feature "event" (*)
+12wayland-backend feature "default" (*)
+12wayland-scanner feature "default"
+13wayland-scanner v0.31.11 (proc-macro)
+14proc-macro2 feature "default" (*)
+14quote feature "default" (*)
+14quick-xml feature "default"
+15quick-xml v0.41.0
+16memchr feature "default"
+17memchr v2.8.3
+17memchr feature "std" (*)
+8wayland-backend feature "default" (*)
+8wayland-client feature "default" (*)
+8wayland-scanner feature "default" (*)
+8wayland-csd-frame feature "default"
+9wayland-csd-frame v0.3.0
+10wayland-backend v0.3.17 (*)
+10bitflags feature "default" (*)
+10cursor-icon feature "default" (*)
+8wayland-cursor feature "default"
+9wayland-cursor v0.31.14
+10rustix feature "default" (*)
+10rustix feature "shm"
+11rustix v1.1.5 (*)
+11rustix feature "fs" (*)
+10wayland-client feature "default" (*)
+10xcursor feature "default"
+11xcursor v0.3.11
+8wayland-protocols feature "client"
+9wayland-protocols v0.32.12
+10bitflags feature "default" (*)
+10wayland-backend feature "default" (*)
+10wayland-client feature "default" (*)
+10wayland-scanner feature "default" (*)
+9wayland-protocols feature "wayland-client"
+10wayland-protocols v0.32.12 (*)
+8wayland-protocols feature "default"
+9wayland-protocols v0.32.12 (*)
+8wayland-protocols feature "staging"
+9wayland-protocols v0.32.12 (*)
+8wayland-protocols feature "unstable"
+9wayland-protocols v0.32.12 (*)
+8wayland-protocols-wlr feature "client"
+9wayland-protocols-wlr v0.3.12
+10bitflags feature "default" (*)
+10wayland-backend feature "default" (*)
+10wayland-client feature "default" (*)
+10wayland-scanner feature "default" (*)
+10wayland-protocols feature "default" (*)
+9wayland-protocols feature "client" (*)
+9wayland-protocols-wlr feature "wayland-client"
+10wayland-protocols-wlr v0.3.12 (*)
+8wayland-protocols-wlr feature "default"
+9wayland-protocols-wlr v0.3.12 (*)
+8xkeysym feature "default"
+9xkeysym v0.2.1
+7smithay-client-toolkit feature "calloop-wayland-source"
+8smithay-client-toolkit v0.19.2 (*)
+6wayland-backend feature "client_system"
+7wayland-backend v0.3.17 (*)
+7wayland-sys feature "client"
+8wayland-sys v0.31.11 (*)
+6wayland-client feature "default" (*)
+6wayland-protocols feature "default" (*)
+6wayland-protocols feature "staging" (*)
+6smol_str feature "default"
+7smol_str v0.2.2
+7smol_str feature "std"
+8smol_str v0.2.2
+6wasm-bindgen-futures feature "default"
+7wasm-bindgen-futures v0.4.79
+8js-sys v0.3.106 (*)
+8wasm-bindgen v0.2.129 (*)
+8tokio feature "rt" (*)
+8tokio feature "time" (*)
+7wasm-bindgen-futures feature "std"
+8wasm-bindgen-futures v0.4.79 (*)
+8js-sys feature "std" (*)
+8wasm-bindgen feature "std" (*)
+6wayland-protocols-plasma feature "client"
+7wayland-protocols-plasma v0.3.12
+8bitflags feature "default" (*)
+8wayland-backend feature "default" (*)
+8wayland-client feature "default" (*)
+8wayland-scanner feature "default" (*)
+8wayland-protocols feature "default" (*)
+7wayland-protocols feature "client" (*)
+7wayland-protocols-plasma feature "wayland-client"
+8wayland-protocols-plasma v0.3.12 (*)
+6wayland-protocols-plasma feature "default"
+7wayland-protocols-plasma v0.3.12 (*)
+6web-sys feature "AbortController"
+7web-sys v0.3.106 (*)
+6web-sys feature "AbortSignal"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "Blob"
+7web-sys v0.3.106 (*)
+6web-sys feature "BlobPropertyBag"
+7web-sys v0.3.106 (*)
+6web-sys feature "CssStyleDeclaration"
+7web-sys v0.3.106 (*)
+6web-sys feature "Document" (*)
+6web-sys feature "DomException"
+7web-sys v0.3.106 (*)
+6web-sys feature "DomRect"
+7web-sys v0.3.106 (*)
+7web-sys feature "DomRectReadOnly"
+8web-sys v0.3.106 (*)
+6web-sys feature "DomRectReadOnly" (*)
+6web-sys feature "Element" (*)
+6web-sys feature "Event"
+7web-sys v0.3.106 (*)
+6web-sys feature "EventTarget" (*)
+6web-sys feature "FocusEvent"
+7web-sys v0.3.106 (*)
+7web-sys feature "Event" (*)
+7web-sys feature "UiEvent"
+8web-sys v0.3.106 (*)
+8web-sys feature "Event" (*)
+6web-sys feature "HtmlCanvasElement" (*)
+6web-sys feature "HtmlElement" (*)
+6web-sys feature "HtmlImageElement" (*)
+6web-sys feature "ImageBitmap" (*)
+6web-sys feature "ImageBitmapOptions"
+7web-sys v0.3.106 (*)
+6web-sys feature "ImageBitmapRenderingContext"
+7web-sys v0.3.106 (*)
+6web-sys feature "ImageData" (*)
+6web-sys feature "IntersectionObserver"
+7web-sys v0.3.106 (*)
+6web-sys feature "IntersectionObserverEntry"
+7web-sys v0.3.106 (*)
+6web-sys feature "KeyboardEvent"
+7web-sys v0.3.106 (*)
+7web-sys feature "Event" (*)
+7web-sys feature "UiEvent" (*)
+6web-sys feature "MediaQueryList"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "MessageChannel"
+7web-sys v0.3.106 (*)
+6web-sys feature "MessagePort"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "Navigator"
+7web-sys v0.3.106 (*)
+6web-sys feature "Node" (*)
+6web-sys feature "OrientationLockType"
+7web-sys v0.3.106 (*)
+6web-sys feature "OrientationType"
+7web-sys v0.3.106 (*)
+6web-sys feature "PageTransitionEvent"
+7web-sys v0.3.106 (*)
+7web-sys feature "Event" (*)
+6web-sys feature "PermissionState"
+7web-sys v0.3.106 (*)
+6web-sys feature "PermissionStatus"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "Permissions"
+7web-sys v0.3.106 (*)
+6web-sys feature "PointerEvent"
+7web-sys v0.3.106 (*)
+7web-sys feature "Event" (*)
+7web-sys feature "MouseEvent"
+8web-sys v0.3.106 (*)
+8web-sys feature "Event" (*)
+8web-sys feature "UiEvent" (*)
+7web-sys feature "UiEvent" (*)
+6web-sys feature "PremultiplyAlpha"
+7web-sys v0.3.106 (*)
+6web-sys feature "ResizeObserver"
+7web-sys v0.3.106 (*)
+6web-sys feature "ResizeObserverBoxOptions"
+7web-sys v0.3.106 (*)
+6web-sys feature "ResizeObserverEntry"
+7web-sys v0.3.106 (*)
+6web-sys feature "ResizeObserverOptions"
+7web-sys v0.3.106 (*)
+6web-sys feature "ResizeObserverSize"
+7web-sys v0.3.106 (*)
+6web-sys feature "Screen"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "ScreenOrientation"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "Url"
+7web-sys v0.3.106 (*)
+6web-sys feature "VisibilityState"
+7web-sys v0.3.106 (*)
+6web-sys feature "WheelEvent"
+7web-sys v0.3.106 (*)
+7web-sys feature "Event" (*)
+7web-sys feature "MouseEvent" (*)
+7web-sys feature "UiEvent" (*)
+6web-sys feature "Window" (*)
+6web-sys feature "Worker"
+7web-sys v0.3.106 (*)
+7web-sys feature "EventTarget" (*)
+6web-sys feature "console" (*)
+6web-sys feature "default" (*)
+6web-time feature "default"
+7web-time v1.1.0
+8wasm-bindgen v0.2.129 (*)
+8js-sys feature "default" (*)
+6windows-sys feature "Win32_Devices_HumanInterfaceDevice"
+7windows-sys v0.52.0
+8windows-targets feature "default" (*)
+7windows-sys feature "Win32_Devices"
+8windows-sys v0.52.0 (*)
+8windows-sys feature "Win32"
+9windows-sys v0.52.0 (*)
+6windows-sys feature "Win32_Foundation"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32" (*)
+6windows-sys feature "Win32_Globalization"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32" (*)
+6windows-sys feature "Win32_Graphics_Dwm"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_Graphics"
+8windows-sys v0.52.0 (*)
+8windows-sys feature "Win32" (*)
+6windows-sys feature "Win32_Graphics_Gdi"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_Graphics" (*)
+6windows-sys feature "Win32_Media"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32" (*)
+6windows-sys feature "Win32_Security"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32" (*)
+6windows-sys feature "Win32_System_Com"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System"
+8windows-sys v0.52.0 (*)
+8windows-sys feature "Win32" (*)
+6windows-sys feature "Win32_System_Com_StructuredStorage"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System_Com" (*)
+6windows-sys feature "Win32_System_LibraryLoader"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System" (*)
+6windows-sys feature "Win32_System_Ole"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System" (*)
+6windows-sys feature "Win32_System_SystemInformation"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System" (*)
+6windows-sys feature "Win32_System_SystemServices"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System" (*)
+6windows-sys feature "Win32_System_Threading"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System" (*)
+6windows-sys feature "Win32_System_WindowsProgramming"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_System" (*)
+6windows-sys feature "Win32_UI_Accessibility"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI"
+8windows-sys v0.52.0 (*)
+8windows-sys feature "Win32" (*)
+6windows-sys feature "Win32_UI_Controls"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI" (*)
+6windows-sys feature "Win32_UI_HiDpi"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI" (*)
+6windows-sys feature "Win32_UI_Input_Ime"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI_Input"
+8windows-sys v0.52.0 (*)
+8windows-sys feature "Win32_UI" (*)
+6windows-sys feature "Win32_UI_Input_KeyboardAndMouse"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI_Input" (*)
+6windows-sys feature "Win32_UI_Input_Pointer"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI_Input" (*)
+6windows-sys feature "Win32_UI_Input_Touch"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI_Input" (*)
+6windows-sys feature "Win32_UI_Shell"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI" (*)
+6windows-sys feature "Win32_UI_TextServices"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI" (*)
+6windows-sys feature "Win32_UI_WindowsAndMessaging"
+7windows-sys v0.52.0 (*)
+7windows-sys feature "Win32_UI" (*)
+6windows-sys feature "default"
+7windows-sys v0.52.0 (*)
+6x11-dl feature "default"
+7x11-dl v2.21.0
+8libc feature "default" (*)
+8once_cell feature "default" (*)
+8pkg-config feature "default" (*)
+6x11rb feature "allow-unsafe-code"
+7x11rb v0.13.2
+8libc feature "default" (*)
+8rustix feature "event" (*)
+8rustix feature "fs" (*)
+8rustix feature "net" (*)
+8rustix feature "std" (*)
+8rustix feature "system"
+9rustix v1.1.5 (*)
+9linux-raw-sys feature "system"
+10linux-raw-sys v0.12.1
+8once_cell feature "default" (*)
+8libloading feature "default" (*)
+8as-raw-xcb-connection feature "default"
+9as-raw-xcb-connection v1.0.1
+9as-raw-xcb-connection feature "alloc"
+10as-raw-xcb-connection v1.0.1
+8gethostname feature "default"
+9gethostname v1.1.0
+10rustix feature "system" (*)
+10windows-link feature "default" (*)
+8x11rb-protocol feature "std"
+9x11rb-protocol v0.13.2
+7x11rb feature "as-raw-xcb-connection"
+8x11rb v0.13.2 (*)
+7x11rb feature "libc"
+8x11rb v0.13.2 (*)
+6x11rb feature "dl-libxcb"
+7x11rb v0.13.2 (*)
+7x11rb feature "allow-unsafe-code" (*)
+7x11rb feature "libloading"
+8x11rb v0.13.2 (*)
+7x11rb feature "once_cell"
+8x11rb v0.13.2 (*)
+6x11rb feature "randr"
+7x11rb v0.13.2 (*)
+7x11rb feature "render"
+8x11rb v0.13.2 (*)
+8x11rb-protocol feature "render"
+9x11rb-protocol v0.13.2
+7x11rb-protocol feature "randr"
+8x11rb-protocol v0.13.2
+8x11rb-protocol feature "render" (*)
+6x11rb feature "resource_manager"
+7x11rb v0.13.2 (*)
+7x11rb-protocol feature "resource_manager"
+8x11rb-protocol v0.13.2
+8x11rb-protocol feature "std" (*)
+6x11rb feature "xinput"
+7x11rb v0.13.2 (*)
+7x11rb feature "xfixes"
+8x11rb v0.13.2 (*)
+8x11rb feature "render" (*)
+8x11rb feature "shape"
+9x11rb v0.13.2 (*)
+9x11rb-protocol feature "shape"
+10x11rb-protocol v0.13.2
+8x11rb-protocol feature "xfixes"
+9x11rb-protocol v0.13.2
+9x11rb-protocol feature "render" (*)
+9x11rb-protocol feature "shape" (*)
+7x11rb-protocol feature "xinput"
+8x11rb-protocol v0.13.2
+8x11rb-protocol feature "xfixes" (*)
+6x11rb feature "xkb"
+7x11rb v0.13.2 (*)
+7x11rb-protocol feature "xkb"
+8x11rb-protocol v0.13.2
+6xkbcommon-dl feature "default"
+7xkbcommon-dl v0.4.2
+8bitflags feature "default" (*)
+8once_cell feature "default" (*)
+8log feature "default" (*)
+8dlib feature "default" (*)
+8xkeysym feature "default" (*)
+6cfg_aliases feature "default"
+7cfg_aliases v0.2.2
+5ahash feature "no-rng" (*)
+5ahash feature "std" (*)
+5bytemuck feature "default" (*)
+5egui feature "log" (*)
+5log feature "default" (*)
+5log feature "std" (*)
+5accesskit_winit feature "default"
+6accesskit_winit v0.27.0
+7accesskit_unix v0.15.0
+8accesskit feature "default" (*)
+8accesskit_atspi_common feature "default"
+9accesskit_atspi_common v0.12.0
+10atspi-common v0.9.0
+11zbus v5.13.2
+12libc v0.2.189
+12rustix feature "net" (*)
+12rustix feature "process" (*)
+12rustix feature "std" (*)
+12windows-sys feature "Win32_Foundation" (*)
+12windows-sys feature "Win32_NetworkManagement"
+13windows-sys v0.61.2 (*)
+13windows-sys feature "Win32" (*)
+12windows-sys feature "Win32_NetworkManagement_IpHelper"
+13windows-sys v0.61.2 (*)
+13windows-sys feature "Win32_NetworkManagement" (*)
+12windows-sys feature "Win32_Networking" (*)
+12windows-sys feature "Win32_Networking_WinSock" (*)
+12windows-sys feature "Win32_Security_Authorization"
+13windows-sys v0.61.2 (*)
+13windows-sys feature "Win32_Security" (*)
+12windows-sys feature "Win32_System_IO" (*)
+12windows-sys feature "Win32_System_Memory"
+13windows-sys v0.61.2 (*)
+13windows-sys feature "Win32_System" (*)
+12windows-sys feature "Win32_System_Threading" (*)
+12windows-sys feature "Win32_System_WindowsProgramming" (*)
+12windows-sys feature "default" (*)
+12enumflags2 feature "default"
+13enumflags2 v0.7.12
+14serde v1.0.229
+15serde_core feature "result"
+16serde_core v1.0.229
+17serde_derive feature "default"
+18serde_derive v1.0.229 (proc-macro)
+19proc-macro2 feature "proc-macro" (*)
+19quote feature "proc-macro" (*)
+19syn feature "clone-impls" (*)
+19syn feature "derive" (*)
+19syn feature "parsing" (*)
+19syn feature "printing" (*)
+19syn feature "proc-macro" (*)
+15serde_derive feature "default" (*)
+14enumflags2_derive feature "default"
+15enumflags2_derive v0.7.12 (proc-macro)
+16proc-macro2 feature "default" (*)
+16quote feature "default" (*)
+16syn feature "derive" (*)
+16syn feature "parsing" (*)
+16syn feature "printing" (*)
+16syn feature "proc-macro" (*)
+12enumflags2 feature "serde"
+13enumflags2 v0.7.12 (*)
+12serde feature "default"
+13serde v1.0.229 (*)
+13serde feature "std"
+14serde v1.0.229 (*)
+14serde_core feature "std"
+15serde_core v1.0.229 (*)
+12serde feature "derive"
+13serde v1.0.229 (*)
+13serde feature "serde_derive"
+14serde v1.0.229 (*)
+12async-broadcast feature "default"
+13async-broadcast v0.7.2
+14pin-project-lite feature "default" (*)
+14event-listener feature "default"
+15event-listener v5.4.2
+16pin-project-lite feature "default" (*)
+16parking feature "default"
+17parking v2.2.1
+15event-listener feature "std"
+16event-listener v5.4.2 (*)
+16event-listener feature "parking"
+17event-listener v5.4.2 (*)
+14event-listener-strategy feature "default"
+15event-listener-strategy v0.5.4
+16event-listener v5.4.2 (*)
+16pin-project-lite feature "default" (*)
+15event-listener-strategy feature "std"
+16event-listener-strategy v0.5.4 (*)
+16event-listener feature "std" (*)
+14futures-core feature "default"
+15futures-core v0.3.34
+15futures-core feature "std" (*)
+12event-listener feature "default" (*)
+12futures-core feature "default" (*)
+12async-executor feature "default"
+13async-executor v1.14.0
+14futures-lite v2.6.1
+15fastrand v2.5.0
+15futures-core v0.3.34
+15pin-project-lite feature "default" (*)
+15parking feature "default" (*)
+15futures-io feature "default"
+16futures-io v0.3.34
+16futures-io feature "std"
+17futures-io v0.3.34
+14pin-project-lite feature "default" (*)
+14async-task feature "default"
+15async-task v4.7.1
+15async-task feature "std"
+16async-task v4.7.1
+14concurrent-queue feature "default" (*)
+14fastrand feature "default"
+15fastrand v2.5.0
+15fastrand feature "std"
+16fastrand v2.5.0
+16fastrand feature "alloc"
+17fastrand v2.5.0
+14futures-lite feature "std"
+15futures-lite v2.6.1 (*)
+15fastrand feature "std" (*)
+15futures-lite feature "alloc"
+16futures-lite v2.6.1 (*)
+15futures-lite feature "fastrand"
+16futures-lite v2.6.1 (*)
+15futures-lite feature "futures-io"
+16futures-lite v2.6.1 (*)
+15futures-lite feature "parking"
+16futures-lite v2.6.1 (*)
+14slab feature "default" (*)
+12async-task feature "default" (*)
+12futures-lite feature "std" (*)
+12async-io feature "default"
+13async-io v2.6.0
+14futures-lite v2.6.1 (*)
+14cfg-if feature "default" (*)
+14rustix feature "fs" (*)
+14rustix feature "net" (*)
+14rustix feature "std" (*)
+14windows-sys feature "Win32_Foundation" (*)
+14windows-sys feature "default" (*)
+14parking feature "default" (*)
+14concurrent-queue feature "default" (*)
+14futures-io feature "std" (*)
+14slab feature "default" (*)
+14polling feature "default" (*)
+14autocfg feature "default" (*)
+12async-lock feature "default"
+13async-lock v3.4.2
+14event-listener v5.4.2 (*)
+14event-listener-strategy v0.5.4 (*)
+14pin-project-lite feature "default" (*)
+13async-lock feature "std"
+14async-lock v3.4.2 (*)
+14event-listener feature "std" (*)
+14event-listener-strategy feature "std" (*)
+12async-process feature "default"
+13async-process v2.5.0
+14cfg-if feature "default" (*)
+14rustix feature "fs" (*)
+14rustix feature "process" (*)
+14rustix feature "std" (*)
+14event-listener feature "default" (*)
+14async-task feature "default" (*)
+14futures-lite feature "default"
+15futures-lite v2.6.1 (*)
+15futures-lite feature "race"
+16futures-lite v2.6.1 (*)
+16futures-lite feature "fastrand" (*)
+15futures-lite feature "std" (*)
+14async-io feature "default" (*)
+14async-lock feature "default" (*)
+14async-channel feature "default"
+15async-channel v2.5.0
+16concurrent-queue v2.5.0 (*)
+16event-listener-strategy v0.5.4 (*)
+16futures-core v0.3.34
+16pin-project-lite feature "default" (*)
+15async-channel feature "std"
+16async-channel v2.5.0 (*)
+16event-listener-strategy feature "std" (*)
+16concurrent-queue feature "std" (*)
+14async-signal feature "default"
+15async-signal v0.2.14
+16cfg-if feature "default" (*)
+16rustix feature "process" (*)
+16rustix feature "std" (*)
+16windows-sys feature "Win32_Foundation" (*)
+16windows-sys feature "Win32_System_Console"
+17windows-sys v0.61.2 (*)
+17windows-sys feature "Win32_System" (*)
+16futures-core feature "default" (*)
+16futures-io feature "default" (*)
+16slab feature "default" (*)
+16async-io feature "default" (*)
+16async-lock feature "default" (*)
+16atomic-waker feature "default" (*)
+16signal-hook-registry feature "default"
+17signal-hook-registry v1.4.8
+18libc feature "default" (*)
+18errno feature "default"
+19errno v0.3.14 (*)
+19errno feature "std" (*)
+14blocking feature "default"
+15blocking v1.7.0
+16futures-lite v2.6.1 (*)
+16async-task feature "default" (*)
+16futures-io feature "std" (*)
+16async-channel feature "default" (*)
+16piper feature "default"
+17piper v0.2.5
+18fastrand v2.5.0
+18futures-io feature "default" (*)
+18atomic-waker feature "default" (*)
+17piper feature "std"
+18piper v0.2.5 (*)
+18fastrand feature "std" (*)
+18piper feature "futures-io"
+19piper v0.2.5 (*)
+12blocking feature "default" (*)
+12async-recursion feature "default"
+13async-recursion v1.2.0 (proc-macro)
+14proc-macro2 v1.0.107 (*)
+14quote v1.0.47 (*)
+14syn feature "clone-impls" (*)
+14syn feature "full" (*)
+14syn feature "parsing" (*)
+14syn feature "printing" (*)
+14syn feature "proc-macro" (*)
+14syn feature "visit-mut" (*)
+12async-trait feature "default"
+13async-trait v0.1.92 (proc-macro)
+14proc-macro2 feature "default" (*)
+14quote feature "default" (*)
+14syn feature "clone-impls" (*)
+14syn feature "full" (*)
+14syn feature "parsing" (*)
+14syn feature "printing" (*)
+14syn feature "proc-macro" (*)
+14syn feature "visit-mut" (*)
+12hex feature "default"
+13hex v0.4.3
+13hex feature "std"
+14hex v0.4.3
+14hex feature "alloc"
+15hex v0.4.3
+12ordered-stream feature "default"
+13ordered-stream v0.2.0
+14pin-project-lite feature "default" (*)
+14futures-core feature "default" (*)
+12serde_repr feature "default"
+13serde_repr v0.1.21 (proc-macro)
+14proc-macro2 feature "default" (*)
+14quote feature "default" (*)
+14syn feature "default" (*)
+12tracing feature "default"
+13tracing v0.1.44 (*)
+13tracing feature "attributes"
+14tracing v0.1.44 (*)
+14tracing feature "tracing-attributes"
+15tracing v0.1.44 (*)
+13tracing feature "std"
+14tracing v0.1.44 (*)
+14tracing-core feature "std"
+15tracing-core v0.1.36 (*)
+15tracing-core feature "once_cell"
+16tracing-core v0.1.36 (*)
+12uds_windows feature "default"
+13uds_windows v1.2.1
+14windows-sys feature "Win32_Foundation" (*)
+14windows-sys feature "Win32_Networking_WinSock" (*)
+14windows-sys feature "Win32_System_IO" (*)
+14windows-sys feature "Win32_System_Threading" (*)
+14windows-sys feature "default" (*)
+14memoffset feature "default" (*)
+14tempfile feature "default"
+15tempfile v3.27.0
+16getrandom v0.3.4 (*)
+16rustix feature "default" (*)
+16rustix feature "fs" (*)
+16windows-sys feature "Win32_Foundation" (*)
+16windows-sys feature "Win32_Storage_FileSystem" (*)
+16windows-sys feature "default" (*)
+16once_cell feature "std" (*)
+16fastrand feature "default" (*)
+15tempfile feature "getrandom"
+16tempfile v3.27.0 (*)
+12uuid feature "default"
+13uuid v1.26.1
+14serde_core v1.0.229 (*)
+13uuid feature "std"
+14uuid v1.26.1 (*)
+12uuid feature "serde"
+13uuid v1.26.1 (*)
+12winnow feature "default"
+13winnow v0.7.15
+13winnow feature "std"
+14winnow v0.7.15
+14winnow feature "alloc"
+15winnow v0.7.15
+12zbus_macros feature "default"
+13zbus_macros v5.13.2 (proc-macro)
+14proc-macro2 feature "default" (*)
+14quote feature "default" (*)
+14syn feature "default" (*)
+14syn feature "extra-traits" (*)
+14syn feature "fold"
+15syn v2.0.119 (*)
+14syn feature "full" (*)
+14proc-macro-crate feature "default" (*)
+14zbus_names feature "default"
+15zbus_names v4.3.1
+16serde feature "default" (*)
+16serde feature "derive" (*)
+16winnow feature "default" (*)
+16zvariant feature "default"
+17zvariant v5.9.2
+18enumflags2 feature "default" (*)
+18enumflags2 feature "serde" (*)
+18serde feature "default" (*)
+18serde feature "derive" (*)
+18winnow feature "default" (*)
+18endi feature "default"
+19endi v1.1.1
+19endi feature "std"
+20endi v1.1.1
+18zvariant_derive feature "default"
+19zvariant_derive v5.9.2 (proc-macro)
+20proc-macro2 feature "default" (*)
+20quote feature "default" (*)
+20syn feature "default" (*)
+20syn feature "extra-traits" (*)
+20syn feature "full" (*)
+20proc-macro-crate feature "default" (*)
+20zvariant_utils feature "default"
+21zvariant_utils v3.3.0
+22proc-macro2 feature "default" (*)
+22quote feature "default" (*)
+22syn feature "default" (*)
+22syn feature "extra-traits" (*)
+22syn feature "full" (*)
+22serde feature "default" (*)
+22serde feature "derive" (*)
+22winnow feature "default" (*)
+18zvariant_utils feature "default" (*)
+16zvariant feature "enumflags2"
+17zvariant v5.9.2 (*)
+14zvariant feature "default" (*)
+14zvariant_utils feature "default" (*)
+12zbus_names feature "default" (*)
+12zvariant feature "default" (*)
+12zvariant feature "enumflags2" (*)
+11zvariant v5.9.2 (*)
+11enumflags2 feature "default" (*)
+11serde feature "default" (*)
+11static_assertions feature "default"
+12static_assertions v1.1.0
+11zbus_names feature "default" (*)
+11zbus-lockstep feature "default"
+12zbus-lockstep v0.5.2
+13zvariant feature "default" (*)
+13zbus_xml feature "default"
+14zbus_xml v5.1.0
+15serde feature "default" (*)
+15serde feature "derive" (*)
+15zbus_names feature "default" (*)
+15zvariant feature "default" (*)
+15quick-xml feature "default"
+16quick-xml v0.38.4
+17serde feature "default" (*)
+17memchr feature "default" (*)
+15quick-xml feature "overlapped-lists"
+16quick-xml v0.38.4 (*)
+15quick-xml feature "serialize"
+16quick-xml v0.38.4 (*)
+16quick-xml feature "serde"
+17quick-xml v0.38.4 (*)
+11zbus-lockstep-macros feature "default"
+12zbus-lockstep-macros v0.5.2 (proc-macro)
+13proc-macro2 feature "default" (*)
+13quote feature "default" (*)
+13syn feature "default" (*)
+13zvariant feature "default" (*)
+13zbus-lockstep feature "default" (*)
+13zbus_xml feature "default" (*)
+10zvariant v5.9.2 (*)
+10accesskit feature "default" (*)
+10accesskit_consumer feature "default"
+11accesskit_consumer v0.28.0
+12accesskit feature "default" (*)
+12hashbrown feature "default-hasher"
+13hashbrown v0.15.5
+14foldhash v0.1.5
+10serde feature "default" (*)
+10thiserror feature "default" (*)
+8serde feature "default" (*)
+8zbus feature "async-io"
+9zbus v5.13.2 (*)
+9zbus feature "async-executor"
+10zbus v5.13.2 (*)
+9zbus feature "async-fs"
+10zbus v5.13.2 (*)
+9zbus feature "async-lock"
+10zbus v5.13.2 (*)
+9zbus feature "async-process"
+10zbus v5.13.2 (*)
+9zbus feature "async-task"
+10zbus v5.13.2 (*)
+9zbus feature "blocking"
+10zbus v5.13.2 (*)
+8async-executor feature "default" (*)
+8async-task feature "default" (*)
+8futures-lite feature "default" (*)
+8async-channel feature "default" (*)
+8atspi feature "async-std"
+9atspi v0.25.0
+10atspi-common v0.9.0 (*)
+10atspi-connection v0.9.0
+11atspi-proxies v0.9.0
+12atspi-common v0.9.0 (*)
+12zbus v5.13.2 (*)
+12serde feature "derive" (*)
+11futures-lite v2.6.1 (*)
+11zbus v5.13.2 (*)
+11atspi-common feature "wrappers"
+12atspi-common v0.9.0 (*)
+10atspi-proxies v0.9.0 (*)
+9atspi feature "connection-async-std"
+10atspi v0.25.0 (*)
+10atspi feature "atspi-connection"
+11atspi v0.25.0 (*)
+10atspi feature "connection"
+11atspi v0.25.0 (*)
+10atspi-connection feature "async-std"
+11atspi-connection v0.9.0 (*)
+11atspi-common feature "async-std"
+12atspi-common v0.9.0 (*)
+12atspi-common feature "zbus"
+13atspi-common v0.9.0 (*)
+12zbus feature "async-io" (*)
+11zbus feature "async-io" (*)
+11atspi-proxies feature "async-std"
+12atspi-proxies v0.9.0 (*)
+12atspi-common feature "async-std" (*)
+12zbus feature "async-io" (*)
+9atspi feature "proxies-async-std"
+10atspi v0.25.0 (*)
+10atspi feature "atspi-proxies"
+11atspi v0.25.0 (*)
+10atspi feature "proxies"
+11atspi v0.25.0 (*)
+10atspi-proxies feature "async-std" (*)
+8futures-util feature "default"
+9futures-util v0.3.34 (*)
+9futures-util feature "async-await"
+10futures-util v0.3.34 (*)
+9futures-util feature "async-await-macro"
+10futures-util v0.3.34 (*)
+10futures-util feature "async-await" (*)
+10futures-util feature "futures-macro"
+11futures-util v0.3.34 (*)
+9futures-util feature "std" (*)
+7winit v0.30.13 (*)
+7accesskit feature "default" (*)
+7accesskit_macos feature "default"
+8accesskit_macos v0.20.0
+9accesskit feature "default" (*)
+9accesskit_consumer feature "default" (*)
+9hashbrown feature "default-hasher" (*)
+9objc2 feature "default" (*)
+9objc2-app-kit feature "NSAccessibility"
+10objc2-app-kit v0.2.2 (*)
+10objc2-foundation feature "NSArray" (*)
+10objc2-foundation feature "NSGeometry" (*)
+10objc2-foundation feature "NSNotification" (*)
+10objc2-foundation feature "NSString" (*)
+9objc2-app-kit feature "NSAccessibilityConstants"
+10objc2-app-kit v0.2.2 (*)
+10objc2-foundation feature "NSAttributedString" (*)
+10objc2-foundation feature "NSDictionary" (*)
+10objc2-foundation feature "NSObject" (*)
+10objc2-foundation feature "NSString" (*)
+9objc2-app-kit feature "NSAccessibilityElement"
+10objc2-app-kit v0.2.2 (*)
+10objc2-foundation feature "NSGeometry" (*)
+10objc2-foundation feature "NSString" (*)
+9objc2-app-kit feature "NSAccessibilityProtocols"
+10objc2-app-kit v0.2.2 (*)
+10objc2-foundation feature "NSArray" (*)
+10objc2-foundation feature "NSAttributedString" (*)
+10objc2-foundation feature "NSData" (*)
+10objc2-foundation feature "NSGeometry" (*)
+10objc2-foundation feature "NSObject" (*)
+10objc2-foundation feature "NSRange" (*)
+10objc2-foundation feature "NSString" (*)
+10objc2-foundation feature "NSURL" (*)
+10objc2-foundation feature "NSValue" (*)
+9objc2-app-kit feature "NSResponder" (*)
+9objc2-app-kit feature "NSView" (*)
+9objc2-app-kit feature "NSWindow" (*)
+9objc2-app-kit feature "default" (*)
+9objc2-foundation feature "NSArray" (*)
+9objc2-foundation feature "NSDictionary" (*)
+9objc2-foundation feature "NSThread" (*)
+9objc2-foundation feature "NSValue" (*)
+9objc2-foundation feature "default" (*)
+7accesskit_windows feature "default"
+8accesskit_windows v0.27.0
+9accesskit feature "default" (*)
+9accesskit_consumer feature "default" (*)
+9hashbrown feature "default-hasher" (*)
+9static_assertions feature "default" (*)
+9windows feature "Win32_Foundation"
+10windows v0.61.3
+11windows-collections v0.2.0
+12windows-core v0.61.2
+13windows-implement v0.60.2 (proc-macro)
+14proc-macro2 v1.0.107 (*)
+14quote v1.0.47 (*)
+14syn feature "clone-impls" (*)
+14syn feature "full" (*)
+14syn feature "parsing" (*)
+14syn feature "printing" (*)
+14syn feature "proc-macro" (*)
+13windows-interface v0.59.3 (proc-macro)
+14proc-macro2 v1.0.107 (*)
+14quote v1.0.47 (*)
+14syn feature "clone-impls" (*)
+14syn feature "full" (*)
+14syn feature "parsing" (*)
+14syn feature "printing" (*)
+14syn feature "proc-macro" (*)
+13windows-link v0.1.3
+13windows-result v0.3.4
+14windows-link v0.1.3
+13windows-strings v0.4.2
+14windows-link v0.1.3
+11windows-core v0.61.2 (*)
+11windows-future v0.2.1
+12windows-core v0.61.2 (*)
+12windows-link v0.1.3
+12windows-threading v0.1.0
+13windows-link v0.1.3
+11windows-link v0.1.3
+11windows-numerics v0.2.0
+12windows-core v0.61.2 (*)
+12windows-link v0.1.3
+10windows feature "Win32"
+11windows v0.61.3 (*)
+11windows feature "Win32_Foundation" (*)
+9windows feature "Win32_Graphics_Gdi"
+10windows v0.61.3 (*)
+10windows feature "Win32_Graphics"
+11windows v0.61.3 (*)
+11windows feature "Win32" (*)
+9windows feature "Win32_System_Com"
+10windows v0.61.3 (*)
+10windows feature "Win32_System"
+11windows v0.61.3 (*)
+11windows feature "Win32" (*)
+9windows feature "Win32_System_LibraryLoader"
+10windows v0.61.3 (*)
+10windows feature "Win32_System" (*)
+9windows feature "Win32_System_Ole"
+10windows v0.61.3 (*)
+10windows feature "Win32_System" (*)
+9windows feature "Win32_System_Variant"
+10windows v0.61.3 (*)
+10windows feature "Win32_System" (*)
+9windows feature "Win32_UI_Accessibility"
+10windows v0.61.3 (*)
+10windows feature "Win32_UI"
+11windows v0.61.3 (*)
+11windows feature "Win32" (*)
+9windows feature "Win32_UI_Input_KeyboardAndMouse"
+10windows v0.61.3 (*)
+10windows feature "Win32_UI_Input"
+11windows v0.61.3 (*)
+11windows feature "Win32_UI" (*)
+9windows feature "Win32_UI_WindowsAndMessaging"
+10windows v0.61.3 (*)
+10windows feature "Win32_UI" (*)
+9windows feature "default"
+10windows v0.61.3 (*)
+10windows feature "std"
+11windows v0.61.3 (*)
+11windows-core feature "std"
+12windows-core v0.61.2 (*)
+12windows-result feature "std"
+13windows-result v0.3.4 (*)
+12windows-strings feature "std"
+13windows-strings v0.4.2 (*)
+9windows-core feature "default"
+10windows-core v0.61.2 (*)
+10windows-core feature "std" (*)
+7raw-window-handle feature "default" (*)
+7raw-window-handle feature "std" (*)
+6accesskit_winit feature "accesskit_unix"
+7accesskit_winit v0.27.0 (*)
+6accesskit_winit feature "async-io"
+7accesskit_winit v0.27.0 (*)
+7accesskit_winit feature "accesskit_unix" (*)
+7accesskit_unix feature "async-io"
+8accesskit_unix v0.15.0 (*)
+6accesskit_winit feature "rwh_06"
+7accesskit_winit v0.27.0 (*)
+7winit feature "rwh_06"
+8winit v0.30.13 (*)
+8ndk feature "rwh_06"
+9ndk v0.9.0 (*)
+6winit feature "wayland"
+7winit v0.30.13 (*)
+7winit feature "ahash"
+8winit v0.30.13 (*)
+7winit feature "memmap2"
+8winit v0.30.13 (*)
+7winit feature "sctk"
+8winit v0.30.13 (*)
+7winit feature "wayland-backend"
+8winit v0.30.13 (*)
+7winit feature "wayland-client"
+8winit v0.30.13 (*)
+7winit feature "wayland-protocols"
+8winit v0.30.13 (*)
+7winit feature "wayland-protocols-plasma"
+8winit v0.30.13 (*)
+6winit feature "x11"
+7winit v0.30.13 (*)
+7winit feature "bytemuck"
+8winit v0.30.13 (*)
+7winit feature "percent-encoding"
+8winit v0.30.13 (*)
+7winit feature "x11-dl"
+8winit v0.30.13 (*)
+7winit feature "x11rb"
+8winit v0.30.13 (*)
+7xkbcommon-dl feature "x11"
+8xkbcommon-dl v0.4.2 (*)
+5raw-window-handle feature "default" (*)
+5web-time feature "default" (*)
+5arboard feature "image-data"
+6arboard v3.6.1
+7log feature "default" (*)
+7parking_lot feature "default" (*)
+7percent-encoding feature "default" (*)
+7x11rb feature "default"
+8x11rb v0.13.2 (*)
+7clipboard-win feature "default"
+8clipboard-win v5.4.1
+9error-code feature "default"
+10error-code v3.4.0
+7clipboard-win feature "std"
+8clipboard-win v5.4.1 (*)
+8error-code feature "std"
+9error-code v3.4.0
+7image feature "bmp"
+8image v0.25.9
+9num-traits feature "default"
+10num-traits v0.2.19 (*)
+10num-traits feature "std" (*)
+9bytemuck feature "default" (*)
+9bytemuck feature "extern_crate_alloc"
+10bytemuck v1.25.2 (*)
+9byteorder-lite feature "default"
+10byteorder-lite v0.1.0
+10byteorder-lite feature "std"
+11byteorder-lite v0.1.0
+9moxcms feature "default"
+10moxcms v0.7.11
+11num-traits feature "default" (*)
+11pxfm feature "default"
+12pxfm v0.1.30
+10moxcms feature "avx"
+11moxcms v0.7.11 (*)
+10moxcms feature "neon"
+11moxcms v0.7.11 (*)
+10moxcms feature "sse"
+11moxcms v0.7.11 (*)
+9png feature "default"
+10png v0.18.1
+11bitflags feature "default" (*)
+11crc32fast feature "default"
+12crc32fast v1.5.2
+13cfg-if feature "default" (*)
+12crc32fast feature "std"
+13crc32fast v1.5.2 (*)
+11fdeflate feature "default"
+12fdeflate v0.3.7
+13simd-adler32 feature "default"
+14simd-adler32 v0.3.10
+14simd-adler32 feature "const-generics"
+15simd-adler32 v0.3.10
+14simd-adler32 feature "std"
+15simd-adler32 v0.3.10
+11flate2 feature "default"
+12flate2 v1.1.10
+13crc32fast v1.5.2 (*)
+13miniz_oxide feature "default"
+14miniz_oxide v0.9.1
+15adler2 v2.0.1
+15simd-adler32 v0.3.10
+14miniz_oxide feature "with-alloc"
+15miniz_oxide v0.9.1 (*)
+13miniz_oxide feature "simd"
+14miniz_oxide v0.9.1 (*)
+14miniz_oxide feature "simd-adler32"
+15miniz_oxide v0.9.1 (*)
+12flate2 feature "runtime_detection"
+13flate2 v1.1.10 (*)
+13crc32fast feature "std" (*)
+12flate2 feature "rust_backend"
+13flate2 v1.1.10 (*)
+13flate2 feature "any_impl"
+14flate2 v1.1.10 (*)
+13flate2 feature "miniz_oxide"
+14flate2 v1.1.10 (*)
+14flate2 feature "any_impl" (*)
+11miniz_oxide feature "default"
+12miniz_oxide v0.8.9
+13adler2 v2.0.1
+13simd-adler32 v0.3.10
+12miniz_oxide feature "with-alloc"
+13miniz_oxide v0.8.9 (*)
+11miniz_oxide feature "simd"
+12miniz_oxide v0.8.9 (*)
+12miniz_oxide feature "simd-adler32"
+13miniz_oxide v0.8.9 (*)
+9tiff feature "default"
+10tiff v0.10.3
+11flate2 feature "default" (*)
+11fax feature "default"
+12fax v0.2.7
+11half feature "default"
+12half v2.7.1
+13cfg-if feature "default" (*)
+13zerocopy feature "derive"
+14zerocopy v0.8.59 (*)
+14zerocopy feature "zerocopy-derive"
+15zerocopy v0.8.59 (*)
+13zerocopy feature "simd" (*)
+13crunchy feature "default"
+14crunchy v0.2.4
+14crunchy feature "limit_128"
+15crunchy v0.2.4
+12half feature "std"
+13half v2.7.1 (*)
+13half feature "alloc"
+14half v2.7.1 (*)
+11quick-error feature "default"
+12quick-error v2.0.1
+11weezl feature "default"
+12weezl v0.1.12
+12weezl feature "std"
+13weezl v0.1.12
+13weezl feature "alloc"
+14weezl v0.1.12
+11zune-jpeg feature "default"
+12zune-jpeg v0.4.21
+13zune-core feature "default"
+14zune-core v0.4.12
+12zune-jpeg feature "neon"
+13zune-jpeg v0.4.21 (*)
+12zune-jpeg feature "std"
+13zune-jpeg v0.4.21 (*)
+13zune-core feature "std"
+14zune-core v0.4.12
+12zune-jpeg feature "x86"
+13zune-jpeg v0.4.21 (*)
+10tiff feature "deflate"
+11tiff v0.10.3 (*)
+10tiff feature "fax"
+11tiff v0.10.3 (*)
+10tiff feature "jpeg"
+11tiff v0.10.3 (*)
+10tiff feature "lzw"
+11tiff v0.10.3 (*)
+7image feature "png"
+8image v0.25.9 (*)
+7image feature "tiff"
+8image v0.25.9 (*)
+7objc2 feature "default"
+8objc2 v0.6.5
+9objc2-encode v4.1.0
+8objc2 feature "std"
+9objc2 v0.6.5 (*)
+9objc2-encode feature "std" (*)
+9objc2 feature "alloc"
+10objc2 v0.6.5 (*)
+10objc2-encode feature "alloc" (*)
+7objc2-app-kit feature "NSImage"
+8objc2-app-kit v0.3.2
+9bitflags feature "std" (*)
+9objc2 feature "std" (*)
+9objc2-core-foundation feature "CFCGTypes"
+10objc2-core-foundation v0.3.2
+11bitflags feature "std" (*)
+11objc2 feature "std" (*)
+9objc2-core-foundation feature "CFDate"
+10objc2-core-foundation v0.3.2 (*)
+10objc2-core-foundation feature "bitflags"
+11objc2-core-foundation v0.3.2 (*)
+9objc2-core-foundation feature "objc2"
+10objc2-core-foundation v0.3.2 (*)
+9objc2-core-graphics feature "CGColor"
+10objc2-core-graphics v0.3.2
+11objc2-core-foundation v0.3.2 (*)
+11bitflags feature "std" (*)
+11objc2 feature "std" (*)
+10objc2-core-foundation feature "CFCGTypes" (*)
+10objc2-core-foundation feature "CFDictionary"
+11objc2-core-foundation v0.3.2 (*)
+9objc2-core-graphics feature "CGColorSpace"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-foundation feature "CFCGTypes" (*)
+10objc2-core-foundation feature "CFData"
+11objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "bitflags" (*)
+9objc2-core-graphics feature "CGContext"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-foundation feature "CFCGTypes" (*)
+10objc2-core-foundation feature "CFDictionary" (*)
+9objc2-core-graphics feature "CGDirectDisplay"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-foundation feature "CFArray"
+11objc2-core-foundation v0.3.2 (*)
+10objc2-core-foundation feature "CFCGTypes" (*)
+10objc2-core-foundation feature "CFDictionary" (*)
+10objc2-core-graphics feature "bitflags"
+11objc2-core-graphics v0.3.2 (*)
+9objc2-core-graphics feature "CGEventTypes"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-graphics feature "bitflags" (*)
+9objc2-core-graphics feature "CGFont"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-foundation feature "CFArray" (*)
+10objc2-core-foundation feature "CFCGTypes" (*)
+10objc2-core-foundation feature "CFData" (*)
+10objc2-core-foundation feature "CFDictionary" (*)
+9objc2-core-graphics feature "CGImage"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-foundation feature "CFCGTypes" (*)
+10objc2-core-graphics feature "bitflags" (*)
+9objc2-core-graphics feature "CGPath"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-foundation feature "CFArray" (*)
+10objc2-core-foundation feature "CFCGTypes" (*)
+9objc2-core-graphics feature "objc2"
+10objc2-core-graphics v0.3.2 (*)
+10objc2-core-foundation feature "objc2" (*)
+9objc2-foundation feature "alloc"
+10objc2-foundation v0.3.2
+11bitflags feature "std" (*)
+11objc2 feature "std" (*)
+11objc2-core-foundation feature "CFArray" (*)
+11objc2-core-foundation feature "CFAttributedString"
+12objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "CFCGTypes" (*)
+11objc2-core-foundation feature "CFCalendar"
+12objc2-core-foundation v0.3.2 (*)
+12objc2-core-foundation feature "bitflags" (*)
+11objc2-core-foundation feature "CFCharacterSet"
+12objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "CFData" (*)
+11objc2-core-foundation feature "CFDate" (*)
+11objc2-core-foundation feature "CFDictionary" (*)
+11objc2-core-foundation feature "CFError"
+12objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "CFFileSecurity"
+12objc2-core-foundation v0.3.2 (*)
+12objc2-core-foundation feature "bitflags" (*)
+11objc2-core-foundation feature "CFLocale"
+12objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "CFMachPort"
+12objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "CFMessagePort"
+12objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "CFRunLoop"
+12objc2-core-foundation v0.3.2 (*)
+12objc2-core-foundation feature "bitflags" (*)
+11objc2-core-foundation feature "CFSet"
+12objc2-core-foundation v0.3.2 (*)
+11objc2-core-foundation feature "CFStream"
+12objc2-core-foundation v0.3.2 (*)
+12objc2-core-foundation feature "bitflags" (*)
+11objc2-core-foundation feature "CFURL"
+12objc2-core-foundation v0.3.2 (*)
+12objc2-core-foundation feature "bitflags" (*)
+11objc2-core-foundation feature "objc2" (*)
+8objc2-foundation feature "NSArray"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags"
+10objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSBundle"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSCoder"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSData"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "NSDictionary"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSGeometry"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "NSItemProvider"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "NSLocale"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSObject"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSString"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "NSURL"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "objc2-core-foundation"
+9objc2-foundation v0.3.2 (*)
+7objc2-app-kit feature "NSPasteboard"
+8objc2-app-kit v0.3.2 (*)
+8objc2-app-kit feature "bitflags"
+9objc2-app-kit v0.3.2 (*)
+8objc2-foundation feature "NSArray" (*)
+8objc2-foundation feature "NSData" (*)
+8objc2-foundation feature "NSDictionary" (*)
+8objc2-foundation feature "NSError"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSFileWrapper"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "NSSet"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSString" (*)
+8objc2-foundation feature "NSURL" (*)
+7objc2-app-kit feature "NSPasteboardItem"
+8objc2-app-kit v0.3.2 (*)
+8objc2-foundation feature "NSArray" (*)
+8objc2-foundation feature "NSData" (*)
+8objc2-foundation feature "NSDictionary" (*)
+8objc2-foundation feature "NSError" (*)
+8objc2-foundation feature "NSSet" (*)
+8objc2-foundation feature "NSString" (*)
+7objc2-app-kit feature "objc2-core-graphics"
+8objc2-app-kit v0.3.2 (*)
+7objc2-app-kit feature "std"
+8objc2-app-kit v0.3.2 (*)
+8objc2-app-kit feature "alloc"
+9objc2-app-kit v0.3.2 (*)
+7objc2-core-foundation feature "CFCGTypes" (*)
+7objc2-core-foundation feature "std"
+8objc2-core-foundation v0.3.2 (*)
+8objc2-core-foundation feature "alloc"
+9objc2-core-foundation v0.3.2 (*)
+7objc2-core-graphics feature "CGColorSpace" (*)
+7objc2-core-graphics feature "CGDataProvider"
+8objc2-core-graphics v0.3.2 (*)
+8objc2-core-foundation feature "CFData" (*)
+8objc2-core-foundation feature "CFURL" (*)
+7objc2-core-graphics feature "CGImage" (*)
+7objc2-core-graphics feature "std"
+8objc2-core-graphics v0.3.2 (*)
+8objc2-core-graphics feature "alloc"
+9objc2-core-graphics v0.3.2 (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSEnumerator"
+8objc2-foundation v0.3.2 (*)
+7objc2-foundation feature "NSGeometry" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSValue"
+8objc2-foundation v0.3.2 (*)
+7objc2-foundation feature "std"
+8objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "alloc" (*)
+7windows-sys feature "Win32_Foundation"
+8windows-sys v0.60.2
+9windows-targets v0.53.5
+10windows-link v0.2.1
+10windows_aarch64_gnullvm feature "default"
+11windows_aarch64_gnullvm v0.53.1
+10windows_aarch64_msvc feature "default"
+11windows_aarch64_msvc v0.53.1
+10windows_i686_gnu feature "default"
+11windows_i686_gnu v0.53.1
+10windows_i686_gnullvm feature "default"
+11windows_i686_gnullvm v0.53.1
+10windows_i686_msvc feature "default"
+11windows_i686_msvc v0.53.1
+10windows_x86_64_gnu feature "default"
+11windows_x86_64_gnu v0.53.1
+10windows_x86_64_gnullvm feature "default"
+11windows_x86_64_gnullvm v0.53.1
+10windows_x86_64_msvc feature "default"
+11windows_x86_64_msvc v0.53.1
+8windows-sys feature "Win32"
+9windows-sys v0.60.2 (*)
+9windows-sys feature "Win32_Foundation" (*)
+7windows-sys feature "Win32_Storage_FileSystem"
+8windows-sys v0.60.2 (*)
+8windows-sys feature "Win32_Storage"
+9windows-sys v0.60.2 (*)
+9windows-sys feature "Win32" (*)
+7windows-sys feature "Win32_System_DataExchange"
+8windows-sys v0.60.2 (*)
+8windows-sys feature "Win32_System"
+9windows-sys v0.60.2 (*)
+9windows-sys feature "Win32" (*)
+7windows-sys feature "Win32_System_Memory"
+8windows-sys v0.60.2 (*)
+8windows-sys feature "Win32_System" (*)
+7windows-sys feature "Win32_System_Ole"
+8windows-sys v0.60.2 (*)
+8windows-sys feature "Win32_System" (*)
+7windows-sys feature "Win32_UI_Shell"
+8windows-sys v0.60.2 (*)
+8windows-sys feature "Win32_UI"
+9windows-sys v0.60.2 (*)
+9windows-sys feature "Win32" (*)
+7windows-sys feature "default"
+8windows-sys v0.60.2 (*)
+6arboard feature "core-graphics"
+7arboard v3.6.1 (*)
+6arboard feature "image"
+7arboard v3.6.1 (*)
+6arboard feature "windows-sys"
+7arboard v3.6.1 (*)
+7windows-sys feature "Win32_Graphics_Gdi"
+8windows-sys v0.60.2 (*)
+8windows-sys feature "Win32_Graphics"
+9windows-sys v0.60.2 (*)
+9windows-sys feature "Win32" (*)
+5smithay-clipboard feature "default"
+6smithay-clipboard v0.7.3
+7libc feature "default" (*)
+7wayland-backend feature "client_system" (*)
+7smithay-client-toolkit feature "calloop"
+8smithay-client-toolkit v0.20.0
+9libc feature "default" (*)
+9bitflags feature "default" (*)
+9rustix feature "default" (*)
+9rustix feature "fs" (*)
+9rustix feature "pipe" (*)
+9rustix feature "shm" (*)
+9log feature "default" (*)
+9thiserror feature "default" (*)
+9cursor-icon feature "default" (*)
+9memmap2 feature "default" (*)
+9wayland-backend feature "default" (*)
+9wayland-client feature "default" (*)
+9wayland-scanner feature "default" (*)
+9wayland-csd-frame feature "default" (*)
+9wayland-cursor feature "default" (*)
+9wayland-protocols feature "client" (*)
+9wayland-protocols feature "default" (*)
+9wayland-protocols feature "staging" (*)
+9wayland-protocols feature "unstable" (*)
+9wayland-protocols-wlr feature "client" (*)
+9wayland-protocols-wlr feature "default" (*)
+9xkeysym feature "default" (*)
+9calloop feature "default"
+10calloop v0.14.4
+11bitflags feature "default" (*)
+11rustix feature "event" (*)
+11rustix feature "fs" (*)
+11rustix feature "pipe" (*)
+11rustix feature "std" (*)
+11slab feature "default" (*)
+11polling feature "default" (*)
+11tracing feature "log"
+12tracing v0.1.44 (*)
+9calloop-wayland-source feature "default"
+10calloop-wayland-source v0.4.1
+11rustix feature "std" (*)
+11wayland-backend feature "default" (*)
+11wayland-client feature "default" (*)
+11calloop feature "default" (*)
+9wayland-protocols-experimental feature "client"
+10wayland-protocols-experimental v20250721.0.1
+11bitflags feature "default" (*)
+11wayland-backend feature "default" (*)
+11wayland-client feature "default" (*)
+11wayland-scanner feature "default" (*)
+11wayland-protocols feature "default" (*)
+11wayland-protocols feature "unstable" (*)
+10wayland-protocols feature "client" (*)
+10wayland-protocols-experimental feature "wayland-client"
+11wayland-protocols-experimental v20250721.0.1 (*)
+9wayland-protocols-experimental feature "default"
+10wayland-protocols-experimental v20250721.0.1 (*)
+9wayland-protocols-misc feature "client"
+10wayland-protocols-misc v0.3.12
+11bitflags feature "default" (*)
+11wayland-backend feature "default" (*)
+11wayland-client feature "default" (*)
+11wayland-scanner feature "default" (*)
+11wayland-protocols feature "default" (*)
+11wayland-protocols feature "unstable" (*)
+10wayland-protocols feature "client" (*)
+10wayland-protocols-misc feature "wayland-client"
+11wayland-protocols-misc v0.3.12 (*)
+9wayland-protocols-misc feature "default"
+10wayland-protocols-misc v0.3.12 (*)
+8smithay-client-toolkit feature "calloop-wayland-source"
+9smithay-client-toolkit v0.20.0 (*)
+6smithay-clipboard feature "dlopen"
+7smithay-clipboard v0.7.3 (*)
+7wayland-backend feature "dlopen"
+8wayland-backend v0.3.17 (*)
+8wayland-sys feature "dlopen"
+9wayland-sys v0.31.11 (*)
+9wayland-sys feature "once_cell"
+10wayland-sys v0.31.11 (*)
+5webbrowser feature "default"
+6webbrowser v1.2.4
+7log v0.4.34
+7jni feature "default" (*)
+7ndk-context feature "default" (*)
+7web-sys feature "Window" (*)
+7web-sys feature "default" (*)
+7objc2 feature "default" (*)
+7objc2-app-kit feature "NSRunningApplication"
+8objc2-app-kit v0.3.2 (*)
+8objc2-app-kit feature "bitflags" (*)
+8objc2-foundation feature "NSArray" (*)
+8objc2-foundation feature "NSDate"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSString" (*)
+8objc2-foundation feature "NSURL" (*)
+7objc2-app-kit feature "NSWorkspace"
+8objc2-app-kit v0.3.2 (*)
+8objc2-app-kit feature "bitflags" (*)
+8objc2-foundation feature "NSAppleEventDescriptor"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "NSArray" (*)
+8objc2-foundation feature "NSDictionary" (*)
+8objc2-foundation feature "NSError" (*)
+8objc2-foundation feature "NSFileManager"
+9objc2-foundation v0.3.2 (*)
+9objc2-foundation feature "bitflags" (*)
+8objc2-foundation feature "NSGeometry" (*)
+8objc2-foundation feature "NSNotification"
+9objc2-foundation v0.3.2 (*)
+8objc2-foundation feature "NSObject" (*)
+8objc2-foundation feature "NSString" (*)
+8objc2-foundation feature "NSURL" (*)
+8objc2-foundation feature "NSValue" (*)
+8objc2-foundation feature "objc2-core-foundation" (*)
+7objc2-app-kit feature "std" (*)
+7objc2-foundation feature "NSArray" (*)
+7objc2-foundation feature "NSDictionary" (*)
+7objc2-foundation feature "NSError" (*)
+7objc2-foundation feature "NSString" (*)
+7objc2-foundation feature "NSURL" (*)
+7objc2-foundation feature "std" (*)
+7url feature "std"
+8url v2.5.8
+9percent-encoding feature "alloc" (*)
+9form_urlencoded feature "alloc"
+10form_urlencoded v1.2.2
+11percent-encoding v2.3.2
+10percent-encoding feature "alloc" (*)
+9idna feature "alloc"
+10idna v1.1.0
+11smallvec feature "const_generics" (*)
+11smallvec feature "default" (*)
+11idna_adapter feature "default"
+12idna_adapter v1.2.1
+13icu_normalizer v2.1.1
+14icu_collections v2.1.1
+15displaydoc v0.2.7 (proc-macro)
+16proc-macro2 feature "default" (*)
+16quote feature "default" (*)
+16syn feature "default" (*)
+15potential_utf feature "zerovec"
+16potential_utf v0.1.6
+17zerovec v0.11.8
+18yoke v0.8.3
+19stable_deref_trait v1.2.1
+19yoke-derive v0.8.4 (proc-macro)
+20proc-macro2 feature "default" (*)
+20quote feature "default" (*)
+20syn feature "default" (*)
+20syn feature "fold"
+21syn v3.0.9 (*)
+20syn feature "visit" (*)
+20synstructure feature "default"
+21synstructure v0.14.0
+22proc-macro2 v1.0.107 (*)
+22quote v1.0.47 (*)
+22syn feature "clone-impls" (*)
+22syn feature "derive" (*)
+22syn feature "extra-traits" (*)
+22syn feature "parsing" (*)
+22syn feature "printing" (*)
+22syn feature "visit" (*)
+21synstructure feature "proc-macro"
+22synstructure v0.14.0 (*)
+22proc-macro2 feature "proc-macro" (*)
+22quote feature "proc-macro" (*)
+22syn feature "proc-macro" (*)
+19zerofrom v0.1.8
+20zerofrom-derive v0.1.8 (proc-macro)
+21proc-macro2 feature "default" (*)
+21quote feature "default" (*)
+21syn feature "default" (*)
+21syn feature "fold" (*)
+21syn feature "visit" (*)
+21synstructure feature "default" (*)
+18zerofrom v0.1.8 (*)
+18zerovec-derive v0.11.6 (proc-macro)
+19proc-macro2 feature "default" (*)
+19quote feature "default" (*)
+19syn feature "default" (*)
+19syn feature "extra-traits" (*)
+15zerovec feature "derive"
+16zerovec v0.11.8 (*)
+15zerovec feature "yoke"
+16zerovec v0.11.8 (*)
+15yoke feature "derive"
+16yoke v0.8.3 (*)
+16yoke feature "zerofrom"
+17yoke v0.8.3 (*)
+16zerofrom feature "derive"
+17zerofrom v0.1.8 (*)
+15zerofrom feature "derive" (*)
+14icu_normalizer_data v2.1.1
+14icu_provider v2.1.1
+15displaydoc v0.2.7 (proc-macro) (*)
+15icu_locale_core v2.1.1
+16displaydoc v0.2.7 (proc-macro) (*)
+16litemap v0.8.3
+16tinystr v0.8.4
+17displaydoc v0.2.7 (proc-macro) (*)
+17zerovec v0.11.8 (*)
+16writeable v0.6.4
+16zerovec v0.11.8 (*)
+15writeable v0.6.4
+15zerotrie v0.2.5
+16displaydoc v0.2.7 (proc-macro) (*)
+16zerofrom v0.1.8 (*)
+16yoke feature "derive" (*)
+15zerovec feature "derive" (*)
+15yoke feature "derive" (*)
+15zerofrom feature "derive" (*)
+14smallvec v1.16.3
+14zerovec v0.11.8 (*)
+13icu_properties v2.1.2
+14icu_collections v2.1.1 (*)
+14icu_properties_data v2.1.2
+14icu_provider v2.1.1 (*)
+14zerovec feature "derive" (*)
+14zerovec feature "yoke" (*)
+14icu_locale_core feature "zerovec"
+15icu_locale_core v2.1.1 (*)
+15tinystr feature "zerovec"
+16tinystr v0.8.4 (*)
+14zerotrie feature "yoke"
+15zerotrie v0.2.5 (*)
+14zerotrie feature "zerofrom"
+15zerotrie v0.2.5 (*)
+11utf8_iter feature "default"
+12utf8_iter v1.0.4
+9idna feature "compiled_data"
+10idna v1.1.0 (*)
+10idna_adapter feature "compiled_data"
+11idna_adapter v1.2.1 (*)
+11icu_normalizer feature "compiled_data"
+12icu_normalizer v2.1.1 (*)
+12icu_provider feature "baked"
+13icu_provider v2.1.1 (*)
+11icu_properties feature "compiled_data"
+12icu_properties v2.1.2 (*)
+12icu_provider feature "baked" (*)
+8percent-encoding feature "std" (*)
+8form_urlencoded feature "std"
+9form_urlencoded v1.2.2 (*)
+9percent-encoding feature "std" (*)
+9form_urlencoded feature "alloc" (*)
+8idna feature "std"
+9idna v1.1.0 (*)
+9idna feature "alloc" (*)
+4egui-winit feature "arboard"
+5egui-winit v0.32.3 (*)
+4egui-winit feature "bytemuck"
+5egui-winit v0.32.3 (*)
+5egui feature "bytemuck" (*)
+4egui-winit feature "smithay-clipboard"
+5egui-winit v0.32.3 (*)
+3egui-winit feature "links"
+4egui-winit v0.32.3 (*)
+4egui-winit feature "webbrowser"
+5egui-winit v0.32.3 (*)
+3objc2 feature "default" (*)
+3objc2-app-kit feature "NSApplication" (*)
+3objc2-app-kit feature "NSImage" (*)
+3objc2-app-kit feature "NSMenu" (*)
+3objc2-app-kit feature "NSMenuItem" (*)
+3objc2-app-kit feature "NSResponder" (*)
+3objc2-app-kit feature "std" (*)
+3objc2-foundation feature "NSData" (*)
+3objc2-foundation feature "NSString" (*)
+3objc2-foundation feature "block2" (*)
+3objc2-foundation feature "std" (*)
+3static_assertions feature "default" (*)
+3raw-window-handle feature "default" (*)
+3winit feature "rwh_06" (*)
+3windows-sys feature "Win32_Foundation" (*)
+3windows-sys feature "Win32_System_Com"
+4windows-sys v0.59.0 (*)
+4windows-sys feature "Win32_System" (*)
+3windows-sys feature "Win32_UI_Shell"
+4windows-sys v0.59.0 (*)
+4windows-sys feature "Win32_UI"
+5windows-sys v0.59.0 (*)
+5windows-sys feature "Win32" (*)
+3windows-sys feature "default" (*)
+3js-sys feature "default" (*)
+3wasm-bindgen feature "default" (*)
+3percent-encoding feature "default" (*)
+3wasm-bindgen-futures feature "default" (*)
+3web-sys feature "AddEventListenerOptions"
+4web-sys v0.3.106 (*)
+3web-sys feature "BinaryType"
+4web-sys v0.3.106 (*)
+3web-sys feature "Blob" (*)
+3web-sys feature "BlobPropertyBag" (*)
+3web-sys feature "Clipboard"
+4web-sys v0.3.106 (*)
+4web-sys feature "EventTarget" (*)
+3web-sys feature "ClipboardEvent"
+4web-sys v0.3.106 (*)
+4web-sys feature "Event" (*)
+3web-sys feature "ClipboardItem"
+4web-sys v0.3.106 (*)
+3web-sys feature "CompositionEvent"
+4web-sys v0.3.106 (*)
+4web-sys feature "Event" (*)
+4web-sys feature "UiEvent" (*)
+3web-sys feature "CssStyleDeclaration" (*)
+3web-sys feature "DataTransfer"
+4web-sys v0.3.106 (*)
+3web-sys feature "DataTransferItem"
+4web-sys v0.3.106 (*)
+3web-sys feature "DataTransferItemList"
+4web-sys v0.3.106 (*)
+3web-sys feature "Document" (*)
+3web-sys feature "DomRect" (*)
+3web-sys feature "DragEvent"
+4web-sys v0.3.106 (*)
+4web-sys feature "Event" (*)
+4web-sys feature "MouseEvent" (*)
+4web-sys feature "UiEvent" (*)
+3web-sys feature "Element" (*)
+3web-sys feature "Event" (*)
+3web-sys feature "EventListener"
+4web-sys v0.3.106 (*)
+3web-sys feature "EventTarget" (*)
+3web-sys feature "ExtSRgb" (*)
+3web-sys feature "File"
+4web-sys v0.3.106 (*)
+4web-sys feature "Blob" (*)
+3web-sys feature "FileList"
+4web-sys v0.3.106 (*)
+3web-sys feature "FocusEvent" (*)
+3web-sys feature "HtmlCanvasElement" (*)
+3web-sys feature "HtmlElement" (*)
+3web-sys feature "HtmlInputElement"
+4web-sys v0.3.106 (*)
+4web-sys feature "Element" (*)
+4web-sys feature "EventTarget" (*)
+4web-sys feature "HtmlElement" (*)
+4web-sys feature "Node" (*)
+3web-sys feature "InputEvent"
+4web-sys v0.3.106 (*)
+4web-sys feature "Event" (*)
+4web-sys feature "UiEvent" (*)
+3web-sys feature "KeyboardEvent" (*)
+3web-sys feature "Location"
+4web-sys v0.3.106 (*)
+3web-sys feature "MediaQueryList" (*)
+3web-sys feature "MediaQueryListEvent"
+4web-sys v0.3.106 (*)
+4web-sys feature "Event" (*)
+3web-sys feature "MouseEvent" (*)
+3web-sys feature "Navigator" (*)
+3web-sys feature "Node" (*)
+3web-sys feature "NodeList"
+4web-sys v0.3.106 (*)
+3web-sys feature "Performance"
+4web-sys v0.3.106 (*)
+4web-sys feature "EventTarget" (*)
+3web-sys feature "PointerEvent" (*)
+3web-sys feature "ResizeObserver" (*)
+3web-sys feature "ResizeObserverBoxOptions" (*)
+3web-sys feature "ResizeObserverEntry" (*)
+3web-sys feature "ResizeObserverOptions" (*)
+3web-sys feature "ResizeObserverSize" (*)
+3web-sys feature "ShadowRoot"
+4web-sys v0.3.106 (*)
+4web-sys feature "DocumentFragment"
+5web-sys v0.3.106 (*)
+5web-sys feature "EventTarget" (*)
+5web-sys feature "Node" (*)
+4web-sys feature "EventTarget" (*)
+4web-sys feature "Node" (*)
+3web-sys feature "Storage"
+4web-sys v0.3.106 (*)
+3web-sys feature "Touch"
+4web-sys v0.3.106 (*)
+3web-sys feature "TouchEvent"
+4web-sys v0.3.106 (*)
+4web-sys feature "Event" (*)
+4web-sys feature "UiEvent" (*)
+3web-sys feature "TouchList"
+4web-sys v0.3.106 (*)
+3web-sys feature "WebGl2RenderingContext" (*)
+3web-sys feature "WebGlRenderingContext" (*)
+3web-sys feature "WebglDebugRendererInfo" (*)
+3web-sys feature "WheelEvent" (*)
+3web-sys feature "Window" (*)
+3web-sys feature "console" (*)
+3web-sys feature "default" (*)
+3web-time feature "default" (*)
+3image feature "png" (*)
+3glow feature "default" (*)
+3glutin feature "egl"
+4glutin v0.32.3
+5bitflags feature "default" (*)
+5once_cell feature "default" (*)
+5raw-window-handle feature "default" (*)
+5wayland-sys feature "client" (*)
+5wayland-sys feature "dlopen" (*)
+5wayland-sys feature "egl"
+6wayland-sys v0.31.11 (*)
+6wayland-sys feature "client" (*)
+5libloading feature "default" (*)
+5windows-sys feature "Win32_Foundation" (*)
+5windows-sys feature "Win32_Graphics_Gdi" (*)
+5windows-sys feature "Win32_Graphics_OpenGL"
+6windows-sys v0.52.0 (*)
+6windows-sys feature "Win32_Graphics" (*)
+5windows-sys feature "Win32_System_LibraryLoader" (*)
+5windows-sys feature "Win32_UI_WindowsAndMessaging" (*)
+5windows-sys feature "default" (*)
+5x11-dl feature "default" (*)
+5objc2 feature "default" (*)
+5objc2-app-kit feature "NSApplication"
+6objc2-app-kit v0.3.2 (*)
+6objc2-app-kit feature "bitflags" (*)
+6objc2-foundation feature "NSArray" (*)
+6objc2-foundation feature "NSCoder" (*)
+6objc2-foundation feature "NSData" (*)
+6objc2-foundation feature "NSDate" (*)
+6objc2-foundation feature "NSDictionary" (*)
+6objc2-foundation feature "NSError" (*)
+6objc2-foundation feature "NSException"
+7objc2-foundation v0.3.2 (*)
+6objc2-foundation feature "NSNotification" (*)
+6objc2-foundation feature "NSObjCRuntime"
+7objc2-foundation v0.3.2 (*)
+7objc2-foundation feature "bitflags" (*)
+6objc2-foundation feature "NSObject" (*)
+6objc2-foundation feature "NSString" (*)
+6objc2-foundation feature "NSURL" (*)
+6objc2-foundation feature "NSUserActivity"
+7objc2-foundation v0.3.2 (*)
+5objc2-app-kit feature "NSOpenGL"
+6objc2-app-kit v0.3.2 (*)
+6objc2-foundation feature "NSData" (*)
+6objc2-foundation feature "NSLock"
+7objc2-foundation v0.3.2 (*)
+6objc2-foundation feature "NSObject" (*)
+5objc2-app-kit feature "NSOpenGLView"
+6objc2-app-kit v0.3.2 (*)
+6objc2-foundation feature "NSCoder" (*)
+6objc2-foundation feature "NSGeometry" (*)
+6objc2-foundation feature "NSObject" (*)
+6objc2-foundation feature "objc2-core-foundation" (*)
+5objc2-app-kit feature "NSResponder"
+6objc2-app-kit v0.3.2 (*)
+6objc2-foundation feature "NSArray" (*)
+6objc2-foundation feature "NSCoder" (*)
+6objc2-foundation feature "NSError" (*)
+6objc2-foundation feature "NSObject" (*)
+6objc2-foundation feature "NSString" (*)
+6objc2-foundation feature "NSUndoManager"
+7objc2-foundation v0.3.2 (*)
+5objc2-app-kit feature "NSView"
+6objc2-app-kit v0.3.2 (*)
+6objc2-app-kit feature "bitflags" (*)
+6objc2-foundation feature "NSArray" (*)
+6objc2-foundation feature "NSAttributedString"
+7objc2-foundation v0.3.2 (*)
+7objc2-foundation feature "bitflags" (*)
+6objc2-foundation feature "NSCoder" (*)
+6objc2-foundation feature "NSData" (*)
+6objc2-foundation feature "NSDictionary" (*)
+6objc2-foundation feature "NSGeometry" (*)
+6objc2-foundation feature "NSNotification" (*)
+6objc2-foundation feature "NSObjCRuntime" (*)
+6objc2-foundation feature "NSObject" (*)
+6objc2-foundation feature "NSRange"
+7objc2-foundation v0.3.2 (*)
+6objc2-foundation feature "NSString" (*)
+6objc2-foundation feature "objc2-core-foundation" (*)
+5objc2-app-kit feature "NSWindow"
+6objc2-app-kit v0.3.2 (*)
+6objc2-app-kit feature "bitflags" (*)
+6objc2-foundation feature "NSArray" (*)
+6objc2-foundation feature "NSCoder" (*)
+6objc2-foundation feature "NSData" (*)
+6objc2-foundation feature "NSDate" (*)
+6objc2-foundation feature "NSDictionary" (*)
+6objc2-foundation feature "NSError" (*)
+6objc2-foundation feature "NSGeometry" (*)
+6objc2-foundation feature "NSNotification" (*)
+6objc2-foundation feature "NSObjCRuntime" (*)
+6objc2-foundation feature "NSObject" (*)
+6objc2-foundation feature "NSString" (*)
+6objc2-foundation feature "NSURL" (*)
+6objc2-foundation feature "NSUndoManager" (*)
+6objc2-foundation feature "NSValue" (*)
+6objc2-foundation feature "objc2-core-foundation" (*)
+5objc2-app-kit feature "objc2-core-foundation"
+6objc2-app-kit v0.3.2 (*)
+5objc2-app-kit feature "std" (*)
+5objc2-core-foundation feature "CFBase"
+6objc2-core-foundation v0.3.2 (*)
+5objc2-core-foundation feature "CFBundle"
+6objc2-core-foundation v0.3.2 (*)
+5objc2-core-foundation feature "CFString"
+6objc2-core-foundation v0.3.2 (*)
+6objc2-core-foundation feature "bitflags" (*)
+5objc2-core-foundation feature "std" (*)
+5objc2-foundation feature "NSArray" (*)
+5objc2-foundation feature "NSThread"
+6objc2-foundation v0.3.2 (*)
+5objc2-foundation feature "std" (*)
+5cgl feature "default"
+6cgl v0.3.2
+7libc feature "default" (*)
+5dispatch2 feature "objc2"
+6dispatch2 v0.3.1
+7bitflags feature "std" (*)
+7objc2 feature "std" (*)
+5dispatch2 feature "std"
+6dispatch2 v0.3.1 (*)
+6dispatch2 feature "alloc"
+7dispatch2 v0.3.1 (*)
+5glutin_egl_sys feature "default"
+6glutin_egl_sys v0.7.1
+7windows-sys feature "Win32_Foundation" (*)
+7windows-sys feature "Win32_Graphics_Gdi" (*)
+7windows-sys feature "default" (*)
+7gl_generator feature "default"
+8gl_generator v0.14.0
+9khronos_api feature "default"
+10khronos_api v3.1.0
+9log feature "default"
+10log v0.4.34
+9xml-rs feature "default"
+10xml-rs v0.8.29
+5glutin_glx_sys feature "default"
+6glutin_glx_sys v0.6.1
+7x11-dl feature "default" (*)
+7gl_generator feature "default" (*)
+5glutin_wgl_sys feature "default"
+6glutin_wgl_sys v0.6.1
+7gl_generator feature "default" (*)
+5cfg_aliases feature "default" (*)
+4glutin feature "glutin_egl_sys"
+5glutin v0.32.3 (*)
+4glutin feature "libloading"
+5glutin v0.32.3 (*)
+3glutin feature "wgl"
+4glutin v0.32.3 (*)
+4glutin feature "glutin_wgl_sys"
+5glutin v0.32.3 (*)
+4glutin feature "windows-sys"
+5glutin v0.32.3 (*)
+3glutin-winit feature "egl"
+4glutin-winit v0.5.0
+5glutin v0.32.3 (*)
+5raw-window-handle feature "default" (*)
+5winit feature "rwh_06" (*)
+5cfg_aliases feature "default" (*)
+4glutin feature "egl" (*)
+3glutin-winit feature "wgl"
+4glutin-winit v0.5.0 (*)
+4glutin feature "wgl" (*)
+3winapi feature "default"
+4winapi v0.3.9
+5winapi-i686-pc-windows-gnu feature "default"
+6winapi-i686-pc-windows-gnu v0.4.0
+5winapi-x86_64-pc-windows-gnu feature "default"
+6winapi-x86_64-pc-windows-gnu v0.4.0
+3winapi feature "winuser"
+4winapi v0.3.9 (*)
+2egui feature "accesskit"
+3egui v0.32.3 (*)
+2egui-winit feature "accesskit"
+3egui-winit v0.32.3 (*)
+3egui feature "accesskit" (*)
+1eframe feature "glow"
+2eframe v0.32.3 (*)
+1eframe feature "wayland"
+2eframe v0.32.3 (*)
+2egui-winit feature "wayland"
+3egui-winit v0.32.3 (*)
+3egui-winit feature "bytemuck" (*)
+3winit feature "wayland" (*)
+2egui_glow feature "wayland"
+3egui_glow v0.32.3 (*)
+2glutin feature "wayland"
+3glutin v0.32.3 (*)
+3glutin feature "egl" (*)
+3glutin feature "wayland-sys"
+4glutin v0.32.3 (*)
+2glutin-winit feature "wayland"
+3glutin-winit v0.5.0 (*)
+3winit feature "wayland" (*)
+3glutin feature "wayland" (*)
+1eframe feature "x11"
+2eframe v0.32.3 (*)
+2egui-winit feature "x11"
+3egui-winit v0.32.3 (*)
+3egui-winit feature "bytemuck" (*)
+3winit feature "x11" (*)
+2egui_glow feature "x11"
+3egui_glow v0.32.3 (*)
+2glutin feature "glx"
+3glutin v0.32.3 (*)
+3glutin feature "glutin_glx_sys"
+4glutin v0.32.3 (*)
+3glutin feature "libloading" (*)
+3glutin feature "x11"
+4glutin v0.32.3 (*)
+4glutin feature "x11-dl"
+5glutin v0.32.3 (*)
+2glutin feature "x11" (*)
+2glutin-winit feature "glx"
+3glutin-winit v0.5.0 (*)
+3glutin feature "glx" (*)
+3glutin-winit feature "x11"
+4glutin-winit v0.5.0 (*)
+4winit feature "x11" (*)
+4glutin feature "x11" (*)
+2glutin-winit feature "x11" (*)
+1jiff feature "std"
+2jiff v0.2.38
+3jiff-core v0.1.1
+3portable-atomic v1.15.0
+3portable-atomic-util v0.2.8
+4portable-atomic feature "require-cas"
+5portable-atomic v1.15.0
+3windows-link feature "default" (*)
+3jiff-static feature "default"
+4jiff-static v0.2.38 (proc-macro)
+5proc-macro2 feature "default" (*)
+5quote feature "default" (*)
+5syn feature "default" (*)
+5jiff-core feature "default"
+6jiff-core v0.1.1
+6jiff-core feature "std"
+7jiff-core v0.1.1
+7jiff-core feature "alloc"
+8jiff-core v0.1.1
+6jiff-core feature "tz-fat"
+7jiff-core v0.1.1
+3jiff-tzdb-platform feature "default"
+4jiff-tzdb-platform v0.1.3
+5jiff-tzdb feature "default"
+6jiff-tzdb v0.1.9
+2jiff feature "alloc"
+3jiff v0.2.38 (*)
+3jiff-core feature "alloc"
+4jiff-core v0.1.1
+3portable-atomic-util feature "alloc"
+4portable-atomic-util v0.2.8 (*)
+2jiff-core feature "std"
+3jiff-core v0.1.1
+3jiff-core feature "alloc" (*)
+1jiff feature "tz-system"
+2jiff v0.2.38 (*)
+2jiff feature "std" (*)
+1jiff feature "tzdb-bundle-platform"
+2jiff v0.2.38 (*)
+2jiff feature "alloc" (*)
+1jiff feature "tzdb-zoneinfo"
+2jiff v0.2.38 (*)
+2jiff feature "std" (*)
+1monolith-runtime feature "default" (command-line)
+2monolith-runtime v0.0.0 (<repo>/crates/monolith-runtime)
+3monolith-core feature "default" (command-line) (*)
+3monolith-storage feature "default" (command-line) (*)
+3monolith-tor feature "default" (command-line) (*)
+3tokio feature "sync" (*)
+3monolith-identity feature "default" (command-line) (*)
+3tokio feature "rt" (*)
+3tokio feature "sync" (*)
+3tokio feature "test-util" (*)
+3tokio feature "time" (*)
+1monolith-ui feature "default" (command-line)
+2monolith-ui v0.0.0 (<repo>/crates/monolith-ui)
+3egui v0.32.3 (*)
+3zeroize feature "alloc" (*)
+3monolith-ui-kit feature "default" (command-line)
+4monolith-ui-kit v0.0.0 (<repo>/crates/monolith-ui-kit)
+5qrcodegen v1.8.0
+5egui feature "accesskit" (*)
+5monolith-ui-snapshot feature "default" (command-line)
+6monolith-ui-snapshot v0.0.0 (<repo>/crates/monolith-ui-snapshot)
+7egui v0.32.3 (*)
+7png v0.18.1 (*)
+3monolith-ui-model feature "default" (command-line)
+4monolith-ui-model v0.0.0 (<repo>/crates/monolith-ui-model)
+5unicode-segmentation v1.13.3
+5zeroize feature "alloc" (*)
+5proptest feature "std" (*)
+3monolith-ui-snapshot feature "default" (command-line) (*)
+1monolith-ui-kit feature "default" (command-line) (*)
+1monolith-ui-model feature "default" (command-line) (*)
+1monolith-tor feature "default" (command-line) (*)
+1monolith-ui-snapshot feature "default" (command-line) (*)
+
+0monolith-identity v0.0.0 (<repo>/crates/monolith-identity) (*)
+
+0monolith-protocol v0.0.0 (<repo>/crates/monolith-protocol) (*)
+
+0monolith-runtime v0.0.0 (<repo>/crates/monolith-runtime) (*)
+
+0monolith-session v0.0.0 (<repo>/crates/monolith-session) (*)
+
+0monolith-storage v0.0.0 (<repo>/crates/monolith-storage) (*)
+
+0monolith-tor v0.0.0 (<repo>/crates/monolith-tor) (*)
+
+0monolith-ui v0.0.0 (<repo>/crates/monolith-ui) (*)
+
+0monolith-ui-kit v0.0.0 (<repo>/crates/monolith-ui-kit) (*)
+
+0monolith-ui-model v0.0.0 (<repo>/crates/monolith-ui-model) (*)
+
+0monolith-ui-snapshot v0.0.0 (<repo>/crates/monolith-ui-snapshot) (*)
