@@ -2787,11 +2787,14 @@ P7-14 Screens (BL5, BL47, BL48, BL49). `is_invisible` drew the tag
     character), so no run overflows, which is what the limit is for. It
     does not count 64 characters: a break inserted into the text would
     also be in what is copied from it. A test runs wide, narrow and the
-    longest runs through a bubble. This reading of the limit is for the
-    owner to confirm. White initials were 3.86 to 4.26 to 1 on five of
-    the light colours of avatars, where P6-19 asks 4.5: those five are
-    darker with their hue kept, and the contrast test covers the
-    initials on every colour of both themes. `present::MAX_NAME_BYTES`
+    longest runs through a bubble. The owner confirmed this reading on
+    2026-10-24: the limit bounds the rendering and rewrites no text; a
+    long run wraps at the width of the bubble, nothing is inserted into
+    or removed from the message shown, and the limit holds when the run
+    stays inside the bubble. White initials were 3.86 to 4.26 to 1 on
+    five of the light colours of avatars, where P6-19 asks 4.5: those
+    five are darker with their hue kept, and the contrast test covers
+    the initials on every colour of both themes. `present::MAX_NAME_BYTES`
     gave 64 for `MAX_DISPLAY_NAME_LEN`, which is 128, and nothing used
     it; the name fields cut at 64 characters only, so a name of 64
     characters of three bytes each was refused by the runtime as text
