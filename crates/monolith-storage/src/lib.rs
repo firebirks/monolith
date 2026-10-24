@@ -22,6 +22,8 @@
 //!   (`docs/adr/0014-transfer-staging.md`).
 //! - [`transfers`]: the transfer store, the records of every transfer of
 //!   the installation, built as the message store is.
+//! - [`ephemeral`]: the in-memory directory where an ephemeral installation
+//!   stages its transfers, writing nothing to disk.
 //!
 //! This is the only crate that writes files.
 
@@ -34,6 +36,7 @@ pub mod dir;
 mod disk_unix;
 #[cfg(windows)]
 mod disk_windows;
+pub mod ephemeral;
 pub mod message_records;
 pub mod messages;
 pub mod record;

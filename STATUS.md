@@ -61,8 +61,8 @@ finding was taken in.
 | ID | Item | Status |
 | --- | --- | --- |
 | FT-A | ADR 0013 and 0014, reviewed | done |
-| FT-B | `monolith-protocol`: FileAccept with an offset, limits, `PROTOCOL.md` 8, 8.9, 13 | open |
-| FT-C | `monolith-storage`: streaming file access (Unix, Windows, memory with crash model), blob format, transfer store, keys, test vectors | open |
+| FT-B | `monolith-protocol`: FileAccept with an offset, limits, `PROTOCOL.md` 8, 8.9, 13 | done (`0a6aaf2`; also declares the `alloc` feature of `zeroize` the crate uses, which it built without only inside the workspace) |
+| FT-C | `monolith-storage`: streaming file access (Unix, Windows, memory with crash model), blob format, transfer store, keys, test vectors | done (`7dd86f0` and the next commit); documents in FT-J |
 | FT-D | `monolith-core`: transfer state machine, durable records, session pump and answers, scheduler and linger, lifecycle, commands, events, queries | open |
 | FT-E | `monolith-runtime` facade; CLI dev node commands for the private network test | open |
 | FT-F | Desktop: attach by drop or typed path with the Phase 7 checks, staging and saving off the window thread, ui-model, kit progress and transfer components, screens, fixtures | open |
