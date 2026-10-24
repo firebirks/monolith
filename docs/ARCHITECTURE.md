@@ -1,14 +1,14 @@
 # Architecture
 
-Status: Phase 6 complete (tag `phase-6-complete`). The protocol core,
+Status: Phase 7 complete (tag `phase-7-complete`). The protocol core,
 the session layer, the integration with a Tor the system runs, the
 contact store, the vault, the publication supervisor, the messaging
 runtime of Phase 5 (the message store, the session manager, the
-reconnect scheduler, the command and event interface) and, since Phase
-6, the desktop client for Linux and Windows are implemented and
-verified. `DESIGN_QUESTIONS.md` sections 12.8 and 13.3 record the final
-verifications of Phases 5 and 6. This document describes the structure
-the phases build.
+reconnect scheduler, the command and event interface) and the desktop
+client of Phase 6 for Linux and Windows are implemented and verified,
+with the hardening of Phase 7. `DESIGN_QUESTIONS.md` sections 13.3 and
+14.3 record the final verifications of Phases 6 and 7. This document
+describes the structure the phases build.
 
 ## 1. Shape
 
@@ -531,6 +531,7 @@ the platform's packaging.
 | 4 | Contact store and persistence: acceptance, pinning, one decision about a card, per-contact serialization, retirement of live sessions, the vault, invitations, several identities, the budget for strangers, the publication supervisor, rotation and dialing. |
 | 5 | Messaging runtime: the message store, durable delivery with acknowledgements and deduplication, the session manager with duplicate resolution, the reconnect scheduler, the command and event interface (`DESIGN_QUESTIONS.md` section 12). |
 | 6 | Desktop client for Linux and Windows: egui and eframe over the runtime, with a design system of its own (`DESIGN_QUESTIONS.md` section 13). |
+| 7 | Security and protocol hardening: the findings of the reviews of Phases 5 and 6 and the deferred items they name, with no new feature (`DESIGN_QUESTIONS.md` section 14). |
 | later | Tails. |
 | later | Whonix. |
 | later | Hardening: attack simulation, fuzzing corpus, benchmarks, dependency audit. |
@@ -539,8 +540,9 @@ the platform's packaging.
 A phase starts after the previous one has been reviewed. In the earlier
 plan Tails was Phase 6, Whonix Phase 7 and the GUI Phase 8; the brief of
 Phase 5 named the GUI on the runtime as Phase 6, and the owner's brief of
-Phase 6 made it so. The rows marked "later" are what remains of the
-earlier plan; the owner's briefs set their order. File transfer, which
+Phase 6 made it so. The owner's brief of Phase 7 made it the hardening
+of what Phases 5 and 6 built. The rows marked "later" are what remains
+of the earlier plan; the owner's briefs set their order. File transfer, which
 was Phase 5 in the earlier plan, is not part of the messaging runtime.
 
 Preconditions beyond review:

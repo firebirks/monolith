@@ -96,6 +96,22 @@ stays proved by the runtime steps of Phase 5; this step shows that the
 client's commands and events drive that runtime, with the configuration
 the client makes of its Tor settings. Covered now: T-UI-1 to 16.
 
+What Phase 7 added, verified on `bbf1279` (the full verification on
+`740b671`, whose production code it has): a regression test for every
+fix, each failing before it; property tests against models written
+apart from the code, for the rates, the file messages of a session, a
+store above a lowered limit and the notices of another identity
+(`DESIGN_QUESTIONS.md` P7-22); runtime tests of the dial plan during a
+rotation, of file messages, of the probes and Pings of a session and of
+the rates; tests that run on Windows only, for the checks of local
+files, the renames another process blocks and the name of the cookie
+file; the fuzz targets `ui_present` and `message_store` held to the
+larger set of marks and to the ceilings of the store; the Phase 7
+mutation lists, HR1 to HR85, 14 of them in a list for Windows that the
+runner now runs there (`phase7w`); `mutation/affected.py`, which selects
+the faults a change can affect; and `cargo doc` with warnings denied in
+the CI.
+
 The rest need file transfer, and are not written yet.
 
 ## 1. Principles

@@ -106,7 +106,14 @@ All twenty targets build (`fuzz_targets/session_fixtures.rs` holds
 fixtures they share and is not one); Phase 4 added `vault_payload` and
 `contact_store` and extended `credential_sequence`, Phase 5 added
 `message_store` and `message_sequence`, and Phase 6 `ui_present` and
-`ui_model_sequence`. In the final verification of Phase 6 (on `68ac655`)
+`ui_model_sequence`. Phase 7 added none: `ui_present` now covers the
+larger set of marks and `message_store` holds the decoder to the
+ceilings of the store (`docs/DESIGN_QUESTIONS.md` P7-22). In the final
+verification of Phase 7 (on `740b671`) each of the twenty ran for 26
+seconds, and `ui_present`, `message_store`, `message_sequence`,
+`session_sequence` and `ui_model_sequence` for 600 seconds each (1.1,
+8.4, 0.09, 7.5 and 2.0 million executions), without a failure
+(`docs/DESIGN_QUESTIONS.md` 14.3). In that of Phase 6 (on `68ac655`)
 each of the twenty ran for 26 seconds, and `ui_present` and
 `ui_model_sequence` for 600 seconds each (1.2 and 2.4 million
 executions), without a failure (`docs/DESIGN_QUESTIONS.md` 13.3). In

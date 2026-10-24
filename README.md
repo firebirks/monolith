@@ -23,11 +23,16 @@ once the receiver stored a message, the session manager, reconnecting, and
 commands and events for a later interface. Phase 6, complete and verified
 (tag `phase-6-complete`), adds the desktop client for Linux and Windows
 (`docs/DESKTOP.md`): one window over that runtime, with a design system of
-its own. File transfer is not implemented. The Tails and Whonix
-integrations (control port filters, the firewall rule) are drafts.
-`docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6, 12.8 and 13.3 record the
-final verifications of Phases 3, 4, 5 and 6. Nothing here has been
-audited. Monolith is still experimental software. Do not rely on it for
+its own. Phase 7, complete and verified (tag `phase-7-complete`),
+hardens what Phases 5 and 6 built, with no new feature: the dial plan
+during a rotation of a contact's key, a sender's words kept apart from
+the client's, the checks of local files on Windows, file messages
+refused as the protocol says, stores that still open after a limit is
+lowered, the liveness of sessions, and the rates of each contact. File
+transfer is not implemented. The Tails and Whonix integrations (control
+port filters, the firewall rule) are drafts. `docs/DESIGN_QUESTIONS.md`
+sections 10.4, 11.6, 12.8, 13.3 and 14.3 record the final verifications
+of Phases 3 to 7. Nothing here has been audited. Monolith is still experimental software. Do not rely on it for
 high-stakes or production use yet.
 
 ## What it is

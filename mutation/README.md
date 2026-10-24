@@ -90,8 +90,9 @@ each fault that reached it.
 
 The results go to `mutation/results-<list>-<commit>.json`. The exit code
 is 0 if every fault had the outcome its entry expects, and 1 otherwise. A
-full run of all six lists takes more than a day with two workers on
-four cores; a fault caught only by the timeout takes the whole of it.
+full run of every list for Linux takes about a day with four workers on
+eight cores (Phase 7); a fault caught only by the timeout takes the
+whole of it.
 
 When code moves, a pattern may no longer match. The runner then stops
 before testing and names the entry; update the pattern so that the fault
@@ -145,8 +146,9 @@ next selection; the evidence of each fault is its newest result.
 
 ## Expected results
 
-With Phase 6; the final verification on `68ac655` gave exactly this,
-every fault with the outcome its entry expects:
+With Phase 7; the final verification on `740b671`, with the targeted
+runs on `ba12472` and `bbf1279` (below), gave exactly this, every fault
+with the outcome its entry expects:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
@@ -156,23 +158,31 @@ every fault with the outcome its entry expects:
 | Phase 4 | 123 | 123 | none |
 | Phase 5 | 57 | 57 | none |
 | Phase 6 | 160 | 160 | none |
+| Phase 7 | 71 | 71 | none |
+| Phase 7, Windows (`phase7w`) | 14 | 14 | none |
 
-555 faults, 546 to be caught, 9 expected to survive. The first five
-lists gave the same on `91bf22c`, the verification of Phase 5, and the
-first four on `970316f`, that of Phase 4.
+640 faults, 631 to be caught, 9 expected to survive. On `740b671` MR36
+survived: since P7-7 a dial that fails for a record that is gone says
+nothing, and its test watched only events. The test now also sees the
+stream of the attempt close (`e6d5a75`), and MR36 was caught by it on
+`ba12472`. The six lists of Phase 1 to 6 gave the same on `68ac655`,
+the verification of Phase 6, the first five on `91bf22c`, that of
+Phase 5, and the first four on `970316f`, that of Phase 4.
 
-Phase 4 was closed on 2026-10-11, Phase 5 on 2026-10-14 and Phase 6 on
-2026-10-18. From then on the faults and the regression tests of Phases
-1 to 5, and UI1 to UI160, are a baseline to preserve: none is weakened
-without an explicit design decision.
+Phase 4 was closed on 2026-10-11, Phase 5 on 2026-10-14, Phase 6 on
+2026-10-18 and Phase 7 on 2026-10-24. From then on the faults and the
+regression tests of Phases 1 to 6, and HR1 to HR85, are a baseline to
+preserve: none is weakened without an explicit design decision.
 
 On `91bf22c` CS29 was caught by the timeout alone: under it the wait for
 publication of `Peer::start` in `tests/runtime.rs` lasts hours, so its
 four supervisor tests were not reached (they fail when run on their
 own). On `68ac655` it still reached the timeout, but twelve tests of
 `tests/front_end.rs`, which runs before `tests/runtime.rs`, failed
-first. Bounding that wait, so that CS29 is killed quickly, is left for
-later (`docs/DESIGN_QUESTIONS.md` 12.8 and 13.3).
+first. Since Phase 7 the wait is bounded (P7-13), and on `740b671` CS29
+was caught without reaching the timeout. There MR9, MR25, MR26, CS30 and
+Q1 still reached it; MR9, CS30 and Q1 also name tests that failed
+before it.
 
 The Phase 5 list, MR1 to MR57, covers the messaging runtime
 (`docs/adr/0007-delivery-semantics.md` to `0009-session-manager.md`):

@@ -2519,7 +2519,7 @@ brief: close the backlog of sections 13.3 and 13.4 and the deferred items
 of earlier phases they name, preserving every invariant verified before.
 No new user-facing feature. Each item ends fixed, shown not to be a
 defect, or deferred with the owner's approval. The inventory, BL1 to
-BL53, is in the status file of the phase.
+BL54, is in the status file of the phase.
 
 ### 14.1 Decisions
 
@@ -2936,7 +2936,7 @@ P7-22 Models and fuzzing of what Phase 7 changed. Property tests against
     to the ceilings of the format, which since P7-5 it accepts, rather
     than to the limits, which a later build may lower.
 
-P7-23 The independent reviews. Four reviews with Opus, each blind to the
+P7-23 The independent reviews. Four reviews, each blind to the
     others and to the rest (protocol and security, runtime and
     concurrency, Windows paths, trust of what the screens show), read
     `20a6779..f1f0d78` and found nothing critical or high. Each finding
@@ -3033,3 +3033,76 @@ client, voice and video, read receipts, typing indicators, presence, push
 notifications, cloud sync, a new transport, a new identity model. Where a
 fix needs Monolith to refuse a message it does not support, it does only
 that.
+
+### 14.3 Final verification and completion
+
+The final verification ran on `740b6715c5e1c3c488f3397624d6eb764e763eec`
+from 2026-10-19 17:41 to 2026-10-21 02:59: the Windows stage (Windows
+11, Rust 1.95.0 and 1.85.1) in a worktree at the commit and the Windows
+mutation list there; the container stage (Debian 12, Rust 1.95.0, 1.85.1
+and 1.99.1, Tor 0.4.9.13, Chutney `ae3a33c`) on an export of the commit;
+the WSL stage (deny, audit, fuzzing, the Linux package) and the mutation
+lists, four workers, in a clone at the commit. The outputs are on the
+branch `verification-bbf1279`, not on `main`; the two packages are not,
+and their sizes and SHA-256 are in the report. The final report is
+section 5 of the status file of Phase 7 (`STATUS.md`, removed when Phase
+7 was merged), kept in the history at `bc502e6`. Results on `740b671`:
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check`; clippy on all targets, with and without the fixtures, warnings denied; `cargo doc` | clean, on Windows and in the container |
+| `cargo test --workspace --locked` with the fixtures | Windows, Rust 1.95.0 and 1.85.1: 76 test runs, 1264 passed, 0 failed, 2 ignored, on each; Linux, Rust 1.95.0, 1.85.1 and stable 1.99.1: 76 test runs, 1252 passed, 0 failed, 2 ignored, on each. The ignored ones are the test that the private network test runs and the KDF measurement |
+| Rust 1.85.1: `check --workspace --all-targets` | clean, on Windows and in the container |
+| `cargo deny check` 0.20.2, `cargo audit` 0.22.2 | three advisories of unmaintained D-Bus crates under the accessibility bridge (RUSTSEC-2026-0370, 0371, 0372) failed deny; with the owner's approval they are ignored with their reasons, to be looked at again on 2027-01-15 (`fce59a1`, `d22adda`, `DEPENDENCIES.md` 3), production code and lockfile unchanged; then deny passed (advisories, bans, licenses and sources ok) and audit passed over the 445 crates, on `d22adda` and again on `ba12472` |
+| Fuzz, 20 targets, 26 seconds each | no crash |
+| Fuzz, 600 seconds each: `ui_present`, `message_store`, `message_sequence`, `session_sequence`, `ui_model_sequence` | no crash |
+| Mutation suite, 626 faults for Linux | caught except the nine expected survivors (B3, B4, S15, S24, CAP2, CAP3, Q14, Q18, Q29) and MR36; none invalid; the 71 faults of Phase 7 for Linux all caught |
+| Mutation, the 14 faults of Phase 7 for Windows (`phase7w`) | all caught |
+| `tests/network/fail-closed.sh` (T-NET-1) | pass |
+| `tests/tor-network/two-node.sh`, `RESTART_CYCLES=3` | pass, steps 1 to 21, in 1073 seconds |
+| Workflows A to G by script; pictures of every fixture; frames | pass, on Windows and in the container; the packaged client, idle on Windows, used 16 ms of CPU over 10 seconds |
+| Packages | the Linux tar.gz and the Windows zip, each with its third-party notices, built from the commit |
+
+The mutation run was interrupted once: WSL stopped at 05:22 on
+2026-10-20 during the Phase 4 list, and the 86 faults not ended were run
+again from the start.
+
+MR36 survived. Since P7-7 a dial that fails for a record that is gone
+reports nothing, and its test watched only the events, though the
+defect stays real: the stream of the attempt stays open until the
+handshake times out. The test now also checks that the stream closes
+within a quarter of that timeout (`e6d5a75`). The owner chose a targeted
+verification of the new candidate over a full one: what a change can
+alter runs again, the rest of the full verification stands.
+`mutation/affected.py` selects the faults a change can affect
+(`ba12472`). On `ba12472` fmt, clippy, the tests of `monolith-core` on
+Windows (1.95.0, 1.85.1) and Linux (1.95.0, 1.85.1, 1.99.1), deny and
+audit passed, and MR36 was caught by its test. That run found that the
+exhaustive crash tests of `monolith-core/tests/store.rs` reached the
+120-second bound of their harness under four workers, so B3, B4, Q14,
+Q18 and Q29 looked caught. A reproduction showed a bound reached under
+contention by tests that kept running, not a defect of production; the
+tests got a bound of their own (`801bcbf`), and a runner that tells such
+failures apart is deferred (BL54, `bbf1279`). On `bbf1279` the same
+checks passed again (325 tests of `monolith-core` passed, 0 failed, on
+each of the five), four copies of the store tests at once passed in
+three rounds, and the 78 faults the selector chose had the outcomes
+they had on `740b671`: the nine expected survivors survived with no
+test failing, and no fault was caught by the crash tests alone.
+`740b671` to `bbf1279` changes two regression tests, the selector, the
+dependency policy and documents; production code, manifests and
+lockfile are the same.
+
+The owner accepted the report and its verdict on 2026-10-24 and declared
+Phase 7 complete on `bbf1279`, whose production code is that of
+`740b671`. The commits after `bbf1279`, up to the tag
+`phase-7-complete`, change documents only: the owner's reading of the
+bound on unbroken runs (BL47), the report, this record and the removal
+of the status file. From then on the mutation faults and the regression
+tests of Phases 1 to 6, and HR1 to HR85, are a baseline to preserve:
+none is weakened without an explicit design decision.
+
+Left for later: section 14.2, and the limits the report names: the two
+rates of the accept path not enforced (P7-8), a store that is written
+whole for each message (P7-9), message texts not erased from memory,
+and the Windows checks that need what safe Rust does not give (P7-3).
