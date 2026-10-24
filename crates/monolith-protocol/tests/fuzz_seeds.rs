@@ -112,7 +112,10 @@ fn messages() -> Vec<Message> {
             size: 12_345,
             filename: Filename::new("notes.txt").unwrap(),
         },
-        Message::FileAccept(transfer),
+        Message::FileAccept {
+            transfer,
+            offset: 0,
+        },
         Message::FileReject(transfer),
         Message::FileChunk(FileChunk::new(transfer, vec![0xAB; 100]).unwrap()),
         Message::FileComplete {

@@ -774,7 +774,10 @@ pub(crate) mod testing {
                 size: 1,
                 filename: Filename::new("a.txt").unwrap(),
             },
-            MessageType::FileAccept => Message::FileAccept(transfer),
+            MessageType::FileAccept => Message::FileAccept {
+                transfer,
+                offset: 0,
+            },
             MessageType::FileReject => Message::FileReject(transfer),
             MessageType::FileChunk => {
                 Message::FileChunk(FileChunk::new(transfer, vec![1]).unwrap())

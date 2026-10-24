@@ -217,7 +217,10 @@ fn arb_message() -> impl Strategy<Value = Message> {
                 })
             }
         ),
-        id.prop_map(|id| Message::FileAccept(TransferId::from_bytes(id))),
+        (id, 0..=MAX_FILE_SIZE).prop_map(|(id, offset)| Message::FileAccept {
+            transfer: TransferId::from_bytes(id),
+            offset,
+        }),
         id.prop_map(|id| Message::FileReject(TransferId::from_bytes(id))),
         id.prop_map(|id| Message::FileAbort(TransferId::from_bytes(id))),
         (id, vec(any::<u8>(), 1..2000)).prop_map(|(id, data)| Message::FileChunk(
@@ -309,7 +312,10 @@ fn samples(card: ContactCard) -> Vec<Message> {
             size: 1,
             filename: Filename::new("a.txt").unwrap(),
         },
-        Message::FileAccept(transfer),
+        Message::FileAccept {
+            transfer,
+            offset: 0,
+        },
         Message::FileReject(transfer),
         Message::FileChunk(FileChunk::new(transfer, vec![1]).unwrap()),
         Message::FileComplete {

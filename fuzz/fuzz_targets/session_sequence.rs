@@ -102,7 +102,10 @@ fn samples(card: ContactCard) -> Vec<Message> {
             size: 1,
             filename: Filename::new("a.txt").unwrap(),
         },
-        Message::FileAccept(transfer),
+        Message::FileAccept {
+            transfer,
+            offset: 0,
+        },
         Message::FileReject(transfer),
         Message::FileChunk(FileChunk::new(transfer, vec![1]).unwrap()),
         Message::FileComplete {

@@ -93,7 +93,7 @@ impl Kind {
             | Message::Pong(_)
             | Message::MessageAck(_)
             | Message::EndpointUpdate(_)
-            | Message::FileAccept(_)
+            | Message::FileAccept { .. }
             | Message::FileReject(_)
             | Message::FileComplete { .. }
             | Message::FileAbort(_)

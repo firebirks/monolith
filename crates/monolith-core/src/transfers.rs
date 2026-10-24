@@ -48,7 +48,7 @@ impl Transfers {
         let (transfer, offer, abort) = match message {
             Message::FileOffer { transfer, .. } => (*transfer, true, false),
             Message::FileAbort(transfer) => (*transfer, false, true),
-            Message::FileAccept(transfer) | Message::FileReject(transfer) => {
+            Message::FileAccept { transfer, .. } | Message::FileReject(transfer) => {
                 (*transfer, false, false)
             }
             Message::FileChunk(chunk) => (*chunk.transfer(), false, false),
@@ -98,7 +98,10 @@ mod tests {
 
     fn others(byte: u8) -> Vec<Message> {
         vec![
-            Message::FileAccept(id(byte)),
+            Message::FileAccept {
+                transfer: id(byte),
+                offset: 0,
+            },
             Message::FileReject(id(byte)),
             Message::FileAbort(id(byte)),
             Message::FileChunk(FileChunk::new(id(byte), vec![1]).unwrap()),

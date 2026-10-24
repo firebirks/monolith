@@ -611,7 +611,7 @@ replaces it:
 
 | Limit | Value |
 | --- | --- |
-| Age | 24 hours (`MAX_SESSION_LIFETIME`); 48 hours while a file transfer is active (`MAX_SESSION_LIFETIME_WITH_TRANSFER`) |
+| Age | 24 hours (`MAX_SESSION_LIFETIME`); 48 hours while a file transfer is active (`MAX_SESSION_LIFETIME_WITH_TRANSFER`), which a side may decline to use |
 | Frames one side sends | 2^32 (`MAX_FRAMES_PER_DIRECTION`) |
 | Ciphertext bytes one side sends | 2^40 (`MAX_BYTES_PER_DIRECTION`): the sum of the frame length fields |
 
@@ -628,7 +628,9 @@ are not negotiated.
   transfer that would begin later does not extend the session, and no
   transfer is started on a session that is past 24 hours. When the
   transfer ends, the ordinary limit applies again, so a session past 24
-  hours then sends nothing but Close.
+  hours then sends nothing but Close. A side may close a session at 24
+  hours whatever its transfers do: since Phase 8 they go on over the next
+  session (section 13), and Monolith does so.
 - A receiver takes frames until `SESSION_CLOSE_GRACE` after the age limit
   that applies. This lets the last frames that were sent in time, and the
   Close, arrive from a peer whose clock started a little later. A frame
@@ -661,7 +663,7 @@ All sizes are body sizes. "States" lists where the message may be received.
 | 0x0030 | Profile | 4 to 1156 | Contact |
 | 0x0031 | EndpointUpdate | 171 | Contact |
 | 0x0040 | FileOffer | 27 to 281 | Contact |
-| 0x0041 | FileAccept | 16 | Contact |
+| 0x0041 | FileAccept | 24 | Contact |
 | 0x0042 | FileReject | 16 | Contact |
 | 0x0043 | FileChunk | 19 to 64508 | Contact |
 | 0x0044 | FileComplete | 48 | Contact |
@@ -709,6 +711,13 @@ dropped, and the decision stands. A Ping not answered within
 time the session is read (`RESOURCE_LIMITS.md` section 6): a wait of the
 local side, for its store or before an acknowledgement, does not use them
 up (`DESIGN_QUESTIONS.md` P7-6).
+
+Since frames are read in order, a Pong also shows that the peer read
+every frame written before the Ping it answers. Monolith uses that as a
+barrier for file messages (section 13.1): it writes a Ping after a
+message whose reading it needs to know of, or waits for the Pong of an
+outstanding Ping and then writes one, and takes the Pong as proof. A
+barrier is one more use of the one Ping outstanding.
 
 ### 8.3 ContactRequest (0x0010)
 
@@ -847,7 +856,7 @@ endpoint, and how a successor key is authorized before it is used.
 ### 8.9 File transfer (0x0040 to 0x0045)
 
     FileOffer     [16] transfer_id || u64 size || text<1..255> filename
-    FileAccept    [16] transfer_id
+    FileAccept    [16] transfer_id || u64 offset
     FileReject    [16] transfer_id
     FileChunk     [16] transfer_id || bytes<1..64490> data
     FileComplete  [16] transfer_id || [32] sha256
@@ -1757,81 +1766,147 @@ set of the identity whose service it reached.
 ## 13. File transfer
 
 Only between accepted contacts. Nothing is transferred that the receiving
-user did not accept.
+user did not accept. A transfer is durable state of each side, not of a
+session: it goes on over the next session after a session ends, and after
+a restart of either side (`docs/adr/0013-file-transfer.md` gives the
+reasons; ADR 0014 how each side stages the file).
 
-Monolith transfers no file so far, and offers none. As a receiver it
-keeps the rules of section 13.1 and nothing more: each FileOffer is
-answered at once with FileReject, as an offer above the pending limits
-is, and its identifier is remembered as that of a transfer that ended on
-the session. A file message that names a remembered identifier is
-discarded; any other is a violation, since this side has no offer and
-none pending or active (`DESIGN_QUESTIONS.md` P7-4).
+Phase 8 amended this section in version 1, before any implementation of
+the earlier exchange existed: FileAccept gained an offset (section 8.9),
+and transfers outlive sessions. A peer that implements only the earlier
+rules of Phase 7 answers every FileOffer with FileReject, never offers,
+and so never receives a message whose layout or meaning changed.
+
+Identity of a transfer and of its file:
+
+- `transfer_id` is 16 random bytes chosen by the offerer. Each side keys
+  a transfer by its local identity, the contact record (whose identifier
+  is never reused), the direction and `transfer_id`; a contact made again
+  for the same person inherits nothing. An offerer never uses an
+  identifier the contact already has from it in either direction.
+- `size` is the exact number of bytes of the file, at most
+  `MAX_FILE_SIZE`. Zero is allowed. A receiver may set a lower limit of
+  its own; Monolith's is `MAX_TRANSFER_SIZE`.
+- `filename` is display data, never a path (section 13.3).
+- The digest of FileComplete is the SHA-256 of the `size` bytes of the
+  file.
+- L, the full chunk size, is the largest chunk section 5.1 gives for the
+  frame parameters, 64490 bytes for the working values.
 
 ### 13.1 Exchange
 
+Each session keeps the set of transfer identifiers offered on it. A file
+message whose identifier was not offered on the session is a violation,
+and so is a second FileOffer of an identifier already offered on it. The
+offerer writes a file message only on a session on which it offered the
+transfer.
+
     offerer                               receiver
     FileOffer(id, size, name)  ->
-                                          user decides
-                               <-         FileAccept(id) or FileReject(id)
+                                          from what it holds:
+                               <-         nothing, FileAccept(id, offset),
+                                          FileComplete(id, digest),
+                                          FileReject(id) or FileAbort(id)
     FileChunk(id, data) ...    ->
+                               <-         FileAccept(id, offset) ...
     FileComplete(id, digest)   ->
                                <-         FileComplete(id, digest)
 
-- `transfer_id` is 16 random bytes chosen by the offerer. An offer whose
-  identifier is already in use on the session is a violation.
-- `size` is the exact number of bytes that will follow, at most
-  `MAX_FILE_SIZE`. Zero is allowed.
-- The receiver holds an offer for the user for at most `FILE_OFFER_TIMEOUT`
-  and then sends FileReject. Offers above the per-contact or global pending
-  limits are answered with FileReject without being shown.
-- The user can accept an offer only while fewer than the permitted number
-  of transfers are active. Otherwise the offer stays pending and the
-  interface says why.
-- FileAccept and FileReject must name a pending offer made by the peer.
-- FileChunk is valid only from the offerer, only after FileAccept, and only
-  while bytes remain. Every chunk must carry exactly
-  `min(full chunk, bytes remaining)` bytes, where a full chunk is the size
-  section 5.1 gives for the frame parameters, 64490 bytes for the working
-  values. Chunks are sequential; there is no offset field.
-- The offerer sends FileComplete after the last chunk, with the SHA-256 of
-  the whole file. It is valid only when exactly `size` bytes have been
-  received.
-- The receiver compares the digest with its own. On a match it finishes the
-  file (13.3) and sends FileComplete back with the same digest. On a
-  mismatch it deletes what it received and sends FileAbort.
-- The offerer compares the digest in the returned FileComplete with its
-  own. A match means the file was delivered. Anything else, including
-  FileAbort, means it was not; the offerer reports that and sends nothing
-  further.
-- Either side may send FileAbort for a transfer at any time after the
-  offer.
-- Messages can cross. Each side remembers the identifiers of the last
+- The offerer offers each transfer it has not finished, at most once per
+  session, with the same identifier, size and name every time, on a
+  session that is confirmed, is its preferred session for the contact and
+  is the only one it has with the contact (section 14). It offers first
+  the transfers being sent, then those it cancelled while the receiver
+  could not be told, each followed at once by FileAbort, then those
+  waiting for an answer, oldest first, at the pace of `FILE_OFFER_RATE`.
+- The receiver answers an offer from what it holds for that key: a new
+  offer is recorded and shown to the user, or answered with FileReject
+  (above the receiver's size limit or its pending limit per contact,
+  without a record), or with nothing (above its other limits, without a
+  record); an offer the user has not decided: nothing; an accepted
+  transfer not complete: `FileAccept(id, offset)`; a complete one:
+  `FileComplete(id, digest)` with the digest it verified; a rejected or
+  expired one: FileReject; a cancelled or failed one: FileAbort. An offer
+  whose size or name differs from what the receiver holds for that key
+  is a violation.
+- An offer waits for the user for at most `FILE_OFFER_TIMEOUT` and then
+  expires; it is answered with FileReject from then on.
+- `FileAccept(id, offset)` says that the receiver accepted the transfer
+  and holds its first `offset` bytes durably. `offset` is `min(n * L,
+  size)` for a whole number n, and within a session the offsets the
+  receiver sends for a transfer never decrease. The receiver sends it
+  when the user accepts (offset 0), in answer to an offer, and as an
+  acknowledgement of progress: once `FILE_PROGRESS_CHUNKS` more chunks
+  are durable, or `FILE_PROGRESS_INTERVAL` after its last one when new
+  data is durable. A FileAccept or FileReject that names no offer the
+  receiving side made on the session is a violation, and so is an offset
+  above the bytes the offerer sent.
+- FileChunk is valid only from the offerer and only after a FileAccept of
+  the transfer on the session. The first chunk of a session starts at the
+  offset of that FileAccept; chunks follow each other with no gap and no
+  overlap, and each carries exactly `min(L, bytes remaining)` bytes. The
+  offerer never has more than `FILE_WINDOW_CHUNKS` chunks written beyond
+  the last offset the receiver acknowledged on the session.
+- The offerer sends `FileComplete(id, digest)` once per session for a
+  transfer: after the last chunk, or at once if the FileAccept that
+  answered its offer on the session has `offset` equal to `size`. It is
+  valid only when the receiver holds exactly `size` bytes; with bytes
+  missing it is a violation. A later FileAccept with `offset` equal to
+  `size` asks for nothing.
+- The receiver compares the SHA-256 of the bytes it holds with the
+  digest. On a match it records the transfer as complete, durably, and
+  only then answers `FileComplete(id, digest)`. On a mismatch it records
+  the transfer as failed, discards what it received and answers
+  FileAbort.
+- The offerer compares the digest of a FileComplete from the receiver
+  with its own. A match means that the file was delivered; anything else,
+  FileAbort included, that it was not, and the offerer sends nothing
+  further for it.
+- Either side may cancel a transfer that is not complete with FileAbort,
+  on a session on which it was offered. A receiver discards a FileAbort
+  for a transfer it holds as complete.
+- Each side remembers the identifiers of the last
   `MAX_ENDED_TRANSFER_IDS` transfers that ended on the session, for
-  whatever reason. A file message that names one of them is discarded. A
-  file message that names an identifier that is neither pending, active
-  nor remembered is a violation.
-- A session that ends aborts its transfers. There is no resume.
+  whatever reason, with the bytes the peer may still send for each. A
+  file message that names one is discarded; a chunk beyond those bytes
+  is a violation.
+- The receiver binds a transfer to the session of its first offer, moves
+  the binding only to a session registered later, and passes it to the
+  latest live session the transfer was offered on when the bound session
+  ends. File messages of the transfer on another session are discarded
+  as messages that crossed an end, within the window.
+- A side records the change of state a file message causes before it
+  reads the next frame. A Pong that answers a Ping written after a
+  message shows that the peer read and recorded it (section 8.2).
 
 ### 13.2 Scheduling and backpressure
 
-The sender writes at most one FileChunk ahead of any waiting chat or control
-message, so a transfer delays a chat message by at most one frame. The
-receiver stops reading from the session while its disk writer is behind.
-There is no application-level window; the Tor stream provides flow control.
+The sender writes replies to what it read first, then waiting chat
+messages, then decisions, offers, and at most one FileChunk; before each
+chunk it takes the complete frames that have arrived. A waiting chat or
+control message is written after at most one chunk, and waits behind at
+most the window, which `MIN_TRANSFER_THROUGHPUT` sizes. The receiver
+reads no frame while it writes a chunk or verifies a file. The window of
+section 13.1 is the application-level flow control; the Tor stream adds
+its own.
 
 ### 13.3 Receiver-side handling of the file
 
-- Before accepting: the declared size must not exceed the configured
-  maximum, and free disk space must cover it with a margin.
-- Data is written to a temporary file whose name Monolith generates, created
-  with exclusive-create semantics in a directory only the user can access.
-- The received filename is never used as a path. For a save-name suggestion
-  the receiver additionally strips or replaces: leading and trailing dots
-  and spaces, characters that are reserved on common filesystems
-  (`< > : " | ? *`), and reserved device names (CON, NUL, COM1 and so on).
-  If nothing usable remains, a generic name is used.
-- The final file is created with exclusive-create semantics. An existing
-  file is never overwritten; the name gets a numeric suffix instead.
+- Before accepting: the declared size must not exceed the receiver's
+  limit, and the receiver reserves the space of the staged file with a
+  margin (ADR 0014).
+- Data is staged encrypted in a file whose name Monolith generates, in the
+  profile directory, never in a folder of the user; an ephemeral
+  installation stages in memory.
+- The received filename is never used as a path. For a save-name
+  suggestion the receiver additionally strips or replaces: leading and
+  trailing dots and spaces, characters that are reserved on common
+  filesystems (`< > : " | ? *`), and reserved device names (CON, NUL,
+  COM1 and so on). If nothing usable remains, a generic name is used.
+- A file is saved only when the user asks, in the folder the user chose:
+  written to a temporary file with exclusive-create semantics, checked
+  against the digest, synced, and given its final name without ever
+  replacing an existing file.
 - Nothing is opened, previewed, executed or type-sniffed. No MIME type is
   transmitted, and none would be trusted.
 
@@ -1867,7 +1942,8 @@ When a session with contact C becomes `AuthenticatedContact` and another
 
 The losing session is closed with Close. Messages that were not acknowledged
 on it are resent on the surviving session; the receiver drops any it had
-already received by identifier. Transfers on the losing session are aborted.
+already received by identifier. Transfers on the losing session go on over
+the session that stays (section 13).
 
 When both sessions are alive, both ends reach the same result, because the
 preference depends only on the two identity keys and on who initiated. When

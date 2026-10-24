@@ -1674,7 +1674,10 @@ fn offer(byte: u8) -> Message {
 /// Every file message but an offer, for the transfer `byte`.
 fn file_messages(byte: u8) -> Vec<Message> {
     vec![
-        Message::FileAccept(transfer(byte)),
+        Message::FileAccept {
+            transfer: transfer(byte),
+            offset: 0,
+        },
         Message::FileReject(transfer(byte)),
         Message::FileChunk(FileChunk::new(transfer(byte), vec![7; 10]).unwrap()),
         Message::FileComplete {

@@ -10,7 +10,7 @@ license.workspace = true
 [dependencies]
 monolith-identity.workspace = true
 subtle.workspace = true
-zeroize.workspace = true
+zeroize = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 ed25519-dalek.workspace = true

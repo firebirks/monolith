@@ -219,25 +219,29 @@ const _: () = {
     );
 };
 
-/// Largest file size accepted in an offer. The field is 64 bits wide; larger
-/// values are a violation. Local policy sets a lower limit, see
-/// [`DEFAULT_MAX_FILE_SIZE`].
+/// Largest file size accepted in an offer, and largest offset in a file
+/// acceptance. The fields are 64 bits wide; larger values are a violation.
+/// Local policy sets a lower limit, see [`MAX_TRANSFER_SIZE`].
 pub const MAX_FILE_SIZE: u64 = 4 * 1024 * 1024 * 1024;
 
-/// Default limit on the size of a received file.
-pub const DEFAULT_MAX_FILE_SIZE: u64 = 1024 * 1024 * 1024;
+/// Largest file this installation sends or accepts (`docs/adr/0013`). A
+/// staged copy is a second copy on disk, and an ephemeral installation
+/// stages in memory; an offer above it is answered with FileReject.
+pub const MAX_TRANSFER_SIZE: u64 = 256 * 1024 * 1024;
 
 const _: () =
     assert!(MAX_CHAT_TEXT_LEN + MESSAGE_ID_LEN + FIELD_LENGTH_PREFIX_LEN <= MAX_MESSAGE_BODY_LEN);
-const _: () = assert!(DEFAULT_MAX_FILE_SIZE <= MAX_FILE_SIZE);
+const _: () = assert!(MAX_TRANSFER_SIZE <= MAX_FILE_SIZE);
 
 // ---------------------------------------------------------------------------
 // Session lifetime. A session that reaches any of these is closed and
 // replaced by a new handshake. There is no in-band rekey.
 // ---------------------------------------------------------------------------
 
-/// Longest time a session may stay open. Deferred while a file transfer is
-/// active, see [`MAX_SESSION_LIFETIME_WITH_TRANSFER`].
+/// Longest time a session may stay open. Version 1 lets a session with an
+/// active file transfer stay open longer, see
+/// [`MAX_SESSION_LIFETIME_WITH_TRANSFER`]; Monolith does not use that,
+/// since its transfers go on over the next session (`docs/adr/0013`).
 pub const MAX_SESSION_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Longest time a session may stay open when a file transfer keeps it past
@@ -313,8 +317,32 @@ pub const FRAME_READ_TIMEOUT: Duration = Duration::from_secs(60);
 /// Time allowed to write one frame.
 pub const FRAME_WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Time a file offer waits for the user before it is dropped.
-pub const FILE_OFFER_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// Time a file offer waits for the user, across sessions and restarts,
+/// before it expires and is answered with FileReject.
+pub const FILE_OFFER_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Longest time between two acknowledgements of a receiver while new data
+/// is durable.
+pub const FILE_PROGRESS_INTERVAL: Duration = Duration::from_secs(30);
+
+/// A transfer that made no progress for this long fails, on either side.
+pub const TRANSFER_STALL_LIMIT: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// How long the record of an ended incoming transfer is kept, so that an
+/// offer repeated after a lost answer finds it.
+pub const ENDED_TRANSFER_RETENTION: Duration = Duration::from_secs(14 * 24 * 60 * 60);
+
+/// At most one write of the transfer store per transfer for its stall
+/// deadline in this time.
+pub const TRANSFER_PROGRESS_RECORD_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// Reading time a session must have spent as the only session of the
+/// contact to count among those on which a transfer was not offered.
+pub const TRANSFER_GRACE: Duration = Duration::from_secs(60);
+
+/// How long a receiver holds a transfer after a write of its blob failed
+/// for a full disk or a file another process held.
+pub const TRANSFER_HOLD: Duration = Duration::from_secs(10 * 60);
 
 // ---------------------------------------------------------------------------
 // Concurrency budgets
@@ -379,19 +407,65 @@ pub const MAX_PENDING_FILE_OFFERS_PER_CONTACT: usize = 4;
 /// File offers waiting for the user, all contacts together.
 pub const MAX_PENDING_FILE_OFFERS: usize = 16;
 
-/// File transfers in progress with one contact, both directions together.
+/// Incoming file transfers accepted and not complete, from one contact.
 pub const MAX_ACTIVE_TRANSFERS_PER_CONTACT: usize = 2;
 
-/// File transfers in progress, all contacts together.
+/// Incoming file transfers accepted and not complete, all contacts of one
+/// local identity together.
 pub const MAX_ACTIVE_TRANSFERS: usize = 4;
+
+/// Outgoing transfers not yet accepted, cancellations not yet read
+/// included, to one contact.
+pub const MAX_WAITING_OFFERS_PER_CONTACT: usize = 4;
+
+/// Outgoing transfers not yet accepted, all contacts of one local identity
+/// together.
+pub const MAX_WAITING_OFFERS: usize = 16;
+
+/// Chunks the offerer may have written beyond the offset the receiver last
+/// acknowledged on the session.
+pub const FILE_WINDOW_CHUNKS: u64 = 4;
+
+/// Chunks made durable between two acknowledgements of a receiver.
+pub const FILE_PROGRESS_CHUNKS: u64 = 2;
+
+/// Slowest throughput the window is sized for, in bytes a second.
+pub const MIN_TRANSFER_THROUGHPUT: u64 = 10_000;
+
+/// Growth of a durable offset that counts as progress of a transfer.
+pub const TRANSFER_PROGRESS_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Sessions in a row on which the offerer did not offer an accepted
+/// transfer, after which the receiver fails it.
+pub const TRANSFER_UNOFFERED_SESSIONS: usize = 3;
+
+/// Declared sizes of outgoing transfers not finished, per installation.
+pub const MAX_STAGED_OUTGOING_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Declared sizes of incoming transfers accepted, complete ones not yet
+/// saved or removed included, per installation.
+pub const MAX_STAGED_INCOMING_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Declared sizes of the transfers an ephemeral installation stages in
+/// memory, both directions together.
+pub const MAX_EPHEMERAL_STAGED_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Records of transfers of one contact, ended ones included.
+pub const MAX_TRANSFER_RECORDS_PER_CONTACT: usize = 16;
+
+/// Records of transfers of one installation, ended ones included.
+pub const MAX_TRANSFER_RECORDS: usize = 256;
+
+/// Files staged at a time, and files saved at a time.
+pub const MAX_STAGING_JOBS: usize = 1;
 
 /// Identifiers of ended transfers remembered per session, so that messages
 /// which crossed an abort or a reject are discarded and not treated as a
 /// violation.
 pub const MAX_ENDED_TRANSFER_IDS: usize = 64;
 
-/// Free disk space required beyond the declared size before a transfer is
-/// accepted.
+/// Free disk space every reservation of a staged file leaves over: at
+/// least what the stores need to be written once more.
 pub const FILE_FREE_SPACE_MARGIN: u64 = 64 * 1024 * 1024;
 
 /// Chat messages queued for one contact.
@@ -562,6 +636,13 @@ pub const MAX_MESSAGE_STORE_FILE_LEN: u64 = 16 * 1024 * 1024;
 /// The plaintext of the message store is a multiple of this.
 pub const MESSAGE_STORE_PADDING_BLOCK_LEN: usize = 64 * 1024;
 
+/// Largest transfer store file that will be read or written
+/// (`docs/adr/0014-transfer-staging.md`).
+pub const MAX_TRANSFER_STORE_FILE_LEN: u64 = 1024 * 1024;
+
+/// The plaintext of the transfer store is a multiple of this.
+pub const TRANSFER_STORE_PADDING_BLOCK_LEN: usize = 64 * 1024;
+
 /// Smallest Argon2id memory cost accepted from a vault header, in KiB.
 pub const MIN_KDF_MEMORY_KIB: u32 = 64 * 1024;
 
@@ -658,6 +739,32 @@ const _: () = {
     assert!(MAX_INBOUND_HANDSHAKES < MAX_CONTACT_SESSIONS);
     assert!(MAX_PENDING_FILE_OFFERS_PER_CONTACT <= MAX_PENDING_FILE_OFFERS);
     assert!(MAX_ACTIVE_TRANSFERS_PER_CONTACT <= MAX_ACTIVE_TRANSFERS);
+    assert!(MAX_WAITING_OFFERS_PER_CONTACT <= MAX_WAITING_OFFERS);
+    assert!(MAX_TRANSFER_RECORDS_PER_CONTACT <= MAX_TRANSFER_RECORDS);
+
+    // File transfer (docs/adr/0013, 0014): a receiver still holds the
+    // record of any transfer an offerer may still offer; an idle session
+    // can count for the unoffered rule; acknowledgements move the window
+    // before it fills and keep the offerer's session alive; a chat
+    // message behind a full window at the floor throughput waits less
+    // than half its acknowledgement timeout; a reservation leaves room
+    // for the stores to be written again; one file fits every quota.
+    assert!(TRANSFER_STALL_LIMIT.as_secs() < ENDED_TRANSFER_RETENTION.as_secs());
+    assert!(TRANSFER_GRACE.as_secs() < SESSION_LINGER.as_secs());
+    assert!(FILE_PROGRESS_CHUNKS * 2 <= FILE_WINDOW_CHUNKS);
+    assert!(FILE_PROGRESS_INTERVAL.as_secs() < IDLE_TIMEOUT.as_secs());
+    assert!(
+        FILE_WINDOW_CHUNKS * MAX_FILE_CHUNK_LEN as u64 / MIN_TRANSFER_THROUGHPUT
+            < MESSAGE_ACK_TIMEOUT.as_secs() / 2
+    );
+    assert!(
+        FILE_FREE_SPACE_MARGIN
+            > MAX_MESSAGE_STORE_FILE_LEN + MAX_TRANSFER_STORE_FILE_LEN + MAX_VAULT_FILE_LEN
+    );
+    assert!(MAX_TRANSFER_SIZE <= MAX_STAGED_OUTGOING_BYTES);
+    assert!(MAX_TRANSFER_SIZE <= MAX_STAGED_INCOMING_BYTES);
+    assert!(MAX_TRANSFER_SIZE <= MAX_EPHEMERAL_STAGED_BYTES);
+    assert!(MAX_TRANSFER_STORE_FILE_LEN % TRANSFER_STORE_PADDING_BLOCK_LEN as u64 == 0);
 
     assert!(PING_INTERVAL_MIN.as_secs() < PING_INTERVAL_MAX.as_secs());
     assert!(PING_INTERVAL_MAX.as_secs() + PONG_TIMEOUT.as_secs() <= IDLE_TIMEOUT.as_secs());

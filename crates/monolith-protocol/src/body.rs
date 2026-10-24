@@ -160,8 +160,15 @@ pub enum Message {
         /// Display name of the file. Never a path.
         filename: Filename,
     },
-    /// The receiver accepts an offer.
-    FileAccept(TransferId),
+    /// The receiver has accepted an offer and holds its first `offset`
+    /// bytes durably (`PROTOCOL.md` section 13).
+    FileAccept {
+        /// Identifier of the transfer.
+        transfer: TransferId,
+        /// Bytes of the file the receiver holds; the offerer sends from
+        /// here. At most [`MAX_FILE_SIZE`].
+        offset: u64,
+    },
     /// The receiver declines an offer.
     FileReject(TransferId),
     /// File data.
@@ -199,7 +206,7 @@ impl Message {
             Self::Profile { .. } => MessageType::Profile,
             Self::EndpointUpdate(_) => MessageType::EndpointUpdate,
             Self::FileOffer { .. } => MessageType::FileOffer,
-            Self::FileAccept(_) => MessageType::FileAccept,
+            Self::FileAccept { .. } => MessageType::FileAccept,
             Self::FileReject(_) => MessageType::FileReject,
             Self::FileChunk(_) => MessageType::FileChunk,
             Self::FileComplete { .. } => MessageType::FileComplete,
@@ -212,9 +219,10 @@ impl Message {
     /// Text fields, chunks and cards are validated by their own types. Two
     /// things are not, because the variants that hold them have public
     /// fields: a card inside a message must carry no invitation capability,
-    /// and the size in a file offer must not exceed [`MAX_FILE_SIZE`]. This
-    /// fails with [`ProtocolError::InvalidValue`] for a message that breaks
-    /// either rule, so such a message cannot be put on the wire.
+    /// and the size in a file offer and the offset in a file acceptance
+    /// must not exceed [`MAX_FILE_SIZE`]. This fails with
+    /// [`ProtocolError::InvalidValue`] for a message that breaks either
+    /// rule, so such a message cannot be put on the wire.
     pub fn encode_body(&self) -> Result<Vec<u8>, ProtocolError> {
         let mut writer = Writer::new();
         match self {
@@ -262,7 +270,14 @@ impl Message {
                 writer.u64(*size);
                 writer.bytes(filename.as_bytes(), MAX_FILENAME_LEN)?;
             }
-            Self::FileAccept(transfer) | Self::FileReject(transfer) | Self::FileAbort(transfer) => {
+            Self::FileAccept { transfer, offset } => {
+                if *offset > MAX_FILE_SIZE {
+                    return Err(ProtocolError::InvalidValue);
+                }
+                writer.raw(transfer.as_bytes());
+                writer.u64(*offset);
+            }
+            Self::FileReject(transfer) | Self::FileAbort(transfer) => {
                 writer.raw(transfer.as_bytes());
             }
             Self::FileChunk(chunk) => {
@@ -335,7 +350,14 @@ impl Message {
                     filename,
                 }
             }
-            MessageType::FileAccept => Self::FileAccept(TransferId::from_bytes(reader.array()?)),
+            MessageType::FileAccept => {
+                let transfer = TransferId::from_bytes(reader.array()?);
+                let offset = reader.u64()?;
+                if offset > MAX_FILE_SIZE {
+                    return Err(ProtocolError::InvalidValue);
+                }
+                Self::FileAccept { transfer, offset }
+            }
             MessageType::FileReject => Self::FileReject(TransferId::from_bytes(reader.array()?)),
             MessageType::FileChunk => {
                 let transfer = TransferId::from_bytes(reader.array()?);
@@ -451,7 +473,10 @@ mod tests {
                 size: 12_345,
                 filename: Filename::new("notes.txt").unwrap(),
             },
-            Message::FileAccept(transfer()),
+            Message::FileAccept {
+                transfer: transfer(),
+                offset: 64_490,
+            },
             Message::FileReject(transfer()),
             Message::FileChunk(FileChunk::new(transfer(), vec![0xAB; 100]).unwrap()),
             Message::FileComplete {
@@ -489,7 +514,14 @@ mod tests {
         assert_eq!(size(&Message::ContactAccept), 0);
         assert_eq!(size(&Message::MessageAck(id())), 16);
         assert_eq!(size(&Message::EndpointUpdate(Box::new(card(false)))), 171);
-        assert_eq!(size(&Message::FileAccept(transfer())), 16);
+        assert_eq!(
+            size(&Message::FileAccept {
+                transfer: transfer(),
+                offset: 0
+            }),
+            24
+        );
+        assert_eq!(size(&Message::FileReject(transfer())), 16);
         assert_eq!(
             size(&Message::FileComplete {
                 transfer: transfer(),
@@ -625,6 +657,33 @@ mod tests {
             transfer: transfer(),
             size: MAX_FILE_SIZE + 1,
             filename: Filename::new("a").unwrap(),
+        };
+        assert_eq!(too_big.encode_body(), Err(ProtocolError::InvalidValue));
+    }
+
+    #[test]
+    fn file_accept_offset_is_bounded() {
+        let mut body = vec![0x33; 16];
+        body.extend_from_slice(&(MAX_FILE_SIZE + 1).to_be_bytes());
+        assert_eq!(
+            Message::decode(MessageType::FileAccept, &body),
+            Err(ProtocolError::InvalidValue)
+        );
+
+        let mut body = vec![0x33; 16];
+        body.extend_from_slice(&MAX_FILE_SIZE.to_be_bytes());
+        assert!(Message::decode(MessageType::FileAccept, &body).is_ok());
+
+        // The layout of version 1 before Phase 8, the identifier alone, is
+        // too short now.
+        assert_eq!(
+            Message::decode(MessageType::FileAccept, &[0x33; 16]),
+            Err(ProtocolError::BadMessageLength)
+        );
+
+        let too_big = Message::FileAccept {
+            transfer: transfer(),
+            offset: MAX_FILE_SIZE + 1,
         };
         assert_eq!(too_big.encode_body(), Err(ProtocolError::InvalidValue));
     }
