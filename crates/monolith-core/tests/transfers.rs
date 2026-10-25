@@ -1519,3 +1519,53 @@ fn a_sender_of_phase_8_sends_a_peer_of_phase_7_nothing_that_ends_its_session() {
         a.stop().await;
     });
 }
+
+/// The cards A dials for B, in order.
+fn plan(a: &Peer, b: &Peer) -> Vec<monolith_protocol::card::ContactCard> {
+    a.identity
+        .dial_plan(b.identity.identity())
+        .map(|plan| plan.cards)
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_transfer_goes_on_over_a_session_of_the_new_key_of_its_contact() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let mut a = Peer::new(1).await;
+        let mut b = Peer::new(2).await;
+        let at_a = a.add(&b).await;
+        let at_b = b.add(&a).await;
+        // B is changing its transport key; A learns the successor on the
+        // first session.
+        b.identity.begin_rotation().await.unwrap();
+        a.start(&network).await;
+        b.start(&network).await;
+        a.runtime()
+            .send_message(&a.id(), &at_a, "before")
+            .await
+            .unwrap();
+        until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered]).await;
+        until(|| plan(&a, &b).len() == 2).await;
+        let successor = plan(&a, &b)[0].clone();
+        until(|| a.runtime().sessions(&a.id(), &at_a).unwrap() == 0).await;
+        // A offers a file over a session of the old key.
+        let mut events = b.runtime().subscribe();
+        let data = file(5 * L);
+        let sent = offer(&a, &at_a, &data).await;
+        let received = offered(&mut events).await;
+        until(|| b.runtime().sessions(&b.id(), &at_b).unwrap() == 0).await;
+        // B switches to its new key, and only then accepts: the transfer of
+        // the same contact record goes on over a session of the new key.
+        let rotation = b.identity.rotation_id().unwrap();
+        assert!(b.identity.switch_rotation(rotation, true).await.unwrap());
+        b.runtime().accept_transfer(&received).await.unwrap();
+        until(|| a.status(&sent) == Some(TransferStatus::Completed)).await;
+        assert_eq!(saved(&b, &received).await, data);
+        assert_eq!(received.contact, at_b);
+        // The successor answered and is the active key of B now.
+        assert_eq!(plan(&a, &b), vec![successor]);
+        a.stop().await;
+        b.stop().await;
+    });
+}
