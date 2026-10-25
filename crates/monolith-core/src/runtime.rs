@@ -942,22 +942,23 @@ impl<B: TorBackend + 'static> Inner<B> {
                     {
                         backoff.reset();
                     }
-                    // Announced only if it comes, for queued messages: not
-                    // for a record that ended, an identity that closed, or
-                    // a store that failed.
-                    if self.needs_scheduler(runtime, &contact, &peer)
-                        && identity.next_queued(&contact).is_some()
-                    {
+                    // The next attempt follows a delay, for transfers too;
+                    // it is announced only if it comes, for queued
+                    // messages: not for a record that ended, an identity
+                    // that closed, or a store that failed.
+                    if self.needs_scheduler(runtime, &contact, &peer) {
                         delay = backoff.delay(jitter());
-                        self.emit(Event::DeliveryDeferred {
-                            identity: identity.id(),
-                            contact,
-                            reason: match ended {
-                                Ended::AckTimeout => DeferReason::AckTimeout,
-                                Ended::Other => DeferReason::SessionEnded,
-                            },
-                            retry_in: delay,
-                        });
+                        if identity.next_queued(&contact).is_some() {
+                            self.emit(Event::DeliveryDeferred {
+                                identity: identity.id(),
+                                contact,
+                                reason: match ended {
+                                    Ended::AckTimeout => DeferReason::AckTimeout,
+                                    Ended::Other => DeferReason::SessionEnded,
+                                },
+                                retry_in: delay,
+                            });
+                        }
                     }
                 }
                 Ok(Err(error)) => {

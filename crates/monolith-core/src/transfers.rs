@@ -1613,7 +1613,7 @@ pub(crate) struct Transfers {
     /// The staged files.
     pub(crate) blobs: Blobs,
     /// The saves that were under way when the installation last closed,
-    /// for the runtime to report once.
+    /// for the runtime to report.
     interrupted: Mutex<Vec<Key>>,
 }
 
@@ -1641,10 +1641,9 @@ impl Transfers {
         })
     }
 
-    /// The saves that were under way when the installation last closed,
-    /// once.
-    pub(crate) fn take_interrupted(&self) -> Vec<Key> {
-        core::mem::take(&mut *lock(&self.interrupted))
+    /// The saves that were under way when the installation last closed.
+    pub(crate) fn interrupted(&self) -> Vec<Key> {
+        lock(&self.interrupted).clone()
     }
 
     /// The time of the transfers, in seconds since the Unix epoch.

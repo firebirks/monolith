@@ -4,13 +4,15 @@
 //!
 //! Every operation on a blob runs on the blocking pool and holds the blob
 //! for its whole length, so that the writes to a blob and the offset taken
-//! from it are one after the other, and a removal waits for whatever reads
-//! the blob, a save included. A blob is kept open while its transfer uses
-//! it. A reservation is made under the lock of the disk, which the writes
-//! of the stores take too (`crate::persist::Serialized`): none of them
-//! meets the margin a reservation takes for a moment. A removal that fails
-//! is tried again later, and every blob no record names goes when the
-//! installation opens.
+//! from it are one after the other. A removal never waits for a holder and
+//! never removes a blob that is being read: a blob held by an operation or
+//! a save goes when its holder lets go of it, and a save under way is
+//! cancelled. A blob is kept open while its transfer uses it. A
+//! reservation is made under the lock of the disk, which the writes of the
+//! stores take too (`crate::persist::Serialized`): none of them meets the
+//! margin a reservation takes for a moment. A removal that fails is tried
+//! again later, and every blob no record names goes when the installation
+//! opens.
 
 use core::fmt;
 use std::collections::{HashMap, HashSet};
@@ -45,6 +47,102 @@ struct Slot {
     gone: bool,
 }
 
+/// One blob: its slot, held by one operation at a time, and whether it is
+/// to be removed. That is decided under the lock of `doomed`, which a
+/// holder takes too to let go of the blob: a removal that finds the blob
+/// held leaves the removal to its holder, which carries it out as it lets
+/// go, and none is lost between the two.
+#[derive(Default)]
+struct Cell {
+    slot: Arc<AsyncMutex<Slot>>,
+    doomed: Mutex<bool>,
+}
+
+/// What every holder of a blob may change: the cells, and the removals
+/// that failed.
+#[derive(Default)]
+struct Common {
+    cells: Mutex<HashMap<BlobId, Arc<Cell>>>,
+    stale: Mutex<HashSet<BlobId>>,
+}
+
+/// Removes the blob `id`, held by `slot`: closed first, which Windows
+/// needs, and then its file. One whose file does not go is tried again
+/// later.
+fn erase(dir: &SharedDir, id: BlobId, slot: &mut Slot, common: &Common) {
+    slot.gone = true;
+    slot.blob = None;
+    let removed = match dir.remove(&id.name()) {
+        Ok(()) | Err(StorageError::NotFound) => true,
+        Err(_) => dir.open_blob(&id.name()).is_ok_and(|file| file.is_none()),
+    };
+    lock(&common.cells).remove(&id);
+    let mut stale = lock(&common.stale);
+    if removed {
+        stale.remove(&id);
+    } else {
+        stale.insert(id);
+    }
+}
+
+/// Lets go of the blob `id`, held by `slot`, after a removal decided
+/// meanwhile is carried out.
+fn let_go(
+    dir: &SharedDir,
+    id: BlobId,
+    cell: &Cell,
+    mut slot: OwnedMutexGuard<Slot>,
+    common: &Common,
+) {
+    let doomed = lock(&cell.doomed);
+    if *doomed {
+        erase(dir, id, &mut slot, common);
+    }
+    drop(slot);
+    drop(doomed);
+}
+
+/// Why a staging failed: the file it read, or the disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StageError {
+    /// The source failed, or gave fewer or more bytes than its size.
+    Source,
+    /// The blob could not be made or written.
+    Storage(StorageError),
+}
+
+/// The source of a staging, watched: whether it failed, and how many bytes
+/// it gave, so that its failure is told apart from one of the disk.
+struct Watched {
+    inner: Box<dyn Read + Send>,
+    read: u64,
+    failed: bool,
+    ended: bool,
+}
+
+impl Read for Watched {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.inner.read(buf) {
+            Ok(0) if !buf.is_empty() => {
+                self.ended = true;
+                Ok(0)
+            }
+            Ok(count) => {
+                self.read = self
+                    .read
+                    .saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
+                Ok(count)
+            }
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    self.failed = true;
+                }
+                Err(error)
+            }
+        }
+    }
+}
+
 /// What the verification of a staged file found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Verified {
@@ -62,11 +160,9 @@ pub(crate) struct Blobs {
     /// The free space a reservation leaves; none in memory.
     margin: u64,
     disk: DiskLock,
-    slots: Mutex<HashMap<BlobId, Arc<AsyncMutex<Slot>>>>,
+    common: Arc<Common>,
     /// One file is staged or saved at a time.
     jobs: Arc<Semaphore>,
-    /// Blobs whose removal failed, tried again.
-    stale: Mutex<HashSet<BlobId>>,
 }
 
 impl fmt::Debug for Blobs {
@@ -100,9 +196,8 @@ impl Blobs {
             key: key.map(Arc::new),
             margin,
             disk,
-            slots: Mutex::new(HashMap::new()),
+            common: Arc::new(Common::default()),
             jobs: Arc::new(Semaphore::new(MAX_STAGING_JOBS)),
-            stale: Mutex::new(HashSet::new()),
         }
     }
 
@@ -110,11 +205,8 @@ impl Blobs {
         self.key.clone().ok_or(StorageError::Randomness)
     }
 
-    fn slot(&self, id: BlobId) -> Arc<AsyncMutex<Slot>> {
-        lock(&self.slots)
-            .entry(id)
-            .or_insert_with(|| Arc::new(AsyncMutex::new(Slot::default())))
-            .clone()
+    fn cell(&self, id: BlobId) -> Arc<Cell> {
+        lock(&self.common.cells).entry(id).or_default().clone()
     }
 
     /// Runs `work` on the blob `id` of a file of `size` bytes on the
@@ -130,20 +222,29 @@ impl Blobs {
     ) -> Result<R, StorageError> {
         let key = self.key()?;
         let dir = self.dir.clone();
-        let mut slot = self.slot(id).lock_owned().await;
+        let common = self.common.clone();
+        let cell = self.cell(id);
+        let mut slot = cell.slot.clone().lock_owned().await;
         tokio::task::spawn_blocking(move || {
-            if slot.gone {
-                return Err(StorageError::NotFound);
-            }
-            if slot.blob.is_none() {
-                slot.blob = Some(Blob::open(&*dir, &key, id, size)?.ok_or(StorageError::NotFound)?);
-            }
-            let blob = slot.blob.as_mut().ok_or(StorageError::Internal)?;
-            let result = work(blob);
-            if result.is_err() {
-                // Opened again for the next use, which looks at it afresh.
-                slot.blob = None;
-            }
+            let result = if slot.gone {
+                Err(StorageError::NotFound)
+            } else {
+                let opened = match slot.blob.take() {
+                    Some(blob) => Ok(blob),
+                    None => Blob::open(&*dir, &key, id, size)
+                        .and_then(|blob| blob.ok_or(StorageError::NotFound)),
+                };
+                opened.and_then(|mut blob| {
+                    let result = work(&mut blob);
+                    // A blob that failed is opened again for the next use,
+                    // which looks at it afresh.
+                    if result.is_ok() {
+                        slot.blob = Some(blob);
+                    }
+                    result
+                })
+            };
+            let_go(&dir, id, &cell, slot, &common);
             result
         })
         .await
@@ -165,8 +266,7 @@ impl Blobs {
         .await
         .map_err(|_| StorageError::Internal)??;
         let id = blob.id();
-        let slot = self.slot(id);
-        slot.lock().await.blob = Some(blob);
+        self.cell(id).slot.lock().await.blob = Some(blob);
         Ok(id)
     }
 
@@ -178,30 +278,42 @@ impl Blobs {
     pub(crate) async fn stage(
         &self,
         size: u64,
-        mut source: Box<dyn Read + Send>,
-    ) -> Result<(BlobId, [u8; 32]), StorageError> {
+        source: Box<dyn Read + Send>,
+    ) -> Result<(BlobId, [u8; 32]), StageError> {
         let permit = self
             .jobs
             .clone()
             .try_acquire_owned()
-            .map_err(|_| StorageError::Busy)?;
-        let key = self.key()?;
+            .map_err(|_| StageError::Storage(StorageError::Busy))?;
+        let key = self.key().map_err(StageError::Storage)?;
         let dir = self.dir.clone();
         let disk = self.disk.clone();
         let margin = self.margin;
         let (blob, digest) = tokio::task::spawn_blocking(move || {
             let blob = {
                 let _disk = lock(&disk);
-                Blob::create(&*dir, &key, size, margin)?
+                Blob::create(&*dir, &key, size, margin).map_err(StageError::Storage)?
             };
-            let staged = blob::fill(&*dir, blob, &mut *source);
+            let mut watched = Watched {
+                inner: source,
+                read: 0,
+                failed: false,
+                ended: false,
+            };
+            let staged = blob::fill(&*dir, blob, &mut watched);
             drop(permit);
-            staged
+            staged.map_err(|error| {
+                if watched.failed || watched.read > size || (watched.ended && watched.read < size) {
+                    StageError::Source
+                } else {
+                    StageError::Storage(error)
+                }
+            })
         })
         .await
-        .map_err(|_| StorageError::Internal)??;
+        .map_err(|_| StageError::Storage(StorageError::Internal))??;
         let id = blob.id();
-        self.slot(id).lock().await.blob = Some(blob);
+        self.cell(id).slot.lock().await.blob = Some(blob);
         Ok((id, digest))
     }
 
@@ -273,7 +385,9 @@ impl Blobs {
     /// A reader of the file of the complete blob `id`, for a save: it holds
     /// the blob until it is dropped, and one save or staging runs at a
     /// time ([`StorageError::Busy`]). After the last byte it fails unless
-    /// the file has `size` bytes and the SHA-256 `digest`.
+    /// the file has `size` bytes and the SHA-256 `digest`. A removal of the
+    /// blob meanwhile makes its next read fail: the save is cancelled, and
+    /// the blob goes once the reader is dropped.
     pub(crate) async fn reader(
         &self,
         id: BlobId,
@@ -287,54 +401,61 @@ impl Blobs {
             .map_err(|_| StorageError::Busy)?;
         let key = self.key()?;
         let dir = self.dir.clone();
-        let mut slot = self.slot(id).lock_owned().await;
+        let common = self.common.clone();
+        let cell = self.cell(id);
+        let mut slot = cell.slot.clone().lock_owned().await;
         tokio::task::spawn_blocking(move || {
-            if slot.gone {
-                return Err(StorageError::NotFound);
-            }
-            let blob = match slot.blob.take() {
-                Some(blob) => blob,
-                None => Blob::open(&*dir, &key, id, size)?.ok_or(StorageError::NotFound)?,
+            let opened = if slot.gone {
+                Err(StorageError::NotFound)
+            } else {
+                match slot.blob.take() {
+                    Some(blob) => Ok(blob),
+                    None => Blob::open(&*dir, &key, id, size)
+                        .and_then(|blob| blob.ok_or(StorageError::NotFound)),
+                }
             };
-            Ok(SaveReader {
-                reader: BlobReader::new(blob, digest),
-                _slot: slot,
-                _permit: permit,
-            })
+            match opened {
+                Ok(blob) => Ok(SaveReader {
+                    reader: Some(BlobReader::new(blob, digest)),
+                    slot: Some(slot),
+                    cell,
+                    common,
+                    dir,
+                    id,
+                    _permit: permit,
+                }),
+                Err(error) => {
+                    let_go(&dir, id, &cell, slot, &common);
+                    Err(error)
+                }
+            }
         })
         .await
         .map_err(|_| StorageError::Internal)?
     }
 
-    /// Removes the blob `id`, once whatever holds it lets go of it. A
-    /// removal that fails is tried again with [`Self::retry`].
+    /// Removes the blob `id`: now if nothing holds it, otherwise when its
+    /// holder lets go of it, a save cancelled. It never waits for a holder,
+    /// and never removes a blob that is being read. A removal that fails is
+    /// tried again with [`Self::retry`].
     pub(crate) async fn remove(&self, id: BlobId) {
+        let cell = self.cell(id);
+        let held = {
+            let mut doomed = lock(&cell.doomed);
+            *doomed = true;
+            cell.slot.clone().try_lock_owned().ok()
+        };
+        let Some(mut slot) = held else {
+            return;
+        };
         let dir = self.dir.clone();
-        let slot = self.slot(id);
-        let mut held = slot.lock_owned().await;
-        let removed = tokio::task::spawn_blocking(move || {
-            held.gone = true;
-            // Closed before it is removed, which Windows needs.
-            held.blob = None;
-            match dir.remove(&id.name()) {
-                Ok(()) | Err(StorageError::NotFound) => true,
-                Err(_) => dir.open_blob(&id.name()).is_ok_and(|file| file.is_none()),
-            }
-        })
-        .await
-        .unwrap_or(false);
-        lock(&self.slots).remove(&id);
-        let mut stale = lock(&self.stale);
-        if removed {
-            stale.remove(&id);
-        } else {
-            stale.insert(id);
-        }
+        let common = self.common.clone();
+        let _ = tokio::task::spawn_blocking(move || erase(&dir, id, &mut slot, &common)).await;
     }
 
     /// Tries again every removal that failed.
     pub(crate) async fn retry(&self) {
-        let stale: Vec<BlobId> = lock(&self.stale).iter().copied().collect();
+        let stale: Vec<BlobId> = lock(&self.common.stale).iter().copied().collect();
         for id in stale {
             self.remove(id).await;
         }
@@ -356,7 +477,7 @@ impl Blobs {
             if self.dir.remove(&name).is_ok() {
                 removed = removed.saturating_add(1);
             } else {
-                lock(&self.stale).insert(id);
+                lock(&self.common.stale).insert(id);
             }
         }
         if removed > 0 {
@@ -370,10 +491,15 @@ impl Blobs {
 /// (`docs/adr/0014-transfer-staging.md`, "Saving a received file"). It
 /// holds the blob, which is removed only once this is dropped. After the
 /// last byte it returns an error, never the end of the file, unless the
-/// file has its size and its digest.
+/// file has its size and its digest. Once the transfer is removed (its
+/// identity deleted, its contact ended), every read fails.
 pub struct SaveReader {
-    reader: BlobReader,
-    _slot: OwnedMutexGuard<Slot>,
+    reader: Option<BlobReader>,
+    slot: Option<OwnedMutexGuard<Slot>>,
+    cell: Arc<Cell>,
+    common: Arc<Common>,
+    dir: SharedDir,
+    id: BlobId,
     _permit: OwnedSemaphorePermit,
 }
 
@@ -383,8 +509,24 @@ impl fmt::Debug for SaveReader {
     }
 }
 
+impl Drop for SaveReader {
+    fn drop(&mut self) {
+        // Closed before the blob is let go of, and removed if it is to go.
+        drop(self.reader.take());
+        if let Some(slot) = self.slot.take() {
+            let_go(&self.dir, self.id, &self.cell, slot, &self.common);
+        }
+    }
+}
+
 impl Read for SaveReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.reader.read(buf)
+        if *lock(&self.cell.doomed) {
+            return Err(std::io::Error::other("the transfer was removed"));
+        }
+        match self.reader.as_mut() {
+            Some(reader) => reader.read(buf),
+            None => Err(std::io::Error::other("the reader was closed")),
+        }
     }
 }

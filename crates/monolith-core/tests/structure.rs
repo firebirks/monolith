@@ -428,3 +428,39 @@ fn a_store_key_made_for_tests_is_used_by_no_production_code() {
         }
     }
 }
+
+#[test]
+fn a_chunk_waits_for_the_chat_and_an_answer_for_what_is_durable() {
+    // ADR 0013: a session writes the head of the chat queue before the
+    // transfers, and at most one chunk each time round, after it took what
+    // had arrived.
+    let runtime = source("monolith-core/src/runtime.rs");
+    let drive = function(&runtime, "async fn drive<S>(");
+    let chat = drive.find("&Message::ChatMessage {").unwrap();
+    let pump = drive.find("self.files_pump(").unwrap();
+    assert!(chat < pump);
+    let transfer = source("monolith-core/src/runtime/transfer.rs");
+    assert_eq!(transfer.matches("send(&Message::FileChunk(").count(), 1);
+    let pumping = function(&transfer, "pub(super) async fn files_pump<S>(");
+    let drained = pumping.find("let ready = {").unwrap();
+    let written = pumping.find("send(&Message::FileChunk(").unwrap();
+    assert!(drained < written);
+    assert_eq!(pumping.matches("send(&Message::FileChunk(").count(), 1);
+    // A FileAccept that counts progress follows a sync of the blob; the
+    // other answers what the state holds, which only a sync or a scan sets.
+    assert_eq!(transfer.matches("send(&Message::FileAccept {").count(), 2);
+    let progress = function(&transfer, "async fn confirm_progress<S>(");
+    let synced = progress.find(".sync(blob, size)").unwrap();
+    let accepted = progress.find("send(&Message::FileAccept {").unwrap();
+    assert!(synced < accepted);
+    let answering = function(&transfer, "async fn answer<S>(");
+    assert!(answering.contains("state.answer(&key, now)"));
+    // The receiver acknowledges a completion only once it is recorded.
+    let verifying = function(&transfer, "async fn on_verify<S>(");
+    let recorded = verifying.find("state.complete(&key, held, now)").unwrap();
+    let acknowledged = verifying.find("send(&Message::FileComplete {").unwrap();
+    assert!(recorded < acknowledged);
+    let transfers = source("monolith-core/src/transfers.rs");
+    let staged = function(&transfers, "pub(crate) fn staged(");
+    assert!(staged.contains("entry.advance(bytes, now)"));
+}

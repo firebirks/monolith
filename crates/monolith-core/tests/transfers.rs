@@ -30,13 +30,18 @@ use monolith_core::api::{
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
-use monolith_core::link::{Link, dial};
+use monolith_core::link::{Link, answer, dial};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_protocol::body::{FileChunk, Message, MessageId, TransferId};
-use monolith_protocol::limits::{FILE_WINDOW_CHUNKS, MAX_FILE_CHUNK_LEN};
+use monolith_protocol::limits::{
+    FILE_OFFER_TIMEOUT, FILE_WINDOW_CHUNKS, MAX_FILE_CHUNK_LEN,
+    MAX_PENDING_FILE_OFFERS_PER_CONTACT, SESSION_LINGER, TRANSFER_GRACE,
+};
 use monolith_protocol::session::Action;
 use monolith_protocol::text::{ChatText, Filename};
-use monolith_tor::{MockNetwork, MockTorBackend};
+use monolith_tor::{
+    KeySource, MockNetwork, MockTorBackend, OnionService, OnionServiceSecret, TorBackend,
+};
 use sha2::{Digest, Sha256};
 use tokio::io::DuplexStream;
 use tokio::sync::broadcast;
@@ -1052,5 +1057,337 @@ fn a_deleted_contact_loses_its_transfers_and_a_contact_made_again_inherits_none(
         assert_eq!(fresh.contact, again);
         assert_eq!(b.status(&fresh), Some(TransferStatus::Offered));
         b.stop().await;
+    });
+}
+
+#[test]
+fn a_chat_message_of_the_sender_is_not_held_behind_its_chunks() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, mut link) = b_by_hand(&network).await;
+        offer(&a, &at_a, &file(40 * L)).await;
+        let (messages, _) = drain(&mut link, QUIET).await;
+        let (transfer, _, _) = offer_in(&messages);
+        link.send(&Message::FileAccept {
+            transfer,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+        drain(&mut link, QUIET).await;
+        // The window is full and the receiver acknowledges nothing: a chat
+        // message goes out all the same, at once.
+        a.runtime()
+            .send_message(&a.id(), &at_a, "while sending")
+            .await
+            .unwrap();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        let Message::ChatMessage { id, .. } = messages[0] else {
+            panic!("not a chat message: {messages:?}");
+        };
+        link.send(&Message::MessageAck(id)).await.unwrap();
+        until(|| a.statuses(&at_a) == vec![MessageStatus::Delivered; 2]).await;
+        // With the window open again, a chat message queued meanwhile waits
+        // behind at most the chunks the window allows.
+        link.send(&Message::FileAccept {
+            transfer,
+            offset: 4 * L,
+        })
+        .await
+        .unwrap();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "between chunks")
+            .await
+            .unwrap();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        let chat = messages
+            .iter()
+            .position(|message| matches!(message, Message::ChatMessage { .. }))
+            .expect("the chat message");
+        assert!(chat as u64 <= FILE_WINDOW_CHUNKS, "{chat}");
+        assert_eq!(
+            chunks_of(&messages, transfer).len() as u64,
+            FILE_WINDOW_CHUNKS
+        );
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_chat_message_between_chunks_is_acknowledged_before_the_next_chunk_is_read() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (_a, mut b, _, mut link) = a_by_hand(&network).await;
+        let data = file(20 * L);
+        let (transfer, received, _) = offer_by_hand(&b, &mut link, &data).await;
+        let chat = MessageId::from_bytes([9; 16]);
+        link.send(&chunk(transfer, &data, 0)).await.unwrap();
+        link.send(&chunk(transfer, &data, L)).await.unwrap();
+        link.send(&Message::ChatMessage {
+            id: chat,
+            text: ChatText::new("in the middle").unwrap(),
+        })
+        .await
+        .unwrap();
+        link.send(&chunk(transfer, &data, 2 * L)).await.unwrap();
+        link.send(&chunk(transfer, &data, 3 * L)).await.unwrap();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert_eq!(
+            messages,
+            vec![
+                Message::FileAccept {
+                    transfer,
+                    offset: 2 * L
+                },
+                Message::MessageAck(chat),
+                Message::FileAccept {
+                    transfer,
+                    offset: 4 * L
+                },
+            ]
+        );
+        assert_eq!(b.view(&received).unwrap().bytes, 4 * L);
+        b.stop().await;
+    });
+}
+
+#[test]
+fn chat_goes_both_ways_while_a_large_file_is_sent() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = accepted(&network).await;
+        let mut events = b.runtime().subscribe();
+        let data = file(120 * L);
+        let sent = offer(&a, &at_a, &data).await;
+        let received = offered(&mut events).await;
+        b.runtime().accept_transfer(&received).await.unwrap();
+        a.runtime()
+            .send_message(&a.id(), &at_a, "from the sender")
+            .await
+            .unwrap();
+        b.runtime()
+            .send_message(&b.id(), &at_b, "from the receiver")
+            .await
+            .unwrap();
+        let delivered = |statuses: Vec<MessageStatus>| {
+            statuses
+                .iter()
+                .filter(|status| **status == MessageStatus::Delivered)
+                .count()
+        };
+        until(|| delivered(a.statuses(&at_a)) == 2 && delivered(b.statuses(&at_b)) == 1).await;
+        until(|| a.status(&sent) == Some(TransferStatus::Completed)).await;
+        assert_eq!(saved(&b, &received).await, data);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_session_that_carries_a_transfer_lingers_from_its_last_progress() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, mut link) = b_by_hand(&network).await;
+        offer(&a, &at_a, &file(40 * L)).await;
+        let (messages, _) = drain(&mut link, QUIET).await;
+        let (transfer, _, _) = offer_in(&messages);
+        link.send(&Message::FileAccept {
+            transfer,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+        let mut held = chunks_of(&drain(&mut link, QUIET).await.0, transfer).len() as u64 * L;
+        // An acknowledgement every hundred seconds: longer, in all, than a
+        // session without activity lingers.
+        let start = tokio::time::Instant::now();
+        for _ in 0..4 {
+            tokio::time::sleep(Duration::from_secs(95)).await;
+            link.send(&Message::FileAccept {
+                transfer,
+                offset: held,
+            })
+            .await
+            .unwrap();
+            let (messages, ended) = drain(&mut link, QUIET).await;
+            assert!(!ended);
+            held += chunks_of(&messages, transfer).len() as u64 * L;
+        }
+        assert!(start.elapsed() > SESSION_LINGER * 3);
+        // No more: the session closes when it has lingered since the last
+        // progress.
+        let last = tokio::time::Instant::now();
+        let (_, ended) = drain(&mut link, SESSION_LINGER * 2).await;
+        assert!(ended);
+        let lingered = last.elapsed();
+        assert!(lingered >= SESSION_LINGER - QUIET, "{lingered:?}");
+        assert!(lingered <= SESSION_LINGER + QUIET, "{lingered:?}");
+        a.stop().await;
+    });
+}
+
+#[test]
+fn an_offer_accepted_when_no_session_is_left_makes_the_receiver_dial() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = accepted(&network).await;
+        let mut events = b.runtime().subscribe();
+        let data = file(3 * L);
+        let sent = offer(&a, &at_a, &data).await;
+        let received = offered(&mut events).await;
+        // The offer was read: nothing keeps a session, or makes a dial.
+        until(|| b.runtime().sessions(&b.id(), &at_b).unwrap() == 0).await;
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        assert_eq!(b.runtime().sessions(&b.id(), &at_b).unwrap(), 0);
+        b.runtime().accept_transfer(&received).await.unwrap();
+        until(|| a.status(&sent) == Some(TransferStatus::Completed)).await;
+        assert_eq!(saved(&b, &received).await, data);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn an_offer_not_decided_in_time_expires_and_the_sender_learns_it() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = accepted(&network).await;
+        let mut events = b.runtime().subscribe();
+        let sent = offer(&a, &at_a, &file(10)).await;
+        let received = offered(&mut events).await;
+        tokio::time::sleep(FILE_OFFER_TIMEOUT + Duration::from_secs(60)).await;
+        assert_eq!(b.status(&received), Some(TransferStatus::Expired));
+        assert_eq!(
+            b.runtime().accept_transfer(&received).await,
+            Err(TransferError::UnknownTransfer)
+        );
+        // The sender learns it at its next offer.
+        a.runtime().connect(&a.id(), &at_a).unwrap();
+        until(|| a.status(&sent) == Some(TransferStatus::Rejected)).await;
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn offers_above_the_pending_limit_of_a_contact_are_rejected_without_a_record() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (_a, mut b, _, mut link) = a_by_hand(&network).await;
+        let mut events = b.runtime().subscribe();
+        for byte in 1..=u8::try_from(MAX_PENDING_FILE_OFFERS_PER_CONTACT).unwrap() + 1 {
+            link.send(&Message::FileOffer {
+                transfer: TransferId::from_bytes([byte; 16]),
+                size: 10,
+                filename: Filename::new("x.txt").unwrap(),
+            })
+            .await
+            .unwrap();
+        }
+        let (messages, ended) = drain(&mut link, Duration::from_secs(60)).await;
+        assert!(!ended);
+        assert_eq!(
+            messages,
+            vec![Message::FileReject(TransferId::from_bytes(
+                [u8::try_from(MAX_PENDING_FILE_OFFERS_PER_CONTACT).unwrap() + 1; 16]
+            ))]
+        );
+        let mut offers = 0;
+        while let Ok(event) = events.try_recv() {
+            if matches!(event, Event::TransferOffered(_)) {
+                offers += 1;
+            }
+        }
+        assert_eq!(offers, MAX_PENDING_FILE_OFFERS_PER_CONTACT);
+        assert_eq!(
+            b.runtime().transfers(&b.id()).unwrap().len(),
+            MAX_PENDING_FILE_OFFERS_PER_CONTACT
+        );
+        b.stop().await;
+    });
+}
+
+#[test]
+fn an_accepted_transfer_the_sender_no_longer_offers_fails() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (a, mut b, _, mut link) = a_by_hand(&network).await;
+        let data = file(4 * L);
+        let (_, received, _) = offer_by_hand(&b, &mut link, &data).await;
+        link.close().await.unwrap();
+        // Sessions of the sender that last and offer nothing.
+        for round in 0..3 {
+            assert_eq!(
+                b.status(&received),
+                Some(TransferStatus::Receiving),
+                "{round}"
+            );
+            let mut link = hand_link(&network, &b, &a).await;
+            drain(&mut link, TRANSFER_GRACE + QUIET).await;
+            link.close().await.unwrap();
+        }
+        until(|| b.status(&received) == Some(TransferStatus::Failed)).await;
+        assert_eq!(
+            b.view(&received).unwrap().reason,
+            Some(TransferReason::OffererGone)
+        );
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_dial_for_a_transfer_alone_that_brings_no_progress_is_repeated_with_growing_delays() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = accepted(&network).await;
+        b.stop().await;
+        // B is driven by hand behind its own service: it takes every
+        // session, reads the offer, and drops the session without an
+        // answer. Nothing makes progress, and the offer is never known to
+        // be read, so A keeps wanting a session.
+        let mut service = network
+            .backend()
+            .publish_onion(KeySource::Existing {
+                secret: OnionServiceSecret::from_bytes(&[2; 64]),
+                expected: fixed_endpoint(2),
+            })
+            .await
+            .unwrap();
+        offer(&a, &at_a, &file(10)).await;
+        let start = tokio::time::Instant::now();
+        let window = Duration::from_secs(300);
+        let mut sessions = Vec::new();
+        while let Some(left) = window.checked_sub(start.elapsed()) {
+            let Ok(stream) = tokio::time::timeout(left, service.accept()).await else {
+                break;
+            };
+            let Ok(established) = answer(stream.unwrap(), &Budgets::new(), &b.identity).await
+            else {
+                continue;
+            };
+            sessions.push(start.elapsed());
+            let mut link = established.link;
+            for action in established.first {
+                if action == Action::SendContactAccept {
+                    link.send(&Message::ContactAccept).await.unwrap();
+                }
+            }
+            while let Ok(Ok(arrived)) = tokio::time::timeout(QUIET, link.receive()).await {
+                if matches!(arrived.received().message, Message::FileOffer { .. }) {
+                    break;
+                }
+            }
+            drop(link);
+        }
+        // The delays of the scheduler grow from ten seconds, with their
+        // jitter, and none is skipped: a few sessions in five minutes, and
+        // never one right after another.
+        assert!(sessions.len() >= 2, "{sessions:?}");
+        assert!(sessions.len() <= 7, "{sessions:?}");
+        for pair in sessions.windows(2) {
+            assert!(pair[1] - pair[0] >= Duration::from_secs(4), "{sessions:?}");
+        }
+        a.stop().await;
     });
 }

@@ -34,6 +34,7 @@ LISTS = {
     "phase6": "PHASE6",
     "phase7": "PHASE7",
     "phase7w": "PHASE7_WINDOWS",
+    "phase8": "PHASE8",
 }
 
 # Files that change what any test builds or how the runner runs: every

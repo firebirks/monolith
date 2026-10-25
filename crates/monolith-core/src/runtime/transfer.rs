@@ -35,7 +35,7 @@ use monolith_storage::transfers::{Direction, Flags, Reason, State};
 
 use super::*;
 use crate::api::{TransferError, TransferRef, TransferView};
-use crate::blobs::{SaveReader, Verified};
+use crate::blobs::{SaveReader, StageError, Verified};
 use crate::exchange::{Exchange, Received};
 use crate::rates::Bucket;
 use crate::transfers::{Answer, Change, Key, Offer, Refusal, Staged, TransferState, Transfers};
@@ -97,7 +97,6 @@ const fn staging_error(error: StorageError) -> TransferError {
         StorageError::Full => TransferError::DiskFull,
         StorageError::Busy => TransferError::Busy,
         StorageError::Randomness => TransferError::Randomness,
-        StorageError::TooLarge | StorageError::Io => TransferError::Source,
         _ => TransferError::Storage,
     }
 }
@@ -1165,7 +1164,7 @@ impl<B: TorBackend + 'static> Inner<B> {
         let transfers = self.installation.transfers();
         let mut changes = transfers.subscribe();
         let mut shutdown = self.shutdown.subscribe();
-        for key in transfers.take_interrupted() {
+        for key in transfers.interrupted() {
             self.emit(Event::SaveInterrupted(key.reference()));
         }
         loop {
@@ -1289,11 +1288,15 @@ impl<B: TorBackend + 'static> Inner<B> {
         transfers
             .read(|state, now| state.may_offer(&identity.id(), &contact, size, now))
             .map_err(refused)?;
-        let (blob, digest) = transfers
-            .blobs
-            .stage(size, source)
-            .await
-            .map_err(staging_error)?;
+        let (blob, digest) =
+            transfers
+                .blobs
+                .stage(size, source)
+                .await
+                .map_err(|error| match error {
+                    StageError::Source => TransferError::Source,
+                    StageError::Storage(error) => staging_error(error),
+                })?;
         let mut draws = 0_u8;
         let recorded = loop {
             let mut transfer = [0_u8; TRANSFER_ID_LEN];
@@ -1376,7 +1379,12 @@ impl<B: TorBackend + 'static> Inner<B> {
             Ok((Ok(_), generation)) => generation,
             Ok((Err(refusal), _)) => {
                 transfers.blobs.remove(blob).await;
-                return Err(refused(refusal));
+                // A contact that ended meanwhile is told as such.
+                return Err(if identity.is_current(&key.contact, &peer) {
+                    refused(refusal)
+                } else {
+                    TransferError::NotAContact
+                });
             }
             Err(_) => {
                 transfers.blobs.remove(blob).await;
@@ -1612,6 +1620,26 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .unwrap_or(Err(TransferError::ShuttingDown))
     }
 
+    /// The saves of `identity` that were under way when the installation
+    /// last closed: a file named `monolith-partial-` and 16 hexadecimal
+    /// digits may be left in the folder each went to. The same list as the
+    /// [`Event::SaveInterrupted`] raised when the runtime started.
+    pub fn interrupted_saves(
+        &self,
+        identity: &IdentityId,
+    ) -> Result<Vec<TransferRef>, TransferError> {
+        let held = self.transfer_held(identity)?;
+        Ok(self
+            .inner
+            .installation
+            .transfers()
+            .interrupted()
+            .into_iter()
+            .filter(|key| key.identity == held.identity.id())
+            .map(|key| key.reference())
+            .collect())
+    }
+
     /// Ends the save of `transfer` that [`Self::begin_save`] began: the
     /// file is saved, and its staged copy goes, or it was not, and the
     /// staged copy stays.
@@ -1628,4 +1656,84 @@ impl<B: TorBackend + 'static> Runtime<B> {
 /// "Names"). What the user is shown before the offer is made.
 pub fn offer_name(name: &str) -> String {
     Filename::from_local_name(name).as_str().to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use monolith_storage::record::RECORD_ID_LEN;
+
+    use super::*;
+
+    const TRANSFER: Id = [7; TRANSFER_ID_LEN];
+
+    fn contact(byte: u8) -> ContactId {
+        ContactId::from_bytes([byte; RECORD_ID_LEN]).unwrap()
+    }
+
+    /// Bindings with the sessions `serials` of contact 1, registered in
+    /// that order.
+    fn registered(serials: &[u64]) -> Bindings {
+        let mut bindings = Bindings::default();
+        for serial in serials {
+            bindings.register(*serial, contact(1), Arc::new(SessionControl::default()));
+        }
+        bindings
+    }
+
+    #[test]
+    fn a_transfer_is_bound_to_its_first_offer_and_moves_only_to_a_session_registered_later() {
+        let mut bindings = registered(&[10, 20]);
+        bindings.offer_seen(20, contact(1), TRANSFER);
+        assert!(bindings.is_bound(20, contact(1), TRANSFER));
+        // An offer on a session registered before it moves nothing.
+        bindings.offer_seen(10, contact(1), TRANSFER);
+        assert!(bindings.is_bound(20, contact(1), TRANSFER));
+        assert!(!bindings.is_bound(10, contact(1), TRANSFER));
+        let mut bindings = registered(&[10, 20]);
+        bindings.offer_seen(10, contact(1), TRANSFER);
+        assert!(bindings.is_bound(10, contact(1), TRANSFER));
+        bindings.offer_seen(20, contact(1), TRANSFER);
+        assert!(bindings.is_bound(20, contact(1), TRANSFER));
+        assert!(!bindings.is_bound(10, contact(1), TRANSFER));
+        // The same identifier of another contact is another transfer.
+        assert!(!bindings.is_bound(20, contact(2), TRANSFER));
+    }
+
+    #[test]
+    fn when_the_bound_session_ends_the_binding_passes_to_the_latest_live_one_it_was_offered_on() {
+        let mut bindings = registered(&[1, 2, 3, 4]);
+        bindings.offer_seen(1, contact(1), TRANSFER);
+        bindings.offer_seen(2, contact(1), TRANSFER);
+        bindings.offer_seen(4, contact(1), TRANSFER);
+        assert!(bindings.is_bound(4, contact(1), TRANSFER));
+        bindings.session_gone(4);
+        // Session 3 never had the offer; 2 is the latest that did.
+        assert!(bindings.is_bound(2, contact(1), TRANSFER));
+        bindings.session_gone(2);
+        assert!(bindings.is_bound(1, contact(1), TRANSFER));
+        bindings.session_gone(1);
+        assert!(!bindings.is_bound(3, contact(1), TRANSFER));
+        // A session that was not registered changes nothing.
+        bindings.session_gone(99);
+        // An offer on the one left binds it again.
+        bindings.offer_seen(3, contact(1), TRANSFER);
+        assert!(bindings.is_bound(3, contact(1), TRANSFER));
+    }
+
+    #[test]
+    fn the_session_of_the_latest_offer_of_this_side_is_the_one_that_sends() {
+        let mut bindings = registered(&[1, 2]);
+        bindings.offered_out(1, contact(1), TRANSFER);
+        assert!(bindings.is_latest(1, contact(1), TRANSFER));
+        bindings.offered_out(2, contact(1), TRANSFER);
+        assert!(bindings.is_latest(2, contact(1), TRANSFER));
+        assert!(!bindings.is_latest(1, contact(1), TRANSFER));
+        // Once that session ends, no session sends it until it is offered
+        // again.
+        bindings.session_gone(2);
+        assert!(!bindings.is_latest(1, contact(1), TRANSFER));
+        assert!(!bindings.is_latest(2, contact(1), TRANSFER));
+    }
 }
