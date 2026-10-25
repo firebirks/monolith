@@ -58,12 +58,13 @@ struct Cell {
     doomed: Mutex<bool>,
 }
 
-/// What every holder of a blob may change: the cells, and the removals
-/// that failed.
+/// What every holder of a blob may change: the cells, the removals that
+/// failed, and the blobs a save found damaged.
 #[derive(Default)]
 struct Common {
     cells: Mutex<HashMap<BlobId, Arc<Cell>>>,
     stale: Mutex<HashSet<BlobId>>,
+    damaged: Mutex<HashSet<BlobId>>,
 }
 
 /// Removes the blob `id`, held by `slot`: closed first, which Windows
@@ -453,6 +454,17 @@ impl Blobs {
         let _ = tokio::task::spawn_blocking(move || erase(&dir, id, &mut slot, &common)).await;
     }
 
+    /// Whether a removal failed and waits to be tried again.
+    pub(crate) fn has_stale(&self) -> bool {
+        !lock(&self.common.stale).is_empty()
+    }
+
+    /// Whether a save found the blob `id` damaged: a segment that did not
+    /// authenticate, or a file that did not match its digest. Asked once.
+    pub(crate) fn take_damaged(&self, id: BlobId) -> bool {
+        lock(&self.common.damaged).remove(&id)
+    }
+
     /// Tries again every removal that failed.
     pub(crate) async fn retry(&self) {
         let stale: Vec<BlobId> = lock(&self.common.stale).iter().copied().collect();
@@ -525,7 +537,11 @@ impl Read for SaveReader {
             return Err(std::io::Error::other("the transfer was removed"));
         }
         match self.reader.as_mut() {
-            Some(reader) => reader.read(buf),
+            Some(reader) => reader.read(buf).inspect_err(|_| {
+                // The staged file did not read as it was verified: the
+                // transfer fails when the save ends.
+                lock(&self.common.damaged).insert(self.id);
+            }),
             None => Err(std::io::Error::other("the reader was closed")),
         }
     }

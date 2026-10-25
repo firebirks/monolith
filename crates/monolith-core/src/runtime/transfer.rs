@@ -303,6 +303,12 @@ impl<B: TorBackend + 'static> Inner<B> {
                 return None;
             }
             self.emit(Event::TransferChanged(key.reference()));
+            // A removal that failed is tried again with each write of the
+            // transfer store.
+            if change.freed.is_none() && transfers.blobs.has_stale() {
+                let transfers = transfers.clone();
+                self.spawn(async move { transfers.blobs.retry().await });
+            }
         }
         self.release(transfers, change.freed);
         Some((result, change))
@@ -1606,6 +1612,20 @@ impl<B: TorBackend + 'static> Runtime<B> {
                     .await
                 {
                     Ok(reader) => Ok(reader),
+                    // A staged file that is missing or does not match its
+                    // record fails the transfer, and the user is told.
+                    Err(
+                        StorageError::NotFound
+                        | StorageError::BadFormat
+                        | StorageError::AuthenticationFailed,
+                    ) => {
+                        let _ = inner
+                            .decide(&held, key, |state, key, now| {
+                                Ok(state.fail(key, Reason::Storage, now))
+                            })
+                            .await;
+                        Err(TransferError::Storage)
+                    }
                     Err(error) => {
                         let _ = inner
                             .decide(&held, key, |state, key, now| {
@@ -1643,9 +1663,25 @@ impl<B: TorBackend + 'static> Runtime<B> {
     /// Ends the save of `transfer` that [`Self::begin_save`] began: the
     /// file is saved, and its staged copy goes, or it was not, and the
     /// staged copy stays.
+    ///
+    /// A save that failed because the staged file did not read as it was
+    /// verified fails the transfer instead (`docs/adr/0014`, "Missing and
+    /// damaged blobs").
     pub async fn end_save(&self, transfer: &TransferRef, saved: bool) -> Result<(), TransferError> {
+        let held = self.transfer_held(&transfer.identity)?;
+        let key = Key::named(transfer);
+        let damaged = !saved
+            && held.identity.transfers().is_some_and(|transfers| {
+                transfers
+                    .read(|state, _| state.record(&key).and_then(|record| record.blob))
+                    .is_some_and(|blob| transfers.blobs.take_damaged(blob))
+            });
         self.transfer_decision(transfer, move |state, key, now| {
-            Ok(state.end_save(key, saved, now))
+            Ok(if damaged {
+                state.fail(key, Reason::Storage, now)
+            } else {
+                state.end_save(key, saved, now)
+            })
         })
         .await
     }

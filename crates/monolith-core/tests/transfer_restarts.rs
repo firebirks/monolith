@@ -28,8 +28,8 @@ use std::sync::Arc;
 
 use common::{fixed_endpoint, keys, run_paused};
 use monolith_core::api::{
-    ContactId, Event, IdentityId, MessageStatus, TransferError, TransferRef, TransferStatus,
-    TransferView,
+    ContactId, Event, IdentityId, MessageStatus, TransferError, TransferReason, TransferRef,
+    TransferStatus, TransferView,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
@@ -40,7 +40,7 @@ use monolith_protocol::limits::{MAX_FILE_CHUNK_LEN, TRANSFER_HOLD};
 use monolith_protocol::session::Action;
 use monolith_protocol::text::Filename;
 use monolith_storage::StorageError;
-use monolith_storage::dir::{CrashOutcome, MemoryDir};
+use monolith_storage::dir::{CrashOutcome, MemoryDir, VaultDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{MockNetwork, MockTorBackend};
 use sha2::{Digest, Sha256};
@@ -1033,4 +1033,50 @@ fn a_transfer_goes_on_over_the_session_that_replaces_its_own() {
         }));
         assert_eq!(saved(&b, &received).await, data);
     });
+}
+
+#[test]
+fn a_received_file_whose_staged_copy_is_damaged_or_missing_fails_when_it_is_saved() {
+    for missing in [false, true] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut b, a, _, _) = contacts(&network).await;
+            let data = file(3 * L);
+            let mut link = hand_link(&network, &b, &a).await;
+            let received = offered_and_accepted(&b, &mut link, &data).await;
+            send_rest(&mut link, &data, 0).await;
+            assert_eq!(b.status(&received), Some(TransferStatus::Received));
+            // A restart, so that nothing holds the blob open; then someone
+            // with access to the folder changes or removes it.
+            b.crash(CrashOutcome::ALL[0]).await;
+            let name = b.blobs().pop().unwrap();
+            if missing {
+                b.dir().remove(&name).unwrap();
+            } else {
+                let mut bytes = b.dir().content(&name).unwrap();
+                let at = bytes.len() - 100;
+                bytes[at] ^= 1;
+                b.dir().overwrite(&name, &bytes).unwrap();
+            }
+            b.open();
+            b.start(&network).await;
+            let saved = async {
+                let mut reader = b.runtime().begin_save(&received).await?;
+                let mut bytes = Vec::new();
+                let read = reader.read_to_end(&mut bytes);
+                drop(reader);
+                b.runtime().end_save(&received, read.is_ok()).await?;
+                Ok::<_, TransferError>(read.is_ok())
+            };
+            match saved.await {
+                Ok(read) => assert!(!read, "{missing}"),
+                Err(error) => assert_eq!(error, TransferError::Storage, "{missing}"),
+            }
+            let view = b.view(&received).unwrap();
+            assert_eq!(view.status, TransferStatus::Failed, "{missing}");
+            assert_eq!(view.reason, Some(TransferReason::Storage), "{missing}");
+            until(|| b.blobs().is_empty()).await;
+            b.stop().await;
+        });
+    }
 }

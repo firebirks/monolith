@@ -1391,3 +1391,131 @@ fn a_dial_for_a_transfer_alone_that_brings_no_progress_is_repeated_with_growing_
         a.stop().await;
     });
 }
+
+/// What a peer of Phase 7 does with a file message: the logic of
+/// `crates/monolith-core/src/transfers.rs` at the tag `phase-7-complete`,
+/// as it was there. Its FileAccept had a body of 16 bytes, so the
+/// FileAccept of Phase 8 would not even decode there: it is a violation
+/// here as well.
+mod phase_7 {
+    use std::collections::VecDeque;
+
+    use monolith_protocol::body::{Message, TransferId};
+    use monolith_protocol::limits::MAX_ENDED_TRANSFER_IDS;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Answer {
+        Reject(TransferId),
+        Discard,
+        Violation,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct Transfers {
+        ended: VecDeque<TransferId>,
+    }
+
+    impl Transfers {
+        pub fn receive(&mut self, message: &Message) -> Option<Answer> {
+            let (transfer, offer, abort) = match message {
+                Message::FileOffer { transfer, .. } => (*transfer, true, false),
+                Message::FileAbort(transfer) => (*transfer, false, true),
+                Message::FileAccept { .. } => return Some(Answer::Violation),
+                Message::FileReject(transfer) => (*transfer, false, false),
+                Message::FileChunk(chunk) => (*chunk.transfer(), false, false),
+                Message::FileComplete { transfer, .. } => (*transfer, false, false),
+                _ => return None,
+            };
+            if self.ended.contains(&transfer) {
+                return Some(if offer || abort {
+                    Answer::Discard
+                } else {
+                    Answer::Violation
+                });
+            }
+            if !offer {
+                return Some(Answer::Violation);
+            }
+            if self.ended.len() >= MAX_ENDED_TRANSFER_IDS {
+                self.ended.pop_front();
+            }
+            self.ended.push_back(transfer);
+            Some(Answer::Reject(transfer))
+        }
+    }
+}
+
+/// Plays a peer of Phase 7 on `link` for `quiet` of silence: every file
+/// message goes through its logic, an offer is rejected at once, a chat
+/// message is acknowledged. Returns the chat messages it took. A file
+/// message that would have ended its session fails the test.
+async fn as_phase_7(
+    link: &mut Link<DuplexStream>,
+    peer: &mut phase_7::Transfers,
+    quiet: Duration,
+) -> Vec<MessageId> {
+    let mut chat = Vec::new();
+    loop {
+        let (messages, ended) = drain(link, quiet).await;
+        assert!(!ended, "the session ended");
+        if messages.is_empty() {
+            return chat;
+        }
+        for message in messages {
+            match peer.receive(&message) {
+                Some(phase_7::Answer::Violation) => {
+                    panic!("a peer of Phase 7 ends the session for {message:?}")
+                }
+                Some(phase_7::Answer::Reject(transfer)) => {
+                    link.send(&Message::FileReject(transfer)).await.unwrap();
+                }
+                Some(phase_7::Answer::Discard) | None => {}
+            }
+            if let Message::ChatMessage { id, .. } = message {
+                link.send(&Message::MessageAck(id)).await.unwrap();
+                chat.push(id);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_sender_of_phase_8_sends_a_peer_of_phase_7_nothing_that_ends_its_session() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, mut link) = b_by_hand(&network).await;
+        let mut peer = phase_7::Transfers::default();
+        // Three files, the empty one among them, and a chat message.
+        let mut sent = Vec::new();
+        for data in [file(10), file(0), file(3 * L)] {
+            sent.push(offer(&a, &at_a, &data).await);
+        }
+        a.runtime()
+            .send_message(&a.id(), &at_a, "files and words")
+            .await
+            .unwrap();
+        let chat = as_phase_7(&mut link, &mut peer, QUIET).await;
+        assert_eq!(chat.len(), 1);
+        for reference in &sent {
+            until(|| a.status(reference) == Some(TransferStatus::Rejected)).await;
+        }
+        // Chat from the peer goes on, and a later session carries no
+        // offer: the rejections are final.
+        link.send(&Message::ChatMessage {
+            id: MessageId::from_bytes([4; 16]),
+            text: ChatText::new("old peer").unwrap(),
+        })
+        .await
+        .unwrap();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert_eq!(
+            messages,
+            vec![Message::MessageAck(MessageId::from_bytes([4; 16]))]
+        );
+        link.close().await.unwrap();
+        let mut link = hand_link(&network, &a, &b).await;
+        let mut peer = phase_7::Transfers::default();
+        assert!(as_phase_7(&mut link, &mut peer, QUIET).await.is_empty());
+        a.stop().await;
+    });
+}
