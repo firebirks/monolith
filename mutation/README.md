@@ -12,7 +12,7 @@ key kept.
 
 ## Files
 
-- `faults.py`: the lists `PHASE1` to `PHASE7`, and `PHASE7_WINDOWS` of
+- `faults.py`: the lists `PHASE1` to `PHASE8`, and `PHASE7_WINDOWS` of
   code built on Windows only. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
@@ -22,6 +22,7 @@ key kept.
 ## Running
 
     python3 mutation/run.py all 3
+    python3 mutation/run.py phase8 3
     python3 mutation/run.py phase7 3
     python3 mutation/run.py phase7w 1
     python3 mutation/run.py phase6 3
@@ -439,6 +440,42 @@ Phase 2), covers the hardening of `docs/DESIGN_QUESTIONS.md` section
   as one taken, a downloads junction followed, a blocked removal tried
   once (HR69 to HR75). HR12, HR34, HR44, HR66, HR67, MR48 and MR54 moved
   with their code and keep their defects.
+
+The Phase 8 list, FT1 and up, covers file transfer
+(`docs/adr/0013-file-transfer.md`, `docs/adr/0014-transfer-staging.md`):
+
+- the rules of a session (`exchange.rs`): the window of the sender
+  widened, an acknowledgement that goes down, one beyond what was sent,
+  one that is not a whole number of chunks, a chunk of any length, a
+  chunk before an acceptance, a completion with bytes missing, every byte
+  left allowed after this side ended a transfer, a completion that
+  crossed a cancellation of this side dropped (FT1 to FT9);
+- the state machine (`transfers.rs`): a completion with any digest that
+  delivers, an offer above the size limit recorded, an offer of an
+  identifier of zero bytes recorded, the pending and the active limits of
+  a contact passed, room made from a record whose answer the peer may
+  still need, an outgoing transfer that never stalls, the stall deadline
+  written with every progress, a cancellation of an offer never seen
+  told, the flag of a later answer cleared by the reading of an earlier
+  one, an accepted transfer the sender no longer offers that never fails,
+  a record of a contact of another identity kept when the installation
+  opens (FT10 to FT21);
+- the sessions (`runtime/transfer.rs`, `runtime.rs`, `blobs.rs`):
+  progress acknowledged before the blob is synced, a completion
+  acknowledged without being recorded, a full disk that fails the
+  transfer instead of holding it, a held transfer that leaves its session
+  open, a freed blob kept, what a Pong shows the peer read never
+  recorded, the transfers of a blocked or deleted contact left, a dial
+  for transfers alone followed by the next at once, a blob no record
+  names kept when the installation opens (FT22 to FT30);
+- staging and names: a save reader that does not check the digest, a
+  scan that counts a segment that does not authenticate, a local name
+  offered with the folders above it (FT31 to FT33).
+
+HR17 to HR20, HR85, MR8, MR39, MR44, MR54, HR32 and HR76 moved with their
+code in Phase 8 and keep their defects. The rules of version 1 that HR17
+to HR20 and HR85 break now hold for an offer refused without a record and
+for every transfer that ended on a session (`exchange.rs`).
 
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within
