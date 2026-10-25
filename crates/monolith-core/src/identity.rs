@@ -37,6 +37,7 @@ use monolith_session::{
     TransportSecretKey,
 };
 use monolith_storage::StorageError;
+use monolith_storage::blob::StagingKey;
 use monolith_storage::dir::VaultDir;
 use monolith_storage::message_records::MessageContents;
 use monolith_storage::messages::MessageFile;
@@ -44,20 +45,23 @@ use monolith_storage::record::{
     self, ContactId, Contents, IdentityId, ONION_SECRET_LEN, PayloadVersion, StoredIdentity,
     StoredRotation,
 };
+use monolith_storage::transfers::TransferFile;
 use monolith_storage::vault::{KdfParams, Passphrase, Recovery, Vault};
 use monolith_tor::{IsolationGroup, OnionServiceSecret, TorError};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore, watch};
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::blobs::{Blobs, DiskLock};
 use crate::contacts::{ContactStore, ContactView, ImportOutcome, Progress, StoreError};
 use crate::dialplan;
 use crate::link::{Arrived, Withdrawal};
 use crate::messages::{
     Acknowledgement, ConversationView, EntryView, MessageState, Messages, Receipt, Refusal,
 };
-use crate::persist::{CommitError, Durability, Store, Write};
+use crate::persist::{CommitError, Durability, Serialized, Store, Write};
 use crate::requests::{Dropped, InvitationId, Invitations, PendingRequest, RequestId, Requests};
 use crate::strangers::Strangers;
+use crate::transfers::{Limits, TransferState, Transfers};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -820,6 +824,23 @@ impl LocalIdentity {
             .upgrade()
             .map(|shared| shared.messages.clone())
             .ok_or(MessageError::Closed)
+    }
+
+    /// The transfers of the installation of this identity, while it is
+    /// open.
+    pub(crate) fn transfers(&self) -> Option<Arc<Transfers>> {
+        self.shared
+            .upgrade()
+            .filter(|_| !self.is_closed())
+            .map(|shared| shared.transfers.clone())
+    }
+
+    /// Returns true once the transfer store failed: no transfer is stored
+    /// or sent any more.
+    pub fn transfers_failed(&self) -> bool {
+        self.shared
+            .upgrade()
+            .is_none_or(|shared| shared.transfers.is_failed())
     }
 
     /// The durable identifier of the contact record `identity` has now, if
@@ -1718,6 +1739,9 @@ pub(crate) struct Shared {
     store: Store,
     /// The messages of every identity, in their own store.
     messages: Arc<Messages>,
+    /// The transfers of every identity, in their own store, and their
+    /// staged files.
+    transfers: Arc<Transfers>,
     identities: Mutex<Vec<Arc<LocalIdentity>>>,
     /// One identity is created or deleted at a time.
     changes: AsyncMutex<()>,
@@ -1866,6 +1890,10 @@ pub enum InstallationError {
     /// did, with the key the vault holds for it: it was changed or
     /// damaged, and the passphrase is not the cause. Nothing is repaired.
     MessageStoreChanged,
+    /// The transfer store in place does not authenticate though the vault
+    /// did, or names a contact of another local identity: it was changed or
+    /// damaged. Nothing is repaired.
+    TransferStoreChanged,
 }
 
 impl fmt::Display for InstallationError {
@@ -1877,6 +1905,7 @@ impl fmt::Display for InstallationError {
             Self::Full => f.write_str("too many local identities"),
             Self::MessageStore => f.write_str("the message store is not of this vault"),
             Self::MessageStoreChanged => f.write_str("the message store was changed or damaged"),
+            Self::TransferStoreChanged => f.write_str("the transfer store was changed or damaged"),
         }
     }
 }
@@ -1898,17 +1927,24 @@ impl From<StoreError> for InstallationError {
 /// The vault of an installation, in whatever directory.
 pub type BoxedDir = Box<dyn VaultDir + Send + Sync>;
 
-/// The directory of an installation, shared by the vault and the message
-/// store, which write files of their own names in it under its one lock.
-type SharedDir = Arc<dyn VaultDir + Send + Sync>;
+/// The directory of an installation, shared by the vault, the message
+/// store, the transfer store and the staged files of transfers, which
+/// write files of their own names in it under its one lock.
+type SharedDir = crate::blobs::SharedDir;
 
 impl Installation {
-    fn with_store(store: Store, messages: Arc<Messages>, mode: Mode) -> Self {
+    fn with_store(
+        store: Store,
+        messages: Arc<Messages>,
+        transfers: Arc<Transfers>,
+        mode: Mode,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 durability: Durability::new(),
                 store,
                 messages,
+                transfers,
                 identities: Mutex::new(Vec::new()),
                 changes: AsyncMutex::new(()),
                 failures: watch::Sender::new(0),
@@ -1918,12 +1954,24 @@ impl Installation {
         }
     }
 
-    /// An installation that writes nothing.
+    /// An installation that writes nothing. Its transfers are staged in
+    /// memory, under a key drawn now and kept nowhere; if the random source
+    /// fails, no file can be staged.
     pub fn ephemeral() -> Self {
         Self::with_store(
             Store::Ephemeral,
             Messages::new(Store::Ephemeral, MessageState::new()),
+            Self::transfers_in_memory(StagingKey::random().ok()),
             Mode::Ephemeral,
+        )
+    }
+
+    fn transfers_in_memory(key: Option<StagingKey>) -> Arc<Transfers> {
+        Transfers::new(
+            Store::Ephemeral,
+            TransferState::new(Limits::ephemeral()),
+            Blobs::in_memory(key),
+            Vec::new(),
         )
     }
 
@@ -1946,11 +1994,35 @@ impl Installation {
         let plaintext = Contents::default().encode()?;
         let vault = Vault::create(dir.clone(), passphrase, params, &plaintext)?;
         let state = MessageState::new();
-        let file =
-            MessageFile::create(dir, vault.message_store_key()?, &state.contents().encode()?)?;
+        let file = MessageFile::create(
+            dir.clone(),
+            vault.message_store_key()?,
+            &state.contents().encode()?,
+        )?;
+        let (transfers, _, _) = TransferFile::open(dir.clone(), vault.transfer_store_key()?)?;
+        let disk: DiskLock = Arc::new(Mutex::new(()));
+        let blobs = Blobs::on_disk(dir, vault.staging_key()?, disk.clone());
         Ok(Self::with_store(
-            Store::vault(Box::new(vault)),
-            Messages::new(Store::vault(Box::new(file)), state),
+            Store::vault(Box::new(Serialized {
+                writer: vault,
+                disk: disk.clone(),
+            })),
+            Messages::new(
+                Store::vault(Box::new(Serialized {
+                    writer: file,
+                    disk: disk.clone(),
+                })),
+                state,
+            ),
+            Transfers::new(
+                Store::vault(Box::new(Serialized {
+                    writer: transfers,
+                    disk,
+                })),
+                TransferState::new(Limits::persistent()),
+                blobs,
+                Vec::new(),
+            ),
             Mode::Persistent,
         ))
     }
@@ -2050,9 +2122,56 @@ impl Installation {
         if state.reconcile(&records)? {
             file.write(&state.contents().encode()?)?;
         }
+        // The transfer store, matched against the vault in the same way,
+        // and then the blobs no record names (`docs/adr/0014`).
+        let (mut transfer_file, transfer_records, _) =
+            TransferFile::open(dir.clone(), vault.transfer_store_key()?).map_err(|error| {
+                match error {
+                    StorageError::AuthenticationFailed => InstallationError::TransferStoreChanged,
+                    error => error.into(),
+                }
+            })?;
+        let mut transfer_state = TransferState::load(transfer_records, Limits::persistent());
+        let owned: HashMap<IdentityId, Vec<ContactId>> = records
+            .iter()
+            .map(|(identity, contacts)| {
+                (
+                    *identity,
+                    contacts.iter().map(|(contact, _)| *contact).collect(),
+                )
+            })
+            .collect();
+        let dropped = transfer_state
+            .reconcile(&owned)
+            .map_err(|_| InstallationError::TransferStoreChanged)?;
+        let interrupted = transfer_state.interrupted_saves();
+        if dropped || !interrupted.is_empty() {
+            transfer_file.write(&transfer_state.records())?;
+        }
+        let disk: DiskLock = Arc::new(Mutex::new(()));
+        let blobs = Blobs::on_disk(dir.clone(), vault.staging_key()?, disk.clone());
+        blobs.clean(&transfer_state.blobs())?;
         let mut installation = Self::with_store(
-            Store::vault(Box::new(vault)),
-            Messages::new(Store::vault(Box::new(file)), state),
+            Store::vault(Box::new(Serialized {
+                writer: vault,
+                disk: disk.clone(),
+            })),
+            Messages::new(
+                Store::vault(Box::new(Serialized {
+                    writer: file,
+                    disk: disk.clone(),
+                })),
+                state,
+            ),
+            Transfers::new(
+                Store::vault(Box::new(Serialized {
+                    writer: transfer_file,
+                    disk,
+                })),
+                transfer_state,
+                blobs,
+                interrupted,
+            ),
             Mode::Persistent,
         );
         installation.message_store_missing = missing;
@@ -2080,6 +2199,7 @@ impl Installation {
         let staging = Self::with_store(
             Store::Ephemeral,
             Messages::new(Store::Ephemeral, MessageState::new()),
+            Self::transfers_in_memory(None),
             Mode::Ephemeral,
         );
         let mut identities: Vec<LocalIdentity> = Vec::new();
@@ -2187,19 +2307,37 @@ impl Installation {
         self.shared.messages.is_failed()
     }
 
+    /// Returns true once a write of the transfer store failed: no transfer
+    /// is stored or sent any more.
+    pub fn transfers_failed(&self) -> bool {
+        self.shared.transfers.is_failed()
+    }
+
     /// Returns true once a write failed. Every change is refused then.
     pub fn is_failed(&self) -> bool {
         self.shared.durability.is_failed()
     }
 
     /// Follows the failures of the vault and the changes of the message
-    /// store, whose failure turns them over too: what a runtime watches to
-    /// report a failed store at once.
-    pub(crate) fn failure_changes(&self) -> (watch::Receiver<u64>, watch::Receiver<u64>) {
+    /// store and of the transfer store, whose failures turn them over too:
+    /// what a runtime watches to report a failed store at once.
+    pub(crate) fn failure_changes(
+        &self,
+    ) -> (
+        watch::Receiver<u64>,
+        watch::Receiver<u64>,
+        watch::Receiver<u64>,
+    ) {
         (
             self.shared.failures.subscribe(),
             self.shared.messages.subscribe(),
+            self.shared.transfers.subscribe(),
         )
+    }
+
+    /// The transfers of the installation.
+    pub(crate) fn transfers(&self) -> Arc<Transfers> {
+        self.shared.transfers.clone()
     }
 
     /// Creates a local identity whose Onion Service is `endpoint`, with the
@@ -2377,8 +2515,9 @@ impl Installation {
             .commit(generation)
             .await
             .map_err(|error| InstallationError::Store(StoreError::Commit(error)))?;
-        // Its messages go once the vault no longer holds it. A crash in
-        // between leaves them to the next opening, which drops them.
+        // Its messages and its transfers go once the vault no longer holds
+        // it. A crash in between leaves them to the next opening, which
+        // drops them.
         let messages = &self.shared.messages;
         let (_, generation) = messages
             .change(|state| ((), state.remove_identity(&identity.id)))
@@ -2386,7 +2525,22 @@ impl Installation {
         messages
             .commit(generation)
             .await
-            .map_err(|error| InstallationError::Store(StoreError::Commit(error)))
+            .map_err(|error| InstallationError::Store(StoreError::Commit(error)))?;
+        let transfers = &self.shared.transfers;
+        let (freed, generation) = transfers
+            .change(|state, _| {
+                let held = state.holds_identity(&identity.id);
+                (state.remove_identity(&identity.id), held)
+            })
+            .map_err(|error| InstallationError::Store(StoreError::Commit(error)))?;
+        transfers
+            .commit(generation)
+            .await
+            .map_err(|error| InstallationError::Store(StoreError::Commit(error)))?;
+        for blob in freed {
+            transfers.blobs.remove(blob).await;
+        }
+        Ok(())
     }
 }
 

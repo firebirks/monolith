@@ -440,11 +440,26 @@ pub fn stage(
     margin: u64,
     source: &mut dyn Read,
 ) -> Result<(BlobId, [u8; 32]), StorageError> {
-    let mut blob = Blob::create(dir, key, size, margin)?;
+    let blob = Blob::create(dir, key, size, margin)?;
     let id = blob.id();
-    match fill(&mut blob, source) {
-        Ok(digest) => Ok((id, digest)),
+    fill(dir, blob, source).map(|(_, digest)| (id, digest))
+}
+
+/// Writes the whole file of `size` bytes read from `source` into `blob`,
+/// just created for it, as [`stage`] does once the blob exists: every
+/// segment written as it is read and the plaintext hashed, and the file
+/// synced. Fails, and removes the blob from `dir`, if the source gives
+/// fewer or more than `size` bytes or a write fails. Returns the blob,
+/// still open, with the SHA-256 of the file.
+pub fn fill(
+    dir: &dyn VaultDir,
+    mut blob: Blob,
+    source: &mut dyn Read,
+) -> Result<(Blob, [u8; 32]), StorageError> {
+    match write_all(&mut blob, source) {
+        Ok(digest) => Ok((blob, digest)),
         Err(error) => {
+            let id = blob.id();
             drop(blob);
             let _ = dir.remove(&id.name());
             Err(error)
@@ -452,7 +467,7 @@ pub fn stage(
     }
 }
 
-fn fill(blob: &mut Blob, source: &mut dyn Read) -> Result<[u8; 32], StorageError> {
+fn write_all(blob: &mut Blob, source: &mut dyn Read) -> Result<[u8; 32], StorageError> {
     let size = blob.size();
     let mut hash = Sha256::new();
     let mut segment = Zeroizing::new([0_u8; SEGMENT_LEN]);
@@ -485,7 +500,9 @@ pub struct BlobReader {
     blob: Blob,
     digest: [u8; 32],
     hash: Sha256,
-    segment: Zeroizing<[u8; SEGMENT_LEN]>,
+    /// One segment of plaintext, on the heap: a reader is moved around
+    /// by value.
+    segment: Zeroizing<Vec<u8>>,
     next: u64,
     held: usize,
     taken: usize,
@@ -508,7 +525,7 @@ impl BlobReader {
             blob,
             digest,
             hash: Sha256::new(),
-            segment: Zeroizing::new([0_u8; SEGMENT_LEN]),
+            segment: Zeroizing::new(vec![0_u8; SEGMENT_LEN]),
             next: 0,
             held: 0,
             taken: 0,
@@ -533,9 +550,14 @@ impl Read for BlobReader {
                 }
                 return Ok(0);
             }
+            let segment: &mut [u8; SEGMENT_LEN] = self
+                .segment
+                .as_mut_slice()
+                .try_into()
+                .map_err(|_| std::io::Error::other("a segment buffer of the wrong length"))?;
             let len = self
                 .blob
-                .read_segment(self.next, &mut self.segment)
+                .read_segment(self.next, segment)
                 .map_err(|_| std::io::Error::other("a segment does not authenticate"))?;
             self.hash
                 .update(self.segment.get(..len).unwrap_or_default());

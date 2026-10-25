@@ -10,9 +10,11 @@
 //! command and event types follow with the features that need them.
 
 pub mod api;
+mod blobs;
 pub mod budget;
 pub mod contacts;
 pub mod dialplan;
+mod exchange;
 pub mod identity;
 pub mod link;
 pub mod messages;

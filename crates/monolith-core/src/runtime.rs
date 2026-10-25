@@ -55,6 +55,9 @@ use crate::api::{
 };
 use crate::budget::Budgets;
 use crate::contacts::StoreError;
+mod transfer;
+
+pub use crate::blobs::SaveReader;
 use crate::identity::{Installation, InstallationError, LocalIdentity, MessageError};
 use crate::link::{Established, Link, LinkError, answer, dial_plan};
 use crate::messages::{Receipt, Refusal};
@@ -62,7 +65,7 @@ use crate::rates::{ContactRates, Kind};
 use crate::requests::{InvitationId, RequestId};
 use crate::sessions::{SessionControl, SessionManager};
 use crate::supervisor::{Backoff, Publication, jitter, supervise};
-use crate::transfers::{Answer, Transfers};
+pub use transfer::offer_name;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -130,6 +133,8 @@ struct IdentityRuntime {
     /// What the contacts sent and opened, against their rates
     /// (`crate::rates`).
     rates: Mutex<ContactRates>,
+    /// What its sessions share of their file transfers.
+    bindings: Mutex<transfer::Bindings>,
 }
 
 impl fmt::Debug for IdentityRuntime {
@@ -239,9 +244,8 @@ struct Running {
     /// The last ChatMessage sent or taken in, or acknowledgement that
     /// delivered one.
     activity: Instant,
-    /// The file offers of the peer that this session rejected
-    /// (`crate::transfers`).
-    transfers: Transfers,
+    /// The file transfers of the session (`transfer`).
+    files: transfer::Files,
 }
 
 impl Running {
@@ -251,6 +255,12 @@ impl Running {
         for (_, left) in self.probe.iter_mut().chain(self.ping.iter_mut()) {
             *left = left.saturating_sub(elapsed);
         }
+    }
+
+    /// The task read for `elapsed`, while the session was the only one of
+    /// its contact: that much counts for the transfers it did not offer.
+    fn read_alone_for(&mut self, elapsed: Duration) {
+        self.files.sole = self.files.sole.saturating_add(elapsed);
     }
 }
 
@@ -267,6 +277,7 @@ struct SessionTask<B: TorBackend + 'static> {
 
 impl<B: TorBackend + 'static> Drop for SessionTask<B> {
     fn drop(&mut self) {
+        self.inner.files_ended(&self.runtime, &mut self.running);
         if let Some(contact) = self.running.record {
             self.inner
                 .session_ended(&self.runtime, contact, self.running.serial, self.ended);
@@ -511,10 +522,13 @@ impl<B: TorBackend + 'static> Inner<B> {
     /// Reports a failed store as soon as it fails, also with no session or
     /// attempt running that would notice it.
     async fn watch_storage(self: Arc<Self>) {
-        let (mut vault, mut messages) = self.installation.failure_changes();
+        let (mut vault, mut messages, mut transfers) = self.installation.failure_changes();
         let mut shutdown = self.shutdown.subscribe();
         loop {
-            if self.installation.is_failed() || self.installation.messages_failed() {
+            if self.installation.is_failed()
+                || self.installation.messages_failed()
+                || self.installation.transfers_failed()
+            {
                 self.storage_failure();
                 return;
             }
@@ -524,12 +538,16 @@ impl<B: TorBackend + 'static> Inner<B> {
             let gone = {
                 let mut vault = pin!(vault.changed());
                 let mut messages = pin!(messages.changed());
+                let mut transfers = pin!(transfers.changed());
                 let mut stopping = pin!(shutdown.changed());
                 poll_fn(|cx| {
                     if let Poll::Ready(result) = vault.as_mut().poll(cx) {
                         return Poll::Ready(result.is_err());
                     }
                     if let Poll::Ready(result) = messages.as_mut().poll(cx) {
+                        return Poll::Ready(result.is_err());
+                    }
+                    if let Poll::Ready(result) = transfers.as_mut().poll(cx) {
                         return Poll::Ready(result.is_err());
                     }
                     if let Poll::Ready(result) = stopping.as_mut().poll(cx) {
@@ -556,7 +574,8 @@ impl<B: TorBackend + 'static> Inner<B> {
     /// `identity` failed: nothing more is made durable, so no session and
     /// no attempt goes on.
     fn halted(&self, identity: &LocalIdentity) -> bool {
-        let halted = identity.messages_failed() || identity.vault_failed();
+        let halted =
+            identity.messages_failed() || identity.vault_failed() || identity.transfers_failed();
         if halted {
             self.storage_failure();
         }
@@ -581,6 +600,7 @@ impl<B: TorBackend + 'static> Inner<B> {
             available: Mutex::new(HashSet::new()),
             service: Mutex::new(ServiceState::Publishing),
             rates: Mutex::new(ContactRates::default()),
+            bindings: Mutex::new(transfer::Bindings::default()),
         });
         lock(&self.identities).insert(identity.id(), runtime.clone());
         let inner = self.clone();
@@ -596,6 +616,7 @@ impl<B: TorBackend + 'static> Inner<B> {
                 self.ensure_scheduler(&runtime, contact, peer, delay);
             }
         }
+        self.schedule_transfers(&runtime);
         let inner = self.clone();
         let watched = runtime;
         self.spawn(async move { inner.follow_closing(watched).await });
@@ -736,9 +757,9 @@ impl<B: TorBackend + 'static> Inner<B> {
         });
     }
 
-    /// Whether the conversation of `contact` has queued messages, a current
-    /// record and no session to deliver them, in stores that have not
-    /// failed.
+    /// Whether the conversation of `contact` has queued messages, or a
+    /// transfer of it needs a session, with a current record and no session
+    /// to deliver them, in stores that have not failed.
     fn needs_scheduler(
         &self,
         runtime: &IdentityRuntime,
@@ -748,8 +769,27 @@ impl<B: TorBackend + 'static> Inner<B> {
         !self.stopping()
             && !self.halted(&runtime.identity)
             && runtime.identity.is_current(contact, peer)
-            && runtime.identity.next_queued(contact).is_some()
+            && self.wants_session(runtime, contact)
             && !runtime.manager.has_session(contact)
+    }
+
+    /// Whether `contact` has queued messages or a transfer that needs a
+    /// session.
+    fn wants_session(&self, runtime: &IdentityRuntime, contact: &ContactId) -> bool {
+        runtime.identity.next_queued(contact).is_some() || self.transfers_claim(runtime, contact)
+    }
+
+    /// Whether a session of `contact` that lasted starts the delays again:
+    /// one dialed or used for queued messages does; one for transfers alone
+    /// only if it brought progress to one of them (ADR 0013).
+    fn resets_delays(
+        &self,
+        runtime: &IdentityRuntime,
+        contact: &ContactId,
+        for_chat: bool,
+    ) -> bool {
+        let progressed = lock(&runtime.bindings).progressed.remove(contact);
+        for_chat || progressed
     }
 
     /// The scheduler of one conversation (`docs/adr/0009-session-manager.md`):
@@ -778,14 +818,16 @@ impl<B: TorBackend + 'static> Inner<B> {
                 return;
             }
             // The record ended (deleted, blocked, made again) or nothing is
-            // left to deliver: the scheduler ends.
-            if !identity.is_current(&contact, &peer) || identity.next_queued(&contact).is_none() {
+            // left to deliver or transfer: the scheduler ends.
+            if !identity.is_current(&contact, &peer) || !self.wants_session(runtime, &contact) {
                 return;
             }
             if manager.has_session(&contact) {
                 // A session delivers. When it ends with messages left, the
                 // next attempt follows a delay.
                 let since = Instant::now();
+                let for_chat = identity.next_queued(&contact).is_some();
+                lock(&runtime.bindings).progressed.remove(&contact);
                 let ended = wait_until(None, &mut shutdown, &mut closing, &mut sessions, || {
                     !manager.has_session(&contact)
                 })
@@ -796,14 +838,20 @@ impl<B: TorBackend + 'static> Inner<B> {
                 // Unless it ended for want of an acknowledgement, a session
                 // that lasted starts the delays again.
                 let timed_out = lock(&runtime.timed_out).contains(&contact);
-                if since.elapsed() >= RECONNECT_RESET_AFTER && !timed_out {
+                if since.elapsed() >= RECONNECT_RESET_AFTER
+                    && !timed_out
+                    && self.resets_delays(runtime, &contact, for_chat)
+                {
                     backoff.reset();
                 }
                 delay = backoff.delay(jitter());
                 // The end of the session said nothing while this scheduler
                 // ran; the retry it waits for is announced here, when one
-                // follows.
-                if !identity.is_closed() && self.needs_scheduler(runtime, &contact, &peer) {
+                // follows for queued messages.
+                if !identity.is_closed()
+                    && self.needs_scheduler(runtime, &contact, &peer)
+                    && identity.next_queued(&contact).is_some()
+                {
                     self.emit(Event::DeliveryDeferred {
                         identity: identity.id(),
                         contact,
@@ -837,15 +885,18 @@ impl<B: TorBackend + 'static> Inner<B> {
             };
             if plan.cards.is_empty() {
                 let retry_in = backoff.delay(jitter());
-                self.emit(Event::DeliveryDeferred {
-                    identity: identity.id(),
-                    contact,
-                    reason: DeferReason::NoEndpoint,
-                    retry_in,
-                });
+                if identity.next_queued(&contact).is_some() {
+                    self.emit(Event::DeliveryDeferred {
+                        identity: identity.id(),
+                        contact,
+                        reason: DeferReason::NoEndpoint,
+                        retry_in,
+                    });
+                }
                 delay = retry_in;
                 continue;
             }
+            let for_chat = identity.next_queued(&contact).is_some();
             let dialed = {
                 // The successor first and the active key if it does not
                 // answer; no further card once the attempt is over.
@@ -883,14 +934,20 @@ impl<B: TorBackend + 'static> Inner<B> {
                     // again, unless it ended for want of an acknowledgement:
                     // a peer that never acknowledges is not dialed faster.
                     let started = Instant::now();
+                    lock(&runtime.bindings).progressed.remove(&contact);
                     let ended = self.run_session(runtime, established).await;
-                    if ended == Ended::Other && started.elapsed() >= RECONNECT_RESET_AFTER {
+                    if ended == Ended::Other
+                        && started.elapsed() >= RECONNECT_RESET_AFTER
+                        && self.resets_delays(runtime, &contact, for_chat)
+                    {
                         backoff.reset();
                     }
-                    // Announced only if it comes: not for a record that
-                    // ended, an identity that closed, or a store that
-                    // failed.
-                    if self.needs_scheduler(runtime, &contact, &peer) {
+                    // Announced only if it comes, for queued messages: not
+                    // for a record that ended, an identity that closed, or
+                    // a store that failed.
+                    if self.needs_scheduler(runtime, &contact, &peer)
+                        && identity.next_queued(&contact).is_some()
+                    {
                         delay = backoff.delay(jitter());
                         self.emit(Event::DeliveryDeferred {
                             identity: identity.id(),
@@ -905,7 +962,9 @@ impl<B: TorBackend + 'static> Inner<B> {
                 }
                 Ok(Err(error)) => {
                     delay = backoff.delay(jitter());
-                    if self.needs_scheduler(runtime, &contact, &peer) {
+                    if self.needs_scheduler(runtime, &contact, &peer)
+                        && identity.next_queued(&contact).is_some()
+                    {
                         self.emit(Event::DeliveryDeferred {
                             identity: identity.id(),
                             contact,
@@ -948,13 +1007,20 @@ impl<B: TorBackend + 'static> Inner<B> {
                 probe: None,
                 ping: None,
                 activity: Instant::now(),
-                transfers: Transfers::default(),
+                files: transfer::Files::default(),
             },
             ended: Ended::Other,
         };
         let mut changes = identity.message_changes();
+        let mut transfer_changes = identity.transfers().map(|transfers| transfers.subscribe());
         task.ended = match self
-            .drive(runtime, &mut link, &mut task.running, &mut changes)
+            .drive(
+                runtime,
+                &mut link,
+                &mut task.running,
+                &mut changes,
+                &mut transfer_changes,
+            )
             .await
         {
             Ok(ended) => ended,
@@ -999,7 +1065,8 @@ impl<B: TorBackend + 'static> Inner<B> {
             return;
         }
         let delay = Backoff::new().delay(jitter());
-        if !lock(&runtime.schedulers).contains(&contact) {
+        if !lock(&runtime.schedulers).contains(&contact) && identity.next_queued(&contact).is_some()
+        {
             self.emit(Event::DeliveryDeferred {
                 identity: identity.id(),
                 contact,
@@ -1053,6 +1120,7 @@ impl<B: TorBackend + 'static> Inner<B> {
         link: &mut Link<S>,
         running: &mut Running,
         changes: &mut Option<watch::Receiver<u64>>,
+        transfer_changes: &mut Option<watch::Receiver<u64>>,
     ) -> Result<Ended, LinkError>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
@@ -1062,6 +1130,7 @@ impl<B: TorBackend + 'static> Inner<B> {
             // A message store that failed takes nothing in and records no
             // delivery: the session has nothing left to do.
             if running.control.closing()
+                || running.files.close
                 || self.stopping()
                 || identity.is_closed()
                 || self.halted(&identity)
@@ -1083,6 +1152,7 @@ impl<B: TorBackend + 'static> Inner<B> {
                 if running.ping.is_none() {
                     link.send(&Message::Ping(nonce)).await?;
                     running.ping = Some((nonce, PONG_TIMEOUT));
+                    running.files.ping_written();
                 }
                 running.probe = Some((nonce, DUPLICATE_PROBE_TIMEOUT));
             }
@@ -1105,6 +1175,18 @@ impl<B: TorBackend + 'static> Inner<B> {
                     }
                 }
             }
+            // Then what the transfers owe the peer, the offers, and at most
+            // one chunk; after a chunk the loop starts again without
+            // waiting, having taken what arrived.
+            // Boxed: the futures of the transfers are large, and the task
+            // of a session keeps its stack small.
+            Box::pin(self.files_write(runtime, link, running)).await?;
+            if running.files.close {
+                continue;
+            }
+            if Box::pin(self.files_pump(runtime, link, running)).await? {
+                continue;
+            }
             let reading = Instant::now();
             let deadline = self.deadline(runtime, link, running, reading);
             let next = {
@@ -1112,6 +1194,14 @@ impl<B: TorBackend + 'static> Inner<B> {
                 let mut woken = pin!(control.woken());
                 let mut changed = pin!(async {
                     if let Some(changes) = changes.as_mut() {
+                        if changes.changed().await.is_ok() {
+                            return;
+                        }
+                    }
+                    core::future::pending::<()>().await;
+                });
+                let mut transferred = pin!(async {
+                    if let Some(changes) = transfer_changes.as_mut() {
                         if changes.changed().await.is_ok() {
                             return;
                         }
@@ -1132,6 +1222,9 @@ impl<B: TorBackend + 'static> Inner<B> {
                     if changed.as_mut().poll(cx).is_ready() {
                         return Poll::Ready(Next::Changed);
                     }
+                    if transferred.as_mut().poll(cx).is_ready() {
+                        return Poll::Ready(Next::Changed);
+                    }
                     if timer.as_mut().poll(cx).is_ready() {
                         return Poll::Ready(Next::Deadline);
                     }
@@ -1142,10 +1235,18 @@ impl<B: TorBackend + 'static> Inner<B> {
                 })
                 .await
             };
-            running.read_for(reading.elapsed());
+            let elapsed = reading.elapsed();
+            running.read_for(elapsed);
+            if running
+                .record
+                .is_some_and(|contact| runtime.manager.sessions(&contact) == 1)
+            {
+                running.read_alone_for(elapsed);
+            }
             match next {
                 Next::Woken | Next::Changed => {}
                 Next::Deadline => {
+                    Box::pin(self.files_progress(runtime, link, running)).await?;
                     let now = Instant::now();
                     if let Some((nonce, left)) = running.probe {
                         if left.is_zero() {
@@ -1209,6 +1310,7 @@ impl<B: TorBackend + 'static> Inner<B> {
         if self.idle(runtime, link, running) {
             deadlines.push(after(running.activity, SESSION_LINGER));
         }
+        deadlines.extend(running.files.deadline());
         deadlines.into_iter().min()
     }
 
@@ -1290,6 +1392,15 @@ impl<B: TorBackend + 'static> Inner<B> {
         let identity = runtime.identity.clone();
         let received = arrived.received();
         let actions = &received.actions;
+        // A Close of the peer while the session was the only one of its
+        // contact counts it for the transfers the peer did not offer.
+        if matches!(received.message, Message::Close)
+            && running
+                .record
+                .is_some_and(|contact| runtime.manager.sessions(&contact) == 1)
+        {
+            running.files.peer_closed = true;
+        }
         // What the contact store has to see (Phase 4): an acceptance, a
         // request of a stranger, a new card, the confirmation of a session
         // of a new local key.
@@ -1353,6 +1464,9 @@ impl<B: TorBackend + 'static> Inner<B> {
             Message::Pong(nonce) => match running.ping {
                 Some((sent, _)) if sent == *nonce => {
                     running.ping = None;
+                    // The peer read and recorded what was written before
+                    // the Ping.
+                    Box::pin(self.files_read(runtime, running)).await;
                     // It answers the probe that runs, if one does; one
                     // decided before it came stands.
                     if let (Some((probe, _)), Some(contact)) =
@@ -1379,15 +1493,8 @@ impl<B: TorBackend + 'static> Inner<B> {
             // dropped (`PROTOCOL.md` 8.7). An endpoint update was for the
             // store, which saw it.
             Message::Profile { .. } | Message::EndpointUpdate(_) => Ok(()),
-            // No file is transferred; what section 13.1 asks of a
-            // receiver is kept (`crate::transfers`).
-            message => match running.transfers.receive(message) {
-                Some(Answer::Reject(transfer)) => link.send(&Message::FileReject(transfer)).await,
-                Some(Answer::Violation) => Err(LinkError::Session(
-                    monolith_session::SessionError::Protocol(ProtocolError::MessageNotPermitted),
-                )),
-                Some(Answer::Discard) | None => Ok(()),
-            },
+            // The file messages (`transfer`).
+            message => Box::pin(self.on_file(runtime, link, running, message)).await,
         }
     }
 
@@ -1406,6 +1513,7 @@ impl<B: TorBackend + 'static> Inner<B> {
         if let Some(contact) = identity.record_of(link.session_ref()) {
             running.record = Some(contact);
             running.activity = Instant::now();
+            lock(&runtime.bindings).register(running.serial, contact, running.control.clone());
             let initiator = link.session().initiator();
             let remote = *link.session().peer();
             let card = link.session().peer_card().clone();
@@ -1547,6 +1655,8 @@ impl<B: TorBackend + 'static> Runtime<B> {
         }
         let watching = inner.clone();
         inner.spawn(async move { watching.watch_storage().await });
+        let following = inner.clone();
+        inner.spawn(async move { following.follow_transfers().await });
         Self {
             owner: Arc::new(Owner {
                 inner: inner.clone(),
@@ -1818,6 +1928,7 @@ impl<B: TorBackend + 'static> Runtime<B> {
         let held = self.held(identity)?;
         Self::peer_of(&held, contact)?;
         let contact = *contact;
+        let inner = self.inner.clone();
         self.inner
             .detached(async move {
                 // The contact is named here, where nothing awaited
@@ -1832,6 +1943,9 @@ impl<B: TorBackend + 'static> Runtime<B> {
                 .map_err(store_error)?;
                 held.manager.close(&contact);
                 lock(&held.rates).ended(&contact);
+                // Its transfers stop: cancelled for a block, gone with a
+                // deletion, without a word to the peer.
+                inner.contact_transfers_ended(&held, contact, !block).await;
                 Ok(())
             })
             .await

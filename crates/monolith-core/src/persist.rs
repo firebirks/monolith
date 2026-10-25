@@ -233,6 +233,30 @@ impl<D: monolith_storage::dir::VaultDir + Send> Writer
     }
 }
 
+impl<D: monolith_storage::dir::VaultDir + Send> Writer
+    for monolith_storage::transfers::TransferFile<D>
+{
+    fn write(&mut self, plaintext: &[u8]) -> Result<(), StorageError> {
+        self.write_payload(plaintext)
+    }
+}
+
+/// A writer whose writes hold the lock of the disk of its installation,
+/// which a reservation of a blob holds too: a store is never written while
+/// a reservation takes its margin for a moment
+/// (`docs/adr/0014-transfer-staging.md`).
+pub(crate) struct Serialized<W> {
+    pub(crate) writer: W,
+    pub(crate) disk: crate::blobs::DiskLock,
+}
+
+impl<W: Writer> Writer for Serialized<W> {
+    fn write(&mut self, plaintext: &[u8]) -> Result<(), StorageError> {
+        let _disk = lock(&self.disk);
+        self.writer.write(plaintext)
+    }
+}
+
 /// The vault of an installation, and whether a write has it.
 pub(crate) struct Slot {
     /// The vault; taken by the job that writes and put back by it.

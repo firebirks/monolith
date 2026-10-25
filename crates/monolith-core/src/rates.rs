@@ -38,20 +38,21 @@ use tokio::time::Instant;
 
 use crate::api::ContactId;
 
-/// One token bucket.
+/// One token bucket. The runtime also paces with one what this side
+/// sends that the peer counts, the offers of files.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Bucket {
+pub(crate) struct Bucket {
     /// When it is full again if no token is taken before.
     full_at: Instant,
 }
 
 impl Bucket {
-    const fn new(now: Instant) -> Self {
+    pub(crate) const fn new(now: Instant) -> Self {
         Self { full_at: now }
     }
 
     /// Takes a token of `limit` at `now`, or returns when there is one.
-    fn take(&mut self, limit: RateLimit, now: Instant) -> Result<(), Instant> {
+    pub(crate) fn take(&mut self, limit: RateLimit, now: Instant) -> Result<(), Instant> {
         let interval = interval(limit);
         let base = self.full_at.max(now);
         let after = base.checked_add(interval).unwrap_or(base);

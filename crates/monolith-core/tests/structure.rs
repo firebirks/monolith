@@ -413,9 +413,16 @@ fn a_front_end_reaches_no_authority() {
 
 #[test]
 fn a_store_key_made_for_tests_is_used_by_no_production_code() {
+    // Each key of the storage crate that tests make from fixed bytes is
+    // defined once, in its module, and used nowhere else.
+    let defining = [
+        "monolith-storage/src/blob.rs",
+        "monolith-storage/src/messages.rs",
+        "monolith-storage/src/transfers.rs",
+    ];
     for (name, text) in production_sources() {
-        if name == "monolith-storage/src/messages.rs" {
-            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+        if defining.contains(&name.as_str()) {
+            assert_eq!(text.matches("from_bytes_for_testing").count(), 1, "{name}");
         } else {
             assert!(!text.contains("from_bytes_for_testing"), "{name}");
         }

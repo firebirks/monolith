@@ -249,6 +249,36 @@ impl Filename {
         Ok(Self(text.to_owned()))
     }
 
+    /// The filename under which a local file named `name` is offered
+    /// (`docs/adr/0013-file-transfer.md`, "Names"): the last component of
+    /// `name`, each character the filename rules reject replaced with `_`,
+    /// spaces at the ends removed, cut to [`MAX_FILENAME_LEN`] bytes on a
+    /// character boundary, and `file` where nothing usable is left. Always
+    /// a valid filename; it shows nothing of the folders above the file.
+    pub fn from_local_name(name: &str) -> Self {
+        let component = name.rsplit(['/', '\\']).next().unwrap_or_default();
+        let mut replaced: String = component
+            .chars()
+            .map(|c| {
+                if is_forbidden_everywhere(c) || is_forbidden_in_names(c) {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
+        let mut end = replaced.len().min(MAX_FILENAME_LEN);
+        while !replaced.is_char_boundary(end) {
+            end = end.saturating_sub(1);
+        }
+        replaced.truncate(end);
+        let trimmed = replaced.trim_matches(' ');
+        if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+            return Self(FALLBACK_SAVE_NAME.to_owned());
+        }
+        Self(trimmed.to_owned())
+    }
+
     /// Returns a name that is safe to suggest when the user saves the file.
     ///
     /// The result is a single path component: it contains no separator, is
@@ -597,6 +627,53 @@ mod tests {
             Filename::new(&"a".repeat(MAX_FILENAME_LEN + 1)),
             Err(ProtocolError::FieldTooLong)
         );
+    }
+
+    #[test]
+    fn a_local_name_is_offered_as_its_last_component_made_valid() {
+        for (local, offered) in [
+            ("report.pdf", "report.pdf"),
+            ("C:\\Users\\me\\Documents\\report.pdf", "report.pdf"),
+            ("/home/me/photo.jpg", "photo.jpg"),
+            ("dir/", "file"),
+            ("", "file"),
+            ("  ", "file"),
+            (".", "file"),
+            ("..", "file"),
+            ("/a/..", "file"),
+            ("...", "..."),
+            ("  padded name.txt  ", "padded name.txt"),
+            ("tab\there", "tab_here"),
+            ("photo\u{202e}gpj.exe", "photo_gpj.exe"),
+            ("nb\u{a0}space", "nb_space"),
+            ("bell\u{7}", "bell_"),
+            // A rejected character at an end becomes `_`, which stays.
+            ("\u{200b}x", "_x"),
+        ] {
+            let name = Filename::from_local_name(local);
+            assert_eq!(name.as_str(), offered, "{local:?}");
+            assert_eq!(Filename::new(name.as_str()), Ok(name));
+        }
+        // Cut to the limit on a character boundary; a space the cut leaves
+        // at the end is removed.
+        let long = format!("{}\u{4e2d}", "a".repeat(MAX_FILENAME_LEN - 1));
+        let name = Filename::from_local_name(&long);
+        assert_eq!(name.as_str(), "a".repeat(MAX_FILENAME_LEN - 1));
+        let spaced = format!("{} b", "a".repeat(MAX_FILENAME_LEN - 1));
+        let name = Filename::from_local_name(&spaced);
+        assert_eq!(name.as_str(), "a".repeat(MAX_FILENAME_LEN - 1));
+        assert!(Filename::new(name.as_str()).is_ok());
+    }
+
+    proptest::proptest! {
+        /// Whatever the local name, what is offered is a valid filename
+        /// with no separator in it.
+        #[test]
+        fn every_local_name_gives_a_valid_filename(local in ".{0,400}") {
+            let name = Filename::from_local_name(&local);
+            proptest::prop_assert!(Filename::new(name.as_str()).is_ok());
+            proptest::prop_assert!(!name.as_str().contains(['/', '\\']));
+        }
     }
 
     #[test]

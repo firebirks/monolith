@@ -479,6 +479,200 @@ pub enum RefusedReason {
     Storage,
 }
 
+/// The length of a transfer identifier on the wire.
+const TRANSFER_ID_LEN: usize = 16;
+
+/// A file transfer, as a front end names it: its local identity, its
+/// contact record, its direction and its identifier on the wire. The same
+/// across restarts; never the same for two transfers of the installation.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TransferRef {
+    /// The local identity.
+    pub identity: IdentityId,
+    /// The contact record.
+    pub contact: ContactId,
+    /// The contact offers the file; otherwise the local identity does.
+    pub incoming: bool,
+    /// The identifier the offerer drew.
+    transfer: [u8; TRANSFER_ID_LEN],
+}
+
+impl TransferRef {
+    pub(crate) const fn new(
+        identity: IdentityId,
+        contact: ContactId,
+        incoming: bool,
+        transfer: [u8; TRANSFER_ID_LEN],
+    ) -> Self {
+        Self {
+            identity,
+            contact,
+            incoming,
+            transfer,
+        }
+    }
+
+    pub(crate) const fn transfer(&self) -> [u8; TRANSFER_ID_LEN] {
+        self.transfer
+    }
+}
+
+impl fmt::Debug for TransferRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TransferRef")
+            .field("identity", &self.identity)
+            .field("contact", &self.contact)
+            .field("incoming", &self.incoming)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Where a transfer stands (`docs/adr/0013-file-transfer.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TransferStatus {
+    /// Outgoing: staged and offered; the contact has not accepted it.
+    Waiting,
+    /// Outgoing: the contact accepted it; it is being sent.
+    Sending,
+    /// Outgoing: the contact acknowledged, with an authenticated message,
+    /// that it holds this exact file, verified. Not that anyone saved,
+    /// opened or read it.
+    Completed,
+    /// Incoming: offered; the user has not decided.
+    Offered,
+    /// Incoming: accepted; it is being received.
+    Receiving,
+    /// Incoming: the whole file is staged and verified, and can be saved.
+    /// Not that it was saved or opened.
+    Received,
+    /// Incoming: the offer was not decided in time.
+    Expired,
+    /// The receiver rejected the offer.
+    Rejected,
+    /// Either side cancelled it; [`TransferView::reason`] says who.
+    Cancelled,
+    /// It failed; [`TransferView::reason`] says why.
+    Failed,
+}
+
+/// Why a transfer failed, or who cancelled it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TransferReason {
+    /// The staged data could not be written or read.
+    Storage,
+    /// The file received did not match its digest.
+    Digest,
+    /// No progress for `TRANSFER_STALL_LIMIT`.
+    Stalled,
+    /// The contact no longer offers the file.
+    OffererGone,
+    /// Cancelled here.
+    ByUs,
+    /// Cancelled by the contact.
+    ByPeer,
+    /// Cancelled because the contact was blocked or deleted.
+    ContactEnded,
+}
+
+/// A transfer, for display. The name of an incoming one is the contact's
+/// text: data, never a path or markup.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TransferView {
+    /// Which transfer.
+    pub reference: TransferRef,
+    /// Where it stands.
+    pub status: TransferStatus,
+    /// Why it failed or who cancelled it.
+    pub reason: Option<TransferReason>,
+    /// The declared size in bytes.
+    pub size: u64,
+    /// The filename of the offer.
+    pub name: String,
+    /// Outgoing: the bytes the contact acknowledged holding; incoming: the
+    /// bytes staged durably. As far as is known now: 0 before the
+    /// transfer was used after a restart.
+    pub bytes: u64,
+    /// The local time the transfer was made, in seconds since the Unix
+    /// epoch. For display only.
+    pub created: u64,
+    /// Incoming: received data waits because the disk was full or the
+    /// staged file was held by another program; it goes on later or when
+    /// the user resumes it.
+    pub held: bool,
+    /// Incoming: the file was saved.
+    pub saved: bool,
+}
+
+impl fmt::Debug for TransferView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TransferView")
+            .field("reference", &self.reference)
+            .field("status", &self.status)
+            .field("reason", &self.reason)
+            .field("size", &self.size)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Why a command on a transfer failed. Nothing changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum TransferError {
+    /// No such local identity, or it is closed.
+    UnknownIdentity,
+    /// The record is not the current one of an accepted contact.
+    NotAContact,
+    /// No such transfer, or not one this command applies to now.
+    UnknownTransfer,
+    /// The file is larger than `MAX_TRANSFER_SIZE`.
+    TooLarge,
+    /// Too many offers wait for an answer, for the contact or the identity.
+    TooManyWaiting,
+    /// Too many transfers are being received, for the contact or the
+    /// identity.
+    TooManyActive,
+    /// The files staged would take more than their limit.
+    StagingFull,
+    /// The list of transfers is full: nothing can be removed to make room.
+    ListFull,
+    /// The disk has not the room the file needs with its margin.
+    DiskFull,
+    /// The file could not be read, or did not give exactly its size.
+    Source,
+    /// Another file is being staged or saved.
+    Busy,
+    /// The transfer store or a staged file could not be written. A failed
+    /// transfer store stores nothing more until the process starts again.
+    Storage,
+    /// The random source failed.
+    Randomness,
+    /// The runtime is shutting down.
+    ShuttingDown,
+}
+
+impl fmt::Display for TransferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::UnknownIdentity => "no such identity",
+            Self::NotAContact => "not an accepted contact",
+            Self::UnknownTransfer => "no such transfer",
+            Self::TooLarge => "file too large",
+            Self::TooManyWaiting => "too many offers waiting",
+            Self::TooManyActive => "too many transfers being received",
+            Self::StagingFull => "staging full",
+            Self::ListFull => "list of transfers full",
+            Self::DiskFull => "not enough disk space",
+            Self::Source => "file could not be read",
+            Self::Busy => "another file is being staged or saved",
+            Self::Storage => "storage failed",
+            Self::Randomness => "random source failed",
+            Self::ShuttingDown => "shutting down",
+        })
+    }
+}
+
+impl core::error::Error for TransferError {}
+
 /// Something that happened: stored state once it is durable, or a change
 /// of the runtime (see the module documentation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -556,10 +750,26 @@ pub enum Event {
         /// Which.
         identity: IdentityId,
     },
-    /// The vault or the message store failed: nothing more is made
-    /// durable, stored or acknowledged, and no session or attempt goes on,
-    /// until the process starts again. Raised once.
+    /// The vault, the message store or the transfer store failed: nothing
+    /// more is made durable, stored or acknowledged, and no session or
+    /// attempt goes on, until the process starts again. Raised once.
     StorageFailed,
+    /// A contact offered a file, and the offer was recorded.
+    TransferOffered(TransferRef),
+    /// A transfer changed state, durably.
+    TransferChanged(TransferRef),
+    /// More of a transfer is acknowledged (outgoing) or staged durably
+    /// (incoming): `bytes` in all. Not stored.
+    TransferProgressed {
+        /// Which transfer.
+        reference: TransferRef,
+        /// The bytes acknowledged or staged.
+        bytes: u64,
+    },
+    /// A save of a received file was under way when the process ended:
+    /// a file named `monolith-partial-` and 16 hexadecimal digits may be
+    /// left in the folder it went to. Raised when the runtime starts.
+    SaveInterrupted(TransferRef),
 }
 
 #[cfg(test)]

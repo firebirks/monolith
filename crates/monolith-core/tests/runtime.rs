@@ -37,8 +37,8 @@ use monolith_protocol::body::{FileChunk, Message, MessageId, TransferId};
 use monolith_protocol::card::ContactCard;
 use monolith_protocol::limits::{
     CHAT_MESSAGE_RATE, CONTACT_SESSION_RATE, CONTROL_MESSAGE_RATE, DUPLICATE_PROBE_TIMEOUT,
-    FILE_OFFER_RATE, HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MESSAGE_ACK_TIMEOUT, PONG_TIMEOUT,
-    PROFILE_UPDATE_RATE, RateLimit, SESSION_LINGER,
+    FILE_OFFER_RATE, HANDSHAKE_TIMEOUT, MAX_CHAT_TEXT_LEN, MAX_TRANSFER_SIZE, MESSAGE_ACK_TIMEOUT,
+    PONG_TIMEOUT, PROFILE_UPDATE_RATE, RateLimit, SESSION_LINGER,
 };
 use monolith_protocol::session::Action;
 use monolith_protocol::text::{ChatText, DisplayName, Filename, ProfileText};
@@ -1663,10 +1663,13 @@ fn transfer(byte: u8) -> TransferId {
     TransferId::from_bytes([byte; 16])
 }
 
+/// An offer A refuses at once, without a record: its size is above
+/// `MAX_TRANSFER_SIZE`. What Phase 7 did with every offer, Phase 8 does
+/// with these (`docs/adr/0013-file-transfer.md`).
 fn offer(byte: u8) -> Message {
     Message::FileOffer {
         transfer: transfer(byte),
-        size: 100,
+        size: MAX_TRANSFER_SIZE + 1,
         filename: Filename::new("photo.jpg").unwrap(),
     }
 }

@@ -781,11 +781,19 @@ impl<D: VaultDir> TransferFile<D> {
     /// directory flushed. A `transfers.new` left by a write that failed is
     /// removed first.
     pub fn write(&mut self, records: &TransferRecords) -> Result<(), StorageError> {
+        self.write_payload(&records.encode()?)
+    }
+
+    /// Replaces the records with an encoded payload, as [`Self::write`]
+    /// does. The payload is read back and checked first, so that what is
+    /// written always opens.
+    pub fn write_payload(&mut self, payload: &[u8]) -> Result<(), StorageError> {
+        TransferRecords::decode(payload)?;
         let generation = self
             .generation
             .checked_add(1)
             .ok_or(StorageError::TooLarge)?;
-        let file = seal_file(&self.key, generation, &records.encode()?)?;
+        let file = seal_file(&self.key, generation, payload)?;
         if self
             .dir
             .read(TRANSFERS_NEW, MAX_TRANSFER_STORE_FILE_LEN)?
@@ -1163,5 +1171,28 @@ mod tests {
             dir.read(TRANSFERS, MAX_TRANSFER_STORE_FILE_LEN).unwrap(),
             Some(bytes)
         );
+    }
+
+    #[test]
+    fn a_payload_that_would_not_read_back_is_not_written() {
+        let dir = MemoryDir::new();
+        let (mut file, _, _) = TransferFile::open(dir.clone(), key()).unwrap();
+        let before = dir.read(TRANSFERS, MAX_TRANSFER_STORE_FILE_LEN).unwrap();
+        let records = TransferRecords {
+            records: vec![record(Direction::Outgoing, State::Waiting, 1)],
+        };
+        let mut payload = records.encode().unwrap().to_vec();
+        // The state byte of the record, set to an incoming state.
+        let state = 2 + 4 + 2 + 16 * 3 + 1;
+        payload[state] = 11;
+        assert_eq!(file.write_payload(&payload), Err(StorageError::BadFormat));
+        assert_eq!(
+            dir.read(TRANSFERS, MAX_TRANSFER_STORE_FILE_LEN).unwrap(),
+            before
+        );
+        assert_eq!(file.generation(), 1);
+        file.write_payload(&records.encode().unwrap()).unwrap();
+        let (_, read, _) = TransferFile::open(dir, key()).unwrap();
+        assert_eq!(read, records);
     }
 }
