@@ -6,10 +6,11 @@
 //! Windows reach another computer over SMB, outside Tor. A name Windows
 //! reserves (`CON`, `NUL`, `COM3`, in any folder and with any extension)
 //! opens a device. A file that a sync client keeps only in the cloud is
-//! fetched when it is opened or read. What the client reads or writes by a
-//! path the user gave (a card file, the folder a card is saved in, the
-//! cookie of Tor, the data directory and the settings file) is checked
-//! here first:
+//! fetched when it is opened or read. What a front end reads or writes by
+//! a path the user gave (a card file, the folder a card is saved in, the
+//! cookie of Tor, the data directory and the settings file of the desktop
+//! client; a file offered to a contact and the place a received file is
+//! saved to) is checked here first:
 //!
 //! - by its name alone, with no call to the system: an absolute path on a
 //!   drive, every part of it a plain name, none a name Windows reserves,
@@ -42,10 +43,14 @@
 //! folder a sync client keeps, whose files are read from the disk but
 //! uploaded when they change. Nothing in safe Rust tells them apart.
 //!
-//! On Unix nothing here applies, and every path passes: a card file is
-//! opened without following a link (`crate::files`), and a file on a
-//! network file system mounted on the computer is read as any other.
+//! On Unix nothing here applies, and every path passes: a file is opened
+//! without following a link ([`open_to_read`]), and a file on a network
+//! file system mounted on the computer is read as any other.
+//!
+//! Moved here from the desktop client in Phase 8, unchanged, so that the
+//! files of transfers are held to the same rules as the card files.
 
+use std::fs::{File, Metadata};
 use std::path::Path;
 
 /// The names Windows reserves for devices, compared without regard to
@@ -118,7 +123,7 @@ pub(crate) fn resolved_on_a_drive(canonical: &Path) -> bool {
 
 /// Whether `path` names a file or folder of this computer by its name
 /// alone, with no call to the system. On Unix, every path.
-pub(crate) fn named_here(path: &Path) -> bool {
+pub fn named_here(path: &Path) -> bool {
     #[cfg(windows)]
     {
         use std::path::{Component, Prefix};
@@ -231,7 +236,7 @@ fn on_this_computer(path: &Path, whole: bool, system: &mut impl System) -> bool 
 /// [`named_here`], its drive resolved on a drive, every part of the way
 /// held on the disk and none a link, and resolved on a drive. On Unix,
 /// every path.
-pub(crate) fn here(path: &Path) -> bool {
+pub fn here(path: &Path) -> bool {
     #[cfg(windows)]
     {
         named_here(path) && on_this_computer(path, true, &mut Disk)
@@ -248,7 +253,7 @@ pub(crate) fn here(path: &Path) -> bool {
 /// that exists held on the disk, none of it a link, and resolved on a
 /// drive. For the data directory and the settings file, which the client
 /// may make. On Unix, every path.
-pub(crate) fn would_be_here(path: &Path) -> bool {
+pub fn would_be_here(path: &Path) -> bool {
     #[cfg(windows)]
     {
         named_here(path) && on_this_computer(path, false, &mut Disk)
@@ -258,6 +263,68 @@ pub(crate) fn would_be_here(path: &Path) -> bool {
         let _ = path;
         true
     }
+}
+
+/// Opens `path` to read it. On Unix a link is not followed, and the file is
+/// opened without waiting, so that a pipe without a writer does not block
+/// the thread.
+#[cfg(unix)]
+pub fn open_to_read(path: &Path) -> std::io::Result<File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags =
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
+    Ok(File::from(rustix::fs::open(path, flags, Mode::empty())?))
+}
+
+/// Opens `path` to read it. On Windows a reparse point is opened as itself,
+/// not followed (`FILE_FLAG_OPEN_REPARSE_POINT`), and a file in remote
+/// storage is not brought back to the disk (`FILE_FLAG_OPEN_NO_RECALL`);
+/// others may read it meanwhile, but not write it.
+#[cfg(windows)]
+pub fn open_to_read(path: &Path) -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_FLAG_OPEN_NO_RECALL: u32 = 0x0010_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL)
+        .open(path)
+}
+
+/// Opens `path` to read it.
+#[cfg(not(any(unix, windows)))]
+pub fn open_to_read(path: &Path) -> std::io::Result<File> {
+    File::open(path)
+}
+
+/// Whether the file opened is a regular file and, on Unix, the one looked
+/// at: the same device and inode.
+#[cfg(unix)]
+pub fn same_file(looked_at: &Metadata, opened: &Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    opened.is_file() && opened.dev() == looked_at.dev() && opened.ino() == looked_at.ino()
+}
+
+/// Whether the file opened is a regular file held on the disk, not a link,
+/// and the one looked at, as far as the standard library tells: the same
+/// size, creation time and last write time.
+#[cfg(windows)]
+pub fn same_file(looked_at: &Metadata, opened: &Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    opened.is_file()
+        && !opened.file_type().is_symlink()
+        && held_here(opened.file_attributes())
+        && opened.file_size() == looked_at.file_size()
+        && opened.creation_time() == looked_at.creation_time()
+        && opened.last_write_time() == looked_at.last_write_time()
+}
+
+/// Whether the file opened is a regular file.
+#[cfg(not(any(unix, windows)))]
+pub fn same_file(_: &Metadata, opened: &Metadata) -> bool {
+    opened.is_file()
 }
 
 #[cfg(test)]

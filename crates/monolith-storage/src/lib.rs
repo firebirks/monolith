@@ -24,6 +24,8 @@
 //!   the installation, built as the message store is.
 //! - [`ephemeral`]: the in-memory directory where an ephemeral installation
 //!   stages its transfers, writing nothing to disk.
+//! - [`local`]: whether a path the user gave names a file of this computer,
+//!   and how such a file is opened to be read.
 //!
 //! This is the only crate that writes files.
 
@@ -37,6 +39,7 @@ mod disk_unix;
 #[cfg(windows)]
 mod disk_windows;
 pub mod ephemeral;
+pub mod local;
 pub mod message_records;
 pub mod messages;
 pub mod record;

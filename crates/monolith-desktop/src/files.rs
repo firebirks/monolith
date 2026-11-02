@@ -2,7 +2,7 @@
 //! no frame waits: a card saved as a new file, a card file read, the
 //! settings file written. Done in the order asked.
 
-use std::fs::{File, Metadata};
+use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -16,7 +16,7 @@ use zeroize::Zeroizing;
 use crate::Join;
 use crate::bridge::Wake;
 use crate::config::{self, Config};
-use crate::local;
+use crate::local::{self, open_to_read as open, same_file};
 use crate::places;
 
 /// The largest card file read (`docs/adr/0011-ui-security-boundary.md`).
@@ -279,66 +279,6 @@ fn read_card_with(
     }
     let text = core::str::from_utf8(&bytes).map_err(|_| Failure::InvalidCard)?;
     Ok(Zeroizing::new(text.to_owned()))
-}
-
-/// Opens `path` to read it. On Unix a link is not followed, and the file is
-/// opened without waiting, so that a pipe without a writer does not block
-/// the thread.
-#[cfg(unix)]
-fn open(path: &Path) -> std::io::Result<File> {
-    use rustix::fs::{Mode, OFlags};
-    let flags =
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
-    Ok(File::from(rustix::fs::open(path, flags, Mode::empty())?))
-}
-
-/// Opens `path` to read it. On Windows a reparse point is opened as itself,
-/// not followed (`FILE_FLAG_OPEN_REPARSE_POINT`), and a file in remote
-/// storage is not brought back to the disk (`FILE_FLAG_OPEN_NO_RECALL`);
-/// others may read it meanwhile, but not write it.
-#[cfg(windows)]
-fn open(path: &Path) -> std::io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-    const FILE_SHARE_READ: u32 = 0x0000_0001;
-    const FILE_FLAG_OPEN_NO_RECALL: u32 = 0x0010_0000;
-    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .share_mode(FILE_SHARE_READ)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL)
-        .open(path)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn open(path: &Path) -> std::io::Result<File> {
-    File::open(path)
-}
-
-/// Whether the file opened is a regular file and, on Unix, the one looked
-/// at: the same device and inode.
-#[cfg(unix)]
-fn same_file(looked_at: &Metadata, opened: &Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    opened.is_file() && opened.dev() == looked_at.dev() && opened.ino() == looked_at.ino()
-}
-
-/// Whether the file opened is a regular file held on the disk, not a link,
-/// and the one looked at, as far as the standard library tells: the same
-/// size, creation time and last write time.
-#[cfg(windows)]
-fn same_file(looked_at: &Metadata, opened: &Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    opened.is_file()
-        && !opened.file_type().is_symlink()
-        && local::held_here(opened.file_attributes())
-        && opened.file_size() == looked_at.file_size()
-        && opened.creation_time() == looked_at.creation_time()
-        && opened.last_write_time() == looked_at.last_write_time()
-}
-
-#[cfg(not(any(unix, windows)))]
-fn same_file(_: &Metadata, opened: &Metadata) -> bool {
-    opened.is_file()
 }
 
 #[cfg(test)]

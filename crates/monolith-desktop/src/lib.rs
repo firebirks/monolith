@@ -15,7 +15,6 @@ pub mod calendar;
 pub mod config;
 mod convert;
 pub mod files;
-mod local;
 pub mod places;
 pub mod system_fonts;
 pub mod window;
@@ -29,7 +28,7 @@ use std::time::Instant;
 
 use core::time::Duration;
 
-use monolith_runtime::{ControlAuth, Endpoint, SystemTorBackend, SystemTorConfig};
+use monolith_runtime::{ControlAuth, Endpoint, SystemTorBackend, SystemTorConfig, local};
 use monolith_ui::{App, EffectResult, TorSettings};
 use monolith_ui_model::{Failure, Model};
 

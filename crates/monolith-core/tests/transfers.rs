@@ -987,7 +987,11 @@ fn a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it() {
         // the first.
         let mut link = hand_link(&network, &a, &b).await;
         let (messages, _) = drain(&mut link, QUIET).await;
-        assert_eq!(offers_in(&messages), vec![(second_id, 30 * L)], "{messages:?}");
+        assert_eq!(
+            offers_in(&messages),
+            vec![(second_id, 30 * L)],
+            "{messages:?}"
+        );
         assert_eq!(
             messages.last(),
             Some(&Message::FileAbort(second_id)),

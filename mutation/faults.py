@@ -46,7 +46,10 @@ def crate_of(path):
     return path.split("/")[1]
 
 
-def fault(fid, path, what, *pairs, group="", expect="caught"):
+def fault(fid, path, what, *pairs, group="", expect="caught", tests=None):
+    """`tests` names the crates whose tests run when they are not those of
+    TESTS for the crate of `path`: for code that moved to another crate and
+    is still caught by the tests of the crate it left."""
     return {
         "id": fid,
         "path": path,
@@ -54,8 +57,16 @@ def fault(fid, path, what, *pairs, group="", expect="caught"):
         "pairs": list(pairs),
         "group": group,
         "expect": expect,
-        "crates": TESTS[crate_of(path)],
+        "crates": tests or TESTS[crate_of(path)],
     }
+
+
+# What is a file of this computer and how it is opened: since Phase 8 in
+# `monolith-storage` (`local.rs`), moved there from the desktop client
+# unchanged, and still tested by the tests of the desktop that read and
+# save card files.
+LOCAL = ST + "local.rs"
+LOCAL_TESTS = ["monolith-storage", "monolith-desktop"]
 
 
 PHASE2 = [
@@ -1680,9 +1691,10 @@ PHASE6 = [
     fault("UI109", DK + "files.rs", "a file put in place of the one looked at is read",
           ("    if !same_file(&metadata, &opened) {",
            "    if !opened.is_file() {")),
-    fault("UI110", DK + "files.rs", "a link put in place of the card file is followed",
+    fault("UI110", LOCAL, "a link put in place of the card file is followed",
           ("OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK",
-           "OFlags::RDONLY | OFlags::NONBLOCK")),
+           "OFlags::RDONLY | OFlags::NONBLOCK"),
+          tests=LOCAL_TESTS),
     # What the screens say and ask.
     fault("UI111", UM + "model.rs", "a queued send cuts a draft cleared and typed again",
           (".strip_prefix(text).filter(|_| starts) {", ".strip_prefix(text).filter(|_| true) {")),
@@ -1843,14 +1855,17 @@ PHASE7 = [
     fault("HR8", UM + "prose.rs", "a name in a sentence of the model becomes words of the client",
           ("            self.spans.push(Span::Name(name));", "            self.spans.push(Span::Said(name));")),
     # What is a file of this computer (P7-3): the parts every build tests.
-    fault("HR9", DK + "local.rs", "a file offline or in the cloud only counts as held on the disk",
-          ("    attributes & NOT_HERE == 0\n", "    true\n")),
-    fault("HR10", DK + "local.rs", "a name of a device with an extension or spaces is a file name",
+    fault("HR9", LOCAL, "a file offline or in the cloud only counts as held on the disk",
+          ("    attributes & NOT_HERE == 0\n", "    true\n"),
+          tests=LOCAL_TESTS),
+    fault("HR10", LOCAL, "a name of a device with an extension or spaces is a file name",
           ("    let stem = name.split('.').next().unwrap_or(\"\").trim_end_matches(' ');",
-           "    let stem = name;")),
-    fault("HR11", DK + "local.rs", "a path resolved on a share counts as one on a drive",
+           "    let stem = name;"),
+          tests=LOCAL_TESTS),
+    fault("HR11", LOCAL, "a path resolved on a share counts as one on a drive",
           ("        (Some(letter), Some(':'), Some('\\\\')) if letter.is_ascii_alphabetic()",
-           "        (Some(letter), _, _) if letter.is_ascii_alphabetic()")),
+           "        (Some(letter), _, _) if letter.is_ascii_alphabetic()"),
+          tests=LOCAL_TESTS),
     # File messages on a runtime that transfers no file (P7-4). Since
     # Phase 8 the same rules hold for an offer refused without a record
     # and for every transfer that ended on a session (`exchange.rs`); the
@@ -2016,9 +2031,10 @@ PHASE7 = [
     fault("HR67", UK + "ime.rs", "an Enter after a composition begun and committed in its frame sends the draft",
           ("    before || now || ended\n", "    before || now\n")),
     # Findings of the reviews (P7-23).
-    fault("HR68", DK + "local.rs", "a drive on a share is looked at folder by folder before it is refused",
+    fault("HR68", LOCAL, "a drive on a share is looked at folder by folder before it is refused",
           ("    if !system\n        .resolve(root)\n        .is_ok_and(|canonical| resolved_on_a_drive(&canonical))\n"
-           "    {\n        return false;\n    }\n", "")),
+           "    {\n        return false;\n    }\n", ""),
+          tests=LOCAL_TESTS),
     fault("HR76", CORE + "runtime.rs", "a session the scheduler waited on ends without announcing the retry",
           ("                if !identity.is_closed()\n                    && self.needs_scheduler(runtime, &contact, &peer)\n                    && identity.next_queued(&contact).is_some()\n                {\n",
            "                if false {\n")),
@@ -2154,15 +2170,18 @@ PHASE8 = [
 # catch them run on Windows, so this list is run there, by itself
 # ("phase7w"); every other list runs on Linux.
 PHASE7_WINDOWS = [
-    fault("HR12", DK + "local.rs", "a link or a junction on the way is followed",
+    fault("HR12", LOCAL, "a link or a junction on the way is followed",
           ("            Ok(looked) if !looked.link && held_here(looked.attributes) => deepest = Some(part),",
-           "            Ok(looked) if held_here(looked.attributes) => deepest = Some(part),")),
-    fault("HR13", DK + "files.rs", "a card file opened is not compared with the one looked at",
+           "            Ok(looked) if held_here(looked.attributes) => deepest = Some(part),"),
+          tests=LOCAL_TESTS),
+    fault("HR13", LOCAL, "a card file opened is not compared with the one looked at",
           ("        && opened.file_size() == looked_at.file_size()\n"
            "        && opened.creation_time() == looked_at.creation_time()\n"
-           "        && opened.last_write_time() == looked_at.last_write_time()\n", "")),
-    fault("HR14", DK + "local.rs", "a name of a device is taken as a file of this computer",
-          ("                    && !names_a_device(name)\n", "")),
+           "        && opened.last_write_time() == looked_at.last_write_time()\n", ""),
+          tests=LOCAL_TESTS),
+    fault("HR14", LOCAL, "a name of a device is taken as a file of this computer",
+          ("                    && !names_a_device(name)\n", ""),
+          tests=LOCAL_TESTS),
     fault("HR15", DK + "lib.rs", "a cookie file on another computer is read",
           ("    path.is_absolute() && local::would_be_here(path)\n", "    path.is_absolute()\n")),
     fault("HR16", DK + "lib.rs", "a data directory or settings file on another computer is taken",
@@ -2177,12 +2196,15 @@ PHASE7_WINDOWS = [
           ("                if !names_cookie_file(&named, cookie_file, cfg!(windows)) {\n",
            "                if !names_cookie_file(&named, cookie_file, false) {\n")),
     # Findings of the reviews (P7-23), in code built on Windows only.
-    fault("HR69", DK + "files.rs", "a card file swapped for one of the same length is read",
-          ("        && opened.last_write_time() == looked_at.last_write_time()\n", "")),
-    fault("HR70", DK + "local.rs", "a name with a stream or a dot or space at its end is a file name",
-          ("                    && !name.contains(':')\n                    && !name.ends_with(['.', ' '])\n", "")),
-    fault("HR71", DK + "files.rs", "a card file opened offline or in the cloud only is read",
-          ("        && local::held_here(opened.file_attributes())\n", "")),
+    fault("HR69", LOCAL, "a card file swapped for one of the same length is read",
+          ("        && opened.last_write_time() == looked_at.last_write_time()\n", ""),
+          tests=LOCAL_TESTS),
+    fault("HR70", LOCAL, "a name with a stream or a dot or space at its end is a file name",
+          ("                    && !name.contains(':')\n                    && !name.ends_with(['.', ' '])\n", ""),
+          tests=LOCAL_TESTS),
+    fault("HR71", LOCAL, "a card file opened offline or in the cloud only is read",
+          ("        && held_here(opened.file_attributes())\n", ""),
+          tests=LOCAL_TESTS),
     fault("HR72", DK + "files.rs", "a card is saved in a folder that is not of this computer",
           ("    if !local::here(dir) {\n        return Err(std::io::ErrorKind::PermissionDenied.into());\n    }\n", "")),
     fault("HR73", DK + "config.rs", "a cookie path not named as a file of this computer is taken",

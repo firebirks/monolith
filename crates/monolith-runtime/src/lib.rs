@@ -25,6 +25,9 @@ pub use monolith_core::runtime::MAX_PAGE;
 use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_storage::StorageError;
 use monolith_storage::dir::{DiskDir, VAULT, VAULT_NEW};
+/// Whether a path the user gave names a file of this computer, and how
+/// such a file is opened (`docs/DESIGN_QUESTIONS.md` P7-3).
+pub use monolith_storage::local;
 use monolith_storage::vault::{KdfParams, Passphrase};
 pub use monolith_tor::{
     ControlAuth, Endpoint, SocksProof, SystemTorBackend, SystemTorConfig, TorBackend,

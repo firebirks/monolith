@@ -477,6 +477,15 @@ code in Phase 8 and keep their defects. The rules of version 1 that HR17
 to HR20 and HR85 break now hold for an offer refused without a record and
 for every transfer that ended on a session (`exchange.rs`).
 
+The rules for a file of this computer and how it is opened moved, unchanged,
+from the desktop client (`local.rs`, and `open` and `same_file` of
+`files.rs`) to `monolith-storage/src/local.rs` in Phase 8, so that the files
+of transfers are held to them too. UI110, HR9 to HR14 and HR68 to HR71
+moved with them and keep their defects; HR71 removes the same check, which
+names `held_here` without its module now. Their tests are still those of
+the desktop that read and save card files, with those of the storage crate
+(`tests=` in `faults.py`).
+
 Since Phase 7 (P7-13) `Peer::start` in `tests/runtime.rs` waits a minute
 of test time for the publication, so CS29 fails those tests within
 about a minute instead of reaching the timeout.

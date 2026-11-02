@@ -28,9 +28,9 @@ monolith-ui-model = { path = "../monolith-ui-model" }
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 zeroize = { workspace = true, features = ["alloc"] }
 
-# A card file is opened without waiting on Unix (src/files.rs), so that a
-# pipe put in its place cannot block the disk thread.
-[target.'cfg(unix)'.dependencies]
+# The tests of src/files.rs make pipes and watch them on Unix. A card file
+# is opened by monolith_storage::local, without waiting.
+[target.'cfg(unix)'.dev-dependencies]
 rustix.workspace = true
 
 [features]
