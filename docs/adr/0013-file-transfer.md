@@ -235,6 +235,26 @@ for the receiver to dial, or for `TRANSFER_STALL_LIMIT`.
   the transfer survives; and below about 25 KB/s a duplicate probe can
   wait behind the window past its timeout and close the session it
   probes, after which the transfer goes on over the other one.
+- The window binds the offerer alone. The receiver does not end a
+  session for a chunk beyond it: it cannot know which of its
+  acknowledgements the offerer had read when it wrote the chunk, so a
+  check against the last FileAccept it wrote would catch some breaches
+  and prove none. What the receiver checks bounds what an offerer that
+  ignores the window gets: the length and place of every chunk, nothing
+  beyond the size (a violation), nothing staged beyond the blob reserved
+  at acceptance, and each chunk written before the next frame is read,
+  so that the receiver's own writes go out between chunks. Such an
+  offerer gains speed in its own direction of the session and nothing
+  else. A way to exhaust a resource through it would reopen this.
+- A FileChunk carries no offset: its place is the offset of the
+  FileAccept that opened the window on the session plus the length of
+  the chunks before it. An offerer that resumes from another offset than
+  the one it was given writes chunks of the right length in the wrong
+  place, and the receiver cannot tell until the digest does not match at
+  FileComplete (below). The transfer then fails and nothing is taken as
+  complete, but only after the rest of the file was sent, staged and
+  hashed: the cost of such a fault is bandwidth and work, never a wrong
+  file.
 - The receiver writes each chunk before it reads the next frame. Once
   `FILE_PROGRESS_CHUNKS` more chunks are durable, or
   `FILE_PROGRESS_INTERVAL` has passed since its last FileAccept and new

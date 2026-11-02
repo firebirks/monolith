@@ -357,6 +357,31 @@ async fn drain(link: &mut Link<DuplexStream>, quiet: Duration) -> (Vec<Message>,
 
 const QUIET: Duration = Duration::from_secs(5);
 
+/// What arrives on `link` until nothing more comes for `quiet` of test
+/// time, Pings included and left unanswered. The second value says whether
+/// the session ended.
+async fn take(link: &mut Link<DuplexStream>, quiet: Duration) -> (Vec<Message>, bool) {
+    let mut messages = Vec::new();
+    loop {
+        match tokio::time::timeout(quiet, link.receive()).await {
+            Err(_) => return (messages, false),
+            Ok(Err(_)) => return (messages, true),
+            Ok(Ok(arrived)) => messages.push(arrived.received().message.clone()),
+        }
+    }
+}
+
+/// The identifiers and sizes of the offers among `messages`, in order.
+fn offers_in(messages: &[Message]) -> Vec<(TransferId, u64)> {
+    messages
+        .iter()
+        .filter_map(|message| match message {
+            Message::FileOffer { transfer, size, .. } => Some((*transfer, *size)),
+            _ => None,
+        })
+        .collect()
+}
+
 fn chunks_of(messages: &[Message], transfer: TransferId) -> Vec<(usize, usize)> {
     let mut offsets = Vec::new();
     for message in messages {
@@ -909,6 +934,115 @@ fn a_cancellation_the_receiver_could_not_be_told_is_told_with_the_next_offer() {
         assert_eq!(messages[1], Message::FileAbort(transfer));
         // Read: never again.
         link.close().await.unwrap();
+        let mut link = hand_link(&network, &a, &b).await;
+        assert!(drain(&mut link, QUIET).await.0.is_empty());
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, mut link) = b_by_hand(&network).await;
+        let first = offer(&a, &at_a, &file(20 * L)).await;
+        let second = offer(&a, &at_a, &file(30 * L)).await;
+        // Both offers read: the Pings that follow them answered.
+        let (messages, ended) = drain(&mut link, QUIET).await;
+        assert!(!ended);
+        let offers = offers_in(&messages);
+        assert_eq!(offers.len(), 2, "{messages:?}");
+        let id = |size: u64| {
+            offers
+                .iter()
+                .find(|(_, offered)| *offered == size)
+                .map(|(transfer, _)| *transfer)
+                .unwrap()
+        };
+        let (first_id, second_id) = (id(20 * L), id(30 * L));
+        a.runtime().cancel_transfer(&first).await.unwrap();
+        let (messages, ended) = take(&mut link, QUIET).await;
+        assert!(!ended);
+        let [Message::FileAbort(aborted), Message::Ping(older)] = messages.as_slice() else {
+            panic!("not a cancellation and its Ping: {messages:?}");
+        };
+        assert_eq!(*aborted, first_id);
+        let older = *older;
+        // A second cancellation while that Ping waits gets no Ping of its
+        // own yet.
+        a.runtime().cancel_transfer(&second).await.unwrap();
+        let (messages, _) = take(&mut link, QUIET).await;
+        assert_eq!(messages, vec![Message::FileAbort(second_id)]);
+        // The answer to the older Ping covers the first cancellation alone:
+        // the second is covered by a new Ping, which goes unanswered.
+        link.send(&Message::Pong(older)).await.unwrap();
+        let (messages, ended) = take(&mut link, QUIET).await;
+        assert!(!ended);
+        assert!(
+            matches!(messages.as_slice(), [Message::Ping(newer)] if *newer != older),
+            "{messages:?}"
+        );
+        link.close().await.unwrap();
+        // The next session tells the second cancellation again, and never
+        // the first.
+        let mut link = hand_link(&network, &a, &b).await;
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert_eq!(offers_in(&messages), vec![(second_id, 30 * L)], "{messages:?}");
+        assert_eq!(
+            messages.last(),
+            Some(&Message::FileAbort(second_id)),
+            "{messages:?}"
+        );
+        assert!(!messages.contains(&Message::FileAbort(first_id)));
+        // Read now: neither comes again.
+        link.close().await.unwrap();
+        let mut link = hand_link(&network, &a, &b).await;
+        assert!(drain(&mut link, QUIET).await.0.is_empty());
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_pong_that_answers_no_ping_of_its_session_ends_it_and_confirms_nothing() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, mut link) = b_by_hand(&network).await;
+        let sent = offer(&a, &at_a, &file(20 * L)).await;
+        let (messages, _) = drain(&mut link, QUIET).await;
+        let (transfer, _, _) = offer_in(&messages);
+        a.runtime().cancel_transfer(&sent).await.unwrap();
+        let (messages, _) = take(&mut link, QUIET).await;
+        let [Message::FileAbort(_), Message::Ping(nonce)] = messages.as_slice() else {
+            panic!("not a cancellation and its Ping: {messages:?}");
+        };
+        // A Pong with another nonce: one of an earlier Ping, or of another
+        // session.
+        let mut other = *nonce;
+        other[0] ^= 1;
+        link.send(&Message::Pong(other)).await.unwrap();
+        let (_, ended) = take(&mut link, QUIET).await;
+        assert!(ended);
+        // Nothing was confirmed: the cancellation is told again.
+        let mut link = hand_link(&network, &a, &b).await;
+        let (messages, ended) = take(&mut link, QUIET).await;
+        assert!(!ended);
+        assert_eq!(offers_in(&messages), vec![(transfer, 20 * L)]);
+        assert!(messages.contains(&Message::FileAbort(transfer)));
+        // A Pong where no Ping waits ends the session too, before anything
+        // is confirmed.
+        let nonce = messages
+            .iter()
+            .find_map(|message| match message {
+                Message::Ping(nonce) => Some(*nonce),
+                _ => None,
+            })
+            .expect("a Ping");
+        link.send(&Message::Pong(nonce)).await.unwrap();
+        link.send(&Message::Pong(nonce)).await.unwrap();
+        let (_, ended) = take(&mut link, QUIET).await;
+        assert!(ended);
+        // The first Pong answered the Ping: the cancellation was read, and
+        // is not told again.
         let mut link = hand_link(&network, &a, &b).await;
         assert!(drain(&mut link, QUIET).await.0.is_empty());
         a.stop().await;

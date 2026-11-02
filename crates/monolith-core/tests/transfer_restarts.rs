@@ -409,6 +409,85 @@ fn a_receiver_that_crashes_resumes_from_what_it_holds_durably() {
     }
 }
 
+/// The window binds the sender only (`docs/adr/0013-file-transfer.md`,
+/// "Data, window and progress"): a receiver cannot know which of its
+/// acknowledgements the sender read. A sender that ignores it gets no more
+/// staged than the size it offered, holds up no chat of the receiver, and
+/// a chunk beyond the size ends its session.
+#[test]
+fn a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut b, a, at_b, _) = contacts(&network).await;
+        let data = file(24 * L + 9);
+        let mut link = hand_link(&network, &b, &a).await;
+        let received = offered_and_accepted(&b, &mut link, &data).await;
+        let blobs = b.blobs();
+        assert_eq!(blobs.len(), 1);
+        let reserved = b.dir().content(&blobs[0]).unwrap().len();
+        let mut events = b.runtime().subscribe();
+        // The whole file at once, never waiting for an acknowledgement, and
+        // then one chunk more than the file.
+        let sent = data.clone();
+        let flood = tokio::spawn(async move {
+            let mut offset = 0;
+            while offset < sent.len() as u64 {
+                link.send(&chunk(TRANSFER, &sent, offset)).await.unwrap();
+                offset = (offset + L).min(sent.len() as u64);
+            }
+            let more = Message::FileChunk(FileChunk::new(TRANSFER, vec![7; L as usize]).unwrap());
+            let refused = link.send(&more).await.is_err();
+            let (messages, ended) = drain(&mut link, QUIET).await;
+            (messages, ended || refused)
+        });
+        // Chat queued while the chunks pour in goes out between them.
+        event(&mut events, |event| {
+            matches!(event, Event::TransferProgressed { reference, .. } if *reference == received)
+        })
+        .await;
+        b.runtime()
+            .send_message(&b.id(), &at_b, "while the file pours in")
+            .await
+            .unwrap();
+        let (messages, ended) = flood.await.unwrap();
+        assert!(ended, "a chunk beyond the size ends the session");
+        let chat = messages
+            .iter()
+            .position(|message| matches!(message, Message::ChatMessage { .. }))
+            .expect("the chat message");
+        let offsets = acceptances(&messages, TRANSFER);
+        assert!(
+            offsets.windows(2).all(|pair| pair[0] < pair[1]),
+            "{offsets:?}"
+        );
+        assert!(offsets.iter().all(|offset| *offset <= data.len() as u64));
+        let late = messages
+            .iter()
+            .position(|message| {
+                matches!(message, Message::FileAccept { offset, .. } if *offset >= 10 * L)
+            })
+            .expect("acknowledgements up to the end");
+        assert!(chat < late, "the chat waited behind the file: {messages:?}");
+        // Nothing beyond the reservation, and nothing staged beyond the size.
+        assert_eq!(b.blobs(), blobs);
+        assert_eq!(b.dir().content(&blobs[0]).unwrap().len(), reserved);
+        let view = b.view(&received).unwrap();
+        assert_eq!(view.status, TransferStatus::Receiving);
+        assert!(view.bytes <= data.len() as u64);
+        // A sender that keeps to the rules then completes it.
+        let mut link = hand_link(&network, &b, &a).await;
+        let from = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
+        assert_eq!(from.len(), 1);
+        let answer = send_rest(&mut link, &data, from[0]).await;
+        assert!(answer.contains(&Message::FileComplete {
+            transfer: TRANSFER,
+            digest: sha(&data),
+        }));
+        assert_eq!(saved(&b, &received).await, data);
+        b.stop().await;
+    });
+}
+
 #[test]
 fn a_receiver_that_crashes_after_its_completion_acknowledges_it_again_with_one_file() {
     for outcome in CrashOutcome::ALL {

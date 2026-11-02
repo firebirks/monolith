@@ -259,8 +259,16 @@ never of the padding. The bytes a blob holds after n whole segments are
   call to read the free space, the file is extended to its full length
   plus the margin, which allocates its clusters on an ordinary NTFS
   volume and fails if the space is missing, and then shortened to its
-  full length; this runs in the same job as the writes of the stores, so
-  none of them meets the margin taken. A blob for which the space is
+  full length. A reservation holds the lock of the disk of the
+  installation, which every write of a store (vault, message store,
+  transfer store) holds too, so that no write of a store runs while the
+  margin is taken. The lock gives mutual exclusion within the process and
+  nothing more: a crash in the middle of a reservation or of a write of a
+  store leaves what the crash table of `STORAGE.md` section 8 says, as it
+  would without the lock. That a write of a store is whole or absent
+  after a crash comes from its write order (`STORAGE.md` section 3.5),
+  and that a crash leaves at most a blob no record names comes from the
+  order of the next sections, not from the lock. A blob for which the space is
   missing is not created. The reservation is best effort: a compressed
   or sparse file, a copy-on-write file system or kept snapshots may need
   new space for a write after all, which the failures below cover.
