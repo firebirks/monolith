@@ -23,18 +23,31 @@
 //! conversations <n>             the conversations of the identity
 //! block|delete <n> <peer>       block or delete a contact
 //! sessions <n> <peer>           the sessions of a contact
+//! offer <n> <peer> <path>       offer the file at the path (the rest of
+//!                               the line) to a contact
+//! transfers <n>                 the transfers of the identity
+//! accept|reject|cancel|remove|resume <n> <t>
+//!                               decide on a transfer
+//! suggest <n> <t>               the name suggested to save a received file
+//! save <n> <t> <path>           save a received file as a new file at the
+//!                               path (the rest of the line)
+//! interrupted <n>               the saves cut short when the node last ran
 //! quit                          stop
 //! ```
 //!
 //! `<peer>` is the start of the hexadecimal identity key of a peer the
-//! identity holds a conversation or a contact record of.
+//! identity holds a conversation or a contact record of. `<t>` names a
+//! transfer as the events print it: `t` and a number the node gives each
+//! transfer the first time it prints it, which does not outlive the
+//! process. Every decision on a transfer is the runtime's; the node only
+//! names them.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use monolith_core::api::{ContactId, Event, IdentityId, ServiceState};
+use monolith_core::api::{ContactId, Event, IdentityId, ServiceState, TransferRef, TransferView};
 use monolith_core::budget::Budgets;
 use monolith_core::identity::Installation;
 use monolith_core::runtime::{Runtime, RuntimeOptions};
@@ -75,9 +88,70 @@ struct Node {
     runtime: Runtime<SystemTorBackend>,
     /// The identities, by their number.
     identities: Mutex<Vec<IdentityId>>,
+    /// The transfers printed so far, by their number.
+    transfers: Mutex<Vec<TransferRef>>,
+}
+
+/// The rest of `line` after its first `words` words, however they are
+/// spaced.
+fn rest_of(line: &str, words: usize) -> &str {
+    let mut rest = line.trim_start();
+    for _ in 0..words {
+        rest = rest
+            .split_once(char::is_whitespace)
+            .map_or("", |(_, after)| after.trim_start());
+    }
+    rest
 }
 
 impl Node {
+    /// The name of `transfer` for the events and the commands: `t` and its
+    /// number, given the first time it is printed.
+    fn transfer_name(&self, transfer: &TransferRef) -> String {
+        let mut transfers = lock(&self.transfers);
+        let number = transfers
+            .iter()
+            .position(|held| held == transfer)
+            .unwrap_or_else(|| {
+                transfers.push(*transfer);
+                transfers.len().saturating_sub(1)
+            });
+        format!("t{number}")
+    }
+
+    /// The transfer of `identity` named `name`.
+    fn named_transfer(&self, identity: &IdentityId, name: &str) -> Result<TransferRef, String> {
+        let number: usize = name
+            .strip_prefix('t')
+            .and_then(|number| number.parse().ok())
+            .ok_or_else(|| "not a transfer".to_owned())?;
+        lock(&self.transfers)
+            .get(number)
+            .copied()
+            .filter(|transfer| transfer.identity == *identity)
+            .ok_or_else(|| "no such transfer".to_owned())
+    }
+
+    /// One line of what a transfer is now. The name is the contact's,
+    /// printed escaped.
+    fn transfer_line(&self, view: &TransferView) -> String {
+        let reference = &view.reference;
+        format!(
+            "transfer {} {} {} {} {:?} reason={:?} size={} bytes={} held={} saved={} name={:?}",
+            self.number(&reference.identity).unwrap_or(usize::MAX),
+            self.peer_name(&reference.identity, &reference.contact),
+            self.transfer_name(reference),
+            if reference.incoming { "in" } else { "out" },
+            view.status,
+            view.reason,
+            view.size,
+            view.bytes,
+            view.held,
+            view.saved,
+            view.name
+        )
+    }
+
     fn number(&self, identity: &IdentityId) -> Option<usize> {
         lock(&self.identities)
             .iter()
@@ -227,6 +301,39 @@ impl Node {
                 format!("closed {}", self.number(&identity).unwrap_or(usize::MAX))
             }
             Event::StorageFailed => "storage-failed".to_owned(),
+            Event::TransferOffered(reference) => {
+                let Some(view) = self.runtime.transfer(&reference).ok().flatten() else {
+                    return;
+                };
+                format!(
+                    "offered {} {} {} size={} name={:?}",
+                    self.number(&reference.identity).unwrap_or(usize::MAX),
+                    self.peer_name(&reference.identity, &reference.contact),
+                    self.transfer_name(&reference),
+                    view.size,
+                    view.name
+                )
+            }
+            Event::TransferChanged(reference) => {
+                match self.runtime.transfer(&reference).ok().flatten() {
+                    Some(view) => self.transfer_line(&view),
+                    None => format!(
+                        "transfer-removed {} {}",
+                        self.number(&reference.identity).unwrap_or(usize::MAX),
+                        self.transfer_name(&reference)
+                    ),
+                }
+            }
+            Event::TransferProgressed { reference, bytes } => format!(
+                "progress {} {} {bytes}",
+                self.number(&reference.identity).unwrap_or(usize::MAX),
+                self.transfer_name(&reference)
+            ),
+            Event::SaveInterrupted(reference) => format!(
+                "save-interrupted {} {}",
+                self.number(&reference.identity).unwrap_or(usize::MAX),
+                self.transfer_name(&reference)
+            ),
             _ => return,
         };
         say(&line);
@@ -281,13 +388,7 @@ impl Node {
                 let record = self.record(&identity, peer)?;
                 // The text is the rest of the line after the peer, however
                 // the words before it are spaced.
-                let mut rest = line.trim_start();
-                for _ in 0..3 {
-                    rest = rest
-                        .split_once(char::is_whitespace)
-                        .map_or("", |(_, after)| after.trim_start());
-                }
-                let text = rest;
+                let text = rest_of(line, 3);
                 self.runtime
                     .send_message(&identity, &record, text)
                     .await
@@ -357,6 +458,91 @@ impl Node {
                     "sessions {index} {} {count}",
                     self.peer_name(&identity, &record)
                 ));
+                Ok(())
+            }
+            ["offer", n, peer, _, ..] => {
+                let (index, identity) = self.identity(n)?;
+                let record = self.record(&identity, peer)?;
+                let path = PathBuf::from(rest_of(line, 3));
+                let transfer = self
+                    .runtime
+                    .offer_path(&identity, &record, &path)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                say(&format!(
+                    "offering {index} {} {}",
+                    self.peer_name(&identity, &record),
+                    self.transfer_name(&transfer)
+                ));
+                Ok(())
+            }
+            ["transfers", n] => {
+                let (index, identity) = self.identity(n)?;
+                let views = self
+                    .runtime
+                    .transfers(&identity)
+                    .map_err(|error| error.to_string())?;
+                say(&format!("transfers {index} {}", views.len()));
+                for view in &views {
+                    say(&self.transfer_line(view));
+                }
+                Ok(())
+            }
+            [
+                verb @ ("accept" | "reject" | "cancel" | "remove" | "resume"),
+                n,
+                name,
+            ] => {
+                let (index, identity) = self.identity(n)?;
+                let transfer = self.named_transfer(&identity, name)?;
+                match *verb {
+                    "accept" => self.runtime.accept_transfer(&transfer).await,
+                    "reject" => self.runtime.reject_transfer(&transfer).await,
+                    "cancel" => self.runtime.cancel_transfer(&transfer).await,
+                    "remove" => self.runtime.remove_transfer(&transfer).await,
+                    _ => self.runtime.resume_transfer(&transfer).await,
+                }
+                .map_err(|error| error.to_string())?;
+                say(&format!("{verb}-done {index} {name}"));
+                Ok(())
+            }
+            ["suggest", n, name] => {
+                let (index, identity) = self.identity(n)?;
+                let transfer = self.named_transfer(&identity, name)?;
+                let view = self
+                    .runtime
+                    .transfer(&transfer)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "no such transfer".to_owned())?;
+                say(&format!(
+                    "suggest {index} {name} {:?}",
+                    monolith_core::runtime::save_name(&view.name)
+                ));
+                Ok(())
+            }
+            ["save", n, name, _, ..] => {
+                let (index, identity) = self.identity(n)?;
+                let transfer = self.named_transfer(&identity, name)?;
+                let path = PathBuf::from(rest_of(line, 3));
+                let outcome = self
+                    .runtime
+                    .save_transfer(&transfer, &path)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                say(&format!("saved {index} {name} {outcome:?}"));
+                Ok(())
+            }
+            ["interrupted", n] => {
+                let (index, identity) = self.identity(n)?;
+                let interrupted = self
+                    .runtime
+                    .interrupted_saves(&identity)
+                    .map_err(|error| error.to_string())?;
+                let names: Vec<String> = interrupted
+                    .iter()
+                    .map(|transfer| self.transfer_name(transfer))
+                    .collect();
+                say(&format!("interrupted {index} {}", names.join(" ")));
                 Ok(())
             }
             _ => Err("unknown command".to_owned()),
@@ -448,6 +634,7 @@ pub(crate) async fn run(
     let node = Arc::new(Node {
         runtime,
         identities: Mutex::new(identities),
+        transfers: Mutex::new(Vec::new()),
     });
     for (index, identity) in lock(&node.identities).iter().enumerate() {
         if let Some(local) = node.runtime.local_identity(identity) {
