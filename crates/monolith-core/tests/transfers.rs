@@ -1573,6 +1573,52 @@ fn a_chat_message_of_the_sender_is_not_held_behind_its_chunks() {
 }
 
 #[test]
+fn a_chat_message_waiting_while_chunks_go_out_is_written_after_at_most_one_chunk() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, mut link) = b_by_hand(&network).await;
+        offer(&a, &at_a, &file(40 * L)).await;
+        let (transfer, _, _) = offer_in(&drain(&mut link, QUIET).await.0);
+        link.send(&Message::FileAccept {
+            transfer,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+        drain(&mut link, QUIET).await;
+        // The window is full: a first message goes out and is not
+        // acknowledged yet, a second waits behind it.
+        for text in ["first", "second"] {
+            a.runtime()
+                .send_message(&a.id(), &at_a, text)
+                .await
+                .unwrap();
+        }
+        let (messages, _) = drain(&mut link, QUIET).await;
+        let [Message::ChatMessage { id: first, .. }] = messages.as_slice() else {
+            panic!("not one chat message: {messages:?}");
+        };
+        // The window opens and the first message is acknowledged at once:
+        // chunks may go again, and the second message goes out after at
+        // most one of them (ADR 0013, "Scheduling").
+        link.send(&Message::FileAccept {
+            transfer,
+            offset: 4 * L,
+        })
+        .await
+        .unwrap();
+        link.send(&Message::MessageAck(*first)).await.unwrap();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        let chat = messages
+            .iter()
+            .position(|message| matches!(message, Message::ChatMessage { .. }))
+            .expect("the second message");
+        assert!(chat <= 1, "{chat} chunks before it: {messages:?}");
+        a.stop().await;
+    });
+}
+
+#[test]
 fn a_chat_message_between_chunks_is_acknowledged_before_the_next_chunk_is_read() {
     run_paused(async {
         let network = MockNetwork::new();

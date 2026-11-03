@@ -173,6 +173,40 @@ fn a_blob_the_code_writes_opens_by_the_adr() {
     }
 }
 
+#[test]
+fn every_segment_the_code_writes_has_a_nonce_of_its_own_and_no_plaintext_shows() {
+    // The same file staged twice under one key: each segment of either
+    // blob has a nonce drawn for it, so no two share one, and no run of
+    // the file's bytes is found in either blob.
+    let len = 3 * L + 5;
+    let data: Vec<u8> = (0..len).map(|i| (i * 31 % 251) as u8).collect();
+    let dir = MemoryDir::new();
+    let key = StagingKey::from_bytes_for_testing(STAGING);
+    let mut nonces = Vec::new();
+    let mut blobs = Vec::new();
+    for _ in 0..2 {
+        let (id, _) = stage(&dir, &key, len as u64, 0, &mut data.as_slice()).unwrap();
+        let bytes = dir.content(&id.name()).unwrap();
+        for index in 0..len.div_ceil(L) {
+            let at = 32 + index * (24 + L + 16);
+            nonces.push(bytes[at..at + 24].to_vec());
+        }
+        blobs.push(bytes);
+    }
+    let mut distinct = nonces.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(distinct.len(), nonces.len(), "a nonce was used twice");
+    for blob in &blobs {
+        for run in data.chunks(32).step_by(400) {
+            assert!(
+                !blob.windows(run.len()).any(|window| window == run),
+                "the file's bytes are in a blob"
+            );
+        }
+    }
+}
+
 fn record() -> TransferRecord {
     TransferRecord {
         transfer: [0x77; 16],
