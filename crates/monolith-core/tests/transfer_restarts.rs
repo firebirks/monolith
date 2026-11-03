@@ -43,6 +43,7 @@ use monolith_storage::StorageError;
 use monolith_storage::dir::{CrashOutcome, MemoryDir, VaultDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{MockNetwork, MockTorBackend};
+use proptest::prelude::*;
 use sha2::{Digest, Sha256};
 use tokio::io::DuplexStream;
 use tokio::sync::broadcast;
@@ -867,6 +868,274 @@ fn a_cancellation_of_the_sender_that_meets_the_completion_ends_completed_in_ever
             a.start(&network).await;
             assert_eq!(a.status(&sent), Some(TransferStatus::Completed), "{order}");
             a.stop().await;
+        });
+    }
+}
+
+/// What a hostile sender does to a persistent receiver that accepted its
+/// offer.
+#[derive(Clone, Copy, Debug)]
+enum Hostile {
+    /// Offers the file again, on a new session if none is left, with its
+    /// size or one more; goes on from the offset answered, or where it was.
+    Offer { size_ok: bool, resume: bool },
+    /// The receiver's user accepts it.
+    Accept,
+    /// A chunk from where the sender is, of the length a chunk there has,
+    /// or `off` bytes shorter or longer, one byte changed if `flip`; on a
+    /// new session, offered again first, if none is left.
+    Chunk { off: i16, flip: bool },
+    /// The sender moves on, or back, by `by` bytes.
+    Skip { by: u16, back: bool },
+    /// A completion with the digest of what the sender sends, or of the
+    /// other file.
+    Complete { right: bool },
+    /// The sender cancels.
+    Abort,
+    /// The session ends.
+    Close,
+    /// The receiver crashes and starts again.
+    Crash(u8),
+}
+
+fn hostile() -> impl Strategy<Value = Hostile> {
+    prop_oneof![
+        2 => (any::<bool>(), any::<bool>())
+            .prop_map(|(size_ok, resume)| Hostile::Offer { size_ok, resume }),
+        1 => Just(Hostile::Accept),
+        8 => (
+            prop_oneof![8 => Just(0_i16), 1 => -64_i16..64],
+            prop::bool::weighted(0.05)
+        )
+            .prop_map(|(off, flip)| Hostile::Chunk { off, flip }),
+        1 => (1..=MAX_FILE_CHUNK_LEN as u16, any::<bool>())
+            .prop_map(|(by, back)| Hostile::Skip { by, back }),
+        2 => prop::bool::weighted(0.8).prop_map(|right| Hostile::Complete { right }),
+        1 => Just(Hostile::Abort),
+        1 => Just(Hostile::Close),
+        1 => any::<u8>().prop_map(Hostile::Crash),
+    ]
+}
+
+/// Whether an incoming transfer may go from `from` to `to`, in any number
+/// of steps: the receiver's table of `docs/adr/0013-file-transfer.md`.
+fn reaches_incoming(from: TransferStatus, to: TransferStatus) -> bool {
+    from == to
+        || match from {
+            TransferStatus::Offered => matches!(
+                to,
+                TransferStatus::Receiving
+                    | TransferStatus::Received
+                    | TransferStatus::Rejected
+                    | TransferStatus::Expired
+                    | TransferStatus::Cancelled
+                    | TransferStatus::Failed
+            ),
+            TransferStatus::Receiving => matches!(
+                to,
+                TransferStatus::Received | TransferStatus::Cancelled | TransferStatus::Failed
+            ),
+            _ => false,
+        }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 48,
+        max_shrink_iters: 128,
+        ..ProptestConfig::default()
+    })]
+
+    /// Whatever a sender sends, out of order, beyond the size, with any
+    /// digest, across sessions and crashes of the receiver: a file is shown
+    /// received only with exactly the size offered and a digest the sender
+    /// declared, from bytes staged durably, and so it stays; the bytes shown
+    /// never pass the size, and the status moves only along the table.
+    #[test]
+    fn whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified(
+        steps in prop::collection::vec(hostile(), 1..32),
+        size in prop::sample::select(vec![1_u64, L - 1, L + 3, 3 * L + 5]),
+        other in prop::bool::weighted(0.2),
+    ) {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut b, a, _, _) = contacts(&network).await;
+            // What the sender sends, and another file of the same size: it
+            // may send the other one whole, with its digest.
+            let mut data = file(size);
+            let mut garbage: Vec<u8> = data.iter().map(|byte| byte ^ 0x5A).collect();
+            if other {
+                core::mem::swap(&mut data, &mut garbage);
+            }
+            let mut link: Option<Link<DuplexStream>> = None;
+            let mut position = 0_u64;
+            let mut declared: Vec<[u8; 32]> = Vec::new();
+            let mut received: Option<TransferRef> = None;
+            let mut seen: Option<TransferStatus> = None;
+            let mut held: Option<Vec<u8>> = None;
+            let start = [
+                Hostile::Offer {
+                    size_ok: true,
+                    resume: true,
+                },
+                Hostile::Accept,
+            ];
+            for step in start.into_iter().chain(steps) {
+                match step {
+                    Hostile::Offer { size_ok, resume } => {
+                        if link.is_none() {
+                            link = Some(hand_link(&network, &b, &a).await);
+                        }
+                        let offer = Message::FileOffer {
+                            transfer: TRANSFER,
+                            size: if size_ok { size } else { size + 1 },
+                            filename: Filename::new("notes.txt").unwrap(),
+                        };
+                        let open = link.as_mut().unwrap();
+                        if open.send(&offer).await.is_ok() {
+                            let (messages, ended) = drain(open, QUIET).await;
+                            if resume && let Some(offset) = acceptances(&messages, TRANSFER).last() {
+                                position = *offset;
+                            }
+                            if ended {
+                                link = None;
+                            }
+                        } else {
+                            link = None;
+                        }
+                    }
+                    Hostile::Accept => {
+                        if let Some(transfer) = received {
+                            let _ = b.runtime().accept_transfer(&transfer).await;
+                        }
+                    }
+                    Hostile::Chunk { off, flip } => {
+                        if link.is_none() {
+                            let mut open = hand_link(&network, &b, &a).await;
+                            open.send(&offer_of(&data)).await.unwrap();
+                            let (messages, ended) = drain(&mut open, QUIET).await;
+                            if let Some(offset) = acceptances(&messages, TRANSFER).last() {
+                                position = *offset;
+                            }
+                            if !ended {
+                                link = Some(open);
+                            }
+                        }
+                        if let Some(open) = link.as_mut() {
+                            let source = &data;
+                            let fits = if position < size {
+                                (size - position).min(L)
+                            } else {
+                                L
+                            };
+                            let by = u64::from(off.unsigned_abs());
+                            let len = if off < 0 {
+                                fits.saturating_sub(by)
+                            } else {
+                                fits + by
+                            }
+                            .clamp(1, L) as usize;
+                            // Past the end: bytes the file does not have.
+                            let bytes: Vec<u8> = (0..len)
+                                .map(|at| {
+                                    source
+                                        .get(position as usize + at)
+                                        .copied()
+                                        .unwrap_or(0xEE)
+                                })
+                                .collect();
+                            let mut bytes = bytes;
+                            if flip {
+                                bytes[len / 2] ^= 0x01;
+                            }
+                            position += bytes.len() as u64;
+                            let chunk = FileChunk::new(TRANSFER, bytes).unwrap();
+                            let sent = open.send(&Message::FileChunk(chunk)).await.is_ok();
+                            let ended = !sent || drain(open, QUIET).await.1;
+                            if ended {
+                                link = None;
+                            }
+                        }
+                    }
+                    Hostile::Skip { by, back } => {
+                        position = if back {
+                            position.saturating_sub(u64::from(by))
+                        } else {
+                            position + u64::from(by)
+                        };
+                    }
+                    Hostile::Complete { right } => {
+                        if let Some(open) = link.as_mut() {
+                            let digest = sha(if right { &data } else { &garbage });
+                            declared.push(digest);
+                            let completion = Message::FileComplete {
+                                transfer: TRANSFER,
+                                digest,
+                            };
+                            let sent = open.send(&completion).await.is_ok();
+                            if !sent || drain(open, QUIET).await.1 {
+                                link = None;
+                            }
+                        }
+                    }
+                    Hostile::Abort => {
+                        if let Some(open) = link.as_mut() {
+                            let sent = open.send(&Message::FileAbort(TRANSFER)).await.is_ok();
+                            if !sent || drain(open, QUIET).await.1 {
+                                link = None;
+                            }
+                        }
+                    }
+                    Hostile::Close => {
+                        if let Some(open) = link.take() {
+                            let _ = open.close().await;
+                        }
+                    }
+                    Hostile::Crash(outcome) => {
+                        link = None;
+                        b.crash(CrashOutcome::ALL[usize::from(outcome) % CrashOutcome::ALL.len()])
+                            .await;
+                        b.open();
+                        b.start(&network).await;
+                    }
+                }
+                // What the receiver shows.
+                if received.is_none() {
+                    received = b
+                        .runtime()
+                        .transfers(&b.id())
+                        .unwrap()
+                        .first()
+                        .map(|view| view.reference);
+                }
+                let Some(transfer) = received else { continue };
+                let view = b.view(&transfer).expect("listed until removed");
+                assert!(view.bytes.is_none_or(|bytes| bytes <= view.size), "{view:?}");
+                if let Some(before) = seen {
+                    assert!(
+                        reaches_incoming(before, view.status),
+                        "{before:?} to {:?}",
+                        view.status
+                    );
+                }
+                seen = Some(view.status);
+                if view.status == TransferStatus::Received {
+                    assert_eq!(view.bytes, Some(view.size));
+                    // Read once, and the same after every later step.
+                    let mut reader = b.runtime().begin_save(&transfer).await.unwrap();
+                    let mut bytes = Vec::new();
+                    reader.read_to_end(&mut bytes).unwrap();
+                    drop(reader);
+                    b.runtime().end_save(&transfer, false).await.unwrap();
+                    assert_eq!(bytes.len() as u64, view.size);
+                    assert!(declared.contains(&sha(&bytes)), "a digest nobody declared");
+                    if let Some(earlier) = &held {
+                        assert!(*earlier == bytes, "the received file changed");
+                    }
+                    held = Some(bytes);
+                }
+            }
+            b.stop().await;
         });
     }
 }
