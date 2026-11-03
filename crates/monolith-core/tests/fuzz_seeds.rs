@@ -1,11 +1,12 @@
-//! Seeds of the fuzz targets `contact_store` and `message_sequence`:
-//! operation lists, committed under `fuzz/seeds/contact_store/` and
-//! `fuzz/seeds/message_sequence/`. The layout is that of each target:
-//! three bytes per operation. For `contact_store` the operation modulo 7,
-//! the remote identity modulo 3, and the card; for `message_sequence` the
+//! Seeds of the fuzz targets `contact_store`, `message_sequence` and
+//! `transfer_sequence`: operation lists, committed under
+//! `fuzz/seeds/<target>/`. The layout is that of each target: three bytes
+//! per operation for `contact_store` (the operation modulo 7, the remote
+//! identity modulo 3, and the card) and for `message_sequence` (the
 //! operation modulo 7, the identity and record, and the identifier and
-//! length or the deletion mode. The test fails if a committed seed is not
-//! what this file says. To write them again:
+//! length or the deletion mode); four for `transfer_sequence` (the
+//! operation modulo 17, the transfer, two arguments). The test fails if a
+//! committed seed is not what this file says. To write them again:
 //!
 //!     MONOLITH_WRITE_FUZZ_SEEDS=1 cargo test -p monolith-core --test fuzz_seeds
 
@@ -130,6 +131,92 @@ fn message_seeds() -> Vec<(String, Vec<u8>)> {
     ]
 }
 
+const OFFER: u8 = 0;
+const OFFERED: u8 = 1;
+const ACCEPT: u8 = 2;
+const REJECT: u8 = 3;
+const CANCEL: u8 = 4;
+const REMOVE: u8 = 5;
+const PEER_ACCEPTED: u8 = 6;
+const PEER_COMPLETED: u8 = 7;
+const PEER_ABORTED: u8 = 9;
+const STAGED: u8 = 10;
+const COMPLETE: u8 = 11;
+const TICK: u8 = 13;
+const CONTACT_ENDED: u8 = 14;
+const RESTART_STORE: u8 = 15;
+const REMOVE_IDENTITY_OF: u8 = 16;
+
+/// The transfer byte of `transfer` (0 to 7) of contact record `contact`
+/// of `identity`, offered by the peer if `incoming`.
+const fn named(identity: u8, contact: u8, incoming: bool, transfer: u8) -> u8 {
+    identity | (contact << 1) | ((incoming as u8) << 2) | (transfer << 3)
+}
+
+fn transfer_seeds() -> Vec<(String, Vec<u8>)> {
+    let list = |operations: &[(u8, u8, u8, u8)]| -> Vec<u8> {
+        operations
+            .iter()
+            .flat_map(|(operation, transfer, a, b)| [*operation, *transfer, *a, *b])
+            .collect()
+    };
+    let out = named(0, 0, false, 1);
+    let inc = named(0, 0, true, 2);
+    vec![
+        (
+            "transfer_sequence/send_and_restart.bin".to_owned(),
+            list(&[
+                (OFFER, out, 10, 0),
+                (PEER_ACCEPTED, out, 0, 0),
+                (RESTART_STORE, 0, 0, 0),
+                (PEER_COMPLETED, out, 0, 1),
+                (PEER_COMPLETED, out, 0, 0),
+                (REMOVE, out, 0, 0),
+            ]),
+        ),
+        (
+            "transfer_sequence/receive_and_answer.bin".to_owned(),
+            list(&[
+                (OFFERED, inc, 10, 0),
+                (ACCEPT, inc, 0, 0),
+                (STAGED, inc, 5, 0),
+                (RESTART_STORE, 0, 0, 0),
+                (COMPLETE, inc, 0, 0),
+                (OFFERED, inc, 10, 0),
+                (REMOVE, inc, 0, 0),
+                (OFFERED, inc, 10, 0),
+            ]),
+        ),
+        (
+            "transfer_sequence/decisions_and_time.bin".to_owned(),
+            list(&[
+                (OFFERED, named(0, 1, true, 3), 5, 0),
+                (REJECT, named(0, 1, true, 3), 0, 0),
+                (OFFERED, named(0, 1, true, 4), 5, 0),
+                (OFFERED, named(0, 1, true, 5), 5, 0xFF),
+                (OFFER, named(0, 1, false, 6), 5, 0),
+                (CANCEL, named(0, 1, false, 6), 0, 0),
+                (PEER_ABORTED, named(0, 1, true, 4), 0, 0),
+                (TICK, 0, 2, 1),
+                (TICK, 0, 20, 1),
+            ]),
+        ),
+        (
+            "transfer_sequence/contacts_and_identities.bin".to_owned(),
+            list(&[
+                (OFFER, named(1, 0, false, 1), 3, 0),
+                (OFFERED, named(1, 1, true, 1), 3, 0),
+                (ACCEPT, named(1, 1, true, 1), 0, 0),
+                (CONTACT_ENDED, named(1, 1, false, 0), 0, 0),
+                (CONTACT_ENDED, named(1, 0, false, 0), 0, 1),
+                (OFFER, named(1, 0, false, 1), 3, 0),
+                (REMOVE_IDENTITY_OF, named(1, 0, false, 0), 0, 0),
+                (RESTART_STORE, 0, 0, 0),
+            ]),
+        ),
+    ]
+}
+
 fn seed_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds")
 }
@@ -141,6 +228,7 @@ fn committed_seeds_are_current() {
     for (directory, expected) in [
         ("contact_store", seeds()),
         ("message_sequence", message_seeds()),
+        ("transfer_sequence", transfer_seeds()),
     ] {
         for (path, content) in &expected {
             let file = root.join(path);

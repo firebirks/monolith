@@ -15,6 +15,8 @@ pub mod budget;
 pub mod contacts;
 pub mod dialplan;
 mod exchange;
+#[cfg(any(test, fuzzing))]
+pub mod fuzzing;
 pub mod identity;
 pub mod link;
 pub mod messages;

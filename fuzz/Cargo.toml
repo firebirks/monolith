@@ -153,6 +153,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "transfer_sequence"
+path = "fuzz_targets/transfer_sequence.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "transfer_store"
 path = "fuzz_targets/transfer_store.rs"
 test = false
