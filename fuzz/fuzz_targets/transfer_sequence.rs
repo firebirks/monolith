@@ -268,7 +268,6 @@ fuzz_target!(|data: &[u8]| {
                             Done {
                                 size,
                                 made: now,
-                                progress: now,
                                 ..Done::default()
                             },
                         );
