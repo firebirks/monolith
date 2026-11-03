@@ -2229,6 +2229,52 @@ PHASE8 = [
     fault("FT50", UM + "model.rs", "an event's bytes are shown over a later read that says more",
           ("        (Some(heard), Some(read)) => Some(heard.max(read)),\n",
            "        (Some(heard), Some(_)) => Some(heard),\n")),
+    # FT-H: the surfaces the earlier faults left uncovered, from the list of
+    # candidates of the Phase 8 brief, and the defect it found (FT51 to
+    # FT53, each as it was before its fix).
+    fault("FT51", CORE + "runtime/transfer.rs", "an offer is written before its record is durable",
+          ("        if !offers.is_empty() && transfers.settled().await.is_err() {\n"
+           "            return Ok(());\n"
+           "        }\n", "")),
+    fault("FT52", CORE + "runtime/transfer.rs", "an answer to an offer is written before the decision is durable",
+          ("        if matches!(answer, Answer::Nothing) || transfers.settled().await.is_err() {\n",
+           "        if matches!(answer, Answer::Nothing) {\n")),
+    fault("FT53", CORE + "runtime/transfer.rs", "a cancellation is told before it is durable",
+          ("                if transfers.settled().await.is_err() {\n"
+           "                    return Ok(());\n"
+           "                }\n"
+           "                link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))\n",
+           "                link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))\n")),
+    fault("FT54", CORE + "runtime/transfer.rs", "the receiver completes a file whatever digest the sender declares",
+          ("            Ok(Verified::Digest(held)) if held == digest => {\n",
+           "            Ok(Verified::Digest(held)) => {\n")),
+    fault("FT55", CORE + "transfers.rs", "a transfer of one contact record is found under another",
+          ("        record.identity == self.identity\n"
+           "            && record.contact == self.contact\n",
+           "        record.identity == self.identity\n")),
+    fault("FT56", CORE + "transfers.rs", "a transfer of one local identity is found under another",
+          ("        record.identity == self.identity\n"
+           "            && record.contact == self.contact\n",
+           "        record.contact == self.contact\n")),
+    fault("FT57", CORE + "transfers.rs", "a cancelled transfer is offered again as one that goes on",
+          ("                        cancelled: rank == 1,\n",
+           "                        cancelled: false,\n")),
+    fault("FT58", CORE + "transfers.rs", "an acceptance is taken with no room left to stage",
+          ("                self.sum(Self::staged_incoming).saturating_add(size) <= self.limits.staged_incoming\n",
+           "                true\n")),
+    fault("FT59", CORE + "runtime.rs", "a chat message waits until no chunk is left to send",
+          ("                if running.in_flight.is_none()\n"
+           "                    && runtime.manager.is_preferred(&contact, running.serial)\n"
+           "                {\n",
+           "                if running.in_flight.is_none()\n"
+           "                    && runtime.manager.is_preferred(&contact, running.serial)\n"
+           "                    && running.files.exchange.next_chunk().is_none()\n"
+           "                {\n")),
+    fault("FT60", ST + "blob.rs", "every segment of a blob is sealed under the same nonce",
+          ("        getrandom::fill(&mut nonce).map_err(|_| StorageError::Randomness)?;\n", "")),
+    fault("FT61", ST + "export.rs", "a received file is saved over a file of the same name (Unix)",
+          ("                Way::Link => rustix::fs::linkat(&self.0, partial, &self.0, name, AtFlags::empty()),\n",
+           "                Way::Link => rustix::fs::renameat(&self.0, partial, &self.0, name),\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

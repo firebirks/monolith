@@ -489,6 +489,40 @@ The Phase 8 list, FT1 and up, covers file transfer
   removal where the card offers none, a control character of a remote
   name drawn as itself, an event's bytes shown over a later read that
   says more (FT45 to FT50).
+- the surfaces the earlier faults left uncovered: an offer, an answer to
+  an offer or a cancellation written before it is durable (FT51 to FT53,
+  the code as it was before FT-H fixed it), a receiver that completes a
+  file whatever digest is declared, a transfer found under another contact
+  record or another local identity, a cancelled transfer offered again as
+  one that goes on, an acceptance with no room left to stage, a chat
+  message that waits until no chunk is left, every segment of a blob
+  sealed under the same nonce, a received file saved over another of the
+  same name on Unix (FT54 to FT61).
+
+The candidates of the Phase 8 brief (section 51), and what covers each:
+
+| Candidate | Faults |
+| --- | --- |
+| offer before the sender's staging is durable | FT51 (the record); the blob is synced before the record is made (`a_staging_cut_short_by_a_crash_leaves_no_offer_and_no_blob`) |
+| sender uses the original file after staging | none: the source is read once, into the blob, and dropped; `a_file_offered_by_its_path_is_sent_as_staged_and_saved_where_the_user_chooses` changes it after staging |
+| receiver acknowledges the completion before it is durable | FT23 |
+| digest check removed | FT10 (sender), FT54 (receiver), FT31 (save) |
+| size check removed | FT5, FT7, FT11 |
+| chunk offset check removed | FT2, FT3, FT4, FT6 |
+| unknown identifier accepted | FT6; HR17 to HR20 and HR85 (the rules of a session for identifiers, moved in Phase 8) |
+| transfer crosses a contact record | FT55, FT44 |
+| transfer crosses a local identity | FT56, FT21 |
+| cancelled transfer resumes | FT57, FT18 |
+| block does not stop chunking | FT28 |
+| recreated contact inherits a transfer | FT55, FT21 |
+| completion marks the wrong transfer complete | FT10, FT55, FT56 |
+| stale chunk of a session taken | FT6, FT8 |
+| file chunks starve chat | FT59, FT1 |
+| destination uses the remote path | FT33, and the faults of save names of Phase 7 |
+| overwrite protection removed | FT61 (Unix; on Windows a hard link refuses an existing name, tested by `tests/export.rs`), FT35 |
+| invalid filename in trusted prose | none: no sentence of the interface carries a file name, a card draws it on a line of its own; FT49 for the name itself |
+| staging plaintext written | FT60 (one nonce for all), FT32 (a segment that does not authenticate counted) |
+| resource limit disabled | FT13, FT14, FT58 |
 
 HR17 to HR20, HR85, MR8, MR39, MR44, MR54, HR32 and HR76 moved with their
 code in Phase 8 and keep their defects. The rules of version 1 that HR17
