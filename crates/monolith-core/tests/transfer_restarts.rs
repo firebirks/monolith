@@ -35,10 +35,10 @@ use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::link::{Link, dial};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
-use monolith_protocol::body::{FileChunk, Message, TransferId};
+use monolith_protocol::body::{FileChunk, Message, MessageId, TransferId};
 use monolith_protocol::limits::{MAX_FILE_CHUNK_LEN, TRANSFER_HOLD};
 use monolith_protocol::session::Action;
-use monolith_protocol::text::Filename;
+use monolith_protocol::text::{ChatText, Filename};
 use monolith_storage::StorageError;
 use monolith_storage::dir::{CrashOutcome, MemoryDir, VaultDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
@@ -1138,6 +1138,138 @@ proptest! {
             b.stop().await;
         });
     }
+}
+
+#[test]
+fn a_contact_flooding_its_chunks_holds_up_neither_the_chat_nor_the_file_of_another() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let mut b = Node::new(1, true).await;
+        let mut x = Node::new(2, false).await;
+        let mut y = Node::new(3, false).await;
+        let at_b = [b.add(&x).await, b.add(&y).await];
+        let at_x = x.add(&b).await;
+        let at_y = y.add(&b).await;
+        for node in [&mut b, &mut x, &mut y] {
+            node.start(&network).await;
+        }
+        for (node, at) in [(&x, at_x), (&y, at_y)] {
+            node.runtime()
+                .send_message(&node.id(), &at, "hello")
+                .await
+                .unwrap();
+            until(|| {
+                node.runtime()
+                    .messages(&node.id(), &at, None, 10)
+                    .unwrap()
+                    .iter()
+                    .all(|message| message.status == MessageStatus::Delivered)
+            })
+            .await;
+        }
+        x.stop().await;
+        y.stop().await;
+        until(|| {
+            at_b.iter()
+                .all(|at| b.runtime().sessions(&b.id(), at).unwrap() == 0)
+        })
+        .await;
+        // Y's session first; then X offers a large file, which B accepts.
+        let mut chat = hand_link(&network, &b, &y).await;
+        let mut flood = hand_link(&network, &b, &x).await;
+        let size = 128 * L;
+        let data = file(size);
+        let mut events = b.runtime().subscribe();
+        flood.send(&offer_of(&data)).await.unwrap();
+        let Event::TransferOffered(from_x) = event(&mut events, |event| {
+            matches!(event, Event::TransferOffered(_))
+        })
+        .await
+        else {
+            panic!("not an offer");
+        };
+        b.runtime().accept_transfer(&from_x).await.unwrap();
+        // X sends every chunk at once, ignoring the window, and reads only
+        // what has come.
+        let flooding = tokio::spawn(async move {
+            for n in 0..128 {
+                if flood.send(&chunk(TRANSFER, &data, n * L)).await.is_err() {
+                    break;
+                }
+                let _ = tokio::time::timeout(Duration::ZERO, flood.receive()).await;
+            }
+            flood
+        });
+        // No timer while it floods: writes on the blocking pool hold the
+        // paused clock still. The tasks get turns until B staged some of it.
+        while b.view(&from_x).unwrap().bytes.unwrap_or(0) == 0 {
+            tokio::task::yield_now().await;
+        }
+        // Y's chat message is acknowledged while X's file is far from
+        // staged, and Y's own file goes through meanwhile.
+        let id = MessageId::from_bytes([7; 16]);
+        chat.send(&Message::ChatMessage {
+            id,
+            text: ChatText::new("while X floods").unwrap(),
+        })
+        .await
+        .unwrap();
+        loop {
+            let arrived = chat.receive().await.unwrap();
+            match &arrived.received().message {
+                Message::MessageAck(acked) if *acked == id => break,
+                Message::Ping(nonce) => chat.send(&Message::Pong(*nonce)).await.unwrap(),
+                _ => {}
+            }
+        }
+        let staged = b.view(&from_x).unwrap().bytes.unwrap_or(0);
+        assert!(
+            staged < size / 4,
+            "Y's message waited for {staged} of {size} bytes of X"
+        );
+        // Y's file, driven with no timer either.
+        let small = file(L + 1);
+        chat.send(&offer_of(&small)).await.unwrap();
+        let from_y = loop {
+            if let Ok(Event::TransferOffered(offered)) = events.recv().await
+                && offered.contact == at_b[1]
+            {
+                break offered;
+            }
+        };
+        b.runtime().accept_transfer(&from_y).await.unwrap();
+        let mut answered = false;
+        while !answered {
+            let arrived = chat.receive().await.unwrap();
+            match &arrived.received().message {
+                Message::FileAccept { offset: 0, .. } => {
+                    for n in 0..2 {
+                        chat.send(&chunk(TRANSFER, &small, n * L)).await.unwrap();
+                    }
+                    chat.send(&Message::FileComplete {
+                        transfer: TRANSFER,
+                        digest: sha(&small),
+                    })
+                    .await
+                    .unwrap();
+                }
+                Message::FileComplete { digest, .. } => {
+                    assert_eq!(*digest, sha(&small));
+                    answered = true;
+                }
+                Message::Ping(nonce) => chat.send(&Message::Pong(*nonce)).await.unwrap(),
+                _ => {}
+            }
+        }
+        let staged = b.view(&from_x).unwrap().bytes.unwrap_or(0);
+        assert!(
+            staged < size / 2,
+            "Y's file waited for {staged} of {size} bytes of X"
+        );
+        assert_eq!(saved(&b, &from_y).await, small);
+        drop(flooding.await.unwrap());
+        b.stop().await;
+    });
 }
 
 /// The offer the persistent sender makes on `link`.
