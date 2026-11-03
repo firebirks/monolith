@@ -1601,7 +1601,10 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .transfers()
             .ok_or(TransferError::UnknownIdentity)?;
         let id = held.identity.id();
-        Ok(transfers.read(|state, now| state.views(&id, now)))
+        Ok(transfers.show(|state, written, now| match written {
+            Some(written) => state.written_views(written, &id, now),
+            None => state.views(&id, now),
+        }))
     }
 
     /// One transfer, unless it was removed from the list.
@@ -1612,7 +1615,10 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .transfers()
             .ok_or(TransferError::UnknownIdentity)?;
         let key = Key::named(transfer);
-        Ok(transfers.read(|state, now| state.view(&key, now)))
+        Ok(transfers.show(|state, written, now| match written {
+            Some(written) => state.written_view(written, &key, now),
+            None => state.view(&key, now),
+        }))
     }
 
     /// Begins a save of the received file of `transfer`

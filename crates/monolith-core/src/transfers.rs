@@ -171,14 +171,21 @@ struct Entry {
     memo: Memo,
 }
 
-impl Entry {
-    fn new(record: TransferRecord) -> Self {
-        let memo = Memo {
+impl Memo {
+    /// What is known beside `record` when nothing more is.
+    fn of(record: &TransferRecord) -> Self {
+        Self {
             deadline: record.deadline,
             held: (record.direction == Direction::Incoming && record.state == State::Complete)
                 .then_some(record.size),
-            ..Memo::default()
-        };
+            ..Self::default()
+        }
+    }
+}
+
+impl Entry {
+    fn new(record: TransferRecord) -> Self {
+        let memo = Memo::of(&record);
         Self { record, memo }
     }
 
@@ -1535,10 +1542,51 @@ impl TransferState {
             .map(|entry| Self::view_of(entry, now))
     }
 
+    /// The transfers of `identity` as the transfer store holds them in
+    /// `written`, with what is known beside them now, oldest first.
+    pub(crate) fn written_views(
+        &self,
+        written: &[TransferRecord],
+        identity: &IdentityId,
+        now: u64,
+    ) -> Vec<TransferView> {
+        let mut views: Vec<TransferView> = written
+            .iter()
+            .filter(|record| record.identity == *identity && !record.flags.has(Flags::REMOVED))
+            .map(|record| self.written_view_of(record, now))
+            .collect();
+        views.sort_by_key(|view| view.created);
+        views
+    }
+
+    /// The transfer `key` as the transfer store holds it in `written`,
+    /// unless it was removed from the interface.
+    pub(crate) fn written_view(
+        &self,
+        written: &[TransferRecord],
+        key: &Key,
+        now: u64,
+    ) -> Option<TransferView> {
+        written
+            .iter()
+            .find(|record| key.matches(record) && !record.flags.has(Flags::REMOVED))
+            .map(|record| self.written_view_of(record, now))
+    }
+
+    fn written_view_of(&self, record: &TransferRecord, now: u64) -> TransferView {
+        match self.entry(&Key::of(record)) {
+            Some(entry) => Self::record_view(record, &entry.memo, now),
+            None => Self::record_view(record, &Memo::of(record), now),
+        }
+    }
+
     fn view_of(entry: &Entry, now: u64) -> TransferView {
-        let record = &entry.record;
+        Self::record_view(&entry.record, &entry.memo, now)
+    }
+
+    fn record_view(record: &TransferRecord, memo: &Memo, now: u64) -> TransferView {
         TransferView {
-            reference: entry.key().reference(),
+            reference: Key::of(record).reference(),
             status: match record.state {
                 State::Waiting => TransferStatus::Waiting,
                 State::Sending => TransferStatus::Sending,
@@ -1566,10 +1614,10 @@ impl TransferState {
                 State::Delivered | State::Complete => Some(record.size),
                 // Nothing was accepted yet.
                 State::Waiting | State::Offered => Some(0),
-                _ => entry.memo.held,
+                _ => memo.held,
             },
             created: record.created,
-            held: entry.memo.hold_until.is_some_and(|until| until > now),
+            held: memo.hold_until.is_some_and(|until| until > now),
             saved: record.flags.has(Flags::SAVED),
         }
     }
@@ -1606,6 +1654,9 @@ impl Clock {
 /// The transfer state of one installation, and where it is written.
 pub(crate) struct Transfers {
     state: Mutex<TransferState>,
+    /// What the transfer store holds, which the interface is shown; `None`
+    /// without a vault, where every change is durable at once.
+    written: Option<Mutex<Written>>,
     durability: Arc<Durability>,
     store: Store,
     /// Turns over after every change, so that the tasks of sessions look
@@ -1625,6 +1676,30 @@ impl fmt::Debug for Transfers {
     }
 }
 
+/// The records of the transfer store as the last write that completed
+/// left them, and those of the write under way with the generation it
+/// covers. The interface is shown the first: never a change that a crash
+/// could still undo, such as a completion, a cancellation or an offer
+/// whose write has not finished.
+struct Written {
+    durable: Vec<TransferRecord>,
+    writing: Option<(u64, Vec<TransferRecord>)>,
+}
+
+impl Written {
+    /// The write under way is durable once `durable` covers it.
+    fn settle(&mut self, durable: u64) {
+        if self
+            .writing
+            .as_ref()
+            .is_some_and(|(covered, _)| *covered <= durable)
+            && let Some((_, records)) = self.writing.take()
+        {
+            self.durable = records;
+        }
+    }
+}
+
 impl Transfers {
     pub(crate) fn new(
         store: Store,
@@ -1632,8 +1707,16 @@ impl Transfers {
         blobs: Blobs,
         interrupted: Vec<Key>,
     ) -> Arc<Self> {
+        // What a vault holds as the installation opens is durable.
+        let written = (!matches!(store, Store::Ephemeral)).then(|| {
+            Mutex::new(Written {
+                durable: state.records().records,
+                writing: None,
+            })
+        });
         Arc::new(Self {
             state: Mutex::new(state),
+            written,
             durability: Durability::new(),
             store,
             changes: watch::Sender::new(0),
@@ -1699,6 +1782,25 @@ impl Transfers {
         read(&lock(&self.state), now)
     }
 
+    /// Reads the state, with the records the transfer store holds (`None`
+    /// without a vault, where the state is durable), at the time of the
+    /// transfers: what the interface is shown.
+    pub(crate) fn show<R>(
+        &self,
+        read: impl FnOnce(&TransferState, Option<&[TransferRecord]>, u64) -> R,
+    ) -> R {
+        let now = self.now();
+        let state = lock(&self.state);
+        match &self.written {
+            Some(written) => {
+                let mut written = lock(written);
+                written.settle(self.durability.durable());
+                read(&state, Some(&written.durable), now)
+            }
+            None => read(&state, None, now),
+        }
+    }
+
     /// Follows the changes.
     pub(crate) fn subscribe(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
@@ -1727,7 +1829,15 @@ impl Transfers {
                 // change up to it.
                 let covered = transfers.durability.applied();
                 let records = lock(&transfers.state).records();
-                Ok((covered, records.encode()?))
+                let encoded = records.encode()?;
+                // Shown once the write completed. The job writes one
+                // snapshot at a time, so the one before is settled first.
+                if let Some(written) = &transfers.written {
+                    let mut written = lock(written);
+                    written.settle(transfers.durability.durable());
+                    written.writing = Some((covered, records.records));
+                }
+                Ok((covered, encoded))
             }),
             failed: Box::new(move || {
                 // Nothing more is stored or sent; the tasks that wait for a

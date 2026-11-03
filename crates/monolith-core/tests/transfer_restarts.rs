@@ -26,7 +26,7 @@ use core::time::Duration;
 use std::io::{Cursor, Read};
 use std::sync::Arc;
 
-use common::{fixed_endpoint, keys, run_paused};
+use common::{Released, fixed_endpoint, keys, run_paused};
 use monolith_core::api::{
     ContactId, Event, IdentityId, MessageStatus, TransferError, TransferReason, TransferRef,
     TransferStatus, TransferView,
@@ -553,6 +553,71 @@ fn a_receiver_that_crashes_before_verifying_verifies_again() {
                 transfer: TRANSFER,
                 digest: sha(&data),
             }));
+            assert_eq!(saved(&b, &received).await, data, "{outcome:?}");
+            b.stop().await;
+        });
+    }
+}
+
+#[test]
+fn what_is_shown_of_a_transfer_is_durable_and_no_crash_takes_it_back() {
+    for outcome in CrashOutcome::ALL {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut b, a, _, _) = contacts(&network).await;
+            let first = b.dir().clone();
+            let _released = Released(&first);
+            let data = file(2 * L + 3);
+            let mut link = hand_link(&network, &b, &a).await;
+            drain(&mut link, QUIET).await;
+            // An offer whose record is not written yet is not listed.
+            b.dir().hold_writes();
+            link.send(&offer_of(&data)).await.unwrap();
+            spin_until(|| b.dir().write_held()).await;
+            assert!(b.runtime().transfers(&b.id()).unwrap().is_empty());
+            b.dir().release_writes();
+            until(|| !b.runtime().transfers(&b.id()).unwrap().is_empty()).await;
+            let received = b.runtime().transfers(&b.id()).unwrap()[0].reference;
+            b.runtime().accept_transfer(&received).await.unwrap();
+            for n in 0..3 {
+                link.send(&chunk(TRANSFER, &data, n * L)).await.unwrap();
+            }
+            drain(&mut link, QUIET).await;
+            // Every byte is staged and verified as the completion arrives,
+            // and its write is held: the file is not shown received, nor
+            // after a crash at that point.
+            b.dir().hold_writes();
+            link.send(&Message::FileComplete {
+                transfer: TRANSFER,
+                digest: sha(&data),
+            })
+            .await
+            .unwrap();
+            spin_until(|| b.dir().write_held()).await;
+            assert_eq!(b.status(&received), Some(TransferStatus::Receiving));
+            let crashed = b.dir().restart(outcome);
+            b.dir().release_writes();
+            b.stop().await;
+            b.identity = None;
+            b.installation = None;
+            b.dir = Some(crashed);
+            b.open();
+            b.start(&network).await;
+            assert_eq!(
+                b.status(&received),
+                Some(TransferStatus::Receiving),
+                "{outcome:?}"
+            );
+            // Offered again, it completes from what it holds.
+            let mut link = hand_link(&network, &b, &a).await;
+            let offsets = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
+            assert_eq!(offsets, vec![2 * L + 3], "{outcome:?}");
+            let answer = send_rest(&mut link, &data, 2 * L + 3).await;
+            assert!(answer.contains(&Message::FileComplete {
+                transfer: TRANSFER,
+                digest: sha(&data),
+            }));
+            assert_eq!(b.status(&received), Some(TransferStatus::Received));
             assert_eq!(saved(&b, &received).await, data, "{outcome:?}");
             b.stop().await;
         });
