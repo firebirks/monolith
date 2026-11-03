@@ -26,6 +26,7 @@
 //!   stages its transfers, writing nothing to disk.
 //! - [`local`]: whether a path the user gave names a file of this computer,
 //!   and how such a file is opened to be read.
+//! - [`export`]: a received file saved as a new file where the user chose.
 //!
 //! This is the only crate that writes files.
 
@@ -39,6 +40,7 @@ mod disk_unix;
 #[cfg(windows)]
 mod disk_windows;
 pub mod ephemeral;
+pub mod export;
 pub mod local;
 pub mod message_records;
 pub mod messages;

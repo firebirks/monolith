@@ -65,7 +65,7 @@ use crate::rates::{ContactRates, Kind};
 use crate::requests::{InvitationId, RequestId};
 use crate::sessions::{SessionControl, SessionManager};
 use crate::supervisor::{Backoff, Publication, jitter, supervise};
-pub use transfer::offer_name;
+pub use transfer::{offer_name, save_name};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex

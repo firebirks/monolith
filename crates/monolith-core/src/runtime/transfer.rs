@@ -23,6 +23,7 @@
 
 use std::collections::HashSet;
 use std::io::Read;
+use std::path::Path;
 
 use monolith_protocol::body::{FileChunk, TransferId};
 use monolith_protocol::limits::{
@@ -31,10 +32,11 @@ use monolith_protocol::limits::{
 use monolith_protocol::text::Filename;
 use monolith_storage::StorageError;
 use monolith_storage::blob::{BlobId, held_bytes};
+use monolith_storage::export::{self, ExportError, Saved};
 use monolith_storage::transfers::{Direction, Flags, Reason, State};
 
 use super::*;
-use crate::api::{TransferError, TransferRef, TransferView};
+use crate::api::{SaveError, SaveOutcome, TransferError, TransferRef, TransferView};
 use crate::blobs::{SaveReader, StageError, Verified};
 use crate::exchange::{Exchange, Received};
 use crate::rates::Bucket;
@@ -98,6 +100,17 @@ const fn staging_error(error: StorageError) -> TransferError {
         StorageError::Busy => TransferError::Busy,
         StorageError::Randomness => TransferError::Randomness,
         _ => TransferError::Storage,
+    }
+}
+
+/// What a save that left no file is told as.
+const fn save_error(error: ExportError) -> SaveError {
+    match error {
+        ExportError::Exists => SaveError::Exists,
+        ExportError::Refused => SaveError::Refused,
+        ExportError::Source => SaveError::Source,
+        ExportError::Full => SaveError::Full,
+        _ => SaveError::Io,
     }
 }
 
@@ -1477,6 +1490,34 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .unwrap_or(Err(TransferError::ShuttingDown))
     }
 
+    /// Offers the file at `path`, a path the user gave, to the contact
+    /// record `contact` of `identity`, as [`Self::offer_file`] does. The
+    /// file is held to the rules of a card file
+    /// (`monolith_storage::local::open_regular`): a file of this computer,
+    /// a regular file, not reached through a link, and the one that was
+    /// looked at; anything else is [`TransferError::Source`], before a
+    /// byte is read. Its size is the one it has when it is opened, and it
+    /// is offered under [`offer_name`] of its name, never its path.
+    pub async fn offer_path(
+        &self,
+        identity: &IdentityId,
+        contact: &ContactId,
+        path: &Path,
+    ) -> Result<TransferRef, TransferError> {
+        let path = path.to_owned();
+        let (file, metadata, name) = tokio::task::spawn_blocking(move || {
+            let (file, metadata) = monolith_storage::local::open_regular(&path).ok()?;
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            Some((file, metadata, name))
+        })
+        .await
+        .ok()
+        .flatten()
+        .ok_or(TransferError::Source)?;
+        self.offer_file(identity, contact, &name, metadata.len(), Box::new(file))
+            .await
+    }
+
     /// Accepts the offer `transfer`: its file is staged as it arrives,
     /// within the limits of active transfers and staged bytes and with the
     /// room it needs reserved on the disk. Durable when this returns.
@@ -1640,6 +1681,50 @@ impl<B: TorBackend + 'static> Runtime<B> {
             .unwrap_or(Err(TransferError::ShuttingDown))
     }
 
+    /// Saves the received file of `transfer` as a new file at
+    /// `destination`, the folder and the name the user chose
+    /// (`docs/adr/0014-transfer-staging.md`, "Saving a received file";
+    /// `monolith_storage::export`). The place is checked before the save
+    /// is recorded as begun: a path of this computer, a folder that exists,
+    /// no file of that name. The file is then written under a temporary
+    /// name, synced, and given its name without replacing anything; once
+    /// that is durable the staged copy goes. A save that wrote the file but
+    /// could not make its name durable keeps the staged copy. One save or
+    /// staging runs at a time.
+    pub async fn save_transfer(
+        &self,
+        transfer: &TransferRef,
+        destination: &Path,
+    ) -> Result<SaveOutcome, SaveError> {
+        let checked = destination.to_owned();
+        tokio::task::spawn_blocking(move || export::check(&checked))
+            .await
+            .unwrap_or(Err(ExportError::Io))
+            .map_err(save_error)?;
+        let mut reader = self
+            .begin_save(transfer)
+            .await
+            .map_err(SaveError::Transfer)?;
+        let destination = destination.to_owned();
+        let written = tokio::task::spawn_blocking(move || {
+            let written = export::save_new(&destination, &mut reader);
+            // The staged file is let go before the save ends.
+            drop(reader);
+            written
+        })
+        .await
+        .unwrap_or(Err(ExportError::Io));
+        let confirmed = written == Ok(Saved::Confirmed);
+        let ended = self.end_save(transfer, confirmed).await;
+        match written {
+            // A file under its name whose save could not be recorded: the
+            // staged copy stays, as for a save not confirmed.
+            Ok(Saved::Confirmed) if ended.is_ok() => Ok(SaveOutcome::Saved),
+            Ok(_) => Ok(SaveOutcome::Unconfirmed),
+            Err(error) => Err(save_error(error)),
+        }
+    }
+
     /// The saves of `identity` that were under way when the installation
     /// last closed: a file named `monolith-partial-` and 16 hexadecimal
     /// digits may be left in the folder each went to. The same list as the
@@ -1692,6 +1777,13 @@ impl<B: TorBackend + 'static> Runtime<B> {
 /// "Names"). What the user is shown before the offer is made.
 pub fn offer_name(name: &str) -> String {
     Filename::from_local_name(name).as_str().to_owned()
+}
+
+/// A name to suggest when the received file named `name` by its contact is
+/// saved ([`Filename::save_name`]): one component that names no device and
+/// holds no character a file system reserves. A suggestion, never a place.
+pub fn save_name(name: &str) -> String {
+    Filename::from_local_name(name).save_name()
 }
 
 #[cfg(test)]

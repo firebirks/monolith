@@ -24,7 +24,7 @@ fn std_io(_: std::io::Error) -> StorageError {
 
 /// An error of a write: a full file system or quota is
 /// [`StorageError::Full`], anything else an I/O failure.
-fn write_error(error: &std::io::Error) -> StorageError {
+pub(crate) fn write_error(error: &std::io::Error) -> StorageError {
     let full = [Errno::NOSPC, Errno::DQUOT].map(Errno::raw_os_error);
     if error
         .raw_os_error()

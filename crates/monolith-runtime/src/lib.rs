@@ -16,8 +16,8 @@ pub use monolith_core::api;
 use monolith_core::api::{
     AddedContact, BlockedRef, BlockedSummary, CommandError, ContactId, ContactSummary,
     ConversationSummary, Event, IdentityId, IdentitySummary, InvitationRef, InvitationSummary,
-    MessageRef, MessageView, RequestMode, RequestRef, RequestSummary, SendError, ServiceState,
-    TorCheck,
+    MessageRef, MessageView, RequestMode, RequestRef, RequestSummary, SaveError, SaveOutcome,
+    SendError, ServiceState, TorCheck, TransferError, TransferRef, TransferView,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, InstallationError};
@@ -418,10 +418,105 @@ impl<B: TorBackend + 'static> Messenger<B> {
         self.runtime.check_tor().await
     }
 
+    /// Offers the file at `path`, a path the user gave, to a contact
+    /// (`docs/adr/0013-file-transfer.md`). The file must be a regular file
+    /// of this computer, opened as a card file is ([`local`]); its bytes
+    /// are staged, encrypted, before the offer exists, and what is sent is
+    /// what was staged, whatever happens to the file afterwards. It is
+    /// offered under [`offer_name`] of its name, never its path. Done once
+    /// the offer is durable; it is made when the contact is reached.
+    pub async fn offer_file(
+        &self,
+        identity: &IdentityId,
+        contact: &ContactId,
+        path: &Path,
+    ) -> Result<TransferRef, TransferError> {
+        self.runtime.offer_path(identity, contact, path).await
+    }
+
+    /// Accepts an offer: its file is received and staged, encrypted, and
+    /// verified before it counts as received. Durable when this returns.
+    pub async fn accept_transfer(&self, transfer: &TransferRef) -> Result<(), TransferError> {
+        self.runtime.accept_transfer(transfer).await
+    }
+
+    /// Rejects an offer. Rejecting twice is rejecting once.
+    pub async fn reject_transfer(&self, transfer: &TransferRef) -> Result<(), TransferError> {
+        self.runtime.reject_transfer(transfer).await
+    }
+
+    /// Cancels a transfer in either direction unless it is complete; the
+    /// contact is told. A file the contact already received whole stays
+    /// received there: a cancellation takes back nothing it holds.
+    pub async fn cancel_transfer(&self, transfer: &TransferRef) -> Result<(), TransferError> {
+        self.runtime.cancel_transfer(transfer).await
+    }
+
+    /// Removes an ended transfer, or a received file, from the list; a
+    /// received file not saved goes.
+    pub async fn remove_transfer(&self, transfer: &TransferRef) -> Result<(), TransferError> {
+        self.runtime.remove_transfer(transfer).await
+    }
+
+    /// Goes on with a received transfer held after the disk was full or
+    /// its staged file was held by another program.
+    pub async fn resume_transfer(&self, transfer: &TransferRef) -> Result<(), TransferError> {
+        self.runtime.resume_transfer(transfer).await
+    }
+
+    /// Saves a received file as a new file at `destination`, the folder
+    /// and the name the user chose, never over an existing file
+    /// (`docs/adr/0014-transfer-staging.md`, "Saving a received file").
+    /// The name the contact gave is at most a suggestion ([`save_name`]).
+    /// Nothing is opened or run.
+    pub async fn save_transfer(
+        &self,
+        transfer: &TransferRef,
+        destination: &Path,
+    ) -> Result<SaveOutcome, SaveError> {
+        self.runtime.save_transfer(transfer, destination).await
+    }
+
+    /// The transfers of an identity, oldest first, but those removed from
+    /// the list.
+    pub fn transfers(&self, identity: &IdentityId) -> Result<Vec<TransferView>, TransferError> {
+        self.runtime.transfers(identity)
+    }
+
+    /// One transfer, unless it was removed from the list.
+    pub fn transfer(&self, transfer: &TransferRef) -> Result<Option<TransferView>, TransferError> {
+        self.runtime.transfer(transfer)
+    }
+
+    /// The saves of an identity that were under way when the data
+    /// directory was last closed: a file named `monolith-partial-` and 16
+    /// hexadecimal digits may be left in the folder each went to.
+    pub fn interrupted_saves(
+        &self,
+        identity: &IdentityId,
+    ) -> Result<Vec<TransferRef>, TransferError> {
+        self.runtime.interrupted_saves(identity)
+    }
+
     /// Stops: sessions close and services are removed within `deadline`.
     pub async fn shutdown(&self, deadline: Duration) {
         self.runtime.shutdown(deadline).await;
     }
+}
+
+/// The filename under which a local file named `name` would be offered:
+/// its last component, made a valid filename. What the user is shown
+/// before the offer is made.
+pub fn offer_name(name: &str) -> String {
+    monolith_core::runtime::offer_name(name)
+}
+
+/// A name to suggest when a received file named `name` by its contact is
+/// saved: one component, no separator, no reserved character or name of a
+/// device, no dot or space at its ends. A suggestion for the user to keep
+/// or change, never a place.
+pub fn save_name(name: &str) -> String {
+    monolith_core::runtime::save_name(name)
 }
 
 #[cfg(test)]

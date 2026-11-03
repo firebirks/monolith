@@ -1958,6 +1958,7 @@ version = "0.0.0"
 dependencies = [
  "monolith-core",
  "monolith-identity",
+ "monolith-protocol",
  "monolith-storage",
  "monolith-tor",
  "tokio",

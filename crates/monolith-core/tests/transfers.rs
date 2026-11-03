@@ -21,12 +21,13 @@ mod common;
 
 use core::time::Duration;
 use std::io::{Cursor, Read};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use common::{fixed_endpoint, keys, run_paused};
 use monolith_core::api::{
-    ContactId, Event, IdentityId, MessageStatus, TransferError, TransferReason, TransferRef,
-    TransferStatus, TransferView,
+    ContactId, Event, IdentityId, MessageStatus, SaveError, SaveOutcome, TransferError,
+    TransferReason, TransferRef, TransferStatus, TransferView,
 };
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{Installation, LocalIdentity};
@@ -239,6 +240,136 @@ fn a_file_is_offered_accepted_sent_verified_and_saved_whole() {
         );
         a.stop().await;
         b.stop().await;
+    });
+}
+
+/// A new folder of the test, by the path Windows resolves for it.
+fn scratch(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("monolith-core-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let resolved = std::fs::canonicalize(&dir).unwrap();
+    let text = resolved.to_string_lossy().into_owned();
+    text.strip_prefix(r"\\?\")
+        .map_or(resolved.clone(), PathBuf::from)
+}
+
+fn names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_file_offered_by_its_path_is_sent_as_staged_and_saved_where_the_user_chooses() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = accepted(&network).await;
+        let dir = scratch("by-path");
+        let source = dir.join("holiday photo.jpg");
+        let data = file(3 * L + 77);
+        std::fs::write(&source, &data).unwrap();
+        let mut events = b.runtime().subscribe();
+        let sent = a
+            .runtime()
+            .offer_path(&a.id(), &at_a, &source)
+            .await
+            .unwrap();
+        // What is offered is what was staged: the file changing or going
+        // afterwards changes nothing.
+        std::fs::write(&source, b"something else").unwrap();
+        std::fs::remove_file(&source).unwrap();
+        let received = offered(&mut events).await;
+        let view = b.view(&received).unwrap();
+        assert_eq!(view.name, "holiday photo.jpg");
+        assert_eq!(view.size, data.len() as u64);
+        b.runtime().accept_transfer(&received).await.unwrap();
+        until(|| a.status(&sent) == Some(TransferStatus::Completed)).await;
+        assert_eq!(b.status(&received), Some(TransferStatus::Received));
+        // A name that exists, or a place that is not a folder of this
+        // computer, is refused before the save is recorded: the staged
+        // copy stays.
+        let saves = dir.join("saved");
+        std::fs::create_dir(&saves).unwrap();
+        std::fs::write(saves.join("taken.jpg"), b"mine").unwrap();
+        assert_eq!(
+            b.runtime()
+                .save_transfer(&received, &saves.join("taken.jpg"))
+                .await,
+            Err(SaveError::Exists)
+        );
+        assert_eq!(std::fs::read(saves.join("taken.jpg")).unwrap(), b"mine");
+        assert_eq!(
+            b.runtime()
+                .save_transfer(&received, Path::new("relative.jpg"))
+                .await,
+            Err(SaveError::Refused)
+        );
+        assert_eq!(
+            b.runtime()
+                .save_transfer(&received, &saves.join("missing").join("x.jpg"))
+                .await,
+            Err(SaveError::Refused)
+        );
+        assert!(!b.view(&received).unwrap().saved);
+        // The name the peer gave is a suggestion the user takes here.
+        let name = Filename::new(&view.name).unwrap().save_name();
+        let destination = saves.join(&name);
+        assert_eq!(
+            b.runtime().save_transfer(&received, &destination).await,
+            Ok(SaveOutcome::Saved)
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), data);
+        assert_eq!(names(&saves), vec![name, "taken.jpg".to_owned()]);
+        assert!(b.view(&received).unwrap().saved);
+        // Saved once: the staged copy is gone.
+        assert_eq!(
+            b.runtime()
+                .save_transfer(&received, &saves.join("again.jpg"))
+                .await,
+            Err(SaveError::Transfer(TransferError::UnknownTransfer))
+        );
+        assert!(!saves.join("again.jpg").exists());
+        a.stop().await;
+        b.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+}
+
+#[test]
+fn a_path_that_is_not_a_regular_file_of_this_computer_is_never_offered() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, _) = accepted(&network).await;
+        let dir = scratch("not-offered");
+        std::fs::write(dir.join("real.txt"), b"real").unwrap();
+        let mut refused = vec![dir.clone(), dir.join("missing.txt")];
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("real.txt"), dir.join("link.txt")).unwrap();
+            refused.push(dir.join("link.txt"));
+            refused.push(PathBuf::from("/dev/zero"));
+        }
+        #[cfg(windows)]
+        {
+            refused.push(dir.join("NUL.txt"));
+            refused.push(PathBuf::from(r"\\server\share\file.txt"));
+            refused.push(dir.join("real.txt:stream"));
+        }
+        for path in &refused {
+            assert_eq!(
+                a.runtime().offer_path(&a.id(), &at_a, path).await,
+                Err(TransferError::Source),
+                "{path:?}"
+            );
+        }
+        // Nothing was staged or offered.
+        assert!(a.runtime().transfers(&a.id()).unwrap().is_empty());
+        a.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
     });
 }
 

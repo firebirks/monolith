@@ -87,7 +87,7 @@ fn std_io(_: std::io::Error) -> StorageError {
 /// An error of a write to a blob: a full volume is [`StorageError::Full`],
 /// a file another process holds [`StorageError::Busy`], anything else an
 /// I/O failure.
-fn write_error(error: &std::io::Error) -> StorageError {
+pub(crate) fn write_error(error: &std::io::Error) -> StorageError {
     match error.raw_os_error() {
         Some(code) if DISK_FULL.contains(&code) => StorageError::Full,
         Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION) => StorageError::Busy,
@@ -146,7 +146,9 @@ impl BlobFile for DiskBlob {
 /// of [`RENAME_WAITS`] while another process holds the file without the
 /// sharing that allows it, for the moment, as a scanner may, or for good:
 /// a few pauses tell which.
-fn retried(mut operation: impl FnMut() -> std::io::Result<()>) -> Result<(), StorageError> {
+pub(crate) fn retried(
+    mut operation: impl FnMut() -> std::io::Result<()>,
+) -> Result<(), StorageError> {
     let mut waits = RENAME_WAITS.iter();
     loop {
         match operation() {
@@ -187,7 +189,7 @@ pub struct DiskDir {
     _lock: File,
 }
 
-fn open_directory(path: &Path) -> std::io::Result<File> {
+pub(crate) fn open_directory(path: &Path) -> std::io::Result<File> {
     OpenOptions::new()
         .read(true)
         .write(true)

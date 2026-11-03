@@ -673,6 +673,59 @@ impl fmt::Display for TransferError {
 
 impl core::error::Error for TransferError {}
 
+/// How a save of a received file ended that wrote the file
+/// (`docs/adr/0014-transfer-staging.md`, "Saving a received file").
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SaveOutcome {
+    /// The file is whole under the name chosen, and durable: the staged
+    /// copy is gone.
+    Saved,
+    /// The file is whole under the name chosen, but the folder could not
+    /// be synced or the temporary name removed: a crash now could lose it,
+    /// and a file named `monolith-partial-...` may be left beside it. The
+    /// staged copy stays, so the file can be saved again.
+    Unconfirmed,
+}
+
+/// Why a received file was not saved. Nothing was written under the name
+/// chosen, nothing was replaced, and the staged copy stays unless it is
+/// damaged.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SaveError {
+    /// The transfer cannot be saved now.
+    Transfer(TransferError),
+    /// Something has the name chosen already.
+    Exists,
+    /// Not a place to save a file: not an absolute path, not a folder of
+    /// this computer, not a plain file name, or a folder that cannot give
+    /// a file its name without the risk of replacing another.
+    Refused,
+    /// The staged copy did not read back as it was received, and the
+    /// transfer failed with the reason storage; or the save was cancelled.
+    Source,
+    /// The disk has no room left.
+    Full,
+    /// The disk failed.
+    Io,
+}
+
+impl fmt::Display for SaveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transfer(error) => error.fmt(f),
+            Self::Exists => f.write_str("a file of that name exists"),
+            Self::Refused => f.write_str("not a place a file can be saved"),
+            Self::Source => f.write_str("the received file does not read back whole"),
+            Self::Full => f.write_str("not enough disk space"),
+            Self::Io => f.write_str("disk failure"),
+        }
+    }
+}
+
+impl core::error::Error for SaveError {}
+
 /// Something that happened: stored state once it is durable, or a change
 /// of the runtime (see the module documentation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

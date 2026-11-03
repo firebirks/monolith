@@ -265,6 +265,31 @@ pub fn would_be_here(path: &Path) -> bool {
     }
 }
 
+/// Opens the file at `path` to read it, as a card file is read: `path` must
+/// name a file of this computer ([`here`]), what it names is looked at
+/// without following a link and refused unopened unless it is a regular
+/// file, and the file opened ([`open_to_read`]) must be the one looked at
+/// ([`same_file`]). Returns the file and what it is as opened, its length
+/// included. A refusal is [`std::io::ErrorKind::PermissionDenied`] for a
+/// place that is not of this computer and
+/// [`std::io::ErrorKind::InvalidInput`] for what is not a regular file or
+/// not the one looked at.
+pub fn open_regular(path: &Path) -> std::io::Result<(File, Metadata)> {
+    if !here(path) {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    let looked = std::fs::symlink_metadata(path)?;
+    if !looked.is_file() {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    let file = open_to_read(path)?;
+    let opened = file.metadata()?;
+    if !same_file(&looked, &opened) {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    Ok((file, opened))
+}
+
 /// Opens `path` to read it. On Unix a link is not followed, and the file is
 /// opened without waiting, so that a pipe without a writer does not block
 /// the thread.
