@@ -1272,6 +1272,234 @@ fn a_contact_flooding_its_chunks_holds_up_neither_the_chat_nor_the_file_of_anoth
     });
 }
 
+/// The offers among `messages`.
+fn offers_among(messages: &[Message]) -> usize {
+    messages
+        .iter()
+        .filter(|message| matches!(message, Message::FileOffer { .. }))
+        .count()
+}
+
+#[test]
+fn an_offer_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, _) = contacts(&network).await;
+        a.stop().await;
+        let base = a.dir().restart(CrashOutcome::ALL[0]);
+        let data = file(2 * L + 1);
+        let fresh = |a: &mut Node| {
+            a.identity = None;
+            a.installation = None;
+            a.dir = Some(base.restart(CrashOutcome::ALL[0]));
+            a.open();
+        };
+        // The storage steps of the offer, with no crash.
+        fresh(&mut a);
+        a.start(&network).await;
+        let mut link = hand_link(&network, &a, &b).await;
+        drain(&mut link, QUIET).await;
+        let start = a.dir().steps();
+        a.runtime()
+            .offer_file(
+                &a.id(),
+                &at_a,
+                "report.pdf",
+                data.len() as u64,
+                Box::new(Cursor::new(data.clone())),
+            )
+            .await
+            .unwrap();
+        let steps = a.dir().steps() - start;
+        assert_eq!(offers_among(&drain(&mut link, QUIET).await.0), 1);
+        a.stop().await;
+        for step in 1..=steps {
+            fresh(&mut a);
+            a.start(&network).await;
+            let mut link = hand_link(&network, &a, &b).await;
+            drain(&mut link, QUIET).await;
+            a.dir().crash_at(a.dir().steps() + step);
+            let offered = a
+                .runtime()
+                .offer_file(
+                    &a.id(),
+                    &at_a,
+                    "report.pdf",
+                    data.len() as u64,
+                    Box::new(Cursor::new(data.clone())),
+                )
+                .await;
+            let read = offers_among(&drain(&mut link, QUIET).await.0) > 0;
+            a.crash(CrashOutcome::ALL[0]).await;
+            a.open();
+            a.start(&network).await;
+            let held = !a.runtime().transfers(&a.id()).unwrap().is_empty();
+            // What the receiver read, and what the user was told was
+            // offered, the sender holds.
+            assert!(
+                !read || held,
+                "step {step} of {steps}: an offer read, not held"
+            );
+            assert!(
+                offered.is_err() || held,
+                "step {step} of {steps}: reported, not held"
+            );
+            a.stop().await;
+        }
+    });
+}
+
+#[test]
+fn a_decision_the_sender_read_is_held_by_the_receiver_after_a_crash_at_any_step() {
+    for decision in ["accept", "reject", "cancel"] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut b, a, _, _) = contacts(&network).await;
+            let data = file(2 * L + 1);
+            // The offer recorded, and accepted already for a cancellation.
+            let mut link = hand_link(&network, &b, &a).await;
+            let received = if decision == "cancel" {
+                offered_and_accepted(&b, &mut link, &data).await
+            } else {
+                let mut events = b.runtime().subscribe();
+                link.send(&offer_of(&data)).await.unwrap();
+                let Event::TransferOffered(received) = event(&mut events, |event| {
+                    matches!(event, Event::TransferOffered(_))
+                })
+                .await
+                else {
+                    panic!("not an offer");
+                };
+                received
+            };
+            b.stop().await;
+            let base = b.dir().restart(CrashOutcome::ALL[0]);
+            let fresh = |b: &mut Node| {
+                b.identity = None;
+                b.installation = None;
+                b.dir = Some(base.restart(CrashOutcome::ALL[0]));
+                b.open();
+            };
+            let decide = |b: &Node| {
+                let runtime = b.runtime().clone();
+                async move {
+                    match decision {
+                        "accept" => runtime.accept_transfer(&received).await,
+                        "reject" => runtime.reject_transfer(&received).await,
+                        _ => runtime.cancel_transfer(&received).await,
+                    }
+                }
+            };
+            let told = |messages: &[Message]| {
+                messages.iter().any(|message| match decision {
+                    "accept" => matches!(message, Message::FileAccept { .. }),
+                    "reject" => matches!(message, Message::FileReject(_)),
+                    _ => matches!(message, Message::FileAbort(_)),
+                })
+            };
+            let decided = match decision {
+                "accept" => TransferStatus::Receiving,
+                "reject" => TransferStatus::Rejected,
+                _ => TransferStatus::Cancelled,
+            };
+            // The storage steps of the decision, with no crash.
+            fresh(&mut b);
+            b.start(&network).await;
+            let mut link = hand_link(&network, &b, &a).await;
+            offer_again(&mut link, &data).await;
+            let start = b.dir().steps();
+            decide(&b).await.unwrap();
+            let steps = b.dir().steps() - start;
+            assert!(told(&drain(&mut link, QUIET).await.0), "{decision}");
+            b.stop().await;
+            for step in 1..=steps {
+                fresh(&mut b);
+                b.start(&network).await;
+                let mut link = hand_link(&network, &b, &a).await;
+                offer_again(&mut link, &data).await;
+                b.dir().crash_at(b.dir().steps() + step);
+                let result = decide(&b).await;
+                let read = told(&drain(&mut link, QUIET).await.0);
+                b.crash(CrashOutcome::ALL[0]).await;
+                b.open();
+                b.start(&network).await;
+                let held = b.status(&received) == Some(decided);
+                // What the sender read, and what the user was told was
+                // done, the receiver holds.
+                assert!(
+                    !read || held,
+                    "{decision}, step {step} of {steps}: told, not held"
+                );
+                assert!(
+                    result.is_err() || held,
+                    "{decision}, step {step} of {steps}"
+                );
+                b.stop().await;
+            }
+        });
+    }
+}
+
+#[test]
+fn a_cancellation_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, _) = contacts(&network).await;
+        let data = file(2 * L + 1);
+        let sent = a
+            .runtime()
+            .offer_file(
+                &a.id(),
+                &at_a,
+                "report.pdf",
+                data.len() as u64,
+                Box::new(Cursor::new(data.clone())),
+            )
+            .await
+            .unwrap();
+        a.stop().await;
+        let base = a.dir().restart(CrashOutcome::ALL[0]);
+        let fresh = |a: &mut Node| {
+            a.identity = None;
+            a.installation = None;
+            a.dir = Some(base.restart(CrashOutcome::ALL[0]));
+            a.open();
+        };
+        let aborted = |messages: &[Message]| {
+            messages
+                .iter()
+                .any(|message| matches!(message, Message::FileAbort(_)))
+        };
+        // The storage steps of the cancellation, with no crash: the
+        // receiver read the offer first.
+        fresh(&mut a);
+        a.start(&network).await;
+        let mut link = hand_link(&network, &a, &b).await;
+        assert_eq!(offers_among(&drain(&mut link, QUIET).await.0), 1);
+        let start = a.dir().steps();
+        a.runtime().cancel_transfer(&sent).await.unwrap();
+        let steps = a.dir().steps() - start;
+        assert!(aborted(&drain(&mut link, QUIET).await.0));
+        a.stop().await;
+        for step in 1..=steps {
+            fresh(&mut a);
+            a.start(&network).await;
+            let mut link = hand_link(&network, &a, &b).await;
+            drain(&mut link, QUIET).await;
+            a.dir().crash_at(a.dir().steps() + step);
+            let result = a.runtime().cancel_transfer(&sent).await;
+            let read = aborted(&drain(&mut link, QUIET).await.0);
+            a.crash(CrashOutcome::ALL[0]).await;
+            a.open();
+            a.start(&network).await;
+            let held = a.status(&sent) == Some(TransferStatus::Cancelled);
+            assert!(!read || held, "step {step} of {steps}: told, not held");
+            assert!(result.is_err() || held, "step {step} of {steps}");
+            a.stop().await;
+        }
+    });
+}
+
 /// The offer the persistent sender makes on `link`.
 fn offer_in(messages: &[Message]) -> (TransferId, u64, Filename) {
     messages

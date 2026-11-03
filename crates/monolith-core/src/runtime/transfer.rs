@@ -795,6 +795,9 @@ impl<B: TorBackend + 'static> Inner<B> {
                     .map(|record| (record.state, record.flags.has(Flags::UNREAD)))
             });
             if let Some((state @ (State::Cancelled | State::Failed), unread)) = held {
+                if transfers.settled().await.is_err() {
+                    return Ok(());
+                }
                 link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))
                     .await?;
                 running.files.exchange.end(&transfer, true);
@@ -840,6 +843,9 @@ impl<B: TorBackend + 'static> Inner<B> {
         let Some((state, unread)) = held else {
             return Ok(());
         };
+        if matches!(answer, Answer::Nothing) || transfers.settled().await.is_err() {
+            return Ok(());
+        }
         let transfer = TransferId::from_bytes(key.transfer);
         let message = match answer {
             Answer::Nothing => return Ok(()),
@@ -942,6 +948,9 @@ impl<B: TorBackend + 'static> Inner<B> {
             return Ok(());
         }
         let offers = transfers.read(|state, now| state.to_offer(&identity.id(), &contact, now));
+        if !offers.is_empty() && transfers.settled().await.is_err() {
+            return Ok(());
+        }
         for offer in offers {
             if !running.files.exchange.may_offer(&offer.transfer) {
                 continue;

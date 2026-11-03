@@ -1819,6 +1819,14 @@ impl Transfers {
             .await
     }
 
+    /// Waits until every change applied so far is durable. A session that
+    /// read the state calls it before it writes what it read: an offer, an
+    /// answer or a cancellation goes out only once a crash can no longer
+    /// take it back, since what it read is no newer than what is applied.
+    pub(crate) async fn settled(self: &Arc<Self>) -> Result<(), CommitError> {
+        self.commit(self.durability.applied()).await
+    }
+
     /// What a write of the transfer store needs.
     fn write(self: &Arc<Self>) -> Write {
         let reading: Weak<Self> = Arc::downgrade(self);
