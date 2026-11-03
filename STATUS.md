@@ -64,11 +64,11 @@ finding was taken in.
 | FT-B | `monolith-protocol`: FileAccept with an offset, limits, `PROTOCOL.md` 8, 8.9, 13 | done (`0a6aaf2`; also declares the `alloc` feature of `zeroize` the crate uses, which it built without only inside the workspace) |
 | FT-C | `monolith-storage`: streaming file access (Unix, Windows, memory with crash model), blob format, transfer store, keys, test vectors | done (`7dd86f0` and the next commit); documents in FT-J |
 | FT-D | `monolith-core`: transfer state machine, durable records, session pump and answers, scheduler and linger, lifecycle, commands, events, queries | done (`21f73b5`, `31e5ed5`, `3f53ed3`, `bafc137`); tests in `tests/transfers.rs` and `tests/transfer_restarts.rs`; FT1 to FT33 and the moved faults of earlier lists caught (`31e5ed5`, `edf739f`) |
-| FT-E | `monolith-runtime` facade; CLI dev node commands for the private network test | open |
+| FT-E | `monolith-runtime` facade; CLI dev node commands for the private network test | done: the rules of a file of this computer moved to `monolith-storage` (`4bab5c0`), a file offered by its path and a received file saved as a new file (`export.rs`, ADR 0014), the commands of transfers in `Messenger` and in `dev-runtime` (`94fee3a`, `4d6025c`); barrier and hostile-window tests (`051af6b`) |
 | FT-F | Desktop: attach by drop or typed path with the Phase 7 checks, staging and saving off the window thread, ui-model, kit progress and transfer components, screens, fixtures | open |
 | FT-G | Model and property tests, deterministic race tests, fuzz targets with seeds | open |
-| FT-H | Mutation list `PHASE8` (FT1 and on), runner and selector | in progress: FT1 to FT33 (protocol, storage, core) with the runner and the selector (`31e5ed5`, `edf739f`); faults of the later items to come |
-| FT-I | Private Tor network steps for files; Windows path and save scenarios; measurements | open |
+| FT-H | Mutation list `PHASE8` (FT1 and on), runner and selector | in progress: FT1 to FT36 with the runner and the selector (`31e5ed5`, `edf739f`, `042addf`), all caught; the moved faults of `local.rs` caught on Windows and Linux; faults of the later items to come |
+| FT-I | Private Tor network steps for files; Windows path and save scenarios; measurements | in progress: steps 22 to 24 of `two-node.sh` (`93706ed`, `5dc5297`) passed with every earlier step on `5dc5297` (RESTART_CYCLES=1, 880 s); the rest of the brief's list, the real Phase 7 peer, Windows scenarios and measurements to come |
 | FT-J | Documents: README, ARCHITECTURE, PROTOCOL, SECURITY_INVARIANTS, RESOURCE_LIMITS, STORAGE, CRYPTOGRAPHY, TEST_PLAN, THREAT_MODEL, DESIGN_QUESTIONS 15, DESKTOP, fuzz, mutation and Tor network READMEs | open |
 | FT-K | Independent reviews: protocol and security, persistence, runtime and concurrency, filesystem and platform, UI trust | open |
 | FT-L | Freeze, final verification, report | open |
