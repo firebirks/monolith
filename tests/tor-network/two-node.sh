@@ -41,6 +41,12 @@
 # A's request and answers; each shows its message delivered and the
 # other's received, and both close.
 #
+# Phase 8, with `dev-runtime` (steps 22 to 24, also run before step 12):
+# a file offered, accepted, sent through Tor while chat goes both ways,
+# completed on both sides and saved with the bytes staged; a larger file
+# that survives a crash of the receiver and then of the sender while on
+# its way, received once and saved whole.
+#
 # Every Monolith process runs under strace, and every connect it makes
 # must go to a loopback address or a Unix socket, with no UDP socket and
 # nothing on port 53: no direct connection and no DNS. No public relay,
@@ -879,6 +885,141 @@ grep -q '^b: the Tor check says Tor works ' "$work/desktop-b.out"
 grep -q '^a: passed in ' "$work/desktop-a.out"
 grep -q '^b: passed in ' "$work/desktop-b.out"
 echo "ok   Tor listed each SOCKS endpoint; each client showed its message delivered and the other's received"
+
+# --- Phase 8: files -----------------------------------------------------------
+
+# Writes `size` bytes to `path`, the same bytes on every run: a generated
+# fixture, no data of anyone's.
+fixture() {
+    python3 - "$1" "$2" <<'PY'
+import hashlib, sys
+path, size = sys.argv[1], int(sys.argv[2])
+written, counter = 0, 0
+with open(path, "wb") as out:
+    while written < size:
+        block = hashlib.sha256(counter.to_bytes(8, "big")).digest() * 2048
+        part = block[: size - written]
+        out.write(part)
+        written += len(part)
+        counter += 1
+PY
+}
+
+# The name node `name` printed last for the transfer of `size` bytes.
+transfer_of() {
+    grep -E -- "^(offered|transfer) [0-9]+ [0-9a-f]+ t[0-9]+ .*size=$2( |$)" "$work/$1.out" |
+        tail -1 | cut -d' ' -f4
+}
+
+# The bytes of the last progress line of node `name` for transfer `t`.
+progress_of() {
+    last "$1" "^progress 0 $2 [0-9]+$" | cut -d' ' -f4
+}
+
+data_fa="$work/files-a"
+data_fb="$work/files-b"
+mkdir "$work/files" "$work/saved"
+
+echo "22. A offers a file to B, B accepts, chat goes both ways meanwhile; B saves the bytes A staged."
+start_runtime fa "$data_fa" 0 "${tor_a[@]}"
+start_runtime fb "$data_fb" 0 "${tor_b[@]}"
+expect fa '^created$' 1 10
+expect fb '^created$' 1 10
+tell fa new-identity
+tell fb new-identity
+expect fa '^published 0$' 1 120
+expect fb '^published 0$' 1 120
+fa0=$(last fa '^identity 0 ' | cut -d' ' -f3)
+fb0=$(last fb '^identity 0 ' | cut -d' ' -f3)
+tell fa card 0
+tell fb card 0
+expect fa '^card 0 ' 1 10
+expect fb '^card 0 ' 1 10
+tell fa add 0 "$(last fb '^card 0 ' | cut -d' ' -f3)"
+tell fb add 0 "$(last fa '^card 0 ' | cut -d' ' -f3)"
+expect fa "^added 0 $fb0$" 1 10
+expect fb "^added 0 $fa0$" 1 10
+size1=8000000
+fixture "$work/files/report.bin" "$size1"
+cp "$work/files/report.bin" "$work/files/report.orig"
+started=$(date +%s)
+tell fa offer 0 "$fb0" "$work/files/report.bin"
+expect fa "^offering 0 $fb0 t[0-9]+$" 1 120
+ta=$(last fa "^offering 0 $fb0 " | cut -d' ' -f4)
+# What A sends is what it staged: the file changing now changes nothing.
+printf 'changed after staging' >"$work/files/report.bin"
+expect fb "^offered 0 $fa0 t[0-9]+ size=$size1 name=\"report.bin\"$" 1 900
+tb=$(transfer_of fb "$size1")
+echo "     offer to B: $(since "$started")s"
+tell fb accept 0 "$tb"
+expect fb "^accept-done 0 $tb$" 1 10
+expect fb "^progress 0 $tb [0-9]+$" 1 600
+tell fa send 0 "$fb0" while the file goes
+tell fb send 0 "$fa0" and back
+expect fb "^received 0 $fa0 [0-9]+ \"while the file goes\"$" 1 600
+expect fa "^received 0 $fb0 [0-9]+ \"and back\"$" 1 600
+expect fb "^transfer 0 $fa0 $tb in Received .*size=$size1 " 1 1800
+expect fa "^transfer 0 $fb0 $ta out Completed .*size=$size1 " 1 600
+echo "     offer to completed at both: $(since "$started")s for $size1 bytes"
+# The chat came while the file was still on its way.
+chat=$(grep -nE "^received 0 $fa0 [0-9]+ \"while the file goes\"$" "$work/fb.out" | head -1 | cut -d: -f1)
+finished=$(grep -nE "^transfer 0 $fa0 $tb in Received " "$work/fb.out" | head -1 | cut -d: -f1)
+test "$chat" -lt "$finished"
+# Saved under the name suggested to B, never over a file that exists.
+tell fb suggest 0 "$tb"
+expect fb "^suggest 0 $tb \"report.bin\"$" 1 10
+printf 'mine' >"$work/saved/taken.bin"
+tell fb save 0 "$tb" "$work/saved/taken.bin"
+expect fb '^error a file of that name exists$' 1 60
+test "$(cat "$work/saved/taken.bin")" = mine
+tell fb save 0 "$tb" "$work/saved/report.bin"
+expect fb "^saved 0 $tb Saved$" 1 300
+cmp "$work/files/report.orig" "$work/saved/report.bin"
+test "$(ls "$work/saved" | grep -c '^monolith-partial-' || true)" = 0
+echo "ok   B saved exactly the $size1 bytes A staged; chat went both ways while the file did"
+
+echo "23. A larger file: B crashes, then A, while it is on its way; it goes on from what B holds."
+size2=64000000
+fixture "$work/files/archive.bin" "$size2"
+started=$(date +%s)
+tell fa offer 0 "$fb0" "$work/files/archive.bin"
+expect fa "^offering 0 $fb0 t[0-9]+$" 2 300
+expect fb "^offered 0 $fa0 t[0-9]+ size=$size2 " 1 900
+tb=$(transfer_of fb "$size2")
+tell fb accept 0 "$tb"
+expect fb "^progress 0 $tb [0-9]+$" 1 600
+crash_node fb
+before=$(progress_of fb "$tb")
+published=$(count fb '^published 0$')
+start_runtime fb "$data_fb" 0 "${tor_b[@]}"
+expect fb '^published 0$' $((published + 1)) 120
+tell fb transfers 0
+expect fb "^transfer 0 $fa0 t[0-9]+ in Receiving .*size=$size2 " 1 10
+tb=$(transfer_of fb "$size2")
+lines=$(wc -l <"$work/fb.out")
+expect fb "^progress 0 $tb [0-9]+$" $(($(count fb "^progress 0 $tb [0-9]+$") + 1)) 900
+resumed=$(tail -n +$((lines + 1)) "$work/fb.out" | grep -E "^progress 0 $tb [0-9]+$" | head -1 | cut -d' ' -f4)
+echo "     B crashed at $before bytes acknowledged and went on at $resumed"
+test "$resumed" -gt "$before"
+echo "     A crashed with B at $(progress_of fb "$tb") bytes acknowledged"
+crash_node fa
+published=$(count fa '^published 0$')
+start_runtime fa "$data_fa" 0 "${tor_a[@]}"
+expect fa '^published 0$' $((published + 1)) 120
+expect fb "^transfer 0 $fa0 t[0-9]+ in Received .*size=$size2 " 1 3600
+expect fa "^transfer 0 $fb0 t[0-9]+ out Completed .*size=$size2 " 1 900
+echo "     offer to completed, across both crashes: $(since "$started")s for $size2 bytes"
+tb=$(transfer_of fb "$size2")
+tell fb save 0 "$tb" "$work/saved/archive.bin"
+expect fb "^saved 0 $tb Saved$" 1 600
+cmp "$work/files/archive.bin" "$work/saved/archive.bin"
+test "$(count fb "^offered 0 $fa0 t[0-9]+ size=$size2 ")" = 1
+echo "ok   both crashes survived; the file was received once and saved whole"
+
+echo "24. Every file node run contacted only loopback and Unix sockets, no DNS."
+stop_node fa
+stop_node fb
+echo "ok   $traces node runs checked"
 
 echo "12. Tor B goes away while B waits: the control connection is reported lost."
 status=0

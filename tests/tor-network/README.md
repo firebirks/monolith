@@ -104,6 +104,23 @@ client's commands and events drive that runtime over Tor.
     wait is bounded (15 minutes; 2 for the Tor check to say Tor works),
     and a client that times out names what it waited for and fails.
 
+Phase 8, with `dev-runtime` and generated files (no data of anyone's):
+
+22. Two runtime nodes on new vaults, contacts of each other. A offers a
+    file of 8 MB by its path, then changes the file; B receives the offer
+    with its size and name and accepts. While it is on its way each sends
+    a chat message, and B receives A's before the file is complete. Both
+    record it complete; B is offered the name the file came with, refused
+    a save over a file that exists, and saves it: the bytes are those A
+    staged, not the file as changed, and no temporary file is left.
+23. A file of 64 MB: B is killed with SIGKILL once part of it is
+    acknowledged, and started again; it goes on from what it held
+    durably, its first acknowledgement after the restart above the last
+    one before. Then A is killed and started again. The file is received
+    once, completed on both sides and saved whole.
+24. Every file node run is checked: loopback and Unix sockets only, no
+    DNS, no UDP.
+
 And again Phase 3, as the last step because it ends Tor B (it was step 3
 of Phase 3, hence the gap in the numbers):
 
