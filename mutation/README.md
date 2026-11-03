@@ -509,7 +509,7 @@ The candidates of the Phase 8 brief (section 51), and what covers each:
 | digest check removed | FT10 (sender), FT54 (receiver), FT31 (save) |
 | size check removed | FT5, FT7, FT11 |
 | chunk offset check removed | FT2, FT3, FT4, FT6 |
-| unknown identifier accepted | FT6; HR17 to HR20 and HR85 (the rules of a session for identifiers, moved in Phase 8) |
+| unknown identifier accepted | HR18 (a file message for a transfer never offered on the session), HR85, FT6 |
 | transfer crosses a contact record | FT55, FT44 |
 | transfer crosses a local identity | FT56, FT21 |
 | cancelled transfer resumes | FT57, FT18 |
