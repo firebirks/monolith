@@ -624,6 +624,157 @@ fn what_is_shown_of_a_transfer_is_durable_and_no_crash_takes_it_back() {
     }
 }
 
+/// Waits, with paused time, until `condition` holds, for up to a minute
+/// of test time. Returns whether it did.
+async fn within_a_minute(condition: impl Fn() -> bool) -> bool {
+    for _ in 0..600 {
+        if condition() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    condition()
+}
+
+/// Offers `data` on `link` to `b`, which accepts it, and sends it whole
+/// with its completion, as far as `b` lets it: its storage may fail on the
+/// way. Returns the transfer as `b` lists it, if it does.
+async fn receive_through(
+    b: &Node,
+    link: &mut Link<DuplexStream>,
+    data: &[u8],
+) -> Option<TransferRef> {
+    let listed = || {
+        b.runtime()
+            .transfers(&b.id())
+            .ok()
+            .and_then(|views| views.first().map(|view| view.reference))
+    };
+    if link.send(&offer_of(data)).await.is_err() {
+        return None;
+    }
+    within_a_minute(|| b.dir().crashed() || listed().is_some()).await;
+    let received = listed()?;
+    if b.runtime().accept_transfer(&received).await.is_err() {
+        return Some(received);
+    }
+    // Until the session ends: a receiver whose storage failed withdraws it.
+    let mut offset = 0;
+    while offset < data.len() as u64 {
+        if link.send(&chunk(TRANSFER, data, offset)).await.is_err() {
+            return Some(received);
+        }
+        offset = (offset + L).min(data.len() as u64);
+    }
+    let completion = Message::FileComplete {
+        transfer: TRANSFER,
+        digest: sha(data),
+    };
+    if link.send(&completion).await.is_ok() {
+        drain(link, QUIET).await;
+    }
+    Some(received)
+}
+
+#[test]
+fn a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole() {
+    // One thread for each crash outcome: the sweep is long.
+    std::thread::scope(|scope| {
+        for outcome in CrashOutcome::ALL {
+            scope.spawn(move || run_paused(sweep_receiving(outcome)));
+        }
+    });
+}
+
+/// Crashes the receiver at every storage step of a transfer, from the
+/// offer to the completion, leaving what `outcome` says.
+async fn sweep_receiving(outcome: CrashOutcome) {
+    let network = MockNetwork::new();
+    let (mut b, a, _, _) = contacts(&network).await;
+    b.stop().await;
+    let base = b.dir().restart(CrashOutcome::ALL[0]);
+    let data = file(3 * L + 5);
+    // The storage steps of the whole transfer, with no crash.
+    b.identity = None;
+    b.installation = None;
+    b.dir = Some(base.restart(CrashOutcome::ALL[0]));
+    b.open();
+    b.start(&network).await;
+    let start = b.dir().steps();
+    let mut link = hand_link(&network, &b, &a).await;
+    let received = receive_through(&b, &mut link, &data).await.unwrap();
+    assert_eq!(b.status(&received), Some(TransferStatus::Received));
+    let steps = b.dir().steps() - start;
+    b.stop().await;
+    for step in 1..=steps {
+        b.identity = None;
+        b.installation = None;
+        b.dir = Some(base.restart(CrashOutcome::ALL[0]));
+        b.open();
+        b.start(&network).await;
+        let mut link = hand_link(&network, &b, &a).await;
+        b.dir().crash_at(b.dir().steps() + step);
+        let shown = receive_through(&b, &mut link, &data).await;
+        let before = shown.and_then(|received| b.status(&received));
+        b.crash(outcome).await;
+        b.open();
+        b.start(&network).await;
+        let at = format!("step {step} of {steps}, {outcome:?}");
+        // What was shown stays shown: nothing goes back, and a file
+        // shown received is held whole.
+        let after = shown.and_then(|received| b.status(&received));
+        match before {
+            None => {}
+            Some(TransferStatus::Received) => {
+                assert_eq!(after, Some(TransferStatus::Received), "{at}");
+            }
+            Some(TransferStatus::Receiving) => assert!(
+                matches!(
+                    after,
+                    Some(TransferStatus::Receiving | TransferStatus::Received)
+                ),
+                "{at}: {after:?}"
+            ),
+            Some(TransferStatus::Offered) => assert!(
+                matches!(
+                    after,
+                    Some(TransferStatus::Offered | TransferStatus::Receiving)
+                ),
+                "{at}: {after:?}"
+            ),
+            Some(other) => panic!("{at}: shown {other:?}"),
+        }
+        // Offered again, it goes on from what is held, and is
+        // received whole.
+        let mut link = hand_link(&network, &b, &a).await;
+        let received = match after {
+            Some(TransferStatus::Received) => shown.unwrap(),
+            Some(TransferStatus::Receiving) => {
+                let offsets = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
+                assert_eq!(offsets.len(), 1, "{at}: {offsets:?}");
+                assert!(offsets[0] <= data.len() as u64, "{at}");
+                let answer = send_rest(&mut link, &data, offsets[0]).await;
+                assert!(
+                    answer.contains(&Message::FileComplete {
+                        transfer: TRANSFER,
+                        digest: sha(&data),
+                    }),
+                    "{at}"
+                );
+                shown.unwrap()
+            }
+            _ => {
+                let received = receive_through(&b, &mut link, &data).await.unwrap();
+                assert!(!b.dir().crashed(), "{at}");
+                received
+            }
+        };
+        assert_eq!(b.status(&received), Some(TransferStatus::Received), "{at}");
+        assert_eq!(saved(&b, &received).await, data, "{at}");
+        b.stop().await;
+    }
+}
+
 /// The offer the persistent sender makes on `link`.
 fn offer_in(messages: &[Message]) -> (TransferId, u64, Filename) {
     messages
