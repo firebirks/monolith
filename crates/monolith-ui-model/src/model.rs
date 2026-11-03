@@ -1985,8 +1985,26 @@ impl Model {
             .find(|view| view.id == transfer)
     }
 
+    /// Issues `action` on `transfer` if its card offers it: an acceptance
+    /// or a rejection of an offer to this side, a resumption of a paused
+    /// transfer, a removal of an ended one. A received file not saved is
+    /// removed through its dialog.
     fn transfer_action(&mut self, transfer: UiTransferId, action: TransferAction) {
-        if self.transfer(transfer).is_some() && !self.transfer_busy(transfer) {
+        let Some(slice) = self.slices.get(&transfer.identity()) else {
+            return;
+        };
+        let Some(view) = slice.transfers.iter().find(|view| view.id == transfer) else {
+            return;
+        };
+        let now = phase(view, slice.progress.get(&transfer).map(|(bytes, _)| *bytes));
+        let applies = match action {
+            TransferAction::Accept | TransferAction::Reject => {
+                view.incoming && matches!(now, TransferPhase::Offered)
+            }
+            TransferAction::Resume => matches!(now, TransferPhase::Paused),
+            TransferAction::Remove => now.ended(),
+        };
+        if applies && !self.transfer_busy(transfer) {
             let command = match action {
                 TransferAction::Accept => Command::AcceptTransfer(transfer),
                 TransferAction::Reject => Command::RejectTransfer(transfer),
@@ -2201,10 +2219,19 @@ impl Model {
                         // queued counts it.
                         if let Some(slice) = self.slices.get_mut(&identity) {
                             slice.queued_since.retain(|_, next| *next > command.get());
-                            // A read asked after a progress event knows it.
-                            slice
-                                .progress
-                                .retain(|_, (_, since)| *since > command.get());
+                            // A read asked after a progress event knows it;
+                            // and a number the runtime no longer stands by,
+                            // which a read says it does not know, is not
+                            // shown, whenever the read was asked.
+                            let unknown: BTreeSet<UiTransferId> = slice
+                                .transfers
+                                .iter()
+                                .filter(|view| view.bytes.is_none())
+                                .map(|view| view.id)
+                                .collect();
+                            slice.progress.retain(|id, (_, since)| {
+                                *since > command.get() && !unknown.contains(id)
+                            });
                         }
                     }
                     Outcome::Failed(Failure::NoSuchIdentity) => {
@@ -2946,9 +2973,13 @@ const INTERRUPTED_SAVE: &str = "A save of a received file was cut short when Mon
 
 /// Where `view` stands, with `progress` the bytes of its last progress
 /// event that no read answered yet. Bytes the runtime does not know are
-/// never shown as 0.
+/// never shown as 0. Of an event and a read either may be the newer, and
+/// the bytes of a transfer only grow: the greater is shown.
 pub fn phase(view: &TransferView, progress: Option<u64>) -> TransferPhase {
-    let bytes = progress.or(view.bytes);
+    let bytes = match (progress, view.bytes) {
+        (Some(heard), Some(read)) => Some(heard.max(read)),
+        (heard, read) => heard.or(read),
+    };
     let moving = |bytes: Option<u64>| match bytes {
         Some(bytes) => TransferPhase::Transferring { bytes },
         None => TransferPhase::Restoring,

@@ -470,6 +470,130 @@ fn progress_is_kept_from_events_until_a_later_read_and_never_shown_as_zero() {
     );
 }
 
+/// Answers the reads `commands` holds with what `world` holds now.
+fn answer_reads(
+    world: &World,
+    model: &mut Model,
+    commands: Vec<(monolith_ui_model::CommandId, Command)>,
+) {
+    for (id, command) in commands {
+        if let Command::LoadIdentity(owner) = command {
+            model.apply(Update::Done {
+                command: id,
+                outcome: Outcome::Identity(Box::new(world.snapshot(owner))),
+            });
+        }
+    }
+}
+
+#[test]
+fn bytes_the_runtime_no_longer_knows_or_has_passed_are_not_shown_from_an_event() {
+    let mut world = world();
+    let carol = contact(1, 10);
+    let moving = transfer(carol, 1);
+    let mut sending = view(moving, false, TransferStatus::Sending);
+    sending.bytes = Some(128_980);
+    world.transfers.insert(identity(1), vec![sending.clone()]);
+    let mut model = ready(&world);
+    // A read is asked, then progress comes; the read, made after a write
+    // failed, says the runtime does not know the bytes: no number is
+    // shown, however late the read was asked.
+    model.apply(Update::Event(RuntimeEvent::TransferChanged(moving)));
+    let commands = model.take_commands();
+    model.apply(Update::Event(RuntimeEvent::TransferProgressed {
+        transfer: moving,
+        bytes: 257_960,
+    }));
+    sending.bytes = None;
+    world.transfers.insert(identity(1), vec![sending.clone()]);
+    answer_reads(&world, &mut model, commands);
+    assert_eq!(phases(&model, carol), vec![TransferPhase::Restoring]);
+    // Progress again, then a read asked before it that the runtime made
+    // later, with more: the greater is shown.
+    model.apply(Update::Event(RuntimeEvent::TransferChanged(moving)));
+    let commands = model.take_commands();
+    model.apply(Update::Event(RuntimeEvent::TransferProgressed {
+        transfer: moving,
+        bytes: 386_940,
+    }));
+    sending.bytes = Some(515_920);
+    world.transfers.insert(identity(1), vec![sending]);
+    answer_reads(&world, &mut model, commands);
+    assert_eq!(
+        phases(&model, carol),
+        vec![TransferPhase::Transferring { bytes: 515_920 }]
+    );
+}
+
+#[test]
+fn an_action_is_taken_only_where_its_card_offers_it() {
+    let mut world = world();
+    let carol = contact(1, 10);
+    let sending = transfer(carol, 1);
+    let received = transfer(carol, 2);
+    let receiving = transfer(carol, 3);
+    let paused = transfer(carol, 4);
+    let completed = transfer(carol, 5);
+    let mut held = view(paused, true, TransferStatus::Receiving);
+    held.held = true;
+    world.transfers.insert(
+        identity(1),
+        vec![
+            view(sending, false, TransferStatus::Sending),
+            view(received, true, TransferStatus::Received),
+            view(receiving, true, TransferStatus::Receiving),
+            held,
+            view(completed, false, TransferStatus::Completed),
+        ],
+    );
+    let mut model = ready(&world);
+    // None of these is on its card: an outgoing transfer is not accepted
+    // or rejected, only a paused one is resumed, a live one is not
+    // removed, and a received file not saved is removed through its
+    // dialog only.
+    for id in [sending, received, receiving, paused, completed] {
+        model.accept_transfer(id);
+        model.reject_transfer(id);
+    }
+    for id in [sending, received, receiving, completed] {
+        model.resume_transfer(id);
+    }
+    for id in [sending, received, receiving, paused] {
+        model.remove_transfer(id);
+    }
+    assert!(world.settle(&mut model).is_empty());
+    // These are.
+    model.resume_transfer(paused);
+    model.remove_transfer(completed);
+    let commands: Vec<Command> = world
+        .settle(&mut model)
+        .into_iter()
+        .map(|(_, command)| command)
+        .collect();
+    assert_eq!(
+        commands,
+        vec![
+            Command::ResumeTransfer(paused),
+            Command::RemoveTransfer(completed)
+        ]
+    );
+}
+
+#[test]
+fn a_file_name_is_drawn_with_its_control_characters_shown() {
+    let mut world = world();
+    let carol = contact(1, 10);
+    let offered = transfer(carol, 1);
+    let mut hostile = view(offered, true, TransferStatus::Offered);
+    // No filename of the protocol has these; one that came another way is
+    // drawn with them shown, not obeyed.
+    hostile.name = "a\u{1b}[31mb\u{7}\u{0}.txt".to_owned();
+    world.transfers.insert(identity(1), vec![hostile]);
+    let model = ready(&world);
+    let name = model.transfers_of(carol)[0].name.clone();
+    assert_eq!(name, "a<U+001B>[31mb<U+0007><U+0000>.txt");
+}
+
 #[test]
 fn late_events_and_answers_of_one_identity_change_nothing_shown_of_another() {
     let mut world = world();

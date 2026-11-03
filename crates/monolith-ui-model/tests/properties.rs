@@ -2,15 +2,18 @@
 //! the runtime does (`docs/adr/0011-ui-security-boundary.md`). The runtime
 //! is played by an environment that keeps the truth in a model of its own,
 //! written here: identities, their contact records, the conversations with
-//! their messages and statuses, requests, invitations and the people each
+//! their messages and statuses, the file transfers of each record with
+//! their states and bytes, requests, invitations and the people each
 //! identity blocked. It runs the
 //! commands the model issues against that truth and answers them at once,
 //! late, in another order, never, or with handles of another identity or
 //! record, as the sequence says. It changes the truth by itself (messages
 //! arrive and are acknowledged, requests arrive, contacts accept, a record
-//! is made again for the same person, an identity goes away) and raises the
-//! events of the changes, or loses them; and it raises events that name
-//! anything, deleted records and other identities included.
+//! is made again for the same person, an identity goes away, files are
+//! offered, accepted, sent, held, ended, and the runtime starts again and
+//! no longer knows how far a transfer got) and raises the events of the
+//! changes, or loses them; and it raises events that name anything, deleted
+//! records and other identities included, and progress said before.
 //!
 //! After every step:
 //!
@@ -18,10 +21,24 @@
 //!   what the action named (for a confirmation, what its dialog captured);
 //!   answers and events make the model issue reads only, of identities it
 //!   lists and conversations it knows;
+//! - a transfer action of the user issues its command, naming that
+//!   transfer, only for one the model lists, that no command of the model
+//!   is busy with, in a state the action applies to; a file is offered only
+//!   to a contact the model shows accepted;
 //! - the identities listed, and what is shown of each identity, are exactly
 //!   an answer the truth gave for that identity, never mixed with another;
 //!   a message is shown with a status and a text the truth gave for that
 //!   exact handle, and once shown delivered it is never shown queued again;
+//! - once no read lists a transfer, it is never listed again; every
+//!   transfer the identity shown lists has one card, in the conversation
+//!   of its record, that says what the read listing it said, its name drawn
+//!   on one line with no control character and no mark that hides text or
+//!   turns its direction; bytes shown were said by the runtime for that
+//!   handle, are at most its size, and were said after the runtime last
+//!   lost track of them in the read shown, whenever their event came; once
+//!   shown ended, a transfer is never shown under way again nor in another
+//!   ended state, but for a cancelled one the peer then completed; a card
+//!   waits only for a command not answered yet;
 //! - a selection names a conversation its identity knows, never one whose
 //!   deletion the model has read; it changes only by the user, or to a
 //!   contact a command of the user made; the identity shown changes only by
@@ -35,8 +52,10 @@
 //!   changes nothing.
 //!
 //! At the end, and where the sequence says, the late answers arrive,
-//! `Missed` is raised and every read is answered: the model then shows
-//! exactly the truth, and the conversation shown is read.
+//! `Missed` is raised and every read is answered: the cards of every
+//! identity hold as those of the identity shown do, the model shows
+//! exactly the truth, the transfers and the bytes of each included, and
+//! the conversation shown is read.
 
 // Test code builds its own inputs.
 #![allow(
@@ -48,12 +67,14 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use monolith_ui_model::{
     BlockedView, Command, CommandId, ContactView, ConversationView, Deferral, Dialog, Failure,
     IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase,
     ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Slice, Status,
-    TorCheck, UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+    TorCheck, TransferItem, TransferKey, TransferPhase, TransferReason, TransferStatus,
+    TransferView, UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
     UiTransferId, Update,
 };
 use proptest::prelude::*;
@@ -92,6 +113,170 @@ const DEFERRALS: [Deferral; 5] = [
     Deferral::NoAcknowledgement,
     Deferral::Busy,
 ];
+
+/// Sizes of files, in bytes.
+const SIZES: [u64; 4] = [2, 1_000, 65_536, 64_000_000];
+
+/// What the user drops or types as the file to send: a folder cannot be
+/// sent, and blank names nothing.
+const PATHS: [&str; 4] = [
+    "/home/user/report.pdf",
+    "C:\\Users\\user\\photo.jpg",
+    "/home/user/folder/",
+    "  ",
+];
+
+/// What the user types where a received file is to be saved: nothing, a
+/// file that exists, a place whose save cannot be confirmed, a new file.
+const PLACES: [&str; 4] = [
+    "",
+    "/home/user/Downloads/exists.zip",
+    "/media/usb/copy.bin",
+    "/home/user/Documents/copy.bin",
+];
+
+/// The name a contact gives a file it offers: its own text, hostile or not.
+fn file_name(n: u8) -> String {
+    match n % 7 {
+        0 => "project-backup.zip".to_owned(),
+        1 => "invoice\u{202e}fdp.exe".to_owned(),
+        2 => "\u{2066}report\u{2069}\u{200b}.pdf".to_owned(),
+        3 => "line\nbreak\tand\r\nreturn.txt".to_owned(),
+        4 => "\u{1b}[31mred\u{7}\u{0}.txt".to_owned(),
+        5 => "../../.ssh/authorized_keys".to_owned(),
+        _ => "long".repeat(20),
+    }
+}
+
+/// The place the runtime suggests for saving `transfer`: its own.
+fn place_of(transfer: UiTransferId) -> String {
+    format!(
+        "/home/user/Downloads/{:02x}{:02x}-{}",
+        transfer.identity().bytes()[0],
+        transfer.contact().record()[0],
+        transfer.handle()
+    )
+}
+
+/// Whether `name` is drawn on one line, with no control character and no
+/// character that is drawn as nothing or turns the direction of the text
+/// around it.
+fn drawable(name: &str) -> bool {
+    name.chars().all(|character| {
+        (character == ' ' || !character.is_whitespace())
+            && !character.is_control()
+            && !matches!(
+                character,
+                '\u{061c}'
+                    | '\u{200b}'..='\u{200f}'
+                    | '\u{2028}'..='\u{202e}'
+                    | '\u{2060}'..='\u{206f}'
+                    | '\u{feff}'
+            )
+    })
+}
+
+/// Whether a card in `phase` says its transfer ended: it can only be taken
+/// off the list.
+const fn ended(phase: TransferPhase) -> bool {
+    matches!(
+        phase,
+        TransferPhase::Completed
+            | TransferPhase::Saved
+            | TransferPhase::Rejected
+            | TransferPhase::Expired
+            | TransferPhase::Cancelled { .. }
+            | TransferPhase::Failed(_)
+    )
+}
+
+/// Whether a card of a transfer the model read as `view` may say `phase`,
+/// from what each state of the runtime means.
+fn agrees(phase: TransferPhase, view: &TransferView) -> bool {
+    let moving = view.status == TransferStatus::Sending
+        || (view.status == TransferStatus::Receiving && !view.held);
+    match phase {
+        TransferPhase::Waiting => view.status == TransferStatus::Waiting,
+        TransferPhase::Offered => view.status == TransferStatus::Offered,
+        TransferPhase::Transferring { .. } => moving,
+        TransferPhase::Restoring => moving && view.bytes.is_none(),
+        TransferPhase::Paused => view.status == TransferStatus::Receiving && view.held,
+        TransferPhase::Completed => view.status == TransferStatus::Completed,
+        TransferPhase::Received => view.status == TransferStatus::Received && !view.saved,
+        TransferPhase::Saved => view.status == TransferStatus::Received && view.saved,
+        TransferPhase::Rejected => view.status == TransferStatus::Rejected,
+        TransferPhase::Expired => view.status == TransferStatus::Expired,
+        TransferPhase::Cancelled { by_us } => {
+            view.status == TransferStatus::Cancelled
+                && by_us == (view.reason == Some(TransferReason::ByUs))
+        }
+        TransferPhase::Failed(reason) => {
+            view.status == TransferStatus::Failed && reason == view.reason
+        }
+        TransferPhase::Preparing | TransferPhase::Unsent(_) => false,
+    }
+}
+
+/// What the user does on a transfer card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Act {
+    Accept,
+    Reject,
+    Resume,
+    Remove,
+    Save,
+    Cancel,
+}
+
+const ACTS: [Act; 6] = [
+    Act::Accept,
+    Act::Reject,
+    Act::Resume,
+    Act::Remove,
+    Act::Save,
+    Act::Cancel,
+];
+
+/// The acts a card in `phase` offers, as the window draws it
+/// (`monolith-ui`, `transfers.rs`).
+const fn offered(phase: TransferPhase) -> &'static [Act] {
+    match phase {
+        TransferPhase::Waiting | TransferPhase::Transferring { .. } | TransferPhase::Restoring => {
+            &[Act::Cancel]
+        }
+        TransferPhase::Offered => &[Act::Accept, Act::Reject],
+        TransferPhase::Paused => &[Act::Resume, Act::Cancel],
+        TransferPhase::Received => &[Act::Save, Act::Remove],
+        TransferPhase::Completed
+        | TransferPhase::Saved
+        | TransferPhase::Rejected
+        | TransferPhase::Expired
+        | TransferPhase::Cancelled { .. }
+        | TransferPhase::Failed(_) => &[Act::Remove],
+        TransferPhase::Preparing | TransferPhase::Unsent(_) => &[],
+    }
+}
+
+/// Whether the act `act`, taken without a dialog, applies to a transfer the
+/// model read as `view`: one that does not is refused before the runtime
+/// is asked.
+fn applies(act: Act, view: &TransferView) -> bool {
+    match act {
+        Act::Accept | Act::Reject => view.incoming && view.status == TransferStatus::Offered,
+        Act::Resume => view.incoming && view.status == TransferStatus::Receiving && view.held,
+        Act::Remove => {
+            matches!(
+                view.status,
+                TransferStatus::Completed
+                    | TransferStatus::Rejected
+                    | TransferStatus::Expired
+                    | TransferStatus::Cancelled
+                    | TransferStatus::Failed
+            ) || (view.status == TransferStatus::Received && view.saved)
+        }
+        Act::Save | Act::Cancel => false,
+    }
+}
 
 fn tor_state(n: u8) -> TorCheck {
     match n % 4 {
@@ -202,6 +387,22 @@ fn forged_request(owner: UiIdentityId) -> RequestView {
     }
 }
 
+/// A transfer no runtime said, shown as received.
+fn forged_transfer(contact: UiContactId) -> TransferView {
+    TransferView {
+        id: UiTransferId::new(contact, 905),
+        incoming: true,
+        status: TransferStatus::Received,
+        reason: None,
+        size: 1,
+        name: "forged".to_owned(),
+        bytes: Some(1),
+        created: EPOCH,
+        held: false,
+        saved: false,
+    }
+}
+
 /// A snapshot of an identity that holds nothing.
 fn empty_snapshot(owner: UiIdentityId) -> IdentitySnapshot {
     IdentitySnapshot {
@@ -240,8 +441,84 @@ impl Message {
     }
 }
 
+/// A file transfer, as the runtime holds it (`monolith-core`,
+/// `transfers.rs`).
+#[derive(Clone, Debug)]
+struct Transfer {
+    id: UiTransferId,
+    incoming: bool,
+    status: TransferStatus,
+    reason: Option<TransferReason>,
+    size: u64,
+    name: String,
+    /// The bytes acknowledged or staged: they only grow.
+    staged: u64,
+    /// What the runtime knows of them: nothing after it started again, or
+    /// after a hold, until the transfer goes on.
+    bytes: Option<u64>,
+    /// How many times the runtime lost track of the bytes.
+    resets: u32,
+    created: u64,
+    held: bool,
+    saved: bool,
+}
+
+impl Transfer {
+    fn view(&self) -> TransferView {
+        TransferView {
+            id: self.id,
+            incoming: self.incoming,
+            status: self.status,
+            reason: self.reason,
+            size: self.size,
+            name: self.name.clone(),
+            bytes: self.bytes,
+            created: self.created,
+            held: self.held,
+            saved: self.saved,
+        }
+    }
+
+    /// On its way: acknowledged or staged bit by bit.
+    fn moving(&self) -> bool {
+        matches!(
+            self.status,
+            TransferStatus::Sending | TransferStatus::Receiving
+        )
+    }
+
+    /// Ended, as the runtime counts it: it can be removed.
+    fn finished(&self) -> bool {
+        matches!(
+            self.status,
+            TransferStatus::Completed
+                | TransferStatus::Received
+                | TransferStatus::Rejected
+                | TransferStatus::Expired
+                | TransferStatus::Cancelled
+                | TransferStatus::Failed
+        )
+    }
+
+    /// Ends it in `status`; a hold ends with it.
+    fn end(&mut self, status: TransferStatus, reason: Option<TransferReason>) {
+        self.status = status;
+        self.reason = reason;
+        self.held = false;
+    }
+
+    /// The runtime no longer knows how far it got.
+    fn lose_track(&mut self) {
+        if self.bytes.is_some() {
+            self.bytes = None;
+            self.resets += 1;
+        }
+    }
+}
+
 /// A contact record: a contact while `current`; after that an ended
-/// conversation while it holds messages, and nothing once it holds none.
+/// conversation while it holds messages, and nothing once it holds neither
+/// messages nor transfers.
 #[derive(Clone, Debug)]
 struct Record {
     id: UiContactId,
@@ -253,11 +530,38 @@ struct Record {
     messages: Vec<Message>,
     /// The sequence of the next message: none is given twice.
     next: u64,
+    transfers: Vec<Transfer>,
 }
 
 impl Record {
     fn exists(&self) -> bool {
-        self.current || !self.messages.is_empty()
+        self.current || !self.messages.is_empty() || !self.transfers.is_empty()
+    }
+
+    /// The contact ended: blocked, what is not ended is cancelled and a
+    /// received file not saved goes; removed, every transfer goes. Returns
+    /// the transfers changed.
+    fn end_transfers(&mut self, removed: bool) -> Vec<UiTransferId> {
+        let mut changed = Vec::new();
+        for held in &mut self.transfers {
+            let ends = matches!(
+                (held.incoming, held.status),
+                (false, TransferStatus::Waiting | TransferStatus::Sending)
+                    | (true, TransferStatus::Offered | TransferStatus::Receiving)
+            );
+            if removed || ends || (held.status == TransferStatus::Received && !held.saved) {
+                changed.push(held.id);
+            }
+            if ends && !removed {
+                held.end(
+                    TransferStatus::Cancelled,
+                    Some(TransferReason::ContactEnded),
+                );
+            }
+        }
+        self.transfers
+            .retain(|held| !removed && (held.status != TransferStatus::Received || held.saved));
+        changed
     }
 
     fn contact(&self) -> ContactView {
@@ -318,6 +622,8 @@ struct Identity {
     blocked: Vec<Blocked>,
     service: Service,
     mode: RequestMode,
+    /// The saves cut short when the runtime last started.
+    interrupted: Vec<UiTransferId>,
 }
 
 impl Identity {
@@ -376,8 +682,12 @@ impl Identity {
                 .collect(),
             service: self.service,
             request_mode: self.mode,
-            transfers: Vec::new(),
-            interrupted: Vec::new(),
+            transfers: {
+                let mut views: Vec<TransferView> = self.transfers().map(Transfer::view).collect();
+                views.sort_by_key(|view| (view.created, view.id));
+                views
+            },
+            interrupted: self.interrupted.clone(),
         }
     }
 
@@ -387,6 +697,10 @@ impl Identity {
 
     fn record(&self, contact: UiContactId) -> Option<&Record> {
         self.records.iter().find(|found| found.id == contact)
+    }
+
+    fn transfers(&self) -> impl Iterator<Item = &Transfer> {
+        self.records.iter().flat_map(|found| &found.transfers)
     }
 }
 
@@ -399,6 +713,8 @@ struct Part {
     invitations: Vec<InvitationView>,
     blocked: Vec<BlockedView>,
     mode: RequestMode,
+    transfers: Vec<TransferView>,
+    interrupted: Vec<UiTransferId>,
 }
 
 impl Part {
@@ -410,6 +726,8 @@ impl Part {
             invitations: snapshot.invitations.clone(),
             blocked: snapshot.blocked.clone(),
             mode: snapshot.request_mode,
+            transfers: snapshot.transfers.clone(),
+            interrupted: snapshot.interrupted.clone(),
         }
     }
 
@@ -421,6 +739,8 @@ impl Part {
             invitations: slice.invitations.clone(),
             blocked: slice.blocked.clone(),
             mode: slice.request_mode?,
+            transfers: slice.transfers.clone(),
+            interrupted: slice.interrupted.clone(),
         })
     }
 }
@@ -438,6 +758,12 @@ struct Said {
     services: BTreeMap<UiIdentityId, Vec<Service>>,
     /// Every state Tor was in.
     tor: Vec<TorCheck>,
+    /// The bytes said of each transfer, by a read or an event, with the
+    /// times the runtime had lost track of them then (the most, if said
+    /// more than once).
+    bytes: BTreeMap<(UiTransferId, u64), u32>,
+    /// The failures answered to offers of a file, with their contact.
+    unsent: Vec<(UiContactId, Failure)>,
 }
 
 impl Said {
@@ -479,6 +805,13 @@ impl Said {
             self.tor.push(check.clone());
         }
     }
+
+    fn bytes(&mut self, transfer: &Transfer) {
+        if let Some(bytes) = transfer.bytes {
+            let resets = self.bytes.entry((transfer.id, bytes)).or_insert(0);
+            *resets = (*resets).max(transfer.resets);
+        }
+    }
 }
 
 // ---- The environment: the runtime and the bridge ----
@@ -514,6 +847,20 @@ struct Ran {
     outcome: Outcome,
     tells: Tells,
     events: Vec<RuntimeEvent>,
+    /// For a read of an identity, how many times the runtime had lost
+    /// track of the bytes of each of its transfers when it was made.
+    resets: BTreeMap<UiTransferId, u32>,
+}
+
+impl Ran {
+    fn new(outcome: Outcome) -> Self {
+        Self {
+            outcome,
+            tells: Tells::Nothing,
+            events: Vec::new(),
+            resets: BTreeMap::new(),
+        }
+    }
 }
 
 /// An answer, with the command it answers.
@@ -525,6 +872,7 @@ struct Answer {
     tells: Tells,
     /// It names something its command did not act on.
     foreign: bool,
+    resets: BTreeMap<UiTransferId, u32>,
 }
 
 /// A change of the truth the runtime makes by itself.
@@ -547,6 +895,26 @@ enum Change {
     IdentityGone(u8),
     /// The system Tor changes state; nothing tells the model.
     Tor(u8),
+    /// A contact who accepted offers a file.
+    Offer { pick: u8, file: u8 },
+    /// The peer accepts a file offered to it.
+    PeerAccepts(u8),
+    /// A transfer under way moves on by a share of its size.
+    Progress { pick: u8, share: u8 },
+    /// The peer confirms the whole file, or the whole file is here and
+    /// verified; also for a cancellation the peer had not read.
+    Completes(u8),
+    /// The peer rejects or cancels a transfer.
+    PeerEnds { pick: u8, reject: bool },
+    /// A transfer fails.
+    Fails { pick: u8, reason: u8 },
+    /// An offer is not answered in time.
+    Expires(u8),
+    /// The writes of a file being received wait for room, or no longer do.
+    Hold(u8),
+    /// The runtime starts again: it no longer knows how far transfers got,
+    /// and a save may have been cut short.
+    Restart(u8),
 }
 
 struct Env {
@@ -573,6 +941,18 @@ struct Env {
     invitations_ever: Vec<UiInvitationId>,
     blocked_ever: Vec<UiBlockedId>,
     messages_ever: Vec<UiMessageId>,
+    transfers_ever: Vec<UiTransferId>,
+    /// How many times the runtime lost track of the bytes of each transfer
+    /// ever made.
+    resets: BTreeMap<UiTransferId, u32>,
+    /// For the read of each identity the model applied last, how many
+    /// times the runtime had lost track of the bytes of each transfer when
+    /// it was made, and the number of the read.
+    read_resets: BTreeMap<UiIdentityId, (CommandId, BTreeMap<UiTransferId, u32>)>,
+    /// The commands taken that act on a transfer, and the transfer.
+    on_transfer: BTreeMap<CommandId, UiTransferId>,
+    /// The offers of a file taken, and their contact.
+    offers: BTreeMap<CommandId, UiContactId>,
     /// Identities a command of the user made.
     made: BTreeSet<UiIdentityId>,
     /// Contacts a command of the user made, by adding or accepting.
@@ -587,11 +967,16 @@ struct Env {
 }
 
 impl Env {
-    /// Alice and Bob. Alice has Carol, with a conversation, Dan, and Erin
-    /// who has not accepted yet, an invitation and a request through it,
-    /// and has blocked someone. Bob has Frank, the same person as Carol,
-    /// with a conversation, an ended conversation, an invitation and a
-    /// request.
+    /// Alice and Bob. Alice has Carol, with a conversation, a file Carol
+    /// offers under a hostile name, one being sent to her and one received
+    /// from her; Dan, who has not answered a file offered to him, a file
+    /// from whom is being received and was when the runtime last started,
+    /// and another whose writes wait for room; and Erin, who has not
+    /// accepted yet. Alice has an invitation and a request through it, and
+    /// has blocked someone. Bob has Frank, the same person as Carol, with a
+    /// conversation, a file received whose save was cut short and one
+    /// sent, an ended conversation with a cancelled file, an invitation and
+    /// a request.
     fn new() -> Self {
         let mut env = Self {
             identities: Vec::new(),
@@ -610,6 +995,11 @@ impl Env {
             invitations_ever: Vec::new(),
             blocked_ever: Vec::new(),
             messages_ever: Vec::new(),
+            transfers_ever: Vec::new(),
+            resets: BTreeMap::new(),
+            read_resets: BTreeMap::new(),
+            on_transfer: BTreeMap::new(),
+            offers: BTreeMap::new(),
             made: BTreeSet::new(),
             opened: BTreeSet::new(),
             heard_gone_records: BTreeSet::new(),
@@ -629,7 +1019,32 @@ impl Env {
         let carol = env.add_record(alice, 0, true, Some("Carol".to_owned()));
         env.add_message(carol, Status::Received, TEXTS[0]);
         env.add_message(carol, Status::Queued, TEXTS[1]);
-        env.add_record(alice, 1, true, Some("Dan".to_owned()));
+        env.add_transfer(carol, true, SIZES[2], file_name(1));
+        let sending = env.add_transfer(carol, false, SIZES[1], "notes.txt".to_owned());
+        let held = env.transfer_mut(sending).unwrap();
+        held.status = TransferStatus::Sending;
+        held.staged = 200;
+        held.bytes = Some(200);
+        let received = env.add_transfer(carol, true, SIZES[1], file_name(2));
+        let held = env.transfer_mut(received).unwrap();
+        held.status = TransferStatus::Received;
+        held.staged = SIZES[1];
+        held.bytes = Some(SIZES[1]);
+        let dan = env.add_record(alice, 1, true, Some("Dan".to_owned()));
+        env.add_transfer(dan, false, SIZES[0], "slides.pdf".to_owned());
+        let receiving = env.add_transfer(dan, true, SIZES[3], file_name(0));
+        let held = env.transfer_mut(receiving).unwrap();
+        held.status = TransferStatus::Receiving;
+        held.staged = 1_000_000;
+        held.resets = 1;
+        held.bytes = None;
+        let paused = env.add_transfer(dan, true, SIZES[2], file_name(6));
+        let held = env.transfer_mut(paused).unwrap();
+        held.status = TransferStatus::Receiving;
+        held.staged = 4_096;
+        held.resets = 1;
+        held.bytes = None;
+        held.held = true;
         env.add_record(alice, 2, false, Some("Erin".to_owned()));
         let invitation = env.add_invitation(alice, Some("Friends".to_owned()));
         env.add_request(alice, 3, Some(invitation));
@@ -641,8 +1056,24 @@ impl Env {
         );
         let frank = env.add_record(bob, 0, true, Some("Frank".to_owned()));
         env.add_message(frank, Status::Delivered, TEXTS[2]);
+        let received = env.add_transfer(frank, true, SIZES[0], file_name(3));
+        let held = env.transfer_mut(received).unwrap();
+        held.status = TransferStatus::Received;
+        held.staged = SIZES[0];
+        held.bytes = Some(SIZES[0]);
+        env.find_mut(bob).unwrap().interrupted.push(received);
+        let sent = env.add_transfer(frank, false, SIZES[1], "minutes.odt".to_owned());
+        let held = env.transfer_mut(sent).unwrap();
+        held.status = TransferStatus::Completed;
+        held.staged = SIZES[1];
+        held.bytes = Some(SIZES[1]);
         let ended = env.add_record(bob, 3, true, None);
         env.add_message(ended, Status::Received, TEXTS[0]);
+        let cancelled = env.add_transfer(ended, true, SIZES[1], file_name(5));
+        env.transfer_mut(cancelled).unwrap().end(
+            TransferStatus::Cancelled,
+            Some(TransferReason::ContactEnded),
+        );
         env.record_mut(ended).unwrap().current = false;
         env.add_invitation(bob, None);
         env.add_request(bob, 1, None);
@@ -664,10 +1095,22 @@ impl Env {
             .find(|found| found.id == contact)
     }
 
-    /// Records that are no contact and hold no message are gone.
+    fn transfer_mut(&mut self, transfer: UiTransferId) -> Option<&mut Transfer> {
+        self.record_mut(transfer.contact())?
+            .transfers
+            .iter_mut()
+            .find(|held| held.id == transfer)
+    }
+
+    /// Records that are no contact and hold no message nor transfer are
+    /// gone; a save cut short is told while its transfer is listed.
     fn tidy(&mut self, owner: UiIdentityId) {
         if let Some(found) = self.find_mut(owner) {
             found.records.retain(Record::exists);
+            let listed: BTreeSet<UiTransferId> = found.transfers().map(|held| held.id).collect();
+            found
+                .interrupted
+                .retain(|transfer| listed.contains(transfer));
         }
     }
 
@@ -679,6 +1122,45 @@ impl Env {
 
     fn records(&self) -> impl Iterator<Item = &Record> {
         self.identities.iter().flat_map(|found| &found.records)
+    }
+
+    /// A transfer of any identity that passes `test`.
+    fn pick_transfer(&self, pick: u8, test: impl Fn(&Transfer) -> bool) -> Option<UiTransferId> {
+        let found: Vec<UiTransferId> = self
+            .records()
+            .flat_map(|found| &found.transfers)
+            .filter(|held| test(held))
+            .map(|held| held.id)
+            .collect();
+        choose(&found, pick)
+    }
+
+    /// Every transfer handle there ever was, and some never made: of a
+    /// record that never was, of another identity, and the handle of a
+    /// transfer named with another record.
+    fn transfer_pool(&self) -> Vec<UiTransferId> {
+        let mut pool = self.transfers_ever.clone();
+        pool.extend([
+            UiTransferId::new(record(identity(1), 0xEE), 900),
+            UiTransferId::new(record(stranger(), 0xEE), 901),
+        ]);
+        if let Some(first) = self.transfers_ever.first() {
+            pool.extend([
+                UiTransferId::new(record(first.identity(), 0xEE), first.handle()),
+                UiTransferId::new(record(identity(2), 0x10), first.handle()),
+            ]);
+        }
+        pool
+    }
+
+    /// A transfer handle other than `transfer`.
+    fn other_transfer(&self, transfer: UiTransferId, k: u8) -> UiTransferId {
+        let pool: Vec<UiTransferId> = self
+            .transfer_pool()
+            .into_iter()
+            .filter(|other| *other != transfer)
+            .collect();
+        choose(&pool, k).unwrap()
     }
 
     fn add_identity(
@@ -698,6 +1180,7 @@ impl Env {
             blocked: Vec::new(),
             service,
             mode,
+            interrupted: Vec::new(),
         });
         self.identities_ever.push(id);
         self.said.service(id, service);
@@ -722,9 +1205,56 @@ impl Env {
             current: true,
             messages: Vec::new(),
             next: 1,
+            transfers: Vec::new(),
         });
         self.contacts_ever.push(id);
         id
+    }
+
+    /// A file offered to `contact`, or by it if `incoming`, under a handle
+    /// never given before: waiting for an answer, nothing sent yet.
+    fn add_transfer(
+        &mut self,
+        contact: UiContactId,
+        incoming: bool,
+        size: u64,
+        name: String,
+    ) -> UiTransferId {
+        let id = UiTransferId::new(contact, self.next_handle);
+        self.next_handle += 1;
+        self.clock += 1;
+        let created = EPOCH + self.clock;
+        self.record_mut(contact).unwrap().transfers.push(Transfer {
+            id,
+            incoming,
+            status: if incoming {
+                TransferStatus::Offered
+            } else {
+                TransferStatus::Waiting
+            },
+            reason: None,
+            size,
+            name,
+            staged: 0,
+            bytes: Some(0),
+            resets: 0,
+            created,
+            held: false,
+            saved: false,
+        });
+        self.transfers_ever.push(id);
+        id
+    }
+
+    /// Keeps how many times the runtime lost track of the bytes of each
+    /// transfer, also once it is gone.
+    fn note_resets(&mut self) {
+        let resets: Vec<(UiTransferId, u32)> = self
+            .records()
+            .flat_map(|found| &found.transfers)
+            .map(|held| (held.id, held.resets))
+            .collect();
+        self.resets.extend(resets);
     }
 
     fn add_message(&mut self, contact: UiContactId, status: Status, text: &str) -> UiMessageId {
@@ -799,11 +1329,7 @@ impl Env {
 
     /// Runs `command` against the truth.
     fn execute(&mut self, command: &Command) -> Ran {
-        let mut ran = Ran {
-            outcome: Outcome::Done,
-            tells: Tells::Nothing,
-            events: Vec::new(),
-        };
+        let mut ran = Ran::new(Outcome::Done);
         ran.outcome = match command {
             Command::LoadIdentities => {
                 let list = self.list();
@@ -832,6 +1358,14 @@ impl Env {
                         owner: *asked,
                         gone,
                     };
+                    ran.resets = found
+                        .transfers()
+                        .map(|held| (held.id, held.resets))
+                        .collect();
+                    let read: Vec<Transfer> = found.transfers().cloned().collect();
+                    for held in &read {
+                        self.said.bytes(held);
+                    }
                     self.said.snapshot(&snapshot);
                     Outcome::Identity(Box::new(snapshot))
                 }
@@ -900,14 +1434,27 @@ impl Env {
                     .and_then(|found| found.record(*contact))
                     .filter(|held| held.current)
                     .map(|held| held.person);
-                let outcome = self.change_contact(*contact, |found| found.current = false);
+                let mut ended = Vec::new();
+                let outcome = self.change_contact(*contact, |found| {
+                    found.current = false;
+                    ended = found.end_transfers(false);
+                });
                 if let (Outcome::Done, Some(person)) = (&outcome, person) {
                     self.block(contact.identity(), person);
                 }
+                ran.events
+                    .extend(ended.into_iter().map(RuntimeEvent::TransferChanged));
                 outcome
             }
             Command::RemoveContact(contact) => {
-                self.change_contact(*contact, |found| found.current = false)
+                let mut ended = Vec::new();
+                let outcome = self.change_contact(*contact, |found| {
+                    found.current = false;
+                    ended = found.end_transfers(true);
+                });
+                ran.events
+                    .extend(ended.into_iter().map(RuntimeEvent::TransferChanged));
+                outcome
             }
             Command::DeleteConversation(contact) => match self.record_mut(*contact) {
                 Some(found) => {
@@ -999,17 +1546,155 @@ impl Env {
             Command::OpenProfile { .. }
             | Command::CreateProfile { .. }
             | Command::StartWithoutSaving => Outcome::Failed(Failure::Unexpected),
-            // The truth of these tests holds no transfer.
-            Command::OfferFile { .. } => Outcome::Failed(Failure::FileNotSendable),
-            Command::AcceptTransfer(_)
-            | Command::RejectTransfer(_)
-            | Command::CancelTransfer(_)
-            | Command::RemoveTransfer(_)
-            | Command::ResumeTransfer(_)
-            | Command::SavePlace(_)
-            | Command::SaveTransfer { .. } => Outcome::Failed(Failure::NoSuchTransfer),
+            Command::OfferFile { contact, path } => self.offer(*contact, path, &mut ran.events),
+            Command::AcceptTransfer(transfer) => self.decide(*transfer, &mut ran.events, |held| {
+                if !held.incoming || held.status != TransferStatus::Offered {
+                    return Err(Failure::NoSuchTransfer);
+                }
+                held.status = TransferStatus::Receiving;
+                held.bytes = Some(held.staged);
+                Ok(true)
+            }),
+            Command::RejectTransfer(transfer) => {
+                self.decide(*transfer, &mut ran.events, |held| {
+                    match (held.incoming, held.status) {
+                        (true, TransferStatus::Offered) => {
+                            held.end(TransferStatus::Rejected, None);
+                            Ok(true)
+                        }
+                        // Rejecting twice is rejecting once.
+                        (true, TransferStatus::Rejected) => Ok(false),
+                        _ => Err(Failure::NoSuchTransfer),
+                    }
+                })
+            }
+            // An undecided offer is rejected; a received file can only be
+            // removed; cancelling what ended changes nothing.
+            Command::CancelTransfer(transfer) => self.decide(*transfer, &mut ran.events, |held| {
+                match (held.incoming, held.status) {
+                    (false, TransferStatus::Waiting | TransferStatus::Sending)
+                    | (true, TransferStatus::Receiving) => {
+                        held.end(TransferStatus::Cancelled, Some(TransferReason::ByUs));
+                        Ok(true)
+                    }
+                    (true, TransferStatus::Offered) => {
+                        held.end(TransferStatus::Rejected, None);
+                        Ok(true)
+                    }
+                    (true, TransferStatus::Received) => Err(Failure::NoSuchTransfer),
+                    _ => Ok(false),
+                }
+            }),
+            Command::RemoveTransfer(transfer) => self.remove_transfer(*transfer, &mut ran.events),
+            Command::ResumeTransfer(transfer) => self.decide(*transfer, &mut ran.events, |held| {
+                if !held.incoming || held.status != TransferStatus::Receiving {
+                    return Err(Failure::NoSuchTransfer);
+                }
+                Ok(core::mem::replace(&mut held.held, false))
+            }),
+            Command::SavePlace(transfer) => match self.transfer_mut(*transfer) {
+                Some(_) => Outcome::SavePlace {
+                    transfer: *transfer,
+                    place: PathBuf::from(place_of(*transfer)),
+                },
+                None => Outcome::Failed(Failure::NoSuchTransfer),
+            },
+            Command::SaveTransfer {
+                transfer,
+                destination,
+            } => {
+                let outcome = self.decide(*transfer, &mut ran.events, |held| {
+                    if !held.incoming || held.status != TransferStatus::Received || held.saved {
+                        return Err(Failure::NoSuchTransfer);
+                    }
+                    if destination == &PathBuf::from(PLACES[1]) {
+                        return Err(Failure::FileExists);
+                    }
+                    held.saved = true;
+                    Ok(true)
+                });
+                match outcome {
+                    Outcome::Done => Outcome::Saved {
+                        transfer: *transfer,
+                        confirmed: destination != &PathBuf::from(PLACES[2]),
+                    },
+                    failed => failed,
+                }
+            }
         };
         ran
+    }
+
+    /// Offers the file at `path` to `contact`: the last part of the path
+    /// names it, and a folder cannot be sent.
+    fn offer(
+        &mut self,
+        contact: UiContactId,
+        path: &std::path::Path,
+        events: &mut Vec<RuntimeEvent>,
+    ) -> Outcome {
+        let Some(found) = self.find(contact.identity()) else {
+            return Outcome::Failed(Failure::NoSuchIdentity);
+        };
+        if !found
+            .record(contact)
+            .is_some_and(|held| held.current && held.accepted)
+        {
+            return Outcome::Failed(Failure::NotAcceptedForFiles);
+        }
+        let text = path.to_string_lossy();
+        let name = text.rsplit(['/', '\\']).next().unwrap_or_default();
+        if name.is_empty() {
+            return Outcome::Failed(Failure::FileNotSendable);
+        }
+        let size = SIZES[name.len() % SIZES.len()];
+        let made = self.add_transfer(contact, false, size, name.to_owned());
+        events.push(RuntimeEvent::TransferChanged(made));
+        Outcome::TransferOffered(made)
+    }
+
+    /// Runs a decision on `transfer`: `decide` changes it and says whether
+    /// it did, or says why it does not apply.
+    fn decide(
+        &mut self,
+        transfer: UiTransferId,
+        events: &mut Vec<RuntimeEvent>,
+        decide: impl FnOnce(&mut Transfer) -> Result<bool, Failure>,
+    ) -> Outcome {
+        let Some(held) = self.transfer_mut(transfer) else {
+            return Outcome::Failed(Failure::NoSuchTransfer);
+        };
+        match decide(held) {
+            Ok(changed) => {
+                if changed {
+                    events.push(RuntimeEvent::TransferChanged(transfer));
+                }
+                Outcome::Done
+            }
+            Err(failure) => Outcome::Failed(failure),
+        }
+    }
+
+    /// Takes an ended transfer, or a received file, off the list.
+    fn remove_transfer(
+        &mut self,
+        transfer: UiTransferId,
+        events: &mut Vec<RuntimeEvent>,
+    ) -> Outcome {
+        let Some(found) = self.record_mut(transfer.contact()) else {
+            return Outcome::Failed(Failure::NoSuchTransfer);
+        };
+        let Some(index) = found
+            .transfers
+            .iter()
+            .position(|held| held.id == transfer && held.finished())
+        else {
+            return Outcome::Failed(Failure::NoSuchTransfer);
+        };
+        found.transfers.remove(index);
+        self.tidy(transfer.identity());
+        events.push(RuntimeEvent::TransferChanged(transfer));
+        Outcome::Done
     }
 
     fn read(&mut self, contact: UiContactId, before: Option<u64>, limit: usize) -> Outcome {
@@ -1147,6 +1832,7 @@ impl Env {
             outcome,
             tells,
             events,
+            resets,
         } = ran;
         let (outcome, tells) = match (command, outcome) {
             (Command::LoadIdentity(asked), Outcome::Identity(mut snapshot)) => {
@@ -1174,6 +1860,8 @@ impl Env {
                         fingerprint: fingerprint(9),
                         full_fingerprint: String::new(),
                     });
+                    snapshot.transfers.insert(0, forged_transfer(foreign));
+                    snapshot.interrupted.push(UiTransferId::new(foreign, 905));
                     (Outcome::Identity(snapshot), tells)
                 }
             }
@@ -1247,6 +1935,30 @@ impl Env {
                 },
                 tells,
             ),
+            (Command::OfferFile { contact, .. }, Outcome::TransferOffered(made)) => (
+                Outcome::TransferOffered(UiTransferId::new(
+                    self.other_contact(*contact, k),
+                    made.handle(),
+                )),
+                tells,
+            ),
+            (Command::SavePlace(asked), Outcome::SavePlace { .. }) => {
+                let other = self.other_transfer(*asked, k);
+                (
+                    Outcome::SavePlace {
+                        transfer: other,
+                        place: PathBuf::from(place_of(other)),
+                    },
+                    tells,
+                )
+            }
+            (Command::SaveTransfer { transfer, .. }, Outcome::Saved { confirmed, .. }) => (
+                Outcome::Saved {
+                    transfer: self.other_transfer(*transfer, k),
+                    confirmed,
+                },
+                tells,
+            ),
             (_, Outcome::Failed(failure)) => (Outcome::Failed(failure), tells),
             // An answer of the wrong kind.
             (
@@ -1262,13 +1974,28 @@ impl Env {
             outcome,
             tells,
             events,
+            resets,
         }
     }
 
     /// Takes the commands the model issued: they wait for an answer.
     fn take(&mut self, commands: Vec<(CommandId, Command)>) {
-        for (id, _) in &commands {
+        for (id, command) in &commands {
             self.waiting.insert(*id);
+            match command {
+                Command::AcceptTransfer(transfer)
+                | Command::RejectTransfer(transfer)
+                | Command::CancelTransfer(transfer)
+                | Command::RemoveTransfer(transfer)
+                | Command::ResumeTransfer(transfer)
+                | Command::SaveTransfer { transfer, .. } => {
+                    self.on_transfer.insert(*id, *transfer);
+                }
+                Command::OfferFile { contact, .. } => {
+                    self.offers.insert(*id, *contact);
+                }
+                _ => {}
+            }
         }
         if self.stopped {
             self.lost
@@ -1288,11 +2015,7 @@ impl Env {
         let (id, command) = self.inbox.remove(index);
         let mut foreign = false;
         let ran = match fate {
-            Fate::Fail => Ran {
-                outcome: Outcome::Failed(Failure::Disk),
-                tells: Tells::Nothing,
-                events: Vec::new(),
-            },
+            Fate::Fail => Ran::new(Outcome::Failed(Failure::Disk)),
             Fate::Foreign(k) => {
                 let ran = self.execute(&command);
                 let truthful = ran.outcome.clone();
@@ -1313,6 +2036,7 @@ impl Env {
             outcome: ran.outcome,
             tells: ran.tells,
             foreign,
+            resets: ran.resets,
         };
         match fate {
             Fate::Hold => self.held.push(answer),
@@ -1334,6 +2058,7 @@ impl Env {
                 outcome: ran.outcome,
                 tells: ran.tells,
                 foreign: false,
+                resets: ran.resets,
             };
             self.deliver(model, round, answer);
         }
@@ -1359,6 +2084,20 @@ impl Env {
             }
             Tells::Identities(gone) => self.heard_gone_identities.extend(gone.iter().copied()),
             Tells::Nothing => {}
+        }
+        match (&answer.command, &answer.outcome) {
+            // A read of its own identity is applied to a slice the model
+            // has.
+            (Command::LoadIdentity(asked), Outcome::Identity(snapshot))
+                if snapshot.identity == *asked && model.slice(*asked).is_some() =>
+            {
+                self.read_resets
+                    .insert(*asked, (answer.id, answer.resets.clone()));
+            }
+            (Command::OfferFile { contact, .. }, Outcome::Failed(failure)) => {
+                self.said.unsent.push((*contact, *failure));
+            }
+            _ => {}
         }
         model.take_notices();
         model.apply(Update::Done {
@@ -1464,6 +2203,7 @@ impl Env {
                 let old = choose(&contacts, pick)?;
                 let found = self.record_mut(old)?;
                 found.current = false;
+                found.end_transfers(true);
                 let person = found.person;
                 self.tidy(old.identity());
                 let new = self.add_record(old.identity(), person, true, None);
@@ -1494,12 +2234,173 @@ impl Env {
                 self.said.tor(&tor);
                 None
             }
+            Change::Offer { pick, file } => {
+                let contacts: Vec<UiContactId> = self
+                    .records()
+                    .filter(|found| found.current && found.accepted)
+                    .map(|found| found.id)
+                    .collect();
+                let contact = choose(&contacts, pick)?;
+                let size = SIZES[usize::from(file) % SIZES.len()];
+                let offered = self.add_transfer(contact, true, size, file_name(file));
+                Some(RuntimeEvent::TransferOffered(offered))
+            }
+            Change::PeerAccepts(pick) => {
+                let transfer = self.pick_transfer(pick, |held| {
+                    !held.incoming && held.status == TransferStatus::Waiting
+                })?;
+                let held = self.transfer_mut(transfer)?;
+                held.status = TransferStatus::Sending;
+                held.bytes = Some(held.staged);
+                Some(RuntimeEvent::TransferChanged(transfer))
+            }
+            Change::Progress { pick, share } => {
+                let transfer = self.pick_transfer(pick, |held| {
+                    held.moving() && !held.held && held.staged < held.size
+                })?;
+                let held = self.transfer_mut(transfer)?;
+                let step = 1 + u64::from(share) * held.size / 256;
+                held.staged = held.size.min(held.staged + step);
+                held.bytes = Some(held.staged);
+                let (said, bytes) = (held.clone(), held.staged);
+                self.said.bytes(&said);
+                Some(RuntimeEvent::TransferProgressed { transfer, bytes })
+            }
+            Change::Completes(pick) => {
+                let transfer = self.pick_transfer(pick, |held| {
+                    matches!(
+                        (held.incoming, held.status),
+                        (
+                            false,
+                            TransferStatus::Waiting
+                                | TransferStatus::Sending
+                                | TransferStatus::Cancelled
+                        ) | (true, TransferStatus::Receiving)
+                    )
+                })?;
+                let held = self.transfer_mut(transfer)?;
+                let done = if held.incoming {
+                    TransferStatus::Received
+                } else {
+                    TransferStatus::Completed
+                };
+                held.end(done, None);
+                held.staged = held.size;
+                held.bytes = Some(held.size);
+                Some(RuntimeEvent::TransferChanged(transfer))
+            }
+            Change::PeerEnds { pick, reject } => {
+                let transfer = self.pick_transfer(pick, |held| {
+                    matches!(
+                        (held.incoming, held.status),
+                        (false, TransferStatus::Waiting | TransferStatus::Sending)
+                            | (true, TransferStatus::Offered | TransferStatus::Receiving)
+                    )
+                })?;
+                let held = self.transfer_mut(transfer)?;
+                if reject && !held.incoming {
+                    held.end(TransferStatus::Rejected, None);
+                } else {
+                    held.end(TransferStatus::Cancelled, Some(TransferReason::ByPeer));
+                }
+                Some(RuntimeEvent::TransferChanged(transfer))
+            }
+            Change::Fails { pick, reason } => {
+                let transfer = self.pick_transfer(pick, |held| {
+                    matches!(
+                        (held.incoming, held.status),
+                        (false, TransferStatus::Waiting | TransferStatus::Sending)
+                            | (true, TransferStatus::Receiving)
+                    ) || (held.status == TransferStatus::Received && !held.saved)
+                })?;
+                let held = self.transfer_mut(transfer)?;
+                let reasons: &[TransferReason] = match (held.incoming, held.status) {
+                    // A received file that no longer reads back.
+                    (true, TransferStatus::Received) => {
+                        held.lose_track();
+                        &[TransferReason::Storage]
+                    }
+                    (true, _) => &[
+                        TransferReason::Storage,
+                        TransferReason::Digest,
+                        TransferReason::Stalled,
+                        TransferReason::OffererGone,
+                    ],
+                    (false, _) => &[
+                        TransferReason::Storage,
+                        TransferReason::Digest,
+                        TransferReason::Stalled,
+                    ],
+                };
+                held.end(TransferStatus::Failed, choose(reasons, reason));
+                Some(RuntimeEvent::TransferChanged(transfer))
+            }
+            Change::Expires(pick) => {
+                let transfer = self.pick_transfer(pick, |held| {
+                    held.incoming && held.status == TransferStatus::Offered
+                })?;
+                self.transfer_mut(transfer)?
+                    .end(TransferStatus::Expired, None);
+                Some(RuntimeEvent::TransferChanged(transfer))
+            }
+            Change::Hold(pick) => {
+                let transfer = self.pick_transfer(pick, |held| {
+                    held.incoming && held.status == TransferStatus::Receiving
+                })?;
+                let held = self.transfer_mut(transfer)?;
+                if held.held {
+                    held.held = false;
+                } else {
+                    // What was written since the last sync counts as not
+                    // written: how much is staged is found again.
+                    held.held = true;
+                    held.lose_track();
+                }
+                Some(RuntimeEvent::TransferChanged(transfer))
+            }
+            Change::Restart(pick) => {
+                for found in &mut self.identities {
+                    found.interrupted.clear();
+                    for held in found
+                        .records
+                        .iter_mut()
+                        .flat_map(|found| &mut found.transfers)
+                    {
+                        held.held = false;
+                        if !matches!(
+                            held.status,
+                            TransferStatus::Waiting
+                                | TransferStatus::Offered
+                                | TransferStatus::Completed
+                                | TransferStatus::Received
+                        ) {
+                            held.lose_track();
+                        }
+                    }
+                }
+                // A save of a received file was under way.
+                let cut = self
+                    .pick_transfer(pick / 2, |held| {
+                        held.status == TransferStatus::Received && !held.saved
+                    })
+                    .filter(|_| pick % 2 == 0);
+                match cut {
+                    Some(transfer) => {
+                        self.find_mut(transfer.identity())?
+                            .interrupted
+                            .push(transfer);
+                        Some(RuntimeEvent::SaveInterrupted(transfer))
+                    }
+                    None => Some(RuntimeEvent::Missed),
+                }
+            }
         }
     }
 
     /// An event of any kind about any handle, deleted records, other
     /// identities and handles never made included, that changes nothing in
-    /// the truth. A service is reported in a state it was in.
+    /// the truth. A service is reported in a state it was in; a transfer
+    /// with bytes said of it since the runtime last lost track of them.
     fn spurious(&self, kind: u8, pick: u8) -> RuntimeEvent {
         let mut messages = self.messages_ever.clone();
         messages.push(UiMessageId::new(record(identity(1), 0xEE), 7));
@@ -1510,7 +2411,8 @@ impl Env {
         let message = choose(&messages, pick).unwrap();
         let contact = choose(&contacts, pick).unwrap();
         let owner = choose(&identities, pick).unwrap();
-        match kind % 9 {
+        let transfer = choose(&self.transfer_pool(), pick).unwrap();
+        match kind % 13 {
             0 => RuntimeEvent::MessageQueued(message),
             1 => RuntimeEvent::MessageReceived(message),
             2 => RuntimeEvent::MessageDelivered(message),
@@ -1526,7 +2428,7 @@ impl Env {
                 queued: pick % 2 == 0,
             },
             7 => RuntimeEvent::IdentityClosed(owner),
-            _ => {
+            8 => {
                 let states = self
                     .said
                     .services
@@ -1537,6 +2439,26 @@ impl Env {
                     state: choose(states, pick).unwrap_or(Service::Stopped),
                 }
             }
+            9 => RuntimeEvent::TransferOffered(transfer),
+            10 => RuntimeEvent::TransferChanged(transfer),
+            11 => {
+                let said: Vec<u64> = match self.resets.get(&transfer) {
+                    Some(resets) => self
+                        .said
+                        .bytes
+                        .iter()
+                        .filter(|(key, said)| key.0 == transfer && **said == *resets)
+                        .map(|(key, _)| key.1)
+                        .collect(),
+                    // A transfer never made.
+                    None => vec![u64::from(pick)],
+                };
+                match choose(&said, kind / 13) {
+                    Some(bytes) => RuntimeEvent::TransferProgressed { transfer, bytes },
+                    None => RuntimeEvent::TransferChanged(transfer),
+                }
+            }
+            _ => RuntimeEvent::SaveInterrupted(transfer),
         }
     }
 
@@ -1544,7 +2466,8 @@ impl Env {
     fn any_outcome(&self, kind: u8, pick: u8) -> Outcome {
         let contact = choose(&self.contacts_ever, pick).unwrap();
         let owner = choose(&self.identities_ever, pick).unwrap();
-        match kind % 12 {
+        let transfer = choose(&self.transfer_pool(), pick).unwrap();
+        match kind % 15 {
             0 => Outcome::Identities(self.list()),
             1 => Outcome::Identity(Box::new(
                 self.find(owner)
@@ -1569,9 +2492,18 @@ impl Env {
             },
             9 => Outcome::Tor(TorCheck::NotRunning),
             10 => Outcome::IdentityCreated(owner),
-            _ => Outcome::ProfileOpen {
+            11 => Outcome::ProfileOpen {
                 ephemeral: true,
                 message_store_missing: true,
+            },
+            12 => Outcome::TransferOffered(transfer),
+            13 => Outcome::SavePlace {
+                transfer,
+                place: PathBuf::from(place_of(transfer)),
+            },
+            _ => Outcome::Saved {
+                transfer,
+                confirmed: true,
             },
         }
     }
@@ -1638,6 +2570,25 @@ enum Step {
         local: bool,
         pick: u8,
         verified: bool,
+    },
+    /// Takes one of the acts the card of a transfer offers (any act for a
+    /// transfer the model shows no card of), and confirms its dialog if
+    /// `confirm`; in an open save dialog, types the place to save to, and
+    /// saves if `confirm`.
+    Card {
+        local: bool,
+        pick: u8,
+        act: u8,
+        confirm: bool,
+        place: u8,
+    },
+    /// Drops a file on a conversation, or types its path, and sends it if
+    /// `confirm`.
+    SendFile {
+        local: bool,
+        pick: u8,
+        path: u8,
+        confirm: bool,
     },
     Unblock {
         local: bool,
@@ -1721,6 +2672,15 @@ fn change() -> impl Strategy<Value = Change> {
         1 => (any::<u8>(), any::<u8>()).prop_map(|(pick, state)| Change::Service { pick, state }),
         1 => any::<u8>().prop_map(Change::IdentityGone),
         1 => any::<u8>().prop_map(Change::Tor),
+        3 => (any::<u8>(), any::<u8>()).prop_map(|(pick, file)| Change::Offer { pick, file }),
+        2 => any::<u8>().prop_map(Change::PeerAccepts),
+        4 => (any::<u8>(), any::<u8>()).prop_map(|(pick, share)| Change::Progress { pick, share }),
+        2 => any::<u8>().prop_map(Change::Completes),
+        1 => (any::<u8>(), any::<bool>()).prop_map(|(pick, reject)| Change::PeerEnds { pick, reject }),
+        1 => (any::<u8>(), any::<u8>()).prop_map(|(pick, reason)| Change::Fails { pick, reason }),
+        1 => any::<u8>().prop_map(Change::Expires),
+        2 => any::<u8>().prop_map(Change::Hold),
+        1 => any::<u8>().prop_map(Change::Restart),
     ]
 }
 
@@ -1747,6 +2707,11 @@ fn step() -> impl Strategy<Value = Step> {
             .prop_map(|(local, pick, block)| Step::Answer { local, pick, block }),
         3 => (local(), pick(), any::<bool>())
             .prop_map(|(local, pick, verified)| Step::Verify { local, pick, verified }),
+        18 => (local(), pick(), pick(), any::<bool>(), pick()).prop_map(
+            |(local, pick, act, confirm, place)| Step::Card { local, pick, act, confirm, place }
+        ),
+        8 => (local(), pick(), pick(), any::<bool>())
+            .prop_map(|(local, pick, path, confirm)| Step::SendFile { local, pick, path, confirm }),
         3 => (local(), pick()).prop_map(|(local, pick)| Step::Unblock { local, pick }),
         3 => (local(), pick(), pick())
             .prop_map(|(local, pick, mode)| Step::Mode { local, pick, mode }),
@@ -1756,7 +2721,7 @@ fn step() -> impl Strategy<Value = Step> {
         30 => Just(Step::RunAll),
         18 => pick().prop_map(Step::Deliver),
         6 => (pick(), pick()).prop_map(|(pick, kind)| Step::StaleAnswer { pick, kind }),
-        36 => (change(), notify()).prop_map(|(change, notify)| Step::Change { change, notify }),
+        60 => (change(), notify()).prop_map(|(change, notify)| Step::Change { change, notify }),
         6 => Just(Step::Missed),
         12 => (pick(), pick()).prop_map(|(kind, pick)| Step::Spurious { kind, pick }),
         1 => Just(Step::StorageFails),
@@ -1887,6 +2852,7 @@ impl Captured {
         let command = match self.kind {
             "OwnCard" => "OwnCard",
             "ShowInvitation" => "InvitationCard",
+            "SaveFile" => "SavePlace",
             _ => return None,
         };
         Some(Write {
@@ -1956,6 +2922,8 @@ struct Round {
     delivered: Vec<(Command, Outcome)>,
     /// The commands of the user the step may issue.
     allowed: Vec<Write>,
+    /// The command of the user the step has to issue.
+    must: Option<Write>,
     /// The selection the user asked for, in the identity shown.
     select: Option<(UiIdentityId, Selection)>,
     /// The identity the user asked to show.
@@ -1974,6 +2942,11 @@ struct Track {
     /// Messages shown delivered in a conversation, and in the list.
     thread_delivered: BTreeSet<UiMessageId>,
     latest_delivered: BTreeSet<UiMessageId>,
+    /// Transfers shown ended, as last shown.
+    ended: BTreeMap<UiTransferId, TransferPhase>,
+    /// Transfers listed, and those a read no longer listed.
+    listed: BTreeSet<UiTransferId>,
+    unlisted: BTreeSet<UiTransferId>,
 }
 
 // ---- The checks ----
@@ -2044,10 +3017,148 @@ fn check_message(
     }
 }
 
-fn check_slice(env: &Env, track: &mut Track, round: &Round, owner: UiIdentityId, slice: &Slice) {
+/// The card of a transfer `owner` lists as `view`, in the conversation of
+/// `contact`.
+fn check_card(
+    env: &Env,
+    track: &mut Track,
+    owner: UiIdentityId,
+    contact: UiContactId,
+    view: &TransferView,
+    item: &TransferItem,
+) {
+    let id = view.id;
+    assert_eq!(id.contact(), contact, "{id:?} shown with {contact:?}");
+    assert!(
+        item.incoming == view.incoming && item.size == Some(view.size),
+        "the card of {id:?} says another direction or size than its read"
+    );
+    assert!(
+        agrees(item.phase, view),
+        "{id:?} shown {:?}, read as {view:?}",
+        item.phase
+    );
+    assert!(
+        drawable(&item.name),
+        "the name of {id:?} is drawn with a character that hides text or turns it: {}",
+        item.name.escape_unicode()
+    );
+    // Bytes the runtime said of this transfer since it last lost track of
+    // them in the read shown, never 0 or a number from before in place of
+    // what it does not know, whenever the event that said them came.
+    if let TransferPhase::Transferring { bytes } = item.phase {
+        let said = env.said.bytes.get(&(id, bytes)).copied();
+        let read = env
+            .read_resets
+            .get(&owner)
+            .map(|(_, resets)| resets.get(&id).copied().unwrap_or(0))
+            .unwrap_or_default();
+        assert!(
+            bytes <= view.size && said.is_some_and(|said| said >= read),
+            "{id:?} shown with {bytes} of {} bytes, said {said:?}; the read shown \
+             lost track of them {read} times",
+            view.size
+        );
+    }
+    if item.busy {
+        assert!(
+            env.waiting
+                .iter()
+                .any(|command| env.on_transfer.get(command) == Some(&id)),
+            "the card of {id:?} waits, and no command on it does"
+        );
+    }
+    // No resurrection: what ended stays ended, as it was, but for a
+    // cancelled transfer the peer then completed.
+    if let Some(before) = track.ended.get(&id).copied() {
+        let completed = matches!(before, TransferPhase::Cancelled { .. })
+            && item.phase == TransferPhase::Completed
+            && !view.incoming;
+        assert!(
+            item.phase == before || completed,
+            "{id:?} shown {:?} after it was shown {before:?}",
+            item.phase
+        );
+    }
+    if ended(item.phase) {
+        track.ended.insert(id, item.phase);
+    }
+}
+
+/// The transfers `owner` lists, and the cards of its conversations.
+fn check_transfers(
+    model: &Model,
+    env: &Env,
+    track: &mut Track,
+    owner: UiIdentityId,
+    slice: &Slice,
+) {
+    let contacts: BTreeSet<UiContactId> = slice
+        .transfers
+        .iter()
+        .map(|view| view.id.contact())
+        .chain(slice.unsent.iter().map(|unsent| unsent.contact))
+        .chain(known(slice))
+        .collect();
+    let mut cards = 0_usize;
+    for contact in contacts {
+        for item in model.transfers_of(contact) {
+            match item.key {
+                TransferKey::Transfer(id) => {
+                    cards += 1;
+                    let view = slice
+                        .transfers
+                        .iter()
+                        .find(|view| view.id == id)
+                        .unwrap_or_else(|| {
+                            panic!("a card of {id:?}, which {owner:?} does not list")
+                        });
+                    check_card(env, track, owner, contact, view, &item);
+                }
+                // A file being prepared waits for its offer.
+                TransferKey::Preparing(command) => assert!(
+                    env.waiting.contains(&command) && env.offers.get(&command) == Some(&contact),
+                    "a file for {contact:?} shown prepared by {command:?}, which does not wait"
+                ),
+                TransferKey::Unsent(_) => assert!(
+                    matches!(item.phase, TransferPhase::Unsent(failure)
+                        if env.said.unsent.contains(&(contact, failure))),
+                    "a file shown unsent to {contact:?} as {:?}, which no offer to it was answered with",
+                    item.phase
+                ),
+            }
+        }
+    }
+    assert_eq!(
+        cards,
+        slice.transfers.len(),
+        "the transfers {owner:?} lists and their cards"
+    );
+}
+
+fn check_slice(
+    model: &Model,
+    env: &Env,
+    track: &mut Track,
+    round: &Round,
+    owner: UiIdentityId,
+    slice: &Slice,
+) {
     let known = known(slice);
     assert!(
         known.iter().all(|contact| contact.identity() == owner)
+            && slice
+                .transfers
+                .iter()
+                .all(|view| view.id.identity() == owner)
+            && slice
+                .interrupted
+                .iter()
+                .all(|transfer| transfer.identity() == owner)
+            && slice
+                .unsent
+                .iter()
+                .all(|unsent| unsent.contact.identity() == owner)
             && slice
                 .requests
                 .iter()
@@ -2090,9 +3201,16 @@ fn check_slice(env: &Env, track: &mut Track, round: &Round, owner: UiIdentityId,
             known.is_empty()
                 && slice.requests.is_empty()
                 && slice.invitations.is_empty()
-                && slice.blocked.is_empty(),
+                && slice.blocked.is_empty()
+                && slice.transfers.is_empty()
+                && slice.interrupted.is_empty(),
             "{owner:?} shows something before it was read"
         );
+    }
+    // The window draws the cards of the identity shown; those of the others
+    // are checked once everything is read again.
+    if model.current() == Some(owner) {
+        check_transfers(model, env, track, owner, slice);
     }
     if let Some(service) = slice.service {
         assert!(
@@ -2161,6 +3279,30 @@ fn check_slice(env: &Env, track: &mut Track, round: &Round, owner: UiIdentityId,
             );
         }
     }
+}
+
+/// What the model holds of transfers, which its `Debug` leaves out.
+fn transfers_held(model: &Model) -> String {
+    let mut held = String::new();
+    for view in model.identities() {
+        let Some(slice) = model.slice(view.id) else {
+            continue;
+        };
+        held.push_str(&format!(
+            "{:?} {:?} {:?}",
+            slice.transfers, slice.interrupted, slice.unsent
+        ));
+        let contacts: BTreeSet<UiContactId> = slice
+            .transfers
+            .iter()
+            .map(|view| view.id.contact())
+            .chain(known(slice))
+            .collect();
+        for contact in contacts {
+            held.push_str(&format!("{:?}", model.transfers_of(contact)));
+        }
+    }
+    held
 }
 
 /// A draft changes only by the user, or goes once the runtime queued it;
@@ -2240,13 +3382,25 @@ fn check(model: &Model, env: &Env, track: &mut Track, round: &Round) {
             model.current()
         );
     }
+    let mut transfers = BTreeSet::new();
     for owner in env.identities_ever.iter().copied().chain([stranger()]) {
         let Some(slice) = model.slice(owner) else {
             continue;
         };
         assert!(listed.contains(&owner), "{owner:?} is held, not listed");
-        check_slice(env, track, round, owner, slice);
+        check_slice(model, env, track, round, owner, slice);
+        transfers.extend(slice.transfers.iter().map(|view| view.id));
     }
+    // A transfer a read no longer listed is never listed again.
+    for transfer in &transfers {
+        assert!(
+            !track.unlisted.contains(transfer),
+            "{transfer:?} is listed again"
+        );
+    }
+    let unlisted: Vec<UiTransferId> = track.listed.difference(&transfers).copied().collect();
+    track.unlisted.extend(unlisted);
+    track.listed = transfers;
     check_drafts(model, round);
     // A dialog keeps what it captured, and shows nothing of another
     // identity.
@@ -2275,6 +3429,26 @@ fn check(model: &Model, env: &Env, track: &mut Track, round: &Round) {
                     env.waiting.contains(&busy),
                     "the dialog waits for {busy:?}, which was answered"
                 );
+            }
+            // The place to save to is typed, or the one suggested for the
+            // transfer the dialog saves.
+            if let Dialog::SaveFile {
+                transfer,
+                place,
+                suggesting,
+                ..
+            } = dialog
+            {
+                assert!(
+                    PLACES.contains(&place.as_str()) || *place == place_of(*transfer),
+                    "the save dialog of {transfer:?} offers a place it was never given"
+                );
+                if let Some(asked) = suggesting {
+                    assert!(
+                        env.waiting.contains(asked),
+                        "the save dialog waits for {asked:?}, which was answered"
+                    );
+                }
             }
         }
     }
@@ -2364,6 +3538,15 @@ impl World {
                     "a send of other text than the draft of {contact:?}"
                 );
             }
+            if let Command::OfferFile { contact, .. } = command {
+                assert!(
+                    self.model
+                        .contact(*contact)
+                        .is_some_and(|view| view.accepted)
+                        && !self.model.storage_failed(),
+                    "a file offered to {contact:?}, not shown as a contact who accepted"
+                );
+            }
         }
         assert!(writes.len() <= 1, "one step issued {writes:?}");
         for write in &writes {
@@ -2373,20 +3556,30 @@ impl World {
                 round.allowed
             );
         }
+        if let Some(must) = round.must {
+            assert_eq!(writes, [must], "the act did not issue its command");
+        }
         self.env.take(commands);
+        self.env.note_resets();
         self.model.take_notices();
         check(&self.model, &self.env, &mut self.track, &round);
     }
 
     /// Applies `event`. An event raises a notice only when it is a contact
-    /// of the identity shown accepting: an event of another identity
-    /// changes nothing shown (ADR 0011, P7-17).
+    /// of the identity shown accepting, or a file offered to it outside the
+    /// conversation shown: an event of another identity changes nothing
+    /// shown (ADR 0011, P7-17).
     fn event(&mut self, event: RuntimeEvent) {
-        let noticed = matches!(
-            event,
-            RuntimeEvent::ContactAccepted(contact)
-                if self.model.current() == Some(contact.identity())
-        );
+        let noticed = match event {
+            RuntimeEvent::ContactAccepted(contact) => {
+                self.model.current() == Some(contact.identity())
+            }
+            RuntimeEvent::TransferOffered(transfer) => {
+                self.model.current() == Some(transfer.identity())
+                    && self.model.selection() != Some(Selection::Conversation(transfer.contact()))
+            }
+            _ => false,
+        };
         self.model.take_notices();
         self.model.apply(Update::Event(event.clone()));
         if !noticed {
@@ -2467,6 +3660,148 @@ impl World {
         let mut pool = self.env.blocked_ever.clone();
         pool.push(UiBlockedId::new(identity(1), 999));
         choose(&pool, pick).unwrap()
+    }
+
+    fn pick_transfer(&self, local: bool, pick: u8) -> UiTransferId {
+        if local {
+            if let Some(slice) = self.model.current_slice() {
+                let ids: Vec<UiTransferId> = slice.transfers.iter().map(|view| view.id).collect();
+                if let Some(transfer) = choose(&ids, pick) {
+                    return transfer;
+                }
+            }
+        }
+        choose(&self.env.transfer_pool(), pick).unwrap()
+    }
+
+    /// Opens `dialog` through `open`, as the window does; what it captured
+    /// if it opened.
+    fn opened(&mut self, round: &mut Round, open: impl FnOnce(&mut Model)) {
+        let before = self.model.dialog_instance();
+        open(&mut self.model);
+        if self.model.dialog_instance() != before {
+            if let Some(dialog) = self.model.dialog() {
+                let captured = Captured::of(dialog);
+                round.allowed.extend(captured.opens());
+                self.track.captured = Some(captured);
+            }
+        }
+    }
+
+    /// Types the place `place` in the save dialog, if one is open and does
+    /// not wait, and saves if `confirm`. Whether one was.
+    fn save(&mut self, round: &mut Round, confirm: bool, place: u8) -> bool {
+        let Some(Dialog::SaveFile {
+            place: typed,
+            busy: None,
+            ..
+        }) = self.model.dialog_mut()
+        else {
+            return false;
+        };
+        let place = PLACES[usize::from(place) % PLACES.len()];
+        if !place.is_empty() {
+            *typed = place.to_owned();
+        }
+        if confirm {
+            self.confirm(round);
+        }
+        true
+    }
+
+    /// Takes one of the acts the card of `transfer` offers, as the window
+    /// does; any act if the model shows no card of it. A save dialog that
+    /// is open, or opens, takes the place typed, and saves if `confirm`.
+    fn card(
+        &mut self,
+        round: &mut Round,
+        transfer: UiTransferId,
+        act: u8,
+        confirm: bool,
+        place: u8,
+    ) {
+        if self.save(round, confirm, place) {
+            return;
+        }
+        let card = self
+            .model
+            .transfers_of(transfer.contact())
+            .into_iter()
+            .find(|item| item.key == TransferKey::Transfer(transfer));
+        // Mostly what the window offers on the card; otherwise any act,
+        // which the model refuses unless it applies.
+        let acts = match card {
+            Some(item) if act & 0x80 == 0 => offered(item.phase),
+            _ => &ACTS[..],
+        };
+        let Some(act) = choose(acts, act) else {
+            return;
+        };
+        let view = self.model.transfer(transfer).cloned();
+        match act {
+            // The dialog opens over none, and asks where the file would go;
+            // then, as a step of its own, the user types and saves.
+            Act::Save => {
+                self.model.close();
+                self.opened(round, |model| model.open_save(transfer));
+                let opening = core::mem::replace(round, self.begin());
+                self.finish(opening);
+                self.save(round, confirm, place);
+                return;
+            }
+            Act::Cancel => self.opened(round, |model| {
+                model.open(Dialog::CancelTransfer {
+                    transfer,
+                    busy: None,
+                    error: None,
+                });
+            }),
+            // A received file not saved goes once the user confirms.
+            Act::Remove
+                if view
+                    .as_ref()
+                    .is_some_and(|view| view.status == TransferStatus::Received && !view.saved) =>
+            {
+                self.opened(round, |model| {
+                    model.open(Dialog::RemoveFile {
+                        transfer,
+                        busy: None,
+                        error: None,
+                    });
+                });
+            }
+            Act::Accept | Act::Reject | Act::Resume | Act::Remove => {
+                let command = match act {
+                    Act::Accept => "AcceptTransfer",
+                    Act::Reject => "RejectTransfer",
+                    Act::Resume => "ResumeTransfer",
+                    _ => "RemoveTransfer",
+                };
+                let write = Write {
+                    command,
+                    target: Target::Transfer(transfer),
+                };
+                // Refused before the runtime is asked unless the model
+                // lists the transfer, in a state the act applies to, and
+                // shows no command on it under way.
+                if view.as_ref().is_some_and(|view| applies(act, view))
+                    && !self.model.transfer_busy(transfer)
+                {
+                    round.allowed.push(write);
+                    round.must = Some(write);
+                }
+                match act {
+                    Act::Accept => self.model.accept_transfer(transfer),
+                    Act::Reject => self.model.reject_transfer(transfer),
+                    Act::Resume => self.model.resume_transfer(transfer),
+                    _ => self.model.remove_transfer(transfer),
+                }
+                return;
+            }
+        }
+        if confirm {
+            self.confirm(round);
+        }
     }
 
     fn dialog(&self, kind: DialogKind, local: bool, pick: u8) -> Dialog {
@@ -2573,14 +3908,14 @@ impl World {
         };
         assert!(!self.env.waiting.contains(&id));
         let outcome = self.env.any_outcome(kind, pick);
-        let before = format!("{:?}", self.model);
+        let before = format!("{:?} {}", self.model, transfers_held(&self.model));
         self.model.apply(Update::Done {
             command: id,
             outcome,
         });
         assert_eq!(
             before,
-            format!("{:?}", self.model),
+            format!("{:?} {}", self.model, transfers_held(&self.model)),
             "an answer to {id:?}, which nothing waits for, changed the model"
         );
     }
@@ -2680,6 +4015,31 @@ impl World {
                 self.model
                     .set_request_mode(owner, MODES[usize::from(mode) % MODES.len()]);
             }
+            Step::Card {
+                local,
+                pick,
+                act,
+                confirm,
+                place,
+            } => {
+                let transfer = self.pick_transfer(local, pick);
+                self.card(round, transfer, act, confirm, place);
+            }
+            Step::SendFile {
+                local,
+                pick,
+                path,
+                confirm,
+            } => {
+                let contact = self.pick_contact(local, pick);
+                let path = PATHS[usize::from(path) % PATHS.len()].to_owned();
+                // The dialog opens over none.
+                self.model.close();
+                self.opened(round, |model| model.open_send_file(contact, Some(path)));
+                if confirm {
+                    self.confirm(round);
+                }
+            }
             Step::CheckTor => self.model.check_tor(),
             Step::Run { pick, fate, notify } => {
                 self.env.run(&mut self.model, round, pick, fate, notify);
@@ -2748,6 +4108,7 @@ impl World {
             self.env.deliver(&mut self.model, &mut round, answer);
         }
         self.finish(round);
+        self.cards();
         if self.env.stopped {
             return;
         }
@@ -2756,7 +4117,19 @@ impl World {
         self.model.apply(Update::Event(RuntimeEvent::Missed));
         self.finish(round);
         self.quiesce();
+        self.cards();
         self.reconstructed();
+    }
+
+    /// Checks the cards of every identity, as after every step those of
+    /// the identity shown.
+    fn cards(&mut self) {
+        let Self { model, env, track } = self;
+        for view in model.identities() {
+            if let Some(slice) = model.slice(view.id) {
+                check_transfers(model, env, track, view.id, slice);
+            }
+        }
     }
 
     /// The model shows exactly the truth, except for what waits for an
@@ -2790,6 +4163,22 @@ impl World {
                 truth.id
             );
             assert_eq!(slice.service, Some(snapshot.service));
+            // No bytes are left over from before: those of the truth, or
+            // none it does not know.
+            for held in truth.transfers() {
+                if !held.moving() || held.held {
+                    continue;
+                }
+                let shown = model
+                    .transfers_of(held.id.contact())
+                    .into_iter()
+                    .find(|item| item.key == TransferKey::Transfer(held.id))
+                    .map(|item| item.phase);
+                let bytes = held.bytes.map_or(TransferPhase::Restoring, |bytes| {
+                    TransferPhase::Transferring { bytes }
+                });
+                assert_eq!(shown, Some(bytes), "{:?}, once read again", held.id);
+            }
             let unread = |contact: UiContactId| {
                 lost(&|command| {
                     matches!(command,

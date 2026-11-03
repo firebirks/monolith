@@ -2187,14 +2187,16 @@ PHASE8 = [
           ("                if self.current() == Some(contact.identity()) && !shown {\n",
            "                if !shown {\n")),
     fault("FT40", UM + "model.rs", "progress a later read answered is kept over it",
-          ("                            slice\n                                .progress\n"
-           "                                .retain(|_, (_, since)| *since > command.get());\n", "")),
+          ("                            slice.progress.retain(|id, (_, since)| {\n"
+           "                                *since > command.get() && !unknown.contains(id)\n"
+           "                            });\n",
+           "                            slice.progress.retain(|id, _| !unknown.contains(id));\n")),
     fault("FT41", UM + "model.rs", "a file can be offered to a contact that has not accepted",
           ("        self.contact(contact).is_some_and(|view| view.accepted) && !self.storage_failed\n",
            "        self.contact(contact).is_some() && !self.storage_failed\n")),
     fault("FT42", UM + "model.rs", "a decision on a transfer is sent again while one runs",
-          ("        if self.transfer(transfer).is_some() && !self.transfer_busy(transfer) {\n",
-           "        if self.transfer(transfer).is_some() {\n")),
+          ("        if applies && !self.transfer_busy(transfer) {\n",
+           "        if applies {\n")),
     fault("FT43", UK + "composer.rs", "an attach button that takes no input says it takes some",
           ("                    .enabled(enabled && !locked)\n",
            "                    .enabled(!locked)\n")),

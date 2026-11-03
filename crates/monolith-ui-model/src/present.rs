@@ -90,7 +90,14 @@ pub fn identity_name(identity: &IdentityView) -> String {
 fn is_invisible(character: char) -> bool {
     matches!(
         character,
-        '\u{00AD}'
+        // The controls no text field of the protocol accepts, should one
+        // come another way.
+        '\u{0}'..='\u{8}'
+            | '\u{B}'
+            | '\u{C}'
+            | '\u{E}'..='\u{1F}'
+            | '\u{7F}'..='\u{9F}'
+            | '\u{00AD}'
             | '\u{034F}'
             | '\u{061C}'
             | '\u{115F}'
