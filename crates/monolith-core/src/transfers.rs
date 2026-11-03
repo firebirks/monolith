@@ -1167,9 +1167,10 @@ impl TransferState {
     }
 
     /// The user removes `key` from the interface: an ended outgoing record
-    /// goes; an ended or complete incoming one is hidden, its blob goes,
-    /// and its record stays for its retention so that a repeated offer
-    /// finds it.
+    /// goes, also a cancellation the peer was not told yet, which the peer
+    /// then learns as a file no longer offered; an ended or complete
+    /// incoming one is hidden, its blob goes, and its record stays for its
+    /// retention so that a repeated offer finds it.
     pub(crate) fn remove(&mut self, key: &Key, now: u64) -> Result<Change, Refusal> {
         let index = self
             .entries
@@ -1178,7 +1179,7 @@ impl TransferState {
             .ok_or(Refusal::Unknown)?;
         let entry = self.entries.get_mut(index).ok_or(Refusal::Unknown)?;
         if entry.outgoing() {
-            if !entry.is_ended_outgoing() {
+            if !entry.is_ended_outgoing() && entry.record.state != State::Cancelled {
                 return Err(Refusal::Unknown);
             }
             self.entries.remove(index);

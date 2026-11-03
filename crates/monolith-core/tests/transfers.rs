@@ -1072,6 +1072,28 @@ fn a_cancellation_the_receiver_could_not_be_told_is_told_with_the_next_offer() {
 }
 
 #[test]
+fn a_cancellation_the_receiver_could_not_be_told_is_removed_when_the_user_asks() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, mut link) = b_by_hand(&network).await;
+        let sent = offer(&a, &at_a, &file(20 * L)).await;
+        let (messages, _) = drain(&mut link, QUIET).await;
+        offer_in(&messages);
+        link.close().await.unwrap();
+        a.runtime().cancel_transfer(&sent).await.unwrap();
+        // Ended, its receiver not told yet: the user takes it off the
+        // list, as the card of a stopped transfer offers.
+        a.runtime().remove_transfer(&sent).await.unwrap();
+        assert_eq!(a.status(&sent), None);
+        // The receiver is offered it no more; it learns that the file is
+        // no longer offered.
+        let mut link = hand_link(&network, &a, &b).await;
+        assert!(drain(&mut link, QUIET).await.0.is_empty());
+        a.stop().await;
+    });
+}
+
+#[test]
 fn a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it() {
     run_paused(async {
         let network = MockNetwork::new();

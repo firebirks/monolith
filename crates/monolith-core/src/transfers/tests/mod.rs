@@ -894,9 +894,15 @@ fn an_ended_outgoing_record_goes_when_the_user_removes_it() {
     assert_eq!(state.remove(&key, NOW), Err(Refusal::Unknown));
     state.mark_offered(&key);
     state.cancel(&key, NOW).unwrap();
-    // Not while the peer has to be told.
-    assert_eq!(state.remove(&key, NOW), Err(Refusal::Unknown));
     state.told(&key, State::Cancelled);
+    assert!(state.remove(&key, NOW).unwrap().changed);
+    assert!(state.record(&key).is_none());
+    // Also while the peer is still to be told: it learns that the file is
+    // no longer offered.
+    let key = state.add_outgoing(staged(2, 10), NOW).unwrap();
+    state.mark_offered(&key);
+    state.cancel(&key, NOW).unwrap();
+    assert!(state.record(&key).unwrap().flags.has(Flags::UNREAD));
     assert!(state.remove(&key, NOW).unwrap().changed);
     assert!(state.record(&key).is_none());
 }
