@@ -2164,6 +2164,17 @@ PHASE8 = [
     fault("FT33", PR + "text.rs", "a local name is offered with the folders above it",
           ("        let component = name.rsplit(['/', '\\\\']).next().unwrap_or_default();\n",
            "        let component = name;\n")),
+    # FT-E: the barrier, and saving a received file (`export.rs`).
+    fault("FT34", CORE + "runtime/transfer.rs", "a Pong confirms what was written after its Ping",
+          ("        let facts = core::mem::take(&mut running.files.covered);\n",
+           "        let mut facts = core::mem::take(&mut running.files.covered);\n"
+           "        facts.append(&mut running.files.barrier);\n")),
+    fault("FT35", ST + "export.rs", "a save whose file could not be written leaves its temporary file",
+          ("    if let Err(error) = copied {\n        let _ = folder.remove(&partial);\n",
+           "    if let Err(error) = copied {\n")),
+    fault("FT36", ST + "export.rs", "a save whose source fails is completed with what it gave",
+          ("            Err(_) => return Err(ExportError::Source),\n",
+           "            Err(_) => break,\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

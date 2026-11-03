@@ -471,6 +471,10 @@ The Phase 8 list, FT1 and up, covers file transfer
 - staging and names: a save reader that does not check the digest, a
   scan that counts a segment that does not authenticate, a local name
   offered with the folders above it (FT31 to FT33).
+- the barrier and saving a received file: a Pong that confirms what was
+  written after its Ping, a save that could not write its file leaving
+  its temporary file, a save whose source fails completed with what it
+  gave (FT34 to FT36).
 
 HR17 to HR20, HR85, MR8, MR39, MR44, MR54, HR32 and HR76 moved with their
 code in Phase 8 and keep their defects. The rules of version 1 that HR17
