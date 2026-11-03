@@ -1,6 +1,7 @@
-//! Seeds of the fuzz targets `vault_payload` and `message_store`: valid
-//! payloads built from fixed values, committed under
-//! `fuzz/seeds/vault_payload/` and `fuzz/seeds/message_store/`. The test
+//! Seeds of the fuzz targets `vault_payload`, `message_store` and
+//! `transfer_store`: valid payloads built from fixed values, committed
+//! under `fuzz/seeds/vault_payload/`, `fuzz/seeds/message_store/` and
+//! `fuzz/seeds/transfer_store/`. The test
 //! fails if a committed seed is not what the current code produces. To
 //! write them again:
 //!
@@ -23,13 +24,17 @@ use monolith_protocol::body::MessageId;
 use monolith_protocol::card::{ContactCard, EndpointSet, InvitationCapability};
 use monolith_protocol::contact::{RecordKind, RequestMode};
 use monolith_protocol::credential::Credentials;
-use monolith_protocol::text::{ChatText, DisplayName};
+use monolith_protocol::text::{ChatText, DisplayName, Filename};
+use monolith_storage::blob::BlobId;
 use monolith_storage::message_records::{
     EntryKind, MessageContents, StoredConversation, StoredEntry, StoredMessages,
 };
 use monolith_storage::record::{
     ContactId, Contents, IdentityId, PayloadVersion, StoredContact, StoredIdentity,
     StoredInvitation, StoredRotation,
+};
+use monolith_storage::transfers::{
+    Direction, Flags, Reason, State, TransferRecord, TransferRecords,
 };
 use zeroize::Zeroizing;
 
@@ -172,6 +177,47 @@ fn message_seeds() -> Vec<(String, Vec<u8>)> {
     ]
 }
 
+fn transfer_seeds() -> Vec<(String, Vec<u8>)> {
+    let record = |transfer: u8, direction, state, flags: u8| TransferRecord {
+        transfer: [transfer; 16],
+        identity: IdentityId::from_bytes([0x01; 16]).unwrap(),
+        contact: ContactId::from_bytes([0x02; 16]).unwrap(),
+        direction,
+        state,
+        flags: Flags::from_bits(flags).unwrap(),
+        reason: None,
+        size: 200_000,
+        name: Filename::new("report.pdf").unwrap(),
+        digest: [0; 32],
+        blob: None,
+        created: 1_791_700_000,
+        deadline: 1_792_304_800,
+    };
+    // An offer waiting, read by the peer; an offer to decide; a transfer
+    // being received; a file received and saved; a cancellation the peer
+    // has yet to read.
+    let mut waiting = record(1, Direction::Outgoing, State::Waiting, Flags::OFFER_READ);
+    waiting.digest = [0x09; 32];
+    waiting.blob = BlobId::from_bytes([0x31; 16]);
+    let offered = record(2, Direction::Incoming, State::Offered, 0);
+    let mut accepted = record(3, Direction::Incoming, State::Accepted, Flags::UNREAD);
+    accepted.blob = BlobId::from_bytes([0x32; 16]);
+    let mut saved = record(4, Direction::Incoming, State::Complete, Flags::SAVED);
+    saved.digest = [0x0A; 32];
+    let mut cancelled = record(5, Direction::Outgoing, State::Cancelled, Flags::UNREAD);
+    cancelled.digest = [0x0B; 32];
+    cancelled.reason = Some(Reason::ByUs);
+    let encode = |records| TransferRecords { records }.encode().unwrap().to_vec();
+    let empty = encode(Vec::new());
+    let five = encode(vec![waiting, offered, accepted, saved, cancelled]);
+    let padded = [five.as_slice(), &[0; 64]].concat();
+    vec![
+        ("transfer_store/empty.bin".to_owned(), empty),
+        ("transfer_store/five_records.bin".to_owned(), five),
+        ("transfer_store/padded.bin".to_owned(), padded),
+    ]
+}
+
 fn seed_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds")
 }
@@ -183,6 +229,8 @@ fn committed_seeds_are_current() {
     let mut expected = seeds();
     let vault_seeds = expected.len();
     expected.extend(message_seeds());
+    let message_seeds = expected.len() - vault_seeds;
+    expected.extend(transfer_seeds());
     for (path, content) in &expected {
         let file = root.join(path);
         if write {
@@ -197,8 +245,13 @@ fn committed_seeds_are_current() {
     assert_eq!(on_disk, vault_seeds, "stray or missing files in fuzz/seeds");
     let on_disk = fs::read_dir(root.join("message_store")).unwrap().count();
     assert_eq!(
+        on_disk, message_seeds,
+        "stray or missing files in fuzz/seeds"
+    );
+    let on_disk = fs::read_dir(root.join("transfer_store")).unwrap().count();
+    assert_eq!(
         on_disk,
-        expected.len() - vault_seeds,
+        expected.len() - vault_seeds - message_seeds,
         "stray or missing files in fuzz/seeds"
     );
 }
@@ -210,5 +263,8 @@ fn the_seeds_decode() {
     }
     for (path, content) in message_seeds() {
         assert!(MessageContents::decode(&content).is_ok(), "{path}");
+    }
+    for (path, content) in transfer_seeds() {
+        assert!(TransferRecords::decode(&content).is_ok(), "{path}");
     }
 }
