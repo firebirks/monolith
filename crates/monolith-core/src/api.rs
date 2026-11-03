@@ -589,9 +589,11 @@ pub struct TransferView {
     /// The filename of the offer.
     pub name: String,
     /// Outgoing: the bytes the contact acknowledged holding; incoming: the
-    /// bytes staged durably. As far as is known now: 0 before the
-    /// transfer was used after a restart.
-    pub bytes: u64,
+    /// bytes staged durably. `None` while it is not known: after the
+    /// installation opened again, or after a write that failed, until the
+    /// transfer goes on and the staged file or the contact says it again.
+    /// Never a 0 in its place: what was held is not lost.
+    pub bytes: Option<u64>,
     /// The local time the transfer was made, in seconds since the Unix
     /// epoch. For display only.
     pub created: u64,

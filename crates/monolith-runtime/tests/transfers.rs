@@ -192,6 +192,8 @@ fn a_file_goes_from_one_front_end_to_another_across_a_restart_and_is_saved_whole
         let mut events = b.events();
         let view = b.transfer(&received).unwrap().unwrap();
         assert_eq!(view.status, TransferStatus::Receiving);
+        // Not known before the staged file is read again: never 0.
+        assert_eq!(view.bytes, None);
         let Event::TransferProgressed { bytes: resumed, .. } = event(&mut events, |event| {
             matches!(event, Event::TransferProgressed { reference, .. } if *reference == received)
         })
@@ -202,6 +204,10 @@ fn a_file_goes_from_one_front_end_to_another_across_a_restart_and_is_saved_whole
         assert!(resumed > bytes, "{resumed} <= {bytes}: started again");
         until(|| status(&b, &received) == Some(TransferStatus::Received)).await;
         until(|| status(&a, &sent) == Some(TransferStatus::Completed)).await;
+        assert_eq!(
+            b.transfer(&received).unwrap().unwrap().bytes,
+            Some(data.len() as u64)
+        );
 
         // Saved where Bob chooses, under the name suggested to him.
         let saves = dir.join("saved");

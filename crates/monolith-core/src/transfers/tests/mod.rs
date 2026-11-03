@@ -95,7 +95,7 @@ fn an_outgoing_transfer_is_waiting_then_sending_then_delivered() {
     let change = state.accepted_by_peer(&key, L, NOW + 10);
     assert!(change.changed && change.progressed);
     assert_eq!(status(&state, &key), TransferStatus::Sending);
-    assert_eq!(state.view(&key, NOW).unwrap().bytes, L);
+    assert_eq!(state.view(&key, NOW).unwrap().bytes, Some(L));
     assert!(state.claims(&identity(1), &contact(2), NOW));
     // The same acceptance on another session changes nothing durable.
     assert!(!state.accepted_by_peer(&key, L, NOW + 20).changed);
@@ -105,7 +105,7 @@ fn an_outgoing_transfer_is_waiting_then_sending_then_delivered() {
     assert!(matched && change.changed);
     assert_eq!(change.freed, Some(blob(1)));
     assert_eq!(status(&state, &key), TransferStatus::Completed);
-    assert_eq!(state.view(&key, NOW).unwrap().bytes, 3 * L + 5);
+    assert_eq!(state.view(&key, NOW).unwrap().bytes, Some(3 * L + 5));
     assert!(!state.claims(&identity(1), &contact(2), NOW));
     assert!(state.to_offer(&identity(1), &contact(2), NOW).is_empty());
     checked(&state);
@@ -349,8 +349,10 @@ fn after_a_restart_an_accepted_transfer_is_scanned_before_it_is_answered() {
     state.staged(&key, 2 * L, NOW);
     let mut state = TransferState::load(state.records(), Limits::persistent());
     assert_eq!(state.answer(&key, NOW), Offer::Scan(blob(1)));
-    assert_eq!(state.view(&key, NOW).unwrap().bytes, 0);
+    // Not known until the staged file is read again: never 0 instead.
+    assert_eq!(state.view(&key, NOW).unwrap().bytes, None);
     state.scanned(&key, L);
+    assert_eq!(state.view(&key, NOW).unwrap().bytes, Some(L));
     assert_eq!(state.answer(&key, NOW), Offer::Answer(Answer::Accept(L)));
     // A scan is not progress: the deadline does not move for it.
     let deadline = state.record(&key).unwrap().deadline;

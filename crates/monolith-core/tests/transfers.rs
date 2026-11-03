@@ -230,7 +230,7 @@ fn a_file_is_offered_accepted_sent_verified_and_saved_whole() {
         b.runtime().accept_transfer(&received).await.unwrap();
         until(|| b.status(&received) == Some(TransferStatus::Received)).await;
         until(|| a.status(&sent) == Some(TransferStatus::Completed)).await;
-        assert_eq!(a.view(&sent).unwrap().bytes, data.len() as u64);
+        assert_eq!(a.view(&sent).unwrap().bytes, Some(data.len() as u64));
         assert_eq!(saved(&b, &received).await, data);
         assert!(b.view(&received).unwrap().saved);
         // Saved once: a second save finds nothing to read.
@@ -593,7 +593,7 @@ fn the_sender_never_has_more_than_the_window_beyond_what_the_receiver_acknowledg
             .collect();
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].data(), &data[4 * L as usize..5 * L as usize]);
-        assert_eq!(a.view(&sent).unwrap().bytes, 2 * L);
+        assert_eq!(a.view(&sent).unwrap().bytes, Some(2 * L));
         // An acknowledgement that goes down ends the session.
         link.send(&Message::FileAccept {
             transfer,
@@ -1416,7 +1416,7 @@ fn a_chat_message_between_chunks_is_acknowledged_before_the_next_chunk_is_read()
                 },
             ]
         );
-        assert_eq!(b.view(&received).unwrap().bytes, 4 * L);
+        assert_eq!(b.view(&received).unwrap().bytes, Some(4 * L));
         b.stop().await;
     });
 }

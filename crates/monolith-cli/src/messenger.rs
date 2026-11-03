@@ -145,7 +145,8 @@ impl Node {
             view.status,
             view.reason,
             view.size,
-            view.bytes,
+            view.bytes
+                .map_or_else(|| "unknown".to_owned(), |bytes| bytes.to_string()),
             view.held,
             view.saved,
             view.name

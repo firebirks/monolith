@@ -1563,8 +1563,10 @@ impl TransferState {
             size: record.size,
             name: record.name.as_str().to_owned(),
             bytes: match record.state {
-                State::Delivered | State::Complete => record.size,
-                _ => entry.memo.held.unwrap_or(0),
+                State::Delivered | State::Complete => Some(record.size),
+                // Nothing was accepted yet.
+                State::Waiting | State::Offered => Some(0),
+                _ => entry.memo.held,
             },
             created: record.created,
             held: entry.memo.hold_until.is_some_and(|until| until > now),

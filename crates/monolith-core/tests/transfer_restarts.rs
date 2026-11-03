@@ -473,7 +473,7 @@ fn a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no
         assert_eq!(b.dir().content(&blobs[0]).unwrap().len(), reserved);
         let view = b.view(&received).unwrap();
         assert_eq!(view.status, TransferStatus::Receiving);
-        assert!(view.bytes <= data.len() as u64);
+        assert!(view.bytes.is_some_and(|bytes| bytes <= data.len() as u64));
         // A sender that keeps to the rules then completes it.
         let mut link = hand_link(&network, &b, &a).await;
         let from = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
