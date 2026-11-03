@@ -526,6 +526,35 @@ fn bytes_the_runtime_no_longer_knows_or_has_passed_are_not_shown_from_an_event()
 }
 
 #[test]
+fn a_read_asked_after_an_event_is_believed_also_when_it_says_fewer_bytes() {
+    let mut world = world();
+    let carol = contact(1, 10);
+    let moving = transfer(carol, 1);
+    let mut receiving = view(moving, true, TransferStatus::Receiving);
+    receiving.bytes = Some(128_980);
+    world.transfers.insert(identity(1), vec![receiving.clone()]);
+    let mut model = ready(&world);
+    model.apply(Update::Event(RuntimeEvent::TransferProgressed {
+        transfer: moving,
+        bytes: 257_960,
+    }));
+    assert_eq!(
+        phases(&model, carol),
+        vec![TransferPhase::Transferring { bytes: 257_960 }]
+    );
+    // The staged copy was damaged and started again from nothing; a read
+    // asked after the event says so, and the event's number goes.
+    receiving.bytes = Some(0);
+    world.transfers.insert(identity(1), vec![receiving]);
+    model.apply(Update::Event(RuntimeEvent::TransferChanged(moving)));
+    world.settle(&mut model);
+    assert_eq!(
+        phases(&model, carol),
+        vec![TransferPhase::Transferring { bytes: 0 }]
+    );
+}
+
+#[test]
 fn an_action_is_taken_only_where_its_card_offers_it() {
     let mut world = world();
     let carol = contact(1, 10);
