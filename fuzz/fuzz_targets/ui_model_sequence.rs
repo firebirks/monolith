@@ -20,10 +20,11 @@
 //! Every step is five bytes: the action (modulo 24), then four bytes of
 //! arguments. Handles come from small pools: two identities, three
 //! contact records each, four messages per contact, three requests, three
-//! invitations and three blocked people per identity. Arguments pick from the pools without
+//! invitations and three blocked people per identity, three transfers per
+//! contact. Arguments pick from the pools without
 //! regard to which identity is shown, so handles of the other identity
 //! occur everywhere. An answer to a command picks one of the commands
-//! taken so far; its outcome is one of sixteen kinds built from the pools,
+//! taken so far; its outcome is one of nineteen kinds built from the pools,
 //! of the identity or contact the arguments say, which is often not the
 //! one the command named.
 
@@ -32,12 +33,13 @@
 use std::collections::BTreeSet;
 
 use libfuzzer_sys::fuzz_target;
-use monolith_ui_model::data::{Deferral, Service, Status, TorCheck};
+use monolith_ui_model::data::{Deferral, Service, Status, TorCheck, TransferStatus, TransferView};
 use monolith_ui_model::{
     BlockedView, Command, CommandId, ContactView, ConversationView, Dialog, Failure,
     IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, Outcome, Phase,
     ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, SidebarRow, TorIndicator,
-    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+    UiTransferId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -121,6 +123,39 @@ fn conversation_view(i: u8, k: u8, flags: u8) -> ConversationView {
 /// A snapshot of identity `i`; each bit of `mask` adds a record, a
 /// conversation, a request, an invitation or a blocked person, of the
 /// identity read or, for the high bits, of the other one.
+fn transfer(i: u8, k: u8, h: u8) -> UiTransferId {
+    UiTransferId::new(contact(i, k), u64::from(h % 3))
+}
+
+/// A transfer of contact `k` of identity `i`, in a state of `flags`; its
+/// bytes are not known when the high bit is set.
+fn transfer_view(i: u8, k: u8, flags: u8) -> TransferView {
+    let status = [
+        TransferStatus::Waiting,
+        TransferStatus::Sending,
+        TransferStatus::Completed,
+        TransferStatus::Offered,
+        TransferStatus::Receiving,
+        TransferStatus::Received,
+        TransferStatus::Expired,
+        TransferStatus::Rejected,
+        TransferStatus::Cancelled,
+        TransferStatus::Failed,
+    ][usize::from(flags >> 2) % 10];
+    TransferView {
+        id: transfer(i, k, flags),
+        incoming: flags & 1 != 0,
+        status,
+        reason: None,
+        size: u64::from(flags) * 1000,
+        name: "file.bin".to_owned(),
+        bytes: (flags & 0x80 == 0).then(|| u64::from(flags)),
+        created: u64::from(flags),
+        held: flags & 2 != 0,
+        saved: flags & 0x10 != 0,
+    }
+}
+
 fn snapshot(i: u8, mask: u8, flags: u8) -> IdentitySnapshot {
     let owner = |bit: u8| if mask & bit != 0 { i } else { i.wrapping_add(1) };
     let mut contacts = Vec::new();
@@ -178,6 +213,16 @@ fn snapshot(i: u8, mask: u8, flags: u8) -> IdentitySnapshot {
             RequestMode::Open,
             RequestMode::Closed,
         ][usize::from(flags >> 3) % 3],
+        transfers: if flags & 0x40 != 0 {
+            vec![transfer_view(owner(0x40), flags, flags)]
+        } else {
+            Vec::new()
+        },
+        interrupted: if flags & 0x20 != 0 {
+            vec![transfer(owner(0x80), flags, flags)]
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -191,7 +236,9 @@ fn failure(n: u8) -> Failure {
         Failure::InvalidCard,
         Failure::TooLong,
         Failure::Storage,
-    ][usize::from(n) % 8]
+        Failure::NoSuchTransfer,
+        Failure::FileExists,
+    ][usize::from(n) % 10]
 }
 
 fn card() -> Zeroizing<String> {
@@ -199,7 +246,16 @@ fn card() -> Zeroizing<String> {
 }
 
 fn outcome(kind: u8, a: u8, b: u8) -> Outcome {
-    match kind % 16 {
+    match kind % 19 {
+        16 => Outcome::TransferOffered(transfer(a, b, a >> 2)),
+        17 => Outcome::SavePlace {
+            transfer: transfer(a, b, a >> 2),
+            place: std::path::PathBuf::from("/tmp/file.bin"),
+        },
+        18 => Outcome::Saved {
+            transfer: transfer(a, b, a >> 2),
+            confirmed: b & 1 != 0,
+        },
         0 => Outcome::Failed(failure(a)),
         1 => Outcome::Done,
         2 => Outcome::ProfileOpen {
@@ -258,7 +314,14 @@ fn outcome(kind: u8, a: u8, b: u8) -> Outcome {
 }
 
 fn event(kind: u8, a: u8, b: u8, c: u8) -> RuntimeEvent {
-    match kind % 11 {
+    match kind % 15 {
+        11 => RuntimeEvent::TransferOffered(transfer(a, b, c)),
+        12 => RuntimeEvent::TransferChanged(transfer(a, b, c)),
+        13 => RuntimeEvent::TransferProgressed {
+            transfer: transfer(a, b, c),
+            bytes: u64::from(c) * 1000,
+        },
+        14 => RuntimeEvent::SaveInterrupted(transfer(a, b, c)),
         0 => RuntimeEvent::MessageQueued(message(a, b, c)),
         1 => RuntimeEvent::MessageReceived(message(a, b, c)),
         2 => RuntimeEvent::MessageDelivered(message(a, b, c)),
@@ -297,7 +360,29 @@ fn event(kind: u8, a: u8, b: u8, c: u8) -> RuntimeEvent {
 
 fn dialog(kind: u8, a: u8, b: u8) -> Dialog {
     let none = (None, None);
-    match kind % 13 {
+    match kind % 17 {
+        12 => Dialog::SendFile {
+            contact: contact(a, b),
+            path: "/tmp/file.bin".to_owned(),
+            error: none.1,
+        },
+        13 => Dialog::SaveFile {
+            transfer: transfer(a, b, a >> 2),
+            place: String::new(),
+            suggesting: none.0,
+            busy: none.0,
+            error: none.1,
+        },
+        14 => Dialog::CancelTransfer {
+            transfer: transfer(a, b, a >> 2),
+            busy: none.0,
+            error: none.1,
+        },
+        15 => Dialog::RemoveFile {
+            transfer: transfer(a, b, a >> 2),
+            busy: none.0,
+            error: none.1,
+        },
         0 => Dialog::NewIdentity {
             name: "Name".to_owned(),
             busy: none.0,
@@ -402,6 +487,14 @@ fn identities_of(command: &Command) -> Vec<UiIdentityId> {
         | Command::DeclineRequest(request)
         | Command::BlockRequest(request) => vec![request.identity()],
         Command::Unblock(blocked) => vec![blocked.identity()],
+        Command::OfferFile { contact, .. } => vec![contact.identity()],
+        Command::AcceptTransfer(transfer)
+        | Command::RejectTransfer(transfer)
+        | Command::CancelTransfer(transfer)
+        | Command::RemoveTransfer(transfer)
+        | Command::ResumeTransfer(transfer)
+        | Command::SavePlace(transfer)
+        | Command::SaveTransfer { transfer, .. } => vec![transfer.identity()],
     }
 }
 
@@ -487,7 +580,11 @@ fn observe_dialog(model: &Model) -> Option<ObservedDialog> {
         | Dialog::RemoveContact { error, .. }
         | Dialog::DeleteConversation { error, .. }
         | Dialog::AcceptRequest { error, .. }
-        | Dialog::DeleteIdentity { error, .. } => (*error, false),
+        | Dialog::DeleteIdentity { error, .. }
+        | Dialog::SaveFile { error, .. }
+        | Dialog::CancelTransfer { error, .. }
+        | Dialog::RemoveFile { error, .. } => (*error, false),
+        Dialog::SendFile { path, error, .. } => (*error, !path.is_empty()),
         Dialog::TorDetails => (None, false),
     };
     Some((
