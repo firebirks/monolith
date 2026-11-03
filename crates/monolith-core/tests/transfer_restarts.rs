@@ -36,7 +36,10 @@ use monolith_core::identity::{Installation, LocalIdentity};
 use monolith_core::link::{Link, dial};
 use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_protocol::body::{FileChunk, Message, MessageId, TransferId};
-use monolith_protocol::limits::{MAX_FILE_CHUNK_LEN, TRANSFER_HOLD};
+use monolith_protocol::limits::{
+    MAX_FILE_CHUNK_LEN, RECONNECT_DELAY_INITIAL, RECONNECT_DELAY_MAX, RECONNECT_JITTER_PERCENT,
+    TRANSFER_HOLD,
+};
 use monolith_protocol::session::Action;
 use monolith_protocol::text::{ChatText, Filename};
 use monolith_storage::StorageError;
@@ -1227,9 +1230,17 @@ fn a_contact_flooding_its_chunks_holds_up_neither_the_chat_nor_the_file_of_anoth
             staged < size / 4,
             "Y's message waited for {staged} of {size} bytes of X"
         );
-        // Y's file, driven with no timer either.
+        // Y's file, under an identifier of its own, driven with no timer
+        // either.
+        let theirs = TransferId::from_bytes([0x5B; 16]);
         let small = file(L + 1);
-        chat.send(&offer_of(&small)).await.unwrap();
+        chat.send(&Message::FileOffer {
+            transfer: theirs,
+            size: small.len() as u64,
+            filename: Filename::new("notes.txt").unwrap(),
+        })
+        .await
+        .unwrap();
         let from_y = loop {
             if let Ok(Event::TransferOffered(offered)) = events.recv().await
                 && offered.contact == at_b[1]
@@ -1244,10 +1255,10 @@ fn a_contact_flooding_its_chunks_holds_up_neither_the_chat_nor_the_file_of_anoth
             match &arrived.received().message {
                 Message::FileAccept { offset: 0, .. } => {
                     for n in 0..2 {
-                        chat.send(&chunk(TRANSFER, &small, n * L)).await.unwrap();
+                        chat.send(&chunk(theirs, &small, n * L)).await.unwrap();
                     }
                     chat.send(&Message::FileComplete {
-                        transfer: TRANSFER,
+                        transfer: theirs,
                         digest: sha(&small),
                     })
                     .await
@@ -1498,6 +1509,187 @@ fn a_cancellation_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_s
             a.stop().await;
         }
     });
+}
+
+/// What happens to a receiver that accepted a file, from a sender that
+/// comes and goes.
+#[derive(Clone, Copy, Debug)]
+enum Weather {
+    /// The sender offers the file again, on a session of its own if none
+    /// is left, and sends `chunks` of it from the offset answered.
+    Offer { chunks: u8 },
+    /// The session ends.
+    Drop,
+    /// The next write of a staged file fails: the disk is full.
+    Full,
+    /// Time passes, in minutes.
+    Wait(u16),
+    /// The receiver crashes and starts again.
+    Crash(u8),
+}
+
+fn weather() -> impl Strategy<Value = Weather> {
+    prop_oneof![
+        4 => (1..4_u8).prop_map(|chunks| Weather::Offer { chunks }),
+        2 => Just(Weather::Drop),
+        1 => Just(Weather::Full),
+        2 => (1..600_u16).prop_map(Weather::Wait),
+        1 => any::<u8>().prop_map(Weather::Crash),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 16,
+        max_shrink_iters: 64,
+        ..ProptestConfig::default()
+    })]
+
+    /// Through sessions that end, offers repeated, a full disk and crashes,
+    /// what a receiver keeps stays bounded by what it accepted: one record,
+    /// at most one staged file, never more bytes than the size; while
+    /// nothing can be written or no sender can be reached it neither writes
+    /// nor dials more than a few times an hour; and at the end the file
+    /// arrives whole, and once removed leaves nothing behind.
+    #[test]
+    fn a_receiver_stays_bounded_through_lost_sessions_repeated_offers_and_a_full_disk(
+        steps in prop::collection::vec(weather(), 1..24),
+    ) {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut b, a, _, _) = contacts(&network).await;
+            let data = file(6 * L + 7);
+            let mut link = Some(hand_link(&network, &b, &a).await);
+            let received = offered_and_accepted(&b, link.as_mut().unwrap(), &data).await;
+            let mut position = 0_u64;
+            // The sender keeps to the protocol: chunks only on a session
+            // where the receiver answered with the offset to go on from.
+            let mut answered = true;
+            for step in steps {
+                match step {
+                    Weather::Offer { chunks } => {
+                        if link.is_none() {
+                            link = Some(hand_link(&network, &b, &a).await);
+                            answered = false;
+                        }
+                        let open = link.as_mut().unwrap();
+                        let (messages, ended) = if open.send(&offer_of(&data)).await.is_ok() {
+                            drain(open, QUIET).await
+                        } else {
+                            (Vec::new(), true)
+                        };
+                        if let Some(offset) = acceptances(&messages, TRANSFER).last() {
+                            position = *offset;
+                            answered = true;
+                        }
+                        let mut ended = ended;
+                        for _ in 0..chunks {
+                            if ended || !answered || position >= data.len() as u64 {
+                                break;
+                            }
+                            ended = open.send(&chunk(TRANSFER, &data, position)).await.is_err();
+                            position = (position + L).min(data.len() as u64);
+                        }
+                        if !ended {
+                            let (messages, closed) = drain(open, QUIET).await;
+                            if let Some(offset) = acceptances(&messages, TRANSFER).last() {
+                                position = *offset;
+                            }
+                            ended = closed;
+                        }
+                        if ended {
+                            link = None;
+                        }
+                    }
+                    Weather::Drop => {
+                        if let Some(open) = link.take() {
+                            let _ = open.close().await;
+                        }
+                    }
+                    Weather::Full => b.dir().fail_next_write(StorageError::Full),
+                    Weather::Wait(minutes) => {
+                        // Nothing sent meanwhile: the receiver writes only a
+                        // few times an hour, and dials as the reconnect
+                        // delays allow: they double from the first to the
+                        // longest, each as short as the jitter makes it, so
+                        // a burst at first and then a few an hour.
+                        let steps = b.dir().steps();
+                        let dials = network.dials();
+                        let seconds = u64::from(minutes) * 60;
+                        tokio::time::sleep(Duration::from_secs(seconds)).await;
+                        let hours = seconds.div_ceil(3600);
+                        assert!(
+                            b.dir().steps() - steps <= 8 * hours,
+                            "{} storage steps in {minutes} minutes",
+                            b.dir().steps() - steps
+                        );
+                        let burst = u64::from(
+                            (RECONNECT_DELAY_MAX.as_secs() / RECONNECT_DELAY_INITIAL.as_secs())
+                                .ilog2(),
+                        ) + 3;
+                        let apart = RECONNECT_DELAY_MAX.as_secs()
+                            * u64::from(100 - RECONNECT_JITTER_PERCENT)
+                            / 100;
+                        assert!(
+                            (network.dials() - dials) as u64 <= burst + seconds.div_ceil(apart),
+                            "{} dials in {minutes} minutes",
+                            network.dials() - dials
+                        );
+                    }
+                    Weather::Crash(outcome) => {
+                        link = None;
+                        b.crash(CrashOutcome::ALL[usize::from(outcome) % CrashOutcome::ALL.len()])
+                            .await;
+                        b.open();
+                        b.start(&network).await;
+                    }
+                }
+                let views = b.runtime().transfers(&b.id()).unwrap();
+                assert_eq!(views.len(), 1, "{views:?}");
+                assert!(views[0].bytes.is_none_or(|bytes| bytes <= views[0].size));
+                assert!(b.blobs().len() <= 1, "{:?}", b.blobs());
+            }
+            // The end: the sender offers it until it is whole.
+            for _ in 0..8 {
+                if b.status(&received) == Some(TransferStatus::Received) {
+                    break;
+                }
+                tokio::time::sleep(TRANSFER_HOLD + Duration::from_secs(60)).await;
+                if let Some(open) = link.take() {
+                    let _ = open.close().await;
+                }
+                // A full disk may hold it and end the session on the way.
+                let mut open = hand_link(&network, &b, &a).await;
+                if open.send(&offer_of(&data)).await.is_err() {
+                    continue;
+                }
+                let (messages, ended) = drain(&mut open, QUIET).await;
+                let Some(mut offset) = acceptances(&messages, TRANSFER).last().copied() else {
+                    continue;
+                };
+                let mut sent = !ended;
+                while sent && offset < data.len() as u64 {
+                    sent = open.send(&chunk(TRANSFER, &data, offset)).await.is_ok();
+                    offset = (offset + L).min(data.len() as u64);
+                }
+                let completion = Message::FileComplete {
+                    transfer: TRANSFER,
+                    digest: sha(&data),
+                };
+                if sent && open.send(&completion).await.is_ok() {
+                    drain(&mut open, QUIET).await;
+                }
+                link = Some(open);
+            }
+            let view = b.view(&received).unwrap();
+            assert_eq!(view.status, TransferStatus::Received, "{view:?}");
+            assert_eq!(saved(&b, &received).await, data);
+            b.runtime().remove_transfer(&received).await.unwrap();
+            assert!(b.blobs().is_empty(), "{:?}", b.blobs());
+            assert!(b.runtime().transfers(&b.id()).unwrap().is_empty());
+            b.stop().await;
+        });
+    }
 }
 
 /// The offer the persistent sender makes on `link`.
