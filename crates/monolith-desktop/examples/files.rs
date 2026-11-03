@@ -203,6 +203,12 @@ fn main() {
     bob.model()
         .open_send_file(at_bob, Some(archive.display().to_string()));
     bob.model().confirm();
+    let prepared = bob.until_some("Bob's archive is prepared", |client| {
+        card(client, at_bob, "photo-archive.zip").and_then(|(_, phase)| {
+            matches!(phase, TransferPhase::Waiting | TransferPhase::Unsent(_)).then_some(phase)
+        })
+    });
+    assert_eq!(prepared, TransferPhase::Waiting, "{prepared:?}");
     let large = alice.until_some("Alice is offered the archive", |client| {
         transfer_of(client, at_alice, "photo-archive.zip")
     });
