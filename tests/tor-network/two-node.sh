@@ -939,6 +939,11 @@ tell fa add 0 "$(last fb '^card 0 ' | cut -d' ' -f3)"
 tell fb add 0 "$(last fa '^card 0 ' | cut -d' ' -f3)"
 expect fa "^added 0 $fb0$" 1 10
 expect fb "^added 0 $fa0$" 1 10
+# A file goes to an accepted contact: the first message makes each the
+# other's.
+tell fa send 0 "$fb0" hello
+expect fa "^delivered 0 $fb0 1$" 1 900
+expect fb "^received 0 $fa0 1 \"hello\"$" 1 60
 size1=8000000
 fixture "$work/files/report.bin" "$size1"
 cp "$work/files/report.bin" "$work/files/report.orig"
