@@ -480,7 +480,15 @@ The Phase 8 list, FT1 and up, covers file transfer
   progress a later read answered kept over it, a file offered to a contact
   that has not accepted, a decision sent again while one runs, an attach
   button that takes no input said to take some, a transfer number under
-  another record of its identity that names it (FT37 to FT44).
+  another record of its identity that names it (FT37 to FT44). FT40 and
+  FT42 moved with their lines in FT-G and keep their defects.
+- what the model and property tests of FT-G found, each as it was before
+  its fix: a transfer shown in a state a crash can still take back, a
+  stopped transfer its receiver was not told that cannot be removed,
+  bytes the runtime no longer knows shown from an earlier event, a
+  removal where the card offers none, a control character of a remote
+  name drawn as itself, an event's bytes shown over a later read that
+  says more (FT45 to FT50).
 
 HR17 to HR20, HR85, MR8, MR39, MR44, MR54, HR32 and HR76 moved with their
 code in Phase 8 and keep their defects. The rules of version 1 that HR17

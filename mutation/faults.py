@@ -2204,6 +2204,31 @@ PHASE8 = [
           ("            .filter(|reference| {\n"
            "                convert::contact(&reference.identity, &reference.contact) == transfer.contact()\n"
            "            })\n", "")),
+    # FT-G: the defects the model and property tests found, each as it was
+    # before its fix.
+    fault("FT45", CORE + "transfers.rs", "a transfer is shown in a state a crash can still take back",
+          ("                read(&state, Some(&written.durable), now)\n",
+           "                read(&state, None, now)\n")),
+    fault("FT46", CORE + "transfers.rs", "a stopped transfer its receiver was not told cannot be removed",
+          ("            if !entry.is_ended_outgoing() && entry.record.state != State::Cancelled {\n",
+           "            if !entry.is_ended_outgoing() {\n")),
+    fault("FT47", UM + "model.rs", "bytes the runtime says it no longer knows are shown from an earlier event",
+          ("                                *since > command.get() && !unknown.contains(id)\n",
+           "                                *since > command.get()\n")),
+    fault("FT48", UM + "model.rs", "a transfer is removed where its card offers no removal",
+          ("            TransferAction::Remove => now.ended(),\n",
+           "            TransferAction::Remove => true,\n")),
+    fault("FT49", UM + "present.rs", "a control character of a remote name reaches the screen as itself",
+          ("        '\\u{0}'..='\\u{8}'\n"
+           "            | '\\u{B}'\n"
+           "            | '\\u{C}'\n"
+           "            | '\\u{E}'..='\\u{1F}'\n"
+           "            | '\\u{7F}'..='\\u{9F}'\n"
+           "            | '\\u{00AD}'\n",
+           "        '\\u{00AD}'\n")),
+    fault("FT50", UM + "model.rs", "an event's bytes are shown over a later read that says more",
+          ("        (Some(heard), Some(read)) => Some(heard.max(read)),\n",
+           "        (Some(heard), Some(_)) => Some(heard),\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that
