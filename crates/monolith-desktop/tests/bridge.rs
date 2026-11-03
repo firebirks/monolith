@@ -800,6 +800,9 @@ fn a_file_goes_from_one_identity_to_another_through_the_bridge_and_is_saved() {
     for forged in [
         UiTransferId::new(at_alice, handle),
         UiTransferId::new(UiContactId::new(alice, at_bob.record()), handle),
+        // Bob's own number, under a record of Bob that is not this one: a
+        // contact removed and made again.
+        UiTransferId::new(UiContactId::new(bob, [0x42; 16]), handle),
     ] {
         assert_eq!(
             driver.ask(Command::AcceptTransfer(forged)),

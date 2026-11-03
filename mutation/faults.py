@@ -2175,6 +2175,33 @@ PHASE8 = [
     fault("FT36", ST + "export.rs", "a save whose source fails is completed with what it gave",
           ("            Err(_) => return Err(ExportError::Source),\n",
            "            Err(_) => break,\n")),
+    # FT-F: the desktop client (`monolith-ui-model`, `monolith-ui-kit`,
+    # `monolith-desktop`).
+    fault("FT37", UM + "model.rs", "a transfer whose bytes are not known is shown at 0",
+          ("        None => TransferPhase::Restoring,\n",
+           "        None => TransferPhase::Transferring { bytes: 0 },\n")),
+    fault("FT38", UM + "model.rs", "a file being prepared is shown as offered",
+          ("                phase: TransferPhase::Preparing,\n",
+           "                phase: TransferPhase::Waiting,\n")),
+    fault("FT39", UM + "model.rs", "an offer to another identity is told on the one shown",
+          ("                if self.current() == Some(contact.identity()) && !shown {\n",
+           "                if !shown {\n")),
+    fault("FT40", UM + "model.rs", "progress a later read answered is kept over it",
+          ("                            slice\n                                .progress\n"
+           "                                .retain(|_, (_, since)| *since > command.get());\n", "")),
+    fault("FT41", UM + "model.rs", "a file can be offered to a contact that has not accepted",
+          ("        self.contact(contact).is_some_and(|view| view.accepted) && !self.storage_failed\n",
+           "        self.contact(contact).is_some() && !self.storage_failed\n")),
+    fault("FT42", UM + "model.rs", "a decision on a transfer is sent again while one runs",
+          ("        if self.transfer(transfer).is_some() && !self.transfer_busy(transfer) {\n",
+           "        if self.transfer(transfer).is_some() {\n")),
+    fault("FT43", UK + "composer.rs", "an attach button that takes no input says it takes some",
+          ("                    .enabled(enabled && !locked)\n",
+           "                    .enabled(!locked)\n")),
+    fault("FT44", DK + "bridge.rs", "a transfer number under another record of its identity names it",
+          ("            .filter(|reference| {\n"
+           "                convert::contact(&reference.identity, &reference.contact) == transfer.contact()\n"
+           "            })\n", "")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that

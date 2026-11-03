@@ -475,6 +475,12 @@ The Phase 8 list, FT1 and up, covers file transfer
   written after its Ping, a save that could not write its file leaving
   its temporary file, a save whose source fails completed with what it
   gave (FT34 to FT36).
+- the desktop client: bytes not known shown as 0, a file being prepared
+  shown as offered, an offer to another identity told on the one shown,
+  progress a later read answered kept over it, a file offered to a contact
+  that has not accepted, a decision sent again while one runs, an attach
+  button that takes no input said to take some, a transfer number under
+  another record of its identity that names it (FT37 to FT44).
 
 HR17 to HR20, HR85, MR8, MR39, MR44, MR54, HR32 and HR76 moved with their
 code in Phase 8 and keep their defects. The rules of version 1 that HR17

@@ -56,7 +56,13 @@ runtime all happen on the bridge's thread, and the files the screens ask
 for on a thread of their own (`files.rs`). Since Phase 7 (P7-16) the
 window's thread does not look at the disk at all: whether Tor is the
 platform's own behind a filter is found once at the start, and the folder
-of a saved card is chosen on the thread of the files.
+of a saved card is chosen on the thread of the files. Since Phase 8 a file
+to send and the place a received file is saved to are paths the window
+only passes on: a file dropped on a conversation and a path typed in "Send
+a file" become the same command, and the runtime checks the path, reads
+the file, encrypts and stages it, and writes a saved file, all off the
+window's thread (`monolith_storage::local`, `monolith_storage::export`);
+the place suggested for a save is found on the bridge's thread.
 
 The bridge runs queries and forwards events in one task, in order, so that
 the model sees them in an order the runtime went through. A command that
@@ -94,7 +100,13 @@ names; many events about one part make one read. Two events carry a value
 of the runtime that the model keeps as it came: the state of an identity's
 Onion Service, which the next read of the identity returns too, and a
 deferred delivery, whose reason and time of the next attempt no query
-returns. After missed events everything is read again and Tor is checked
+returns. Since Phase 8 a third: the bytes a progress event of a transfer
+says, kept until a read asked after it answers, which knows them too; a
+progress event alone asks for no read. A transfer whose bytes the runtime
+does not know (after a restart, until it goes on) is shown as being
+restored, with a bar that shows no share, never as 0%; a file being read
+and encrypted before its offer exists is shown as being prepared, never as
+sent. After missed events everything is read again and Tor is checked
 again. Transient
 state belongs to the window: the selection (a handle), the open dialog
 (with the handles it captured when it opened), drafts, the filter, focus.
@@ -381,8 +393,14 @@ Files: the vault and the message store (the runtime's, `STORAGE.md`); the
 settings file (window size, theme, reduced motion, Tor endpoints; not
 encrypted, apart from the profile, as the Data page of the settings says;
 0600 on Unix); a card saved on request, as a new file in the Downloads folder
-(0600 on Unix, never replacing a file); fonts read from fixed system paths.
-Nothing else: no log, no cache, no crash report, no eframe persistence.
+(0600 on Unix, never replacing a file); since Phase 8, a received file
+saved when the user asks, at the path the user typed in "Save file" (the
+runtime suggests the Downloads folder and the name the contact gave, made
+safe), as a new file that never replaces one, written under a temporary
+name and given its name once synced (`docs/adr/0014-transfer-staging.md`);
+fonts read from fixed system paths. Nothing else: no log, no cache, no
+crash report, no eframe persistence. A received file is never opened, run
+or previewed.
 
 A card file is read only when the user names it or drops it on the window,
 only if it is a regular file, and at most 64 KiB of it. The name is looked

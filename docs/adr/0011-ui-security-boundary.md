@@ -124,9 +124,13 @@ any other.
   read except on an explicit paste.
 - Files: a card or an invitation is saved only when the user asks, as a
   new file in the Downloads folder that never replaces one, with
-  permissions 0600 (P6-15); nothing else is exported. A card is read from
-  a regular file the user names or drops on the window, at most 64 KiB,
-  and goes through the same checks as pasted text.
+  permissions 0600 (P6-15). Since Phase 8 a received file is saved only
+  when the user asks, at the path they chose, by the runtime, as a new file
+  that never replaces one; it is never opened. A card is read from a
+  regular file the user names or drops on the window, at most 64 KiB, and
+  goes through the same checks as pasted text. A file to send is named or
+  dropped the same way, and only its path crosses the boundary: the
+  runtime holds it to the rules of a card file and reads it.
 - The settings file (`$XDG_CONFIG_HOME/monolith/desktop.conf`, 0600; on
   Windows `%LOCALAPPDATA%\Monolith\desktop.conf`; on Tails only in the
   Persistent Storage, P6-16) holds the window size, the theme choice,
