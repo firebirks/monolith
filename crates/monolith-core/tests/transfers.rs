@@ -1093,6 +1093,173 @@ fn a_cancellation_the_receiver_could_not_be_told_is_removed_when_the_user_asks()
     });
 }
 
+/// A source that gives `after` bytes, then waits until it is let go.
+struct Paused<R> {
+    inner: R,
+    after: usize,
+    given: usize,
+    started: Option<std::sync::mpsc::Sender<()>>,
+    go: std::sync::mpsc::Receiver<()>,
+}
+
+impl<R: Read> Read for Paused<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.given >= self.after
+            && let Some(started) = self.started.take()
+        {
+            let _ = started.send(());
+            let _ = self.go.recv();
+        }
+        let room = buf.len().min(self.after.saturating_sub(self.given).max(1));
+        let read = self.inner.read(&mut buf[..room])?;
+        self.given += read;
+        Ok(read)
+    }
+}
+
+#[test]
+fn a_contact_deleted_while_its_file_is_saved_cancels_the_save_and_leaves_no_file_or_part_of_one() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, at_b) = accepted(&network).await;
+        let mut events = b.runtime().subscribe();
+        let data = file(6 * L);
+        offer(&a, &at_a, &data).await;
+        let received = offered(&mut events).await;
+        b.runtime().accept_transfer(&received).await.unwrap();
+        until(|| b.status(&received) == Some(TransferStatus::Received)).await;
+        // The save of the runtime, with its source paused halfway: the
+        // contact is deleted there.
+        let folder = scratch("deleted-while-saved");
+        let destination = folder.join("report.pdf");
+        let reader = b.runtime().begin_save(&received).await.unwrap();
+        let (started, reading) = std::sync::mpsc::channel();
+        let (go, gate) = std::sync::mpsc::channel();
+        let mut source = Paused {
+            inner: reader,
+            after: 3 * L as usize,
+            given: 0,
+            started: Some(started),
+            go: gate,
+        };
+        let target = destination.clone();
+        let saving = tokio::task::spawn_blocking(move || {
+            monolith_storage::export::save_new(&target, &mut source)
+        });
+        while reading.try_recv().is_err() {
+            tokio::task::yield_now().await;
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        b.runtime().delete_contact(&b.id(), &at_b).await.unwrap();
+        go.send(()).unwrap();
+        // The serial order where the deletion came first: the blob went,
+        // so the save's next read failed and the save was cancelled. No file
+        // is under the name, not a part of one, and no temporary file is
+        // left. Ending the save of a record that went changes nothing.
+        assert!(saving.await.unwrap().is_err());
+        assert!(names(&folder).is_empty(), "{:?}", names(&folder));
+        assert!(!destination.exists());
+        assert_eq!(b.runtime().end_save(&received, false).await, Ok(()));
+        assert!(b.runtime().transfers(&b.id()).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&folder);
+        a.stop().await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn two_files_to_one_contact_go_one_at_a_time_in_the_order_accepted_and_never_mixed() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, mut link) = b_by_hand(&network).await;
+        let first = file(5 * L + 3);
+        let second: Vec<u8> = file(4 * L + 11).iter().map(|byte| !byte).collect();
+        let sent_first = offer(&a, &at_a, &first).await;
+        let sent_second = offer(&a, &at_a, &second).await;
+        let offers = offers_in(&drain(&mut link, QUIET).await.0);
+        assert_eq!(offers.len(), 2, "{offers:?}");
+        let id_of = |size: usize| {
+            offers
+                .iter()
+                .find(|(_, offered)| *offered == size as u64)
+                .unwrap()
+                .0
+        };
+        let (one, two) = (id_of(first.len()), id_of(second.len()));
+        // The later offer is accepted first.
+        for transfer in [two, one] {
+            link.send(&Message::FileAccept {
+                transfer,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+        }
+        let mut order = Vec::new();
+        let mut held: Vec<(TransferId, Vec<u8>)> = vec![(one, Vec::new()), (two, Vec::new())];
+        let mut sent = Vec::new();
+        while sent.len() < 2 {
+            let (messages, ended) = drain(&mut link, QUIET).await;
+            assert!(!ended && !messages.is_empty(), "stalled after {sent:?}");
+            for message in &messages {
+                match message {
+                    Message::FileChunk(chunk) => {
+                        order.push(*chunk.transfer());
+                        let at = held
+                            .iter()
+                            .position(|(id, _)| id == chunk.transfer())
+                            .unwrap();
+                        held[at].1.extend_from_slice(chunk.data());
+                    }
+                    Message::FileComplete { transfer, .. } => sent.push(*transfer),
+                    _ => {}
+                }
+            }
+            // What each holds, in whole chunks, or all of it.
+            for (transfer, data) in &held {
+                let size = if *transfer == one {
+                    first.len()
+                } else {
+                    second.len()
+                } as u64;
+                let have = data.len() as u64;
+                let offset = if have == size { size } else { have / L * L };
+                if offset > 0 {
+                    link.send(&Message::FileAccept {
+                        transfer: *transfer,
+                        offset,
+                    })
+                    .await
+                    .unwrap();
+                }
+            }
+        }
+        // One at a time, the one accepted first first, each file whole.
+        let switch = order.iter().position(|transfer| *transfer == one).unwrap();
+        assert!(
+            order[..switch].iter().all(|transfer| *transfer == two),
+            "{order:?}"
+        );
+        assert!(
+            order[switch..].iter().all(|transfer| *transfer == one),
+            "{order:?}"
+        );
+        assert!(held[0].1 == first && held[1].1 == second);
+        for (transfer, data) in [(one, &first), (two, &second)] {
+            link.send(&Message::FileComplete {
+                transfer,
+                digest: sha(data),
+            })
+            .await
+            .unwrap();
+        }
+        drain(&mut link, QUIET).await;
+        assert_eq!(a.status(&sent_first), Some(TransferStatus::Completed));
+        assert_eq!(a.status(&sent_second), Some(TransferStatus::Completed));
+        a.stop().await;
+    });
+}
+
 #[test]
 fn a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it() {
     run_paused(async {

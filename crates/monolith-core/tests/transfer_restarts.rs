@@ -775,6 +775,102 @@ async fn sweep_receiving(outcome: CrashOutcome) {
     }
 }
 
+#[test]
+fn a_cancellation_of_the_sender_that_meets_the_completion_ends_completed_in_every_order() {
+    // The user cancels before the receiver's completion arrives; the
+    // completion arrives while the write of the cancellation is held; the
+    // cancellation comes while the write of the completion is held; or the
+    // user cancels after the completion. Each ends as one of the two serial
+    // runs does, and both end completed: a cancellation never takes back a
+    // file the receiver holds.
+    for order in [
+        "cancel first",
+        "cancel held",
+        "completion held",
+        "completion first",
+    ] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut a, b, at_a, _) = contacts(&network).await;
+            let first = a.dir().clone();
+            let _released = Released(&first);
+            let data = file(2 * L + 9);
+            let sent = a
+                .runtime()
+                .offer_file(
+                    &a.id(),
+                    &at_a,
+                    "report.pdf",
+                    data.len() as u64,
+                    Box::new(Cursor::new(data.clone())),
+                )
+                .await
+                .unwrap();
+            let mut link = hand_link(&network, &a, &b).await;
+            let (transfer, size, _) = offer_in(&drain(&mut link, QUIET).await.0);
+            assert_eq!(receive_rest(&mut link, transfer, size, 0).await, data);
+            let completion = Message::FileComplete {
+                transfer,
+                digest: sha(&data),
+            };
+            match order {
+                "cancel first" => {
+                    a.runtime().cancel_transfer(&sent).await.unwrap();
+                    assert_eq!(a.status(&sent), Some(TransferStatus::Cancelled));
+                    link.send(&completion).await.unwrap();
+                    drain(&mut link, QUIET).await;
+                }
+                "cancel held" => {
+                    a.dir().hold_writes();
+                    let runtime = a.runtime().clone();
+                    let cancelling =
+                        tokio::spawn(async move { runtime.cancel_transfer(&sent).await });
+                    spin_until(|| a.dir().write_held()).await;
+                    // The session reads the completion and waits behind the
+                    // held write. No timer runs while it is held: the test
+                    // gives the tasks turns, not time.
+                    link.send(&completion).await.unwrap();
+                    for _ in 0..1000 {
+                        tokio::task::yield_now().await;
+                    }
+                    // Neither is shown while neither is durable.
+                    assert_eq!(a.status(&sent), Some(TransferStatus::Sending));
+                    a.dir().release_writes();
+                    cancelling.await.unwrap().unwrap();
+                }
+                "completion held" => {
+                    a.dir().hold_writes();
+                    link.send(&completion).await.unwrap();
+                    spin_until(|| a.dir().write_held()).await;
+                    assert_eq!(a.status(&sent), Some(TransferStatus::Sending));
+                    let runtime = a.runtime().clone();
+                    let cancelling =
+                        tokio::spawn(async move { runtime.cancel_transfer(&sent).await });
+                    for _ in 0..1000 {
+                        tokio::task::yield_now().await;
+                    }
+                    a.dir().release_writes();
+                    cancelling.await.unwrap().unwrap();
+                }
+                _ => {
+                    link.send(&completion).await.unwrap();
+                    drain(&mut link, QUIET).await;
+                    assert_eq!(a.status(&sent), Some(TransferStatus::Completed));
+                    a.runtime().cancel_transfer(&sent).await.unwrap();
+                }
+            }
+            within_a_minute(|| a.status(&sent) == Some(TransferStatus::Completed)).await;
+            assert_eq!(a.status(&sent), Some(TransferStatus::Completed), "{order}");
+            // And so it stays, the installation opened again.
+            a.crash(CrashOutcome::ALL[0]).await;
+            a.open();
+            a.start(&network).await;
+            assert_eq!(a.status(&sent), Some(TransferStatus::Completed), "{order}");
+            a.stop().await;
+        });
+    }
+}
+
 /// The offer the persistent sender makes on `link`.
 fn offer_in(messages: &[Message]) -> (TransferId, u64, Filename) {
     messages
