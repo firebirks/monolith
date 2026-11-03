@@ -154,6 +154,32 @@ const UNBLOCK: &str = "As \"Who\u{a0}can\u{a0}send\u{a0}you\u{a0}requests\" allo
 const SAVES_NOTHING: &str = "This session saves nothing. Closing Monolith deletes your \
                              identities, contacts and messages for good.";
 
+/// What stopping a file being sent does. A file the contact already holds
+/// whole stays theirs: a cancellation takes nothing back.
+const STOP_SENDING: &str = "The file stops being sent, and your contact is told. If they \
+                            already received all of it, they keep it.";
+
+/// What stopping a file being received does.
+const STOP_RECEIVING: &str = "The file stops being received, and what arrived of it is \
+                              deleted from this device. Your contact is told.";
+
+/// What removing a received file that was not saved does.
+const REMOVE_FILE: &str = "The received file is deleted from this device and can no longer be \
+                           saved. Your contact is not told.";
+
+/// How a file to send travels.
+const SEND_FILE_HELP: &str = "Monolith first reads and encrypts the file on this device, then \
+                              offers it. What is sent is the file as it is then: changing it \
+                              afterwards changes nothing. It is sent only once your contact \
+                              accepts it, through Tor.";
+
+/// Where a received file goes.
+const SAVE_FILE_HELP: &str = "Type the full path of the new file. Monolith never replaces a \
+                              file that is already there, and never opens the file it saves.";
+
+/// The failures said under the place a file is saved to.
+const SAVE_ERRORS: &[Failure] = &[Failure::FileExists, Failure::SavePlaceRefused];
+
 /// Draws the open dialog, if any.
 pub(crate) fn show(ctx: &Context, app: &mut App) {
     let add_contact = matches!(
@@ -298,6 +324,45 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
         }
         Some(Dialog::AcceptRequest { .. }) => accept_request(ctx, app),
         Some(Dialog::TorDetails) => tor_details(ctx, app),
+        Some(Dialog::SendFile { .. }) => send_file(ctx, app),
+        Some(Dialog::SaveFile { .. }) => save_file(ctx, app),
+        Some(Dialog::CancelTransfer { transfer, .. }) => {
+            let transfer = *transfer;
+            let incoming = app
+                .model
+                .transfer(transfer)
+                .is_some_and(|view| view.incoming);
+            let message = if incoming {
+                Prose::said(STOP_RECEIVING)
+            } else {
+                Prose::said(STOP_SENDING)
+            };
+            danger(
+                ctx,
+                app,
+                &Danger {
+                    salt: ("stop-transfer", transfer),
+                    title: "Stop this transfer?",
+                    message,
+                    action: "Stop transfer",
+                    checkbox: false,
+                },
+            );
+        }
+        Some(Dialog::RemoveFile { transfer, .. }) => {
+            let transfer = *transfer;
+            danger(
+                ctx,
+                app,
+                &Danger {
+                    salt: ("remove-file", transfer),
+                    title: "Remove received file?",
+                    message: Prose::said(REMOVE_FILE),
+                    action: "Remove file",
+                    checkbox: false,
+                },
+            );
+        }
     }
 }
 
@@ -501,7 +566,11 @@ fn status(dialog: &Dialog) -> (bool, Option<Failure>) {
         | Dialog::RemoveContact { busy, error, .. }
         | Dialog::DeleteConversation { busy, error, .. }
         | Dialog::AcceptRequest { busy, error, .. }
-        | Dialog::DeleteIdentity { busy, error, .. } => (busy.is_some(), *error),
+        | Dialog::DeleteIdentity { busy, error, .. }
+        | Dialog::SaveFile { busy, error, .. }
+        | Dialog::CancelTransfer { busy, error, .. }
+        | Dialog::RemoveFile { busy, error, .. } => (busy.is_some(), *error),
+        Dialog::SendFile { error, .. } => (false, *error),
         Dialog::TorDetails => (false, None),
     }
 }
@@ -554,12 +623,31 @@ fn track_card_field(ctx: &Context, app: &mut App, open: bool) {
 /// the path, below it, and is no stop of the Tab key. Returns whether it
 /// was clicked; it takes no click while the dialog waits.
 fn drop_zone(ui: &mut Ui, theme: &Theme, busy: bool, hovering: bool, read: Option<&str>) -> bool {
-    const WORDS: &str = "Drop a card file here";
+    drop_frame(
+        ui,
+        theme,
+        (busy, hovering),
+        read,
+        "Drop a card file here",
+        icons::FILE_TEXT,
+    )
+}
+
+/// The frame of [`drop_zone`] with its own `words` and `icon`, for any file
+/// the user drops: `(busy, hovering)` as there.
+fn drop_frame(
+    ui: &mut Ui,
+    theme: &Theme,
+    (busy, hovering): (bool, bool),
+    read: Option<&str>,
+    words: &str,
+    icon_shown: icons::Icon,
+) -> bool {
     let size = Vec2::new(ui.available_width(), theme.size.control_lg);
     let sense = if busy { Sense::hover() } else { Sense::CLICK };
     let (rect, response) = ui.allocate_exact_size(size, sense);
     let read = read.filter(|_| !hovering);
-    let label = read.map_or_else(|| WORDS.to_owned(), |name| format!("Card read from {name}"));
+    let label = read.map_or_else(|| words.to_owned(), |name| format!("Card read from {name}"));
     interact::describe(&response, WidgetType::Label, &label);
     if !ui.is_rect_visible(rect) {
         return response.clicked();
@@ -599,11 +687,11 @@ fn drop_zone(ui: &mut Ui, theme: &Theme, busy: bool, hovering: bool, read: Optio
         inside.add(Pill::new(PillTone::Success, name).icon(icons::CIRCLE_CHECK));
         return response.clicked();
     }
-    let galley = painter.layout_no_wrap(WORDS.to_owned(), theme.text.body.font_id(), ink);
+    let galley = painter.layout_no_wrap(words.to_owned(), theme.text.body.font_id(), ink);
     let icon = theme.size.icon;
     let gap = theme.space.sm;
     let left = rect.center().x - (icon + gap + galley.size().x) / 2.0;
-    icons::FILE_TEXT.paint(
+    icon_shown.paint(
         &painter,
         egui::pos2(left + icon / 2.0, rect.center().y),
         icon,
@@ -615,6 +703,132 @@ fn drop_zone(ui: &mut Ui, theme: &Theme, busy: bool, hovering: bool, read: Optio
 }
 
 // ---- Dialogs ----
+
+/// The id of the path field of "Send a file".
+fn send_path_id(contact: UiContactId) -> Id {
+    TextField::new(("send-file-path", contact), &mut String::new()).edit_id()
+}
+
+/// "Send a file": a file dropped on the window or a path typed. The window
+/// never opens the file: the path is text until the runtime checks it,
+/// and a dropped file and a typed path make the same command.
+fn send_file(ctx: &Context, app: &mut App) {
+    let theme = theme::current(ctx);
+    let focus = nothing_focused(ctx);
+    let Some(Dialog::SendFile { contact, .. }) = app.model.dialog() else {
+        return;
+    };
+    let contact = *contact;
+    let name = app.model.contact_name(contact);
+    let can_offer = app.model.can_offer(contact);
+    let dropped = ctx.input(|input| {
+        input
+            .raw
+            .dropped_files
+            .iter()
+            .find_map(|file| file.path.clone())
+    });
+    let hovering = ctx.input(|input| !input.raw.hovered_files.is_empty());
+    let Some(Dialog::SendFile { path, error, .. }) = app.model.dialog_mut() else {
+        return;
+    };
+    if let Some(dropped) = dropped {
+        *path = dropped.display().to_string();
+    }
+    let has_path = !path.trim().is_empty();
+    let error = *error;
+    let (mut main, mut cancel, mut submitted, mut clicked) = (false, false, false, false);
+    let out = Modal::new(("send-file", contact), "Send a file")
+        .dismissable(true)
+        .show(
+            ctx,
+            |ui| {
+                sentence(ui, &theme, &Prose::said("To ").name(&name).and("."));
+                ui.add_space(theme.space.xs);
+                clicked = drop_frame(
+                    ui,
+                    &theme,
+                    (false, hovering),
+                    None,
+                    "Drop a file here",
+                    icons::FILE,
+                );
+                let output = TextField::new(("send-file-path", contact), path)
+                    .hint("or type its full path")
+                    .request_focus(focus)
+                    .show(ui);
+                submitted = output.submitted && has_path;
+                ui.add_space(theme.space.xs);
+                paragraph(ui, &theme, SEND_FILE_HELP);
+                error_line(ui, error);
+            },
+            |ui| {
+                let send = Button::primary("Send").enabled(has_path && can_offer);
+                (main, cancel) = actions(ui, send, "Cancel", false);
+            },
+        );
+    if clicked {
+        ctx.memory_mut(|memory| memory.request_focus(send_path_id(contact)));
+    }
+    if (main || submitted) && can_offer {
+        app.model.confirm();
+    } else if cancel || out.close_requested {
+        close(app);
+    }
+}
+
+/// "Save file": where the received file goes, starting from the place the
+/// runtime suggests. The name the contact gave is at most that suggestion.
+fn save_file(ctx: &Context, app: &mut App) {
+    let theme = theme::current(ctx);
+    let focus = nothing_focused(ctx);
+    let Some(Dialog::SaveFile {
+        transfer,
+        place,
+        suggesting,
+        busy,
+        error,
+    }) = app.model.dialog_mut()
+    else {
+        return;
+    };
+    let transfer = *transfer;
+    let busy = busy.is_some();
+    let suggesting = suggesting.is_some();
+    let (place_error, error) = split_error(*error, SAVE_ERRORS);
+    let has_place = !place.trim().is_empty();
+    let (mut main, mut cancel, mut submitted) = (false, false, false);
+    let out = Modal::new(("save-file", transfer), "Save file")
+        .dismissable(!busy)
+        .show(
+            ctx,
+            |ui| {
+                if suggesting && !has_place {
+                    loading(ui, &theme, "Finding a place to save it");
+                }
+                let output = TextField::new(("save-file-place", transfer), place)
+                    .label("Save as")
+                    .hint("Full path of the new file")
+                    .error(place_error)
+                    .enabled(!busy)
+                    .request_focus(focus)
+                    .show(ui);
+                submitted = output.submitted && has_place;
+                ui.add_space(theme.space.xs);
+                paragraph(ui, &theme, SAVE_FILE_HELP);
+                error_line(ui, error);
+            },
+            |ui| {
+                let save = Button::primary("Save").enabled(has_place).busy(busy);
+                (main, cancel) = actions(ui, save, "Cancel", busy);
+            },
+        );
+    if (main || submitted) && has_place && !busy {
+        app.model.confirm();
+    } else if cancel || out.close_requested {
+        close(app);
+    }
+}
 
 fn new_identity(ctx: &Context, app: &mut App) {
     let theme = theme::current(ctx);
@@ -1816,6 +2030,8 @@ mod tests {
                         blocked: Vec::new(),
                         service: Service::Available,
                         request_mode: RequestMode::Invitation,
+                        transfers: Vec::new(),
+                        interrupted: Vec::new(),
                     })),
                 });
             }

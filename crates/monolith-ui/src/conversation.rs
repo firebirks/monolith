@@ -95,6 +95,36 @@ pub(crate) fn show(ui: &mut Ui, app: &mut App, contact: UiContactId) {
             ))
             .show_separator_line(false)
             .show_inside(ui, |ui| composer(ui, app, contact));
+        // A file dropped on the conversation is offered through the same
+        // dialog, and the same command, as a path typed in it: the window
+        // only passes its path on.
+        if app.model.dialog().is_none() {
+            let dropped = ui.ctx().input(|input| {
+                input
+                    .raw
+                    .dropped_files
+                    .iter()
+                    .find_map(|file| file.path.clone())
+            });
+            if let Some(path) = dropped {
+                app.model
+                    .open_send_file(contact, Some(path.display().to_string()));
+            }
+        }
+    }
+    // The file transfers, above the composer.
+    if crate::transfers::any(app, contact) {
+        let cards =
+            crate::transfers::height(ui.ctx(), contact, crate::transfers::max_height(ui.ctx()));
+        TopBottomPanel::bottom(egui::Id::new(("conversation-transfers", contact)))
+            .resizable(false)
+            .exact_height(cards + theme.space.sm * 2.0)
+            .frame(chrome::surface_frame(
+                ui.ctx(),
+                Margin::from(Vec2::new(pad, theme.space.sm)),
+            ))
+            .show_separator_line(true)
+            .show_inside(ui, |ui| crate::transfers::strip(ui, app, contact));
     }
     header(ui, app, contact, narrow);
     if banners(ui, app, contact, pad) {
@@ -695,21 +725,42 @@ fn composer(ui: &mut Ui, app: &mut App, contact: UiContactId) {
     // reason of its own, as the window says it once.
     let storage = app.model.storage_failed();
     let sendable = app.model.can_send(contact);
+    // Files go to a contact that accepted; the button says why it takes
+    // no input when it takes none.
+    let can_offer = app.model.can_offer(contact);
+    let attach = if can_offer {
+        "Send a file"
+    } else if storage {
+        Failure::Storage.message()
+    } else {
+        Failure::NotAcceptedForFiles.message()
+    };
     let focus = !storage && (app.focus_composer || app.last_conversation != Some(contact));
     if let Some(failure) = failure.filter(|failure| failure.said_in_place()) {
         ui.add(InlineError::new(failure.message()));
         ui.add_space(theme.space.sm);
     }
-    let (send, changed) = {
+    let (send, changed, attach_requested) = {
         // The draft is edited in the model, also while a message is being
         // queued; without a thread read there is none.
         let mut none = String::new();
         let output = match app.model.draft_mut(contact) {
-            Some(draft) => make_composer(draft, contact, sendable, sending, focus).show(ui),
-            None => make_composer(&mut none, contact, sendable, sending, focus).show(ui),
+            Some(draft) => make_composer(draft, contact, sendable, sending, focus)
+                .attach(attach, can_offer)
+                .show(ui),
+            None => make_composer(&mut none, contact, sendable, sending, focus)
+                .attach(attach, can_offer)
+                .show(ui),
         };
-        (output.send_requested, output.changed)
+        (
+            output.send_requested,
+            output.changed,
+            output.attach_requested,
+        )
     };
+    if attach_requested {
+        app.model.open_send_file(contact, None);
+    }
     if changed {
         // Whether the draft still starts with a text being queued.
         app.model.draft_edited(contact);

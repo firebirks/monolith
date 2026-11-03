@@ -28,6 +28,7 @@ pub mod mark;
 pub mod menu;
 pub mod message_status;
 pub mod modal;
+pub mod progress;
 pub mod qr;
 pub mod request_card;
 pub mod rows;
@@ -44,6 +45,7 @@ pub mod toast;
 pub mod toggle;
 pub mod tooltip;
 pub mod tor_status;
+pub mod transfer_card;
 
 pub use button::Button;
 pub use icons::Icon;

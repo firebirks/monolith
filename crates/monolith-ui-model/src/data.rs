@@ -6,7 +6,7 @@
 use core::fmt;
 
 use crate::ids::{
-    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, UiTransferId,
 };
 
 /// A local identity.
@@ -267,6 +267,96 @@ pub enum Deferral {
     Busy,
 }
 
+/// Where a file transfer stands, as the runtime says
+/// (`docs/adr/0013-file-transfer.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TransferStatus {
+    /// Sent by this side: staged and offered; the contact has not accepted.
+    Waiting,
+    /// Sent by this side: accepted, being sent.
+    Sending,
+    /// Sent by this side: the contact holds the file, verified.
+    Completed,
+    /// Offered to this side; not decided.
+    Offered,
+    /// Offered to this side: accepted, being received.
+    Receiving,
+    /// Offered to this side: the whole file is here, verified, and can be
+    /// saved.
+    Received,
+    /// Offered to this side and not decided in time.
+    Expired,
+    /// The receiver rejected the offer.
+    Rejected,
+    /// Either side cancelled it; the reason says who.
+    Cancelled,
+    /// It failed; the reason says why.
+    Failed,
+}
+
+/// Why a transfer failed, or who cancelled it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TransferReason {
+    /// A staged file could not be written or read back.
+    Storage,
+    /// The file that arrived is not the one offered.
+    Digest,
+    /// It made no progress for too long.
+    Stalled,
+    /// The sender stopped offering it.
+    OffererGone,
+    /// This side cancelled it.
+    ByUs,
+    /// The contact cancelled it.
+    ByPeer,
+    /// The contact was blocked or removed.
+    ContactEnded,
+}
+
+/// A file transfer.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TransferView {
+    /// Which.
+    pub id: UiTransferId,
+    /// The contact offers the file; otherwise this side does.
+    pub incoming: bool,
+    /// Where it stands.
+    pub status: TransferStatus,
+    /// Why it failed or who cancelled it.
+    pub reason: Option<TransferReason>,
+    /// The size the offer declared, in bytes.
+    pub size: u64,
+    /// The filename of the offer. For a file the contact offers, their
+    /// text: shown as a name, never as a path or a sentence.
+    pub name: String,
+    /// The bytes the contact acknowledged (sent) or staged here (received),
+    /// or `None` while the runtime does not know them: after a restart,
+    /// until the transfer goes on. Never 0 in its place.
+    pub bytes: Option<u64>,
+    /// Local time it was made, in seconds since the epoch.
+    pub created: u64,
+    /// Received data waits: the disk was full or the staged file was held.
+    pub held: bool,
+    /// The received file was saved.
+    pub saved: bool,
+}
+
+impl fmt::Debug for TransferView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Never the filename.
+        f.debug_struct("TransferView")
+            .field("id", &self.id)
+            .field("incoming", &self.incoming)
+            .field("status", &self.status)
+            .field("reason", &self.reason)
+            .field("size", &self.size)
+            .field("bytes", &self.bytes)
+            .field("held", &self.held)
+            .field("saved", &self.saved)
+            .finish_non_exhaustive()
+    }
+}
+
 /// What a runtime event said, in handles.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeEvent {
@@ -305,6 +395,19 @@ pub enum RuntimeEvent {
     },
     /// An identity closed.
     IdentityClosed(UiIdentityId),
+    /// A contact offered a file.
+    TransferOffered(UiTransferId),
+    /// A transfer changed state, durably.
+    TransferChanged(UiTransferId),
+    /// More of a transfer was acknowledged or staged: `bytes` in all.
+    TransferProgressed {
+        /// Which.
+        transfer: UiTransferId,
+        /// The bytes acknowledged or staged.
+        bytes: u64,
+    },
+    /// A save of a received file was cut short when Monolith last ran.
+    SaveInterrupted(UiTransferId),
     /// The vault or the message store failed.
     StorageFailed,
     /// Events were missed; everything is asked again.

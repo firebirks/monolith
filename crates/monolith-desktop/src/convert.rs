@@ -7,11 +7,12 @@ use core::time::Duration;
 use monolith_runtime::OpenError;
 use monolith_runtime::api::{
     self, CommandError, ContactId, DeferReason, Event, IdentityId, MessageRef, MessageStatus,
-    SendError, ServiceState,
+    SaveError, SendError, ServiceState, TransferError,
 };
 use monolith_ui_model::{
     Deferral, Failure, MessageView, RequestMode, RuntimeEvent, Service, Status, TorCheck,
-    UiContactId, UiIdentityId, UiMessageId,
+    TransferReason, TransferStatus, TransferView, UiContactId, UiIdentityId, UiMessageId,
+    UiTransferId,
 };
 
 /// The handle of an identity.
@@ -157,6 +158,70 @@ pub(crate) fn event(event: Event) -> Option<RuntimeEvent> {
         // An event of a later version: read everything again.
         _ => RuntimeEvent::Missed,
     })
+}
+
+/// A transfer for the model, under the handle `id` the bridge gave it.
+pub(crate) fn transfer_view(view: api::TransferView, id: UiTransferId) -> TransferView {
+    TransferView {
+        id,
+        incoming: view.reference.incoming,
+        status: match view.status {
+            api::TransferStatus::Waiting => TransferStatus::Waiting,
+            api::TransferStatus::Sending => TransferStatus::Sending,
+            api::TransferStatus::Completed => TransferStatus::Completed,
+            api::TransferStatus::Offered => TransferStatus::Offered,
+            api::TransferStatus::Receiving => TransferStatus::Receiving,
+            api::TransferStatus::Received => TransferStatus::Received,
+            api::TransferStatus::Expired => TransferStatus::Expired,
+            api::TransferStatus::Rejected => TransferStatus::Rejected,
+            api::TransferStatus::Cancelled => TransferStatus::Cancelled,
+            api::TransferStatus::Failed => TransferStatus::Failed,
+        },
+        reason: view.reason.map(|reason| match reason {
+            api::TransferReason::Storage => TransferReason::Storage,
+            api::TransferReason::Digest => TransferReason::Digest,
+            api::TransferReason::Stalled => TransferReason::Stalled,
+            api::TransferReason::OffererGone => TransferReason::OffererGone,
+            api::TransferReason::ByUs => TransferReason::ByUs,
+            api::TransferReason::ByPeer => TransferReason::ByPeer,
+            api::TransferReason::ContactEnded => TransferReason::ContactEnded,
+        }),
+        size: view.size,
+        name: view.name,
+        bytes: view.bytes,
+        created: view.created,
+        held: view.held,
+        saved: view.saved,
+    }
+}
+
+pub(crate) fn transfer_error(error: TransferError) -> Failure {
+    match error {
+        TransferError::UnknownIdentity => Failure::NoSuchIdentity,
+        TransferError::NotAContact => Failure::NotAcceptedForFiles,
+        TransferError::UnknownTransfer => Failure::NoSuchTransfer,
+        TransferError::TooLarge => Failure::FileTooLargeToSend,
+        TransferError::TooManyWaiting | TransferError::TooManyActive => Failure::TooManyFiles,
+        TransferError::StagingFull => Failure::StagingFull,
+        TransferError::ListFull => Failure::TransfersFull,
+        TransferError::DiskFull => Failure::Disk,
+        TransferError::Source => Failure::FileNotSendable,
+        TransferError::Busy => Failure::FileBusy,
+        TransferError::Storage => Failure::Storage,
+        TransferError::ShuttingDown => Failure::ShuttingDown,
+        _ => Failure::Unexpected,
+    }
+}
+
+pub(crate) fn save_error(error: SaveError) -> Failure {
+    match error {
+        SaveError::Transfer(error) => transfer_error(error),
+        SaveError::Exists => Failure::FileExists,
+        SaveError::Refused => Failure::SavePlaceRefused,
+        SaveError::Source => Failure::ReceivedFileDamaged,
+        SaveError::Full | SaveError::Io => Failure::Disk,
+        _ => Failure::Unexpected,
+    }
 }
 
 fn seconds(duration: Duration) -> u64 {

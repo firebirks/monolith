@@ -18,13 +18,16 @@ pub mod protocol;
 
 pub use data::{
     BlockedView, ContactView, ConversationView, Deferral, IdentityView, InvitationView,
-    MessageView, RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck,
+    MessageView, RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck, TransferReason,
+    TransferStatus, TransferView,
 };
 pub use failure::Failure;
-pub use ids::{UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId};
+pub use ids::{
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, UiTransferId,
+};
 pub use model::{
     Dialog, Model, Notice, NoticeKind, Phase, RowState, Selection, SidebarRow, Slice, Thread,
-    TorIndicator, Waiting,
+    TorIndicator, TransferItem, TransferKey, TransferPhase, Unsent, Waiting,
 };
 pub use prose::{Prose, Span};
 pub use protocol::{Command, CommandId, IdentitySnapshot, Outcome, ProfileOnDisk, Update};

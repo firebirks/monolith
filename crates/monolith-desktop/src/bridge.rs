@@ -25,13 +25,14 @@ use core::hash::Hash;
 use core::time::Duration;
 
 use monolith_runtime::api::{
-    self, BlockedRef, CommandError, IdentityId, InvitationRef, MessageRef, RequestRef,
+    self, BlockedRef, CommandError, Event, IdentityId, InvitationRef, MessageRef, RequestRef,
+    SaveOutcome, TransferRef,
 };
 use monolith_runtime::{MAX_PAGE, Messenger, Missed, TorBackend};
 use monolith_ui_model::{
     BlockedView, Command, CommandId, ContactView, ConversationView, Failure, IdentitySnapshot,
     IdentityView, InvitationView, Outcome, ProfileOnDisk, RequestView, RuntimeEvent, UiBlockedId,
-    UiContactId, UiIdentityId, UiInvitationId, UiRequestId, Update,
+    UiContactId, UiIdentityId, UiInvitationId, UiRequestId, UiTransferId, Update,
 };
 use tokio::sync::mpsc;
 use tokio::task::{self, JoinSet, LocalSet};
@@ -251,6 +252,7 @@ async fn run<B: TorBackend + 'static>(
         requests: Handles::default(),
         invitations: Handles::default(),
         blocked: Handles::default(),
+        transfers: Handles::default(),
     };
     if running.out.done(command, outcome).await {
         running.serve(commands, events).await;
@@ -321,6 +323,39 @@ async fn open<B: TorBackend + 'static>(
     None
 }
 
+/// What a decision on a transfer ended with.
+fn transfer_done(result: Result<(), api::TransferError>) -> Finished {
+    Finished::Outcome(match result {
+        Ok(()) => Outcome::Done,
+        Err(error) => Outcome::Failed(convert::transfer_error(error)),
+    })
+}
+
+/// Where a received file named `name` (already made safe) would be saved:
+/// in the downloads folder, or the home folder, under the first of `name`,
+/// `name-2`, ... that no file has yet. Only a suggestion: the save never
+/// replaces a file, whatever is there by then.
+fn suggested_place(name: &str) -> PathBuf {
+    let Some(folder) = crate::places::home_dir().map(|home| crate::places::save_dir(&home)) else {
+        return PathBuf::from(name);
+    };
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
+        _ => (name, String::new()),
+    };
+    for number in 1..=99_u32 {
+        let candidate = if number == 1 {
+            folder.join(name)
+        } else {
+            folder.join(format!("{stem}-{number}{extension}"))
+        };
+        if std::fs::symlink_metadata(&candidate).is_err() {
+            return candidate;
+        }
+    }
+    folder.join(name)
+}
+
 /// A reference of the core that belongs to one identity.
 trait Owned: Copy + Eq + Hash {
     fn owner(&self) -> IdentityId;
@@ -339,6 +374,12 @@ impl Owned for InvitationRef {
 }
 
 impl Owned for BlockedRef {
+    fn owner(&self) -> IdentityId {
+        self.identity
+    }
+}
+
+impl Owned for TransferRef {
     fn owner(&self) -> IdentityId {
         self.identity
     }
@@ -400,6 +441,8 @@ enum Finished {
     Outcome(Outcome),
     /// An invitation was made; it needs a number.
     Invitation(Result<(InvitationRef, Zeroizing<String>), Failure>),
+    /// A file was staged and offered; it needs a number.
+    Transfer(Result<TransferRef, Failure>),
 }
 
 /// The commands that run as tasks of their own. The command a task
@@ -449,6 +492,7 @@ struct Running<B: TorBackend + 'static> {
     requests: Handles<RequestRef>,
     invitations: Handles<InvitationRef>,
     blocked: Handles<BlockedRef>,
+    transfers: Handles<TransferRef>,
 }
 
 impl<B: TorBackend + 'static> Running<B> {
@@ -471,7 +515,7 @@ impl<B: TorBackend + 'static> Running<B> {
                     Some((command, what)) => self.command(command, what, &mut tasks).await,
                 },
                 event = events.next() => match event {
-                    Ok(event) => match convert::event(event) {
+                    Ok(event) => match self.event(event) {
                         Some(event) => self.out.send(Update::Event(event)).await,
                         None => true,
                     },
@@ -509,7 +553,40 @@ impl<B: TorBackend + 'static> Running<B> {
                 card,
             },
             Finished::Invitation(Err(failure)) => Outcome::Failed(failure),
+            Finished::Transfer(Ok(transfer)) => {
+                Outcome::TransferOffered(self.transfer_id(transfer))
+            }
+            Finished::Transfer(Err(failure)) => Outcome::Failed(failure),
         }
+    }
+
+    /// The handle of `transfer`: the number it was given, or a new one.
+    fn transfer_id(&mut self, transfer: TransferRef) -> UiTransferId {
+        UiTransferId::new(
+            convert::contact(&transfer.identity, &transfer.contact),
+            self.transfers.handle(transfer),
+        )
+    }
+
+    /// What an event says, for the model. The events of transfers name a
+    /// reference of the core, which is given its number here.
+    fn event(&mut self, event: Event) -> Option<RuntimeEvent> {
+        Some(match event {
+            Event::TransferOffered(transfer) => {
+                RuntimeEvent::TransferOffered(self.transfer_id(transfer))
+            }
+            Event::TransferChanged(transfer) => {
+                RuntimeEvent::TransferChanged(self.transfer_id(transfer))
+            }
+            Event::TransferProgressed { reference, bytes } => RuntimeEvent::TransferProgressed {
+                transfer: self.transfer_id(reference),
+                bytes,
+            },
+            Event::SaveInterrupted(transfer) => {
+                RuntimeEvent::SaveInterrupted(self.transfer_id(transfer))
+            }
+            other => return convert::event(other),
+        })
     }
 
     /// Runs a command: a query here and now, anything else as a task.
@@ -589,6 +666,18 @@ impl<B: TorBackend + 'static> Running<B> {
         self.blocked
             .get(blocked.identity(), blocked.handle())
             .ok_or(Failure::NotBlocked)
+    }
+
+    /// The transfer numbered by `transfer`, if it is one of the contact
+    /// record the handle names: a number given to the transfer of a record
+    /// removed names nothing of a record made again.
+    fn transfer(&self, transfer: UiTransferId) -> Result<TransferRef, Failure> {
+        self.transfers
+            .get(transfer.identity(), transfer.handle())
+            .filter(|reference| {
+                convert::contact(&reference.identity, &reference.contact) == transfer.contact()
+            })
+            .ok_or(Failure::NoSuchTransfer)
     }
 
     /// The task of a command that writes or waits. The handles it names
@@ -767,6 +856,74 @@ impl<B: TorBackend + 'static> Running<B> {
                 Box::pin(async move { done(messenger.set_request_mode(&identity, mode).await) })
             }
             // Queries and the profile commands are answered by `command`.
+            Command::OfferFile { contact, path } => {
+                let (identity, record) = convert::contact_ids(contact)?;
+                // The runtime checks the path and reads the file, off the
+                // window's thread: the window only passed its text on.
+                Box::pin(async move {
+                    Finished::Transfer(
+                        messenger
+                            .offer_file(&identity, &record, &path)
+                            .await
+                            .map_err(convert::transfer_error),
+                    )
+                })
+            }
+            Command::AcceptTransfer(transfer) => {
+                let reference = self.transfer(transfer)?;
+                Box::pin(async move { transfer_done(messenger.accept_transfer(&reference).await) })
+            }
+            Command::RejectTransfer(transfer) => {
+                let reference = self.transfer(transfer)?;
+                Box::pin(async move { transfer_done(messenger.reject_transfer(&reference).await) })
+            }
+            Command::CancelTransfer(transfer) => {
+                let reference = self.transfer(transfer)?;
+                Box::pin(async move { transfer_done(messenger.cancel_transfer(&reference).await) })
+            }
+            Command::RemoveTransfer(transfer) => {
+                let reference = self.transfer(transfer)?;
+                Box::pin(async move { transfer_done(messenger.remove_transfer(&reference).await) })
+            }
+            Command::ResumeTransfer(transfer) => {
+                let reference = self.transfer(transfer)?;
+                Box::pin(async move { transfer_done(messenger.resume_transfer(&reference).await) })
+            }
+            Command::SavePlace(transfer) => {
+                let reference = self.transfer(transfer)?;
+                Box::pin(async move {
+                    let Some(view) = messenger.transfer(&reference).ok().flatten() else {
+                        return Finished::Outcome(Outcome::Failed(Failure::NoSuchTransfer));
+                    };
+                    let name = monolith_runtime::save_name(&view.name);
+                    // The folders are looked at off the window's thread.
+                    let place = task::spawn_blocking(move || suggested_place(&name))
+                        .await
+                        .unwrap_or_default();
+                    Finished::Outcome(Outcome::SavePlace { transfer, place })
+                })
+            }
+            Command::SaveTransfer {
+                transfer,
+                destination,
+            } => {
+                let reference = self.transfer(transfer)?;
+                Box::pin(async move {
+                    Finished::Outcome(
+                        match messenger.save_transfer(&reference, &destination).await {
+                            Ok(SaveOutcome::Saved) => Outcome::Saved {
+                                transfer,
+                                confirmed: true,
+                            },
+                            Ok(_) => Outcome::Saved {
+                                transfer,
+                                confirmed: false,
+                            },
+                            Err(error) => Outcome::Failed(convert::save_error(error)),
+                        },
+                    )
+                })
+            }
             _ => return Err(Failure::Unexpected),
         })
     }
@@ -819,6 +976,12 @@ impl<B: TorBackend + 'static> Running<B> {
         let blocked = messenger.blocked(&identity).map_err(error)?;
         let service = convert::service(messenger.service_state(&identity).map_err(error)?);
         let request_mode = convert::request_mode(messenger.request_mode(&identity).map_err(error)?);
+        let transfers = messenger
+            .transfers(&identity)
+            .map_err(convert::transfer_error)?;
+        let interrupted = messenger
+            .interrupted_saves(&identity)
+            .map_err(convert::transfer_error)?;
 
         // A request is known while it waits; an invitation while it is
         // active or a request it admitted waits; a blocked person while
@@ -835,6 +998,25 @@ impl<B: TorBackend + 'static> Running<B> {
         self.requests.keep(&identity, &listed_requests);
         self.invitations.keep(&identity, &listed_invitations);
         self.blocked.keep(&identity, &listed_blocked);
+        // A transfer is known while the runtime lists it or a save of it
+        // was cut short.
+        let listed_transfers: HashSet<TransferRef> = transfers
+            .iter()
+            .map(|view| view.reference)
+            .chain(interrupted.iter().copied())
+            .collect();
+        self.transfers.keep(&identity, &listed_transfers);
+        let transfers = transfers
+            .into_iter()
+            .map(|view| {
+                let id = self.transfer_id(view.reference);
+                convert::transfer_view(view, id)
+            })
+            .collect();
+        let interrupted = interrupted
+            .into_iter()
+            .map(|reference| self.transfer_id(reference))
+            .collect();
         let requests = pending
             .into_iter()
             .map(|summary| RequestView {
@@ -872,6 +1054,8 @@ impl<B: TorBackend + 'static> Running<B> {
             blocked,
             service,
             request_mode,
+            transfers,
+            interrupted,
         })
     }
 

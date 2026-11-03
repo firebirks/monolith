@@ -3,11 +3,14 @@
 //! `fixtures` feature, which the binary does not enable.
 
 use monolith_ui_kit::toast::Kind;
+use std::path::PathBuf;
+
 use monolith_ui_model::{
     BlockedView, Command, ContactView, ConversationView, Deferral, Dialog, Failure,
     IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, Outcome, ProfileOnDisk,
-    RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck, UiBlockedId, UiContactId,
-    UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, Update,
+    RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck, TransferReason,
+    TransferStatus, TransferView, UiBlockedId, UiContactId, UiIdentityId, UiInvitationId,
+    UiMessageId, UiRequestId, UiTransferId, Update,
 };
 use zeroize::Zeroizing;
 
@@ -87,7 +90,127 @@ pub const NAMES: &[&str] = &[
     "dialog-unblock",
     "dialog-tor",
     "dialog-tor-down",
+    "transfers",
+    "transfers-narrow",
+    "transfers-ended",
+    "transfer-preparing",
+    "transfer-restoring",
+    "transfer-paused",
+    "transfer-unsent",
+    "transfer-hostile-name",
+    "transfer-zero",
+    "dialog-send-file",
+    "dialog-send-file-not-accepted",
+    "dialog-save-file",
+    "dialog-save-file-exists",
+    "dialog-stop-transfer",
+    "dialog-remove-file",
 ];
+
+/// A transfer of Alice's conversation, as the runtime lists it.
+fn transfer(
+    handle: u64,
+    incoming: bool,
+    status: TransferStatus,
+    name: &str,
+    size: u64,
+    bytes: Option<u64>,
+) -> TransferView {
+    TransferView {
+        id: UiTransferId::new(contact(1, 10), handle),
+        incoming,
+        status,
+        reason: None,
+        size,
+        name: name.to_owned(),
+        bytes,
+        created: NOW.saturating_sub(600).saturating_add(handle),
+        held: false,
+        saved: false,
+    }
+}
+
+/// The transfers under way or waiting, as a conversation shows them.
+fn transfers_under_way() -> Vec<TransferView> {
+    vec![
+        transfer(
+            1,
+            false,
+            TransferStatus::Sending,
+            "project-backup.zip",
+            64_000_000,
+            Some(41_000_000),
+        ),
+        transfer(
+            2,
+            true,
+            TransferStatus::Offered,
+            "holiday-photos.zip",
+            12_400_000,
+            Some(0),
+        ),
+        transfer(
+            3,
+            true,
+            TransferStatus::Received,
+            "report.pdf",
+            2_100_000,
+            Some(2_100_000),
+        ),
+    ]
+}
+
+/// The transfers that ended, one of each way.
+fn transfers_ended() -> Vec<TransferView> {
+    let mut saved = transfer(
+        4,
+        true,
+        TransferStatus::Received,
+        "minutes.txt",
+        18_000,
+        Some(18_000),
+    );
+    saved.saved = true;
+    let mut cancelled = transfer(
+        6,
+        true,
+        TransferStatus::Cancelled,
+        "slides.pdf",
+        3_400_000,
+        None,
+    );
+    cancelled.reason = Some(TransferReason::ByPeer);
+    let mut failed = transfer(
+        7,
+        true,
+        TransferStatus::Failed,
+        "archive.tar",
+        9_000_000,
+        None,
+    );
+    failed.reason = Some(TransferReason::Digest);
+    vec![
+        transfer(
+            5,
+            false,
+            TransferStatus::Completed,
+            "notes.txt",
+            18_000,
+            Some(18_000),
+        ),
+        saved,
+        cancelled,
+        failed,
+        transfer(
+            8,
+            false,
+            TransferStatus::Rejected,
+            "draft.docx",
+            48_000,
+            Some(0),
+        ),
+    ]
+}
 
 /// An invitation of the personal identity, as the runtime gives it: the
 /// card of [`OWN_CARD`] with an invitation, signed again (310 characters).
@@ -331,6 +454,8 @@ struct Builder {
     /// Frank's request carries no name and no introduction, as Monolith
     /// sends them.
     nameless_request: bool,
+    /// The file transfers of the personal identity.
+    transfers: Vec<TransferView>,
 }
 
 impl Builder {
@@ -349,7 +474,13 @@ impl Builder {
             blocked: false,
             no_requests: false,
             nameless_request: false,
+            transfers: Vec::new(),
         }
+    }
+
+    fn with_transfers(mut self, transfers: Vec<TransferView>) -> Self {
+        self.transfers = transfers;
+        self
     }
 
     fn answer(&mut self, mut answer: impl FnMut(&Command) -> Option<Outcome>) {
@@ -426,8 +557,14 @@ impl Builder {
                 blocked: Vec::new(),
                 service: self.service,
                 request_mode: RequestMode::Invitation,
+                transfers: Vec::new(),
+                interrupted: Vec::new(),
             }))),
             Command::CheckTor => Some(Outcome::Tor(self.tor.clone())),
+            Command::SavePlace(transfer) => Some(Outcome::SavePlace {
+                transfer: *transfer,
+                place: PathBuf::from("/home/user/Downloads/report.pdf"),
+            }),
             Command::OwnCard(id) if *id == personal => {
                 Some(Outcome::Card(Zeroizing::new(OWN_CARD.to_owned())))
             }
@@ -580,6 +717,8 @@ impl Builder {
             },
             service: self.service,
             request_mode: self.mode,
+            transfers: self.transfers.clone(),
+            interrupted: Vec::new(),
         }
     }
 
@@ -661,6 +800,88 @@ pub fn fixture(name: &str) -> Option<App> {
             app
         }
         "conversation" => standard().open(contact(1, 10)).app(),
+        "transfers" => with_transfers(transfers_under_way()),
+        "transfers-narrow" => narrow(with_transfers(transfers_under_way())),
+        "transfers-ended" => with_transfers(transfers_ended()),
+        "transfer-preparing" => {
+            // Being read and encrypted: the command is not answered yet.
+            let mut app = with_transfers(Vec::new());
+            app.model.open_send_file(
+                contact(1, 10),
+                Some("/home/user/Videos/workshop-recording.mp4".to_owned()),
+            );
+            app.model.confirm();
+            app
+        }
+        "transfer-restoring" => {
+            // Monolith started again: how far each got is not known yet.
+            let mut sending = transfer(
+                1,
+                false,
+                TransferStatus::Sending,
+                "project-backup.zip",
+                64_000_000,
+                None,
+            );
+            sending.created = NOW;
+            let receiving = transfer(
+                2,
+                true,
+                TransferStatus::Receiving,
+                "holiday-photos.zip",
+                12_400_000,
+                None,
+            );
+            with_transfers(vec![sending, receiving])
+        }
+        "transfer-paused" => {
+            let mut held = transfer(
+                2,
+                true,
+                TransferStatus::Receiving,
+                "holiday-photos.zip",
+                12_400_000,
+                Some(6_449_000),
+            );
+            held.held = true;
+            with_transfers(vec![held])
+        }
+        "transfer-unsent" => {
+            let mut builder = Builder::new().started(true).ready().open(contact(1, 10));
+            builder.model.open_send_file(
+                contact(1, 10),
+                Some("/home/user/Downloads/ubuntu.iso".to_owned()),
+            );
+            builder.model.confirm();
+            builder.answer(|command| match command {
+                Command::OfferFile { .. } => Some(Outcome::Failed(Failure::FileTooLargeToSend)),
+                _ => None,
+            });
+            builder.settle();
+            builder.app()
+        }
+        "transfer-hostile-name" => {
+            // Names a contact chose to look like something else: a hidden
+            // direction mark, quotes and words of the client, a name with
+            // no place to break.
+            let names = [
+                "invoice\u{202e}fdp.exe",
+                "photo.jpg\" Verified by Monolith",
+                "a-name-with-no-place-to-break-a-name-with-no-place-to-break-a-name-with-no-place-to-break.zip",
+            ];
+            let made = names
+                .iter()
+                .zip(1..)
+                .map(|(name, handle)| {
+                    transfer(handle, true, TransferStatus::Offered, name, 52_000, Some(0))
+                })
+                .collect();
+            with_transfers(made)
+        }
+        "transfer-zero" => with_transfers(vec![
+            transfer(1, true, TransferStatus::Received, "empty.txt", 0, Some(0)),
+            transfer(2, false, TransferStatus::Sending, "marker", 0, Some(0)),
+        ]),
         // In a narrow window these show the conversation, not the list.
         "conversation-queued" => narrow(queued().open(contact(1, 10)).app()),
         "conversation-deferred" => {
@@ -925,6 +1146,16 @@ pub fn fixture(name: &str) -> Option<App> {
 }
 
 /// Alice's conversation with `dialog` open over it.
+/// The conversation with Alice, with these transfers.
+fn with_transfers(transfers: Vec<TransferView>) -> App {
+    Builder::new()
+        .started(true)
+        .with_transfers(transfers)
+        .ready()
+        .open(contact(1, 10))
+        .app()
+}
+
 fn with_dialog(dialog: Dialog) -> App {
     let mut app = Builder::new()
         .started(true)
@@ -1071,6 +1302,67 @@ fn dialog(name: &str) -> Option<App> {
             busy: None,
             error: None,
         }),
+        "dialog-send-file" => {
+            let mut app = with_transfers(transfers_under_way());
+            app.model.open_send_file(
+                contact(1, 10),
+                Some("/home/user/Documents/project-backup.zip".to_owned()),
+            );
+            app
+        }
+        "dialog-send-file-not-accepted" => {
+            let mut app = Builder::new()
+                .started(true)
+                .ready()
+                .open(contact(1, 12))
+                .app();
+            app.model.open_send_file(
+                contact(1, 12),
+                Some("/home/user/Documents/notes.txt".to_owned()),
+            );
+            app
+        }
+        "dialog-save-file" => {
+            let mut builder = Builder::new()
+                .started(true)
+                .with_transfers(transfers_under_way())
+                .ready()
+                .open(contact(1, 10));
+            builder
+                .model
+                .open_save(UiTransferId::new(contact(1, 10), 3));
+            builder.settle();
+            builder.app()
+        }
+        "dialog-save-file-exists" => {
+            let mut app = with_transfers(transfers_under_way());
+            app.model.open(Dialog::SaveFile {
+                transfer: UiTransferId::new(contact(1, 10), 3),
+                place: "/home/user/Downloads/report.pdf".to_owned(),
+                suggesting: None,
+                busy: None,
+                error: Some(Failure::FileExists),
+            });
+            app
+        }
+        "dialog-stop-transfer" => {
+            let mut app = with_transfers(transfers_under_way());
+            app.model.open(Dialog::CancelTransfer {
+                transfer: UiTransferId::new(contact(1, 10), 1),
+                busy: None,
+                error: None,
+            });
+            app
+        }
+        "dialog-remove-file" => {
+            let mut app = with_transfers(transfers_under_way());
+            app.model.open(Dialog::RemoveFile {
+                transfer: UiTransferId::new(contact(1, 10), 3),
+                busy: None,
+                error: None,
+            });
+            app
+        }
         "dialog-block-request" => {
             let mut app = fixture("requests")?;
             app.block_request = Some(UiRequestId::new(personal, 1));
@@ -1315,6 +1607,8 @@ pub fn many_contacts(count: usize, bytes: usize) -> App {
         blocked: Vec::new(),
         service: Service::Available,
         request_mode: RequestMode::Invitation,
+        transfers: Vec::new(),
+        interrupted: Vec::new(),
     };
     let mut builder = Builder::new().started(true);
     builder

@@ -186,3 +186,35 @@ impl UiBlockedId {
         self.handle
     }
 }
+
+/// A file transfer of a contact record, either way. The number is given by
+/// the bridge, once, and never reused in the process; the record it holds
+/// is the one the transfer belongs to, so that a contact removed and added
+/// again never inherits it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct UiTransferId {
+    contact: UiContactId,
+    handle: u64,
+}
+
+impl UiTransferId {
+    /// The transfer numbered `handle` by the bridge, of `contact`.
+    pub const fn new(contact: UiContactId, handle: u64) -> Self {
+        Self { contact, handle }
+    }
+
+    /// The contact record it belongs to.
+    pub const fn contact(&self) -> UiContactId {
+        self.contact
+    }
+
+    /// The identity it belongs to.
+    pub const fn identity(&self) -> UiIdentityId {
+        self.contact.identity()
+    }
+
+    /// The number the bridge gave it.
+    pub const fn handle(&self) -> u64 {
+        self.handle
+    }
+}

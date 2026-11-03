@@ -45,12 +45,17 @@ fn repaint_after_settling(name: &str, theme: Theme, frames: u32) -> Duration {
 #[test]
 fn a_settled_window_asks_for_no_frame() {
     // A spinner turns while a profile opens, the Tor state pulses while
-    // Tor connects, and the time to the next delivery attempt is said again
-    // when it changes.
-    for name in NAMES
-        .iter()
-        .filter(|name| !["opening", "tor-connecting", "conversation-deferred"].contains(*name))
-    {
+    // Tor connects, the time to the next delivery attempt is said again
+    // when it changes, and a file being prepared, or restored after a
+    // restart, has a bar that moves.
+    let moving = [
+        "opening",
+        "tor-connecting",
+        "conversation-deferred",
+        "transfer-preparing",
+        "transfer-restoring",
+    ];
+    for name in NAMES.iter().filter(|name| !moving.contains(*name)) {
         for (theme, reduced) in [(Theme::light(), false), (Theme::dark(), true)] {
             let delay = repaint_after_settling(name, theme.with_reduced_motion(reduced), 30);
             assert_eq!(
@@ -99,4 +104,14 @@ fn the_tor_state_pulses_four_times_a_second_while_tor_connects_and_not_with_redu
         30,
     );
     assert_eq!(still, Duration::MAX);
+}
+
+#[test]
+fn a_bar_of_bytes_not_known_moves_only_while_motion_is_allowed() {
+    for name in ["transfer-preparing", "transfer-restoring"] {
+        let still = repaint_after_settling(name, Theme::dark().with_reduced_motion(true), 30);
+        assert_eq!(still, Duration::MAX, "{name}");
+        let moving = repaint_after_settling(name, Theme::light().with_reduced_motion(false), 30);
+        assert!(moving < Duration::from_millis(100), "{name}: {moving:?}");
+    }
 }

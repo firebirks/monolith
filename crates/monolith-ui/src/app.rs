@@ -660,6 +660,8 @@ mod tests {
             blocked: Vec::new(),
             service: Service::Available,
             request_mode: RequestMode::Invitation,
+            transfers: Vec::new(),
+            interrupted: Vec::new(),
         }
     }
 
@@ -702,6 +704,8 @@ mod tests {
                         blocked: Vec::new(),
                         service: Service::Available,
                         request_mode: RequestMode::Invitation,
+                        transfers: Vec::new(),
+                        interrupted: Vec::new(),
                     })),
                     _ => continue,
                 };

@@ -54,7 +54,7 @@ use monolith_ui_model::{
     IdentitySnapshot, IdentityView, InvitationView, MessageView, Model, NoticeKind, Outcome, Phase,
     ProfileOnDisk, RequestMode, RequestView, RuntimeEvent, Selection, Service, Slice, Status,
     TorCheck, UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
-    Update,
+    UiTransferId, Update,
 };
 use proptest::prelude::*;
 use zeroize::Zeroizing;
@@ -213,6 +213,8 @@ fn empty_snapshot(owner: UiIdentityId) -> IdentitySnapshot {
         blocked: Vec::new(),
         service: Service::Stopped,
         request_mode: RequestMode::Closed,
+        transfers: Vec::new(),
+        interrupted: Vec::new(),
     }
 }
 
@@ -374,6 +376,8 @@ impl Identity {
                 .collect(),
             service: self.service,
             request_mode: self.mode,
+            transfers: Vec::new(),
+            interrupted: Vec::new(),
         }
     }
 
@@ -995,6 +999,15 @@ impl Env {
             Command::OpenProfile { .. }
             | Command::CreateProfile { .. }
             | Command::StartWithoutSaving => Outcome::Failed(Failure::Unexpected),
+            // The truth of these tests holds no transfer.
+            Command::OfferFile { .. } => Outcome::Failed(Failure::FileNotSendable),
+            Command::AcceptTransfer(_)
+            | Command::RejectTransfer(_)
+            | Command::CancelTransfer(_)
+            | Command::RemoveTransfer(_)
+            | Command::ResumeTransfer(_)
+            | Command::SavePlace(_)
+            | Command::SaveTransfer { .. } => Outcome::Failed(Failure::NoSuchTransfer),
         };
         ran
     }
@@ -1763,6 +1776,7 @@ enum Target {
     Request(UiRequestId),
     Invitation(UiInvitationId),
     Blocked(UiBlockedId),
+    Transfer(UiTransferId),
 }
 
 /// A command of the user, by name, with what it acts on.
@@ -1810,6 +1824,14 @@ fn write_of(command: &Command) -> Option<Write> {
             ("RevokeInvitation", Target::Invitation(*invitation))
         }
         Command::Unblock(blocked) => ("Unblock", Target::Blocked(*blocked)),
+        Command::OfferFile { contact, .. } => ("OfferFile", Target::Contact(*contact)),
+        Command::AcceptTransfer(transfer) => ("AcceptTransfer", Target::Transfer(*transfer)),
+        Command::RejectTransfer(transfer) => ("RejectTransfer", Target::Transfer(*transfer)),
+        Command::CancelTransfer(transfer) => ("CancelTransfer", Target::Transfer(*transfer)),
+        Command::RemoveTransfer(transfer) => ("RemoveTransfer", Target::Transfer(*transfer)),
+        Command::ResumeTransfer(transfer) => ("ResumeTransfer", Target::Transfer(*transfer)),
+        Command::SavePlace(transfer) => ("SavePlace", Target::Transfer(*transfer)),
+        Command::SaveTransfer { transfer, .. } => ("SaveTransfer", Target::Transfer(*transfer)),
     };
     Some(Write {
         command: name,
@@ -1850,6 +1872,12 @@ impl Captured {
                 ("DeleteConversation", Target::Contact(*contact))
             }
             Dialog::AcceptRequest { request, .. } => ("AcceptRequest", Target::Request(*request)),
+            Dialog::SendFile { contact, .. } => ("SendFile", Target::Contact(*contact)),
+            Dialog::SaveFile { transfer, .. } => ("SaveFile", Target::Transfer(*transfer)),
+            Dialog::CancelTransfer { transfer, .. } => {
+                ("CancelTransfer", Target::Transfer(*transfer))
+            }
+            Dialog::RemoveFile { transfer, .. } => ("RemoveFile", Target::Transfer(*transfer)),
         };
         Self { kind, target }
     }
@@ -1881,6 +1909,10 @@ impl Captured {
             "DeleteConversation" => "DeleteConversation",
             "AcceptRequest" => "AcceptRequest",
             "DeleteIdentity" => "DeleteIdentity",
+            "SendFile" => "OfferFile",
+            "SaveFile" => "SaveTransfer",
+            "CancelTransfer" => "CancelTransfer",
+            "RemoveFile" => "RemoveTransfer",
             _ => return None,
         };
         Some(Write {

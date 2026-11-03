@@ -157,6 +157,12 @@ impl ScrollView {
         self
     }
 
+    /// Keeps the bottom in view while it is there, as content is added.
+    pub fn stick_to_bottom(mut self, stick: bool) -> Self {
+        self.area = self.area.stick_to_bottom(stick);
+        self
+    }
+
     /// Shows `add` in the area.
     pub fn show<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> ScrollAreaOutput<R> {
         self.show_viewport(ui, |ui, _| add(ui))

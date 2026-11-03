@@ -4,16 +4,17 @@
 //! that it reaches the command it answers and nothing else.
 
 use core::fmt;
+use std::path::PathBuf;
 
 use zeroize::Zeroizing;
 
 use crate::data::{
     BlockedView, ContactView, ConversationView, IdentityView, InvitationView, MessageView,
-    RequestMode, RequestView, RuntimeEvent, Service, TorCheck,
+    RequestMode, RequestView, RuntimeEvent, Service, TorCheck, TransferView,
 };
 use crate::failure::Failure;
 use crate::ids::{
-    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, UiTransferId,
 };
 
 /// The number of a command, given by the model, never reused.
@@ -156,6 +157,38 @@ pub enum Command {
         /// The mode.
         mode: RequestMode,
     },
+    /// Offer the file at `path`, dropped or typed, to a contact. The
+    /// runtime checks the path, reads the file and stages it; the window
+    /// never opens it.
+    OfferFile {
+        /// The conversation.
+        contact: UiContactId,
+        /// The path, as the user dropped or typed it.
+        path: PathBuf,
+    },
+    /// Accept a file offered.
+    AcceptTransfer(UiTransferId),
+    /// Reject a file offered.
+    RejectTransfer(UiTransferId),
+    /// Cancel a transfer that is not complete.
+    CancelTransfer(UiTransferId),
+    /// Take an ended transfer, or a received file, off the list; a file
+    /// not saved goes.
+    RemoveTransfer(UiTransferId),
+    /// Go on with a received transfer held after a failed write.
+    ResumeTransfer(UiTransferId),
+    /// Say where a received file would be saved if the user changes
+    /// nothing: a folder of this computer and the name the contact gave,
+    /// made safe. Nothing is written.
+    SavePlace(UiTransferId),
+    /// Save a received file as a new file at `destination`, never over an
+    /// existing one.
+    SaveTransfer {
+        /// The transfer.
+        transfer: UiTransferId,
+        /// The path the user chose.
+        destination: PathBuf,
+    },
     /// Stop the runtime: sessions close, services are removed.
     Shutdown,
 }
@@ -205,6 +238,15 @@ impl fmt::Debug for Command {
             Self::SetRequestMode { identity, mode } => {
                 write!(f, "SetRequestMode({identity:?}, {mode:?})")
             }
+            // Paths are never printed.
+            Self::OfferFile { contact, .. } => write!(f, "OfferFile({contact:?})"),
+            Self::AcceptTransfer(transfer) => write!(f, "AcceptTransfer({transfer:?})"),
+            Self::RejectTransfer(transfer) => write!(f, "RejectTransfer({transfer:?})"),
+            Self::CancelTransfer(transfer) => write!(f, "CancelTransfer({transfer:?})"),
+            Self::RemoveTransfer(transfer) => write!(f, "RemoveTransfer({transfer:?})"),
+            Self::ResumeTransfer(transfer) => write!(f, "ResumeTransfer({transfer:?})"),
+            Self::SavePlace(transfer) => write!(f, "SavePlace({transfer:?})"),
+            Self::SaveTransfer { transfer, .. } => write!(f, "SaveTransfer({transfer:?})"),
             Self::Shutdown => f.write_str("Shutdown"),
         }
     }
@@ -229,6 +271,11 @@ pub struct IdentitySnapshot {
     pub service: Service,
     /// Its request mode.
     pub request_mode: RequestMode,
+    /// Its file transfers, oldest first.
+    pub transfers: Vec<TransferView>,
+    /// The saves of received files that were cut short when Monolith last
+    /// ran.
+    pub interrupted: Vec<UiTransferId>,
 }
 
 /// How a command ended.
@@ -288,6 +335,23 @@ pub enum Outcome {
         /// How many requests were discarded with it.
         discarded: usize,
     },
+    /// A file was staged and offered.
+    TransferOffered(UiTransferId),
+    /// Where a received file would be saved.
+    SavePlace {
+        /// The transfer.
+        transfer: UiTransferId,
+        /// The path suggested.
+        place: PathBuf,
+    },
+    /// A received file was saved.
+    Saved {
+        /// The transfer.
+        transfer: UiTransferId,
+        /// The folder was synced: the file is durable under its name. If
+        /// not, the received copy stays.
+        confirmed: bool,
+    },
 }
 
 impl fmt::Debug for Outcome {
@@ -314,6 +378,12 @@ impl fmt::Debug for Outcome {
                 write!(f, "InvitationCreated({invitation:?})")
             }
             Self::Revoked { discarded } => write!(f, "Revoked({discarded})"),
+            Self::TransferOffered(transfer) => write!(f, "TransferOffered({transfer:?})"),
+            Self::SavePlace { transfer, .. } => write!(f, "SavePlace({transfer:?})"),
+            Self::Saved {
+                transfer,
+                confirmed,
+            } => write!(f, "Saved({transfer:?}, {confirmed})"),
         }
     }
 }

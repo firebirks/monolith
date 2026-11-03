@@ -62,6 +62,29 @@ pub enum Failure {
     File,
     /// The file is too large to be a card.
     FileTooLarge,
+    /// The transfer is gone, or belongs to a contact that is gone.
+    NoSuchTransfer,
+    /// Files go to and come from accepted contacts only.
+    NotAcceptedForFiles,
+    /// The file to send is not a regular file of this computer that
+    /// Monolith can read, or it changed while it was read.
+    FileNotSendable,
+    /// The file to send is larger than a transfer may be.
+    FileTooLargeToSend,
+    /// Too many files wait for an answer, or are being received.
+    TooManyFiles,
+    /// The received files staged take all the room they may.
+    StagingFull,
+    /// The list of transfers is full of ones that cannot go yet.
+    TransfersFull,
+    /// Another file is being prepared or saved.
+    FileBusy,
+    /// A file of that name exists where the file was to be saved.
+    FileExists,
+    /// A file cannot be saved there.
+    SavePlaceRefused,
+    /// The received file did not read back whole.
+    ReceivedFileDamaged,
     /// The Tor settings are incomplete, or name a place off this computer.
     TorSettings,
     /// The settings file named when Monolith was started was refused: on
@@ -143,6 +166,33 @@ impl Failure {
             Self::ShuttingDown => "Monolith is closing.",
             Self::File => "The file could not be read or written.",
             Self::FileTooLarge => "This file is too large to be a Monolith card.",
+            Self::NoSuchTransfer => "This file transfer is no longer available.",
+            Self::NotAcceptedForFiles => "Files can be sent once this contact has accepted you.",
+            Self::FileNotSendable => {
+                "This file cannot be sent. Choose a file on this computer, not a folder, a \
+                 link or a file kept only online."
+            }
+            Self::FileTooLargeToSend => {
+                "This file is larger than 256\u{a0}MiB, the most Monolith sends."
+            }
+            Self::TooManyFiles => {
+                "Too many files are waiting or being received. Try again when one is done."
+            }
+            Self::StagingFull => {
+                "Received files take all the room Monolith keeps for them. Save or remove some \
+                 first."
+            }
+            Self::TransfersFull => {
+                "The list of file transfers is full. Remove finished transfers first."
+            }
+            Self::FileBusy => "Another file is being prepared or saved. Try again when it is done.",
+            Self::FileExists => "A file with this name is already there. Choose another name.",
+            Self::SavePlaceRefused => {
+                "Files cannot be saved there. Choose a folder on this computer and a file name."
+            }
+            Self::ReceivedFileDamaged => {
+                "The received file no longer reads back as it arrived, so it cannot be saved."
+            }
             Self::SettingsNotKept => {
                 "The settings file Monolith was started with is not in the unlocked Persistent \
                  Storage, so settings last until Monolith closes."

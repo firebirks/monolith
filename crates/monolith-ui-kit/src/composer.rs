@@ -28,6 +28,8 @@ pub struct ComposerOutput {
     pub send_requested: bool,
     /// The draft changed in this frame.
     pub changed: bool,
+    /// The attach button was clicked while it takes input.
+    pub attach_requested: bool,
 }
 
 /// A message composer editing a draft.
@@ -40,6 +42,7 @@ pub struct Composer<'a> {
     blocked_reason: Option<&'a str>,
     busy: bool,
     request_focus: bool,
+    attach: Option<(&'a str, bool)>,
 }
 
 impl<'a> Composer<'a> {
@@ -54,7 +57,17 @@ impl<'a> Composer<'a> {
             blocked_reason: None,
             busy: false,
             request_focus: false,
+            attach: None,
         }
+    }
+
+    /// A button beside the send button that asks to attach a file, named
+    /// `label`. When it takes no input (`enabled` false), `label` says why,
+    /// in its tooltip and to screen readers, such as "Files can be sent
+    /// once this contact has accepted you".
+    pub fn attach(mut self, label: &'a str, enabled: bool) -> Self {
+        self.attach = Some((label, enabled));
+        self
     }
 
     /// The most bytes a message holds. A counter shows above 85% of it.
@@ -120,6 +133,7 @@ impl<'a> Composer<'a> {
             && !composing;
 
         let mut send_clicked = false;
+        let mut attach_clicked = false;
         let mut edited: Option<Response> = None;
         let mut changed = false;
 
@@ -168,8 +182,9 @@ impl<'a> Composer<'a> {
             inner.set_width(inner.available_width());
             inner.set_min_height(theme.size.control);
             let button_gap = theme.space.sm;
-            let edit_w =
-                (inner.available_width() - theme.size.control - button_gap).max(theme.size.control);
+            let buttons = if self.attach.is_some() { 2.0 } else { 1.0 };
+            let edit_w = (inner.available_width() - (theme.size.control + button_gap) * buttons)
+                .max(theme.size.control);
             let max_edit_h = theme.size.composer_max - pad_v * 2.0;
             let edit_area = inner.allocate_ui_with_layout(
                 Vec2::new(edit_w, max_edit_h),
@@ -221,6 +236,13 @@ impl<'a> Composer<'a> {
                 .busy(self.busy)
                 .id_salt((self.id, "send"));
             send_clicked = inner.put(slot, send).clicked();
+            if let Some((label, enabled)) = self.attach {
+                let beside = slot.translate(Vec2::new(-(side + button_gap), 0.0));
+                let attach = IconButton::new(icons::FILE, label)
+                    .enabled(enabled && !locked)
+                    .id_salt((self.id, "attach"));
+                attach_clicked = inner.put(beside, attach).clicked() && enabled && !locked;
+            }
 
             let content_rect = prepared.content_ui.min_rect();
             let outer = content_rect + margin;
@@ -287,6 +309,7 @@ impl<'a> Composer<'a> {
             send_requested: (enter || send_clicked) && can_send,
             changed,
             response,
+            attach_requested: attach_clicked,
         }
     }
 }

@@ -20,16 +20,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use core::fmt;
 use core::ops::Range;
+use std::path::PathBuf;
 
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::data::{
     BlockedView, ContactView, ConversationView, IdentityView, InvitationView, MessageView,
-    RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck,
+    RequestMode, RequestView, RuntimeEvent, Service, Status, TorCheck, TransferReason,
+    TransferStatus, TransferView,
 };
 use crate::failure::Failure;
 use crate::ids::{
-    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId,
+    UiBlockedId, UiContactId, UiIdentityId, UiInvitationId, UiMessageId, UiRequestId, UiTransferId,
 };
 use crate::present::{self, Prepared};
 use crate::prose::Prose;
@@ -313,6 +315,18 @@ pub struct Slice {
     /// command had then: a read asked before that may not count it. Kept
     /// until a read asked later answers.
     queued_since: BTreeMap<UiMessageId, u64>,
+    /// Its file transfers, oldest first, as the last read said.
+    pub transfers: Vec<TransferView>,
+    /// The saves cut short when Monolith last ran, as the last read said.
+    pub interrupted: Vec<UiTransferId>,
+    /// The bytes of transfers as their last progress event said, each with
+    /// the number the next command had then: kept until a read asked later
+    /// answers, which knows them too (as `queued_since`).
+    progress: BTreeMap<UiTransferId, (u64, u64)>,
+    /// Files that could not be offered, until the user dismisses them.
+    pub unsent: Vec<Unsent>,
+    /// The interrupted saves the user was told of.
+    told: BTreeSet<UiTransferId>,
     stale: bool,
     loading: bool,
     /// The rows of the sidebar, made when the contacts, conversations or
@@ -483,6 +497,149 @@ fn next(counter: &mut u64) -> u64 {
     *counter
 }
 
+/// A file that could not be offered, until the user dismisses it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Unsent {
+    /// Its number, given by the model, never reused.
+    pub number: u64,
+    /// The conversation it was for.
+    pub contact: UiContactId,
+    /// The name of the local file, ready to draw.
+    pub name: String,
+    /// Why it was not offered.
+    pub failure: Failure,
+}
+
+impl fmt::Debug for Unsent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Unsent")
+            .field("number", &self.number)
+            .field("contact", &self.contact)
+            .field("failure", &self.failure)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What a transfer card stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TransferKey {
+    /// A transfer the runtime holds.
+    Transfer(UiTransferId),
+    /// A file being prepared: read, encrypted and staged by the command.
+    Preparing(CommandId),
+    /// A file that could not be offered.
+    Unsent(u64),
+}
+
+/// Where a transfer stands, in the words of the screens. Each comes from
+/// the runtime's state alone; nothing is guessed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferPhase {
+    /// The file is being read, encrypted and staged: nothing is offered
+    /// yet, and nothing is sent.
+    Preparing,
+    /// It could not be offered.
+    Unsent(Failure),
+    /// Offered; the contact has not accepted it yet.
+    Waiting,
+    /// Offered to this side; it waits for a decision.
+    Offered,
+    /// On its way, with this many bytes acknowledged (sent) or staged
+    /// (received).
+    Transferring {
+        /// The bytes, as the runtime said them last.
+        bytes: u64,
+    },
+    /// On its way, but how far it got is not known since Monolith started
+    /// again: it is found again once the transfer goes on.
+    Restoring,
+    /// Received data waits: the disk was full or the staged file was held.
+    Paused,
+    /// Sent: the contact holds the file, verified.
+    Completed,
+    /// Received whole and verified; not saved yet.
+    Received,
+    /// Received and saved.
+    Saved,
+    /// The receiver rejected it.
+    Rejected,
+    /// Offered to this side and not decided in time.
+    Expired,
+    /// Cancelled, by this side or by the contact.
+    Cancelled {
+        /// This side cancelled it.
+        by_us: bool,
+    },
+    /// It failed.
+    Failed(Option<TransferReason>),
+}
+
+impl TransferPhase {
+    /// Whether the transfer is under way or waits: it can be cancelled.
+    pub const fn cancellable(self) -> bool {
+        matches!(
+            self,
+            Self::Waiting
+                | Self::Offered
+                | Self::Transferring { .. }
+                | Self::Restoring
+                | Self::Paused
+        )
+    }
+
+    /// Whether it ended: it can only be taken off the list.
+    pub const fn ended(self) -> bool {
+        matches!(
+            self,
+            Self::Completed
+                | Self::Saved
+                | Self::Rejected
+                | Self::Expired
+                | Self::Cancelled { .. }
+                | Self::Failed(_)
+        )
+    }
+}
+
+/// One transfer card of a conversation.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TransferItem {
+    /// What it stands for.
+    pub key: TransferKey,
+    /// The contact offers the file.
+    pub incoming: bool,
+    /// The filename. For a file the contact offers, their text: drawn as a
+    /// name, never in a sentence.
+    pub name: String,
+    /// The size in bytes, once known: not while the file is prepared.
+    pub size: Option<u64>,
+    /// Where it stands.
+    pub phase: TransferPhase,
+    /// A command on it is under way.
+    pub busy: bool,
+}
+
+impl fmt::Debug for TransferItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TransferItem")
+            .field("key", &self.key)
+            .field("incoming", &self.incoming)
+            .field("size", &self.size)
+            .field("phase", &self.phase)
+            .field("busy", &self.busy)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A decision on a transfer that needs no dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TransferAction {
+    Accept,
+    Reject,
+    Resume,
+    Remove,
+}
+
 /// A dialog. Each holds the handles it acts on from the moment it opens;
 /// `busy` is the command its action started, while it runs.
 pub enum Dialog {
@@ -618,6 +775,47 @@ pub enum Dialog {
     },
     /// What is known about Tor.
     TorDetails,
+    /// Send a file to a contact: a path dropped on the window or typed.
+    /// The runtime checks and reads it; the window only holds its text.
+    SendFile {
+        /// The conversation.
+        contact: UiContactId,
+        /// The path, as dropped or typed.
+        path: String,
+        /// Why the last attempt could not start.
+        error: Option<Failure>,
+    },
+    /// Save a received file where the user chooses.
+    SaveFile {
+        /// The transfer.
+        transfer: UiTransferId,
+        /// The path typed, starting from the place the runtime suggests.
+        place: String,
+        /// The read of the suggested place under way.
+        suggesting: Option<CommandId>,
+        /// The save under way.
+        busy: Option<CommandId>,
+        /// Why the last save failed.
+        error: Option<Failure>,
+    },
+    /// Confirm cancelling a transfer.
+    CancelTransfer {
+        /// The transfer.
+        transfer: UiTransferId,
+        /// The command under way.
+        busy: Option<CommandId>,
+        /// Why it failed.
+        error: Option<Failure>,
+    },
+    /// Confirm removing a received file that was not saved.
+    RemoveFile {
+        /// The transfer.
+        transfer: UiTransferId,
+        /// The command under way.
+        busy: Option<CommandId>,
+        /// Why it failed.
+        error: Option<Failure>,
+    },
 }
 
 impl Dialog {
@@ -635,8 +833,11 @@ impl Dialog {
             | Self::RemoveContact { busy, .. }
             | Self::DeleteConversation { busy, .. }
             | Self::AcceptRequest { busy, .. }
-            | Self::DeleteIdentity { busy, .. } => *busy,
-            Self::TorDetails => None,
+            | Self::DeleteIdentity { busy, .. }
+            | Self::SaveFile { busy, .. }
+            | Self::CancelTransfer { busy, .. }
+            | Self::RemoveFile { busy, .. } => *busy,
+            Self::TorDetails | Self::SendFile { .. } => None,
         }
     }
 
@@ -655,6 +856,10 @@ impl Dialog {
             | Self::RemoveContact { contact, .. }
             | Self::DeleteConversation { contact, .. } => Some(contact.identity()),
             Self::AcceptRequest { request, .. } => Some(request.identity()),
+            Self::SendFile { contact, .. } => Some(contact.identity()),
+            Self::SaveFile { transfer, .. }
+            | Self::CancelTransfer { transfer, .. }
+            | Self::RemoveFile { transfer, .. } => Some(transfer.identity()),
             Self::NewIdentity { .. } | Self::TorDetails => None,
         }
     }
@@ -672,10 +877,14 @@ impl Dialog {
             | Self::RemoveContact { busy, error, .. }
             | Self::DeleteConversation { busy, error, .. }
             | Self::AcceptRequest { busy, error, .. }
-            | Self::DeleteIdentity { busy, error, .. } => {
+            | Self::DeleteIdentity { busy, error, .. }
+            | Self::SaveFile { busy, error, .. }
+            | Self::CancelTransfer { busy, error, .. }
+            | Self::RemoveFile { busy, error, .. } => {
                 *busy = None;
                 *error = Some(failure);
             }
+            Self::SendFile { error, .. } => *error = Some(failure),
             Self::TorDetails => {}
         }
     }
@@ -694,7 +903,11 @@ impl Dialog {
             | Self::RemoveContact { error, .. }
             | Self::DeleteConversation { error, .. }
             | Self::AcceptRequest { error, .. }
-            | Self::DeleteIdentity { error, .. } => *error,
+            | Self::DeleteIdentity { error, .. }
+            | Self::SendFile { error, .. }
+            | Self::SaveFile { error, .. }
+            | Self::CancelTransfer { error, .. }
+            | Self::RemoveFile { error, .. } => *error,
             Self::TorDetails => None,
         }
     }
@@ -728,6 +941,11 @@ impl fmt::Debug for Dialog {
             Self::AcceptRequest { request, .. } => ("AcceptRequest", Some(request)),
             Self::DeleteIdentity { identity, .. } => ("DeleteIdentity", Some(identity)),
             Self::TorDetails => ("TorDetails", None),
+            // The path is never printed.
+            Self::SendFile { contact, .. } => ("SendFile", Some(contact)),
+            Self::SaveFile { transfer, .. } => ("SaveFile", Some(transfer)),
+            Self::CancelTransfer { transfer, .. } => ("CancelTransfer", Some(transfer)),
+            Self::RemoveFile { transfer, .. } => ("RemoveFile", Some(transfer)),
         };
         let mut out = f.debug_struct(kind);
         if let Some(handle) = handle {
@@ -797,6 +1015,15 @@ enum Pending {
     Unblock(UiBlockedId),
     RequestMode(UiIdentityId),
     Verified(UiContactId),
+    /// A file being prepared and offered to `contact`.
+    Offer {
+        contact: UiContactId,
+        name: String,
+    },
+    /// A decision on a transfer without a dialog.
+    Transfer(UiTransferId, TransferAction),
+    /// The place a received file would be saved, for the save dialog.
+    SavePlace(UiTransferId),
     Shutdown,
 }
 
@@ -816,6 +1043,10 @@ impl fmt::Debug for Pending {
             Self::Unblock(blocked) => write!(f, "Unblock({blocked:?})"),
             Self::RequestMode(identity) => write!(f, "RequestMode({identity:?})"),
             Self::Verified(contact) => write!(f, "Verified({contact:?})"),
+            // The name of the file is never printed.
+            Self::Offer { contact, .. } => write!(f, "Offer({contact:?})"),
+            Self::Transfer(transfer, action) => write!(f, "Transfer({transfer:?}, {action:?})"),
+            Self::SavePlace(transfer) => write!(f, "SavePlace({transfer:?})"),
             Self::Shutdown => f.write_str("Shutdown"),
         }
     }
@@ -1317,6 +1548,11 @@ impl Model {
         if !slice.loaded && !slice.loading {
             slice.stale = true;
         }
+        let untold = slice.interrupted.iter().any(|t| !slice.told.contains(t));
+        slice.told.extend(slice.interrupted.iter().copied());
+        if untold {
+            self.notice(NoticeKind::Info, INTERRUPTED_SAVE);
+        }
     }
 
     /// Shows the conversation of `contact`, if it is one of the identity
@@ -1536,6 +1772,35 @@ impl Model {
             return;
         }
         let mut dialog = dialog;
+        // A file to send is prepared beside the conversation, not in the
+        // dialog: the dialog closes once the runtime is asked.
+        if let Dialog::SendFile {
+            contact,
+            path,
+            error,
+        } = &mut dialog
+        {
+            let contact = *contact;
+            let typed = path.trim().to_owned();
+            if typed.is_empty() {
+                self.dialog = Some(dialog);
+                return;
+            }
+            if !self.can_offer(contact) {
+                *error = Some(Failure::NotAcceptedForFiles);
+                self.dialog = Some(dialog);
+                return;
+            }
+            let name = present::local_file_name(&typed);
+            self.issue(
+                Command::OfferFile {
+                    contact,
+                    path: PathBuf::from(typed),
+                },
+                Pending::Offer { contact, name },
+            );
+            return;
+        }
         let command = match &dialog {
             Dialog::NewIdentity { name, .. } => Some(Command::CreateIdentity {
                 name: optional(name),
@@ -1582,11 +1847,25 @@ impl Model {
                 name: optional(name),
             }),
             Dialog::DeleteIdentity { identity, .. } => Some(Command::DeleteIdentity(*identity)),
+            Dialog::SaveFile {
+                transfer, place, ..
+            } if !place.trim().is_empty() => Some(Command::SaveTransfer {
+                transfer: *transfer,
+                destination: PathBuf::from(place.trim()),
+            }),
+            Dialog::CancelTransfer { transfer, .. } => Some(Command::CancelTransfer(*transfer)),
+            Dialog::RemoveFile { transfer, .. } => Some(Command::RemoveTransfer(*transfer)),
+            Dialog::SaveFile { .. } => {
+                // Nothing typed: the dialog stays.
+                self.dialog = Some(dialog);
+                return;
+            }
             Dialog::OwnCard { .. }
             | Dialog::ShowInvitation { .. }
             | Dialog::NewInvitation { .. }
             | Dialog::AddContact { .. }
-            | Dialog::TorDetails => None,
+            | Dialog::TorDetails
+            | Dialog::SendFile { .. } => None,
         };
         let Some(command) = command else {
             // Nothing to do: the dialog was only showing something.
@@ -1604,11 +1883,17 @@ impl Model {
             | Dialog::RemoveContact { busy, error, .. }
             | Dialog::DeleteConversation { busy, error, .. }
             | Dialog::AcceptRequest { busy, error, .. }
-            | Dialog::DeleteIdentity { busy, error, .. } => {
+            | Dialog::DeleteIdentity { busy, error, .. }
+            | Dialog::SaveFile { busy, error, .. }
+            | Dialog::CancelTransfer { busy, error, .. }
+            | Dialog::RemoveFile { busy, error, .. } => {
                 *busy = Some(id);
                 *error = None;
             }
-            Dialog::OwnCard { .. } | Dialog::ShowInvitation { .. } | Dialog::TorDetails => {}
+            Dialog::OwnCard { .. }
+            | Dialog::ShowInvitation { .. }
+            | Dialog::TorDetails
+            | Dialog::SendFile { .. } => {}
         }
         self.dialog = Some(dialog);
     }
@@ -1666,6 +1951,172 @@ impl Model {
         self.pending
             .values()
             .any(|pending| matches!(pending, Pending::Unblock(asked) if *asked == blocked))
+    }
+
+    /// Whether a file can be offered to `contact` now: a current contact
+    /// that accepted, and a store that saves. The runtime decides again.
+    pub fn can_offer(&self, contact: UiContactId) -> bool {
+        self.contact(contact).is_some_and(|view| view.accepted) && !self.storage_failed
+    }
+
+    /// Opens the dialog that sends a file to `contact`, with `path` if one
+    /// was dropped. Nothing is read: the path is only text until the
+    /// runtime checks it.
+    pub fn open_send_file(&mut self, contact: UiContactId, path: Option<String>) {
+        if Some(contact.identity()) != self.current || self.contact(contact).is_none() {
+            return;
+        }
+        if self.dialog.is_some() {
+            return;
+        }
+        self.open(Dialog::SendFile {
+            contact,
+            path: path.unwrap_or_default(),
+            error: (!self.can_offer(contact)).then_some(Failure::NotAcceptedForFiles),
+        });
+    }
+
+    /// The transfer `transfer`, if the last read of its identity listed it.
+    pub fn transfer(&self, transfer: UiTransferId) -> Option<&TransferView> {
+        self.slices
+            .get(&transfer.identity())?
+            .transfers
+            .iter()
+            .find(|view| view.id == transfer)
+    }
+
+    fn transfer_action(&mut self, transfer: UiTransferId, action: TransferAction) {
+        if self.transfer(transfer).is_some() && !self.transfer_busy(transfer) {
+            let command = match action {
+                TransferAction::Accept => Command::AcceptTransfer(transfer),
+                TransferAction::Reject => Command::RejectTransfer(transfer),
+                TransferAction::Resume => Command::ResumeTransfer(transfer),
+                TransferAction::Remove => Command::RemoveTransfer(transfer),
+            };
+            self.issue(command, Pending::Transfer(transfer, action));
+        }
+    }
+
+    /// Accepts the file offered as `transfer`.
+    pub fn accept_transfer(&mut self, transfer: UiTransferId) {
+        self.transfer_action(transfer, TransferAction::Accept);
+    }
+
+    /// Rejects the file offered as `transfer`.
+    pub fn reject_transfer(&mut self, transfer: UiTransferId) {
+        self.transfer_action(transfer, TransferAction::Reject);
+    }
+
+    /// Goes on with the received transfer held after a failed write.
+    pub fn resume_transfer(&mut self, transfer: UiTransferId) {
+        self.transfer_action(transfer, TransferAction::Resume);
+    }
+
+    /// Takes the ended `transfer` off the list. A received file not saved
+    /// is removed through its dialog instead ([`Dialog::RemoveFile`]).
+    pub fn remove_transfer(&mut self, transfer: UiTransferId) {
+        self.transfer_action(transfer, TransferAction::Remove);
+    }
+
+    /// Opens the dialog that saves the received file of `transfer`, and
+    /// asks the runtime where it would go.
+    pub fn open_save(&mut self, transfer: UiTransferId) {
+        if Some(transfer.identity()) != self.current || self.transfer(transfer).is_none() {
+            return;
+        }
+        if self.dialog.is_some() {
+            return;
+        }
+        self.open(Dialog::SaveFile {
+            transfer,
+            place: String::new(),
+            suggesting: None,
+            busy: None,
+            error: None,
+        });
+        let id = self.issue(Command::SavePlace(transfer), Pending::SavePlace(transfer));
+        if let Some(Dialog::SaveFile { suggesting, .. }) = self.dialog.as_mut() {
+            *suggesting = Some(id);
+        }
+    }
+
+    /// Takes a file that could not be offered off its conversation.
+    pub fn dismiss_unsent(&mut self, contact: UiContactId, number: u64) {
+        if let Some(slice) = self.slices.get_mut(&contact.identity()) {
+            slice.unsent.retain(|unsent| unsent.number != number);
+        }
+    }
+
+    /// Whether a command on `transfer` is under way.
+    pub fn transfer_busy(&self, transfer: UiTransferId) -> bool {
+        let pending = self
+            .pending
+            .values()
+            .any(|pending| matches!(pending, Pending::Transfer(asked, _) if *asked == transfer));
+        let dialog = matches!(
+            self.dialog.as_ref(),
+            Some(
+                Dialog::SaveFile { transfer: on, busy: Some(_), .. }
+                    | Dialog::CancelTransfer { transfer: on, busy: Some(_), .. }
+                    | Dialog::RemoveFile { transfer: on, busy: Some(_), .. }
+            ) if *on == transfer
+        );
+        pending || dialog
+    }
+
+    /// The transfer cards of the conversation of `contact`: the transfers
+    /// the runtime holds, oldest first, then the files being prepared, then
+    /// those that could not be offered.
+    pub fn transfers_of(&self, contact: UiContactId) -> Vec<TransferItem> {
+        let Some(slice) = self.slices.get(&contact.identity()) else {
+            return Vec::new();
+        };
+        let mut items: Vec<TransferItem> = slice
+            .transfers
+            .iter()
+            .filter(|view| view.id.contact() == contact)
+            .map(|view| TransferItem {
+                key: TransferKey::Transfer(view.id),
+                incoming: view.incoming,
+                // The contact's text, made ready to draw on one line:
+                // invisible and direction marks shown, white space made
+                // one, its length bounded.
+                name: present::preview(&view.name, present::FILE_NAME_CHARS),
+                size: Some(view.size),
+                phase: phase(view, slice.progress.get(&view.id).map(|(bytes, _)| *bytes)),
+                busy: self.transfer_busy(view.id),
+            })
+            .collect();
+        items.extend(
+            self.pending
+                .iter()
+                .filter_map(|(id, pending)| match pending {
+                    Pending::Offer { contact: to, name } if *to == contact => Some(TransferItem {
+                        key: TransferKey::Preparing(*id),
+                        incoming: false,
+                        name: name.clone(),
+                        size: None,
+                        phase: TransferPhase::Preparing,
+                        busy: true,
+                    }),
+                    _ => None,
+                }),
+        );
+        items.extend(
+            slice
+                .unsent
+                .iter()
+                .filter(|unsent| unsent.contact == contact)
+                .map(|unsent| TransferItem {
+                    key: TransferKey::Unsent(unsent.number),
+                    incoming: false,
+                    name: unsent.name.clone(),
+                    size: None,
+                    phase: TransferPhase::Unsent(unsent.failure),
+                    busy: false,
+                }),
+        );
+        items
     }
 
     /// Sets the request mode of `identity`.
@@ -1750,6 +2201,10 @@ impl Model {
                         // queued counts it.
                         if let Some(slice) = self.slices.get_mut(&identity) {
                             slice.queued_since.retain(|_, next| *next > command.get());
+                            // A read asked after a progress event knows it.
+                            slice
+                                .progress
+                                .retain(|_, (_, since)| *since > command.get());
                         }
                     }
                     Outcome::Failed(Failure::NoSuchIdentity) => {
@@ -1795,6 +2250,36 @@ impl Model {
                 }
             }
             Pending::Dialog => self.dialog_done(command, outcome),
+            Pending::Offer { contact, name } => self.offer_done(contact, name, outcome),
+            Pending::Transfer(transfer, _) => {
+                self.mark_identity(transfer.identity());
+                if let Outcome::Failed(failure) = outcome {
+                    self.failed(failure);
+                }
+            }
+            Pending::SavePlace(transfer) => {
+                if let Some(Dialog::SaveFile {
+                    transfer: on,
+                    place,
+                    suggesting,
+                    ..
+                }) = self.dialog.as_mut()
+                {
+                    if *on == transfer && *suggesting == Some(command) {
+                        *suggesting = None;
+                        // What the user typed meanwhile stays.
+                        if let Outcome::SavePlace {
+                            transfer: answered,
+                            place: suggested,
+                        } = outcome
+                        {
+                            if answered == transfer && place.is_empty() {
+                                *place = suggested.to_string_lossy().into_owned();
+                            }
+                        }
+                    }
+                }
+            }
             Pending::Send { contact, text } => self.send_done(command, contact, &text, outcome),
             Pending::Answer(request, answer) => {
                 self.mark_identity(request.identity());
@@ -1918,6 +2403,17 @@ impl Model {
             .into_iter()
             .filter(|view| view.id.identity() == identity)
             .collect();
+        let transfers: Vec<TransferView> = snapshot
+            .transfers
+            .into_iter()
+            .filter(|view| view.id.identity() == identity)
+            .collect();
+        let interrupted: Vec<UiTransferId> = snapshot
+            .interrupted
+            .into_iter()
+            .filter(|transfer| transfer.identity() == identity)
+            .collect();
+        let shown = self.current == Some(identity);
         let Some(slice) = self.slices.get_mut(&identity) else {
             return;
         };
@@ -1956,6 +2452,19 @@ impl Model {
         slice.blocked = blocked;
         slice.service = Some(snapshot.service);
         slice.request_mode = Some(snapshot.request_mode);
+        let listed: BTreeSet<UiTransferId> = transfers.iter().map(|view| view.id).collect();
+        slice
+            .progress
+            .retain(|transfer, _| listed.contains(transfer));
+        slice.transfers = transfers;
+        slice.interrupted = interrupted;
+        slice
+            .unsent
+            .retain(|unsent| current.contains(&unsent.contact));
+        let untold = shown && slice.interrupted.iter().any(|t| !slice.told.contains(t));
+        if shown {
+            slice.told.extend(slice.interrupted.iter().copied());
+        }
         slice.loaded = true;
         // A conversation that is gone is not shown any more, and nothing
         // of it is kept.
@@ -1968,6 +2477,9 @@ impl Model {
             if !known.contains(&contact) {
                 slice.selection = None;
             }
+        }
+        if untold {
+            self.notice(NoticeKind::Info, INTERRUPTED_SAVE);
         }
         // A contact just added or accepted is shown once it is known, and
         // only while its identity is the one shown.
@@ -2102,6 +2614,25 @@ impl Model {
         ))
     }
 
+    fn offer_done(&mut self, contact: UiContactId, name: String, outcome: Outcome) {
+        self.mark_identity(contact.identity());
+        match outcome {
+            Outcome::TransferOffered(transfer) if transfer.contact() == contact => {}
+            Outcome::Failed(failure) => {
+                let number = next(&mut self.revisions);
+                if let Some(slice) = self.slices.get_mut(&contact.identity()) {
+                    slice.unsent.push(Unsent {
+                        number,
+                        contact,
+                        name,
+                        failure,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn dialog_done(&mut self, command: CommandId, outcome: Outcome) {
         // Whether a contact just added had accepted already: then its card
         // changed nothing.
@@ -2136,6 +2667,8 @@ impl Model {
         let mut close = true;
         let mut affected: Option<UiIdentityId> = dialog.identity();
         let mut message: Option<&'static str> = None;
+        // A save that wrote the file but could not confirm it.
+        let mut unconfirmed = false;
         // What an answer names is taken only if it belongs to the identity
         // the dialog acts on; anything else closes the dialog, and that
         // identity is read again.
@@ -2234,6 +2767,23 @@ impl Model {
                 self.identities_stale = true;
                 message = Some("Identity deleted.");
             }
+            (
+                Dialog::SaveFile { transfer, .. },
+                Outcome::Saved {
+                    transfer: saved,
+                    confirmed,
+                },
+            ) if saved == *transfer => {
+                if confirmed {
+                    message = Some("File saved.");
+                } else {
+                    unconfirmed = true;
+                }
+            }
+            (Dialog::CancelTransfer { .. }, Outcome::Done) => {
+                message = Some("Transfer cancelled.");
+            }
+            (Dialog::RemoveFile { .. }, Outcome::Done) => message = Some("File removed."),
             _ => {}
         }
         if close {
@@ -2250,6 +2800,9 @@ impl Model {
             }),
             (Some(text), None) => self.notice(NoticeKind::Success, text),
             (None, _) => {}
+        }
+        if unconfirmed {
+            self.notice(NoticeKind::Info, UNCONFIRMED_SAVE);
         }
     }
 
@@ -2331,6 +2884,37 @@ impl Model {
                 }
             }
             RuntimeEvent::IdentityClosed(_) => self.identities_stale = true,
+            RuntimeEvent::TransferOffered(transfer) => {
+                let contact = transfer.contact();
+                self.mark_identity(contact.identity());
+                // As for an acceptance: an event of another identity
+                // changes nothing shown, and a conversation shown says it.
+                let shown = self.selection() == Some(Selection::Conversation(contact));
+                if self.current() == Some(contact.identity()) && !shown {
+                    let name = self.contact_name(contact);
+                    self.notice(
+                        NoticeKind::Info,
+                        Prose::said("").name(&name).and(" offers you a file."),
+                    );
+                }
+            }
+            RuntimeEvent::TransferChanged(transfer) | RuntimeEvent::SaveInterrupted(transfer) => {
+                self.mark_identity(transfer.identity());
+            }
+            // A value the event carries, kept until a later read answers:
+            // progress comes often, and reading everything for each would
+            // cost more than it shows.
+            RuntimeEvent::TransferProgressed { transfer, bytes } => {
+                let since = self.next;
+                if let Some(slice) = self.slices.get_mut(&transfer.identity()) {
+                    if slice.transfers.iter().any(|view| view.id == transfer) {
+                        slice.progress.insert(transfer, (bytes, since));
+                    } else {
+                        // A transfer not read yet is read.
+                        slice.stale = true;
+                    }
+                }
+            }
             // The screens say it, once and for as long as it lasts; a
             // notice would say it again.
             RuntimeEvent::StorageFailed => self.storage_failed = true,
@@ -2347,4 +2931,42 @@ fn optional(text: &str) -> Option<String> {
 /// The status a message is shown with: exactly the runtime's.
 pub fn shown_status(message: &MessageView) -> Status {
     message.status
+}
+
+/// What the user is told of a save that wrote the file but could not
+/// confirm it.
+const UNCONFIRMED_SAVE: &str = "The file was saved, but Monolith could not make sure it is on \
+                                the disk. The received copy is kept: check the saved file \
+                                before you remove it.";
+
+/// What the user is told of interrupted saves.
+const INTERRUPTED_SAVE: &str = "A save of a received file was cut short when Monolith last \
+                                closed. A file whose name starts with monolith-partial- may be \
+                                left in the folder it was going to; the received file is kept.";
+
+/// Where `view` stands, with `progress` the bytes of its last progress
+/// event that no read answered yet. Bytes the runtime does not know are
+/// never shown as 0.
+pub fn phase(view: &TransferView, progress: Option<u64>) -> TransferPhase {
+    let bytes = progress.or(view.bytes);
+    let moving = |bytes: Option<u64>| match bytes {
+        Some(bytes) => TransferPhase::Transferring { bytes },
+        None => TransferPhase::Restoring,
+    };
+    match view.status {
+        TransferStatus::Waiting => TransferPhase::Waiting,
+        TransferStatus::Offered => TransferPhase::Offered,
+        TransferStatus::Sending => moving(bytes),
+        TransferStatus::Receiving if view.held => TransferPhase::Paused,
+        TransferStatus::Receiving => moving(bytes),
+        TransferStatus::Completed => TransferPhase::Completed,
+        TransferStatus::Received if view.saved => TransferPhase::Saved,
+        TransferStatus::Received => TransferPhase::Received,
+        TransferStatus::Rejected => TransferPhase::Rejected,
+        TransferStatus::Expired => TransferPhase::Expired,
+        TransferStatus::Cancelled => TransferPhase::Cancelled {
+            by_us: view.reason == Some(TransferReason::ByUs),
+        },
+        TransferStatus::Failed => TransferPhase::Failed(view.reason),
+    }
 }

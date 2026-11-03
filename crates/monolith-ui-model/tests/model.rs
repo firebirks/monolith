@@ -72,6 +72,8 @@ fn snapshot(identity: UiIdentityId, contacts: Vec<ContactView>) -> IdentitySnaps
         blocked: Vec::new(),
         service: Service::Available,
         request_mode: RequestMode::Invitation,
+        transfers: Vec::new(),
+        interrupted: Vec::new(),
     }
 }
 

@@ -219,6 +219,65 @@ pub fn sendable(draft: &str) -> bool {
     !draft.trim().is_empty() && draft.len() <= MAX_MESSAGE_BYTES
 }
 
+/// The most characters of a filename shown on one line; the rest is cut
+/// with an ellipsis.
+pub const FILE_NAME_CHARS: usize = 60;
+
+/// A size in bytes as people read it: "0 bytes", "1 byte", "999 bytes",
+/// then kilobytes, megabytes and gigabytes of 1000 each, with one decimal
+/// below ten, rounded down. Integers only: what is shown never decides
+/// anything.
+pub fn size(bytes: u64) -> String {
+    const UNITS: [(u64, &str); 3] = [(1_000_000_000, "GB"), (1_000_000, "MB"), (1_000, "KB")];
+    for (unit, name) in UNITS {
+        if bytes >= unit {
+            let tenths = u128::from(bytes)
+                .saturating_mul(10)
+                .checked_div(u128::from(unit))
+                .unwrap_or(0);
+            return if tenths < 100 {
+                let whole = tenths.checked_div(10).unwrap_or(0);
+                let tenth = tenths.checked_rem(10).unwrap_or(0);
+                format!("{whole}.{tenth}\u{a0}{name}")
+            } else {
+                format!("{}\u{a0}{name}", bytes.checked_div(unit).unwrap_or(0))
+            };
+        }
+    }
+    if bytes == 1 {
+        "1\u{a0}byte".to_owned()
+    } else {
+        format!("{bytes}\u{a0}bytes")
+    }
+}
+
+/// The whole per cent of `size` that `bytes` is, rounded down and at most
+/// 100; a file of no bytes is all there at once. For display only.
+pub fn percent(bytes: u64, size: u64) -> u8 {
+    if size == 0 {
+        return 100;
+    }
+    let share = u128::from(bytes.min(size))
+        .saturating_mul(100)
+        .checked_div(u128::from(size))
+        .unwrap_or(100);
+    u8::try_from(share).unwrap_or(100)
+}
+
+/// "41 MB of 64 MB".
+pub fn progress(bytes: u64, total: u64) -> String {
+    format!("{} of {}", size(bytes.min(total)), size(total))
+}
+
+/// The name shown for the local file at `path` before it is offered: the
+/// last part of the path, made ready to draw on one line. Only for the
+/// user's own screen; the runtime makes the name the contact sees.
+pub fn local_file_name(path: &str) -> String {
+    let trimmed = path.trim().trim_end_matches(['/', '\\']);
+    let last = trimmed.rsplit(['/', '\\']).next().unwrap_or_default();
+    preview(last, FILE_NAME_CHARS)
+}
+
 /// A day and a time of day in local time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LocalTime {
@@ -404,6 +463,46 @@ pub fn utc(seconds: u64) -> LocalTime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sizes_are_shown_in_units_of_a_thousand_rounded_down() {
+        assert_eq!(size(0), "0\u{a0}bytes");
+        assert_eq!(size(1), "1\u{a0}byte");
+        assert_eq!(size(999), "999\u{a0}bytes");
+        assert_eq!(size(1_000), "1.0\u{a0}KB");
+        assert_eq!(size(1_999), "1.9\u{a0}KB");
+        assert_eq!(size(9_999), "9.9\u{a0}KB");
+        assert_eq!(size(10_000), "10\u{a0}KB");
+        assert_eq!(size(999_999), "999\u{a0}KB");
+        assert_eq!(size(64_000_000), "64\u{a0}MB");
+        assert_eq!(size(268_435_456), "268\u{a0}MB");
+        assert_eq!(size(1_500_000_000), "1.5\u{a0}GB");
+        assert_eq!(size(u64::MAX), "18446744073\u{a0}GB");
+    }
+
+    #[test]
+    fn a_share_never_divides_by_zero_nor_passes_a_hundred() {
+        assert_eq!(percent(0, 0), 100);
+        assert_eq!(percent(0, 64), 0);
+        assert_eq!(percent(41, 64), 64);
+        assert_eq!(percent(63, 64), 98);
+        assert_eq!(percent(64, 64), 100);
+        assert_eq!(percent(100, 64), 100);
+        assert_eq!(percent(u64::MAX, u64::MAX), 100);
+        assert_eq!(percent(u64::MAX - 1, u64::MAX), 99);
+        assert_eq!(progress(41_000_000, 64_000_000), "41\u{a0}MB of 64\u{a0}MB");
+        assert_eq!(progress(70, 64), "64\u{a0}bytes of 64\u{a0}bytes");
+    }
+
+    #[test]
+    fn a_local_file_is_shown_by_the_last_part_of_its_path() {
+        assert_eq!(local_file_name("/home/me/photo.jpg"), "photo.jpg");
+        assert_eq!(local_file_name("C:\\Users\\me\\report.pdf"), "report.pdf");
+        assert_eq!(local_file_name("  /tmp/notes.txt  "), "notes.txt");
+        assert_eq!(local_file_name("/tmp/folder/"), "folder");
+        assert_eq!(local_file_name("a\u{202e}b.txt"), "a<U+202E>b.txt");
+        assert!(local_file_name(&"x".repeat(500)).chars().count() <= FILE_NAME_CHARS + 1);
+    }
 
     #[test]
     fn invisible_and_direction_marks_are_shown() {

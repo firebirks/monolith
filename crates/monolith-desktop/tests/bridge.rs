@@ -702,3 +702,163 @@ fn a_blocked_person_is_unblocked_by_a_number_of_their_identity_once() {
     );
     assert_eq!(driver.ask(Command::Unblock(again)), Outcome::Done);
 }
+
+/// What the bridge says of `identity` now.
+fn snapshot(driver: &mut Driver, identity: UiIdentityId) -> monolith_ui_model::IdentitySnapshot {
+    match driver.ask(Command::LoadIdentity(identity)) {
+        Outcome::Identity(snapshot) => *snapshot,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// What the bridge says of `identity` once `holds` holds of it.
+fn until_snapshot(
+    driver: &mut Driver,
+    identity: UiIdentityId,
+    holds: impl Fn(&monolith_ui_model::IdentitySnapshot) -> bool,
+) -> monolith_ui_model::IdentitySnapshot {
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let read = snapshot(driver, identity);
+        if holds(&read) {
+            return read;
+        }
+        assert!(Instant::now() < deadline, "it did not come about");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_file_goes_from_one_identity_to_another_through_the_bridge_and_is_saved() {
+    use monolith_ui_model::{TransferStatus, UiContactId, UiTransferId};
+    let network = MockNetwork::new();
+    let mut driver = Driver::start(&network, None);
+    start_without_saving(&mut driver);
+    let alice = driver.identity("Alice");
+    let bob = driver.identity("Bob");
+    // Alice and Bob become contacts: an invitation of Bob, Alice's first
+    // message, Bob's acceptance.
+    let (_, card) = driver.invitation(bob);
+    let at_alice = match driver.ask(Command::AddContact {
+        identity: alice,
+        card,
+        name: Some("Bob".to_owned()),
+    }) {
+        Outcome::ContactAdded { contact, .. } => contact,
+        other => panic!("{other:?}"),
+    };
+    assert!(matches!(
+        driver.ask(Command::Send {
+            contact: at_alice,
+            text: "hello".to_owned(),
+        }),
+        Outcome::MessageQueued(_)
+    ));
+    driver.wait_event(|event| {
+        matches!(event, RuntimeEvent::RequestReceived { identity, queued: true } if *identity == bob)
+    });
+    let request = snapshot(&mut driver, bob).requests[0].id;
+    let at_bob = match driver.ask(Command::AcceptRequest {
+        request,
+        name: None,
+    }) {
+        Outcome::RequestAccepted(contact) => contact,
+        other => panic!("{other:?}"),
+    };
+    driver.wait_event(
+        |event| matches!(event, RuntimeEvent::ContactAccepted(contact) if *contact == at_alice),
+    );
+
+    // A file on the disk, offered by its path; the bridge only passes it on.
+    let dir = scratch("file");
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("notes.txt");
+    let data: Vec<u8> = (0..300_000_u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&source, &data).unwrap();
+    let offered = match driver.ask(Command::OfferFile {
+        contact: at_alice,
+        path: source.clone(),
+    }) {
+        Outcome::TransferOffered(transfer) => transfer,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(offered.contact(), at_alice);
+    driver.wait_event(|event| {
+        matches!(event, RuntimeEvent::TransferOffered(transfer) if transfer.contact() == at_bob)
+    });
+    let incoming = snapshot(&mut driver, bob)
+        .transfers
+        .into_iter()
+        .find(|view| view.incoming)
+        .unwrap();
+    assert_eq!(incoming.name, "notes.txt");
+    assert_eq!(incoming.size, data.len() as u64);
+    assert_eq!(incoming.status, TransferStatus::Offered);
+
+    // Its number under another contact, or another identity, names nothing.
+    let handle = incoming.id.handle();
+    for forged in [
+        UiTransferId::new(at_alice, handle),
+        UiTransferId::new(UiContactId::new(alice, at_bob.record()), handle),
+    ] {
+        assert_eq!(
+            driver.ask(Command::AcceptTransfer(forged)),
+            Outcome::Failed(Failure::NoSuchTransfer)
+        );
+    }
+    assert_eq!(
+        driver.ask(Command::AcceptTransfer(incoming.id)),
+        Outcome::Done
+    );
+    until_snapshot(&mut driver, bob, |read| {
+        read.transfers
+            .iter()
+            .any(|view| view.id == incoming.id && view.status == TransferStatus::Received)
+    });
+    until_snapshot(&mut driver, alice, |read| {
+        read.transfers
+            .iter()
+            .any(|view| view.id == offered && view.status == TransferStatus::Completed)
+    });
+
+    // Saved where the user says, after the place suggested.
+    match driver.ask(Command::SavePlace(incoming.id)) {
+        Outcome::SavePlace { transfer, place } => {
+            assert_eq!(transfer, incoming.id);
+            let name = place.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(name.starts_with("notes"), "{name}");
+        }
+        other => panic!("{other:?}"),
+    }
+    let destination = dir.join("saved.txt");
+    std::fs::write(dir.join("taken.txt"), b"mine").unwrap();
+    assert_eq!(
+        driver.ask(Command::SaveTransfer {
+            transfer: incoming.id,
+            destination: dir.join("taken.txt"),
+        }),
+        Outcome::Failed(Failure::FileExists)
+    );
+    assert_eq!(
+        driver.ask(Command::SaveTransfer {
+            transfer: incoming.id,
+            destination: destination.clone(),
+        }),
+        Outcome::Saved {
+            transfer: incoming.id,
+            confirmed: true,
+        }
+    );
+    assert_eq!(std::fs::read(&destination).unwrap(), data);
+    assert_eq!(std::fs::read(dir.join("taken.txt")).unwrap(), b"mine");
+    // A folder is not a file to send: refused as the runtime refuses it.
+    assert_eq!(
+        driver.ask(Command::OfferFile {
+            contact: at_alice,
+            path: dir.clone(),
+        }),
+        Outcome::Failed(Failure::FileNotSendable)
+    );
+    assert_eq!(driver.ask(Command::Shutdown), Outcome::Done);
+    let _ = std::fs::remove_dir_all(&dir);
+}

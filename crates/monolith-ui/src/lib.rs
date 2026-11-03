@@ -21,6 +21,7 @@ mod requests;
 mod settings;
 mod shell;
 mod sidebar;
+mod transfers;
 
 pub use app::{
     App, CloseWarning, Effect, EffectResult, Preferences, SettingsPage, ThemeChoice, TorPreset,
