@@ -3106,3 +3106,107 @@ Left for later: section 14.2, and the limits the report names: the two
 rates of the accept path not enforced (P7-8), a store that is written
 whole for each message (P7-9), message texts not erased from memory,
 and the Windows checks that need what safe Rust does not give (P7-3).
+
+## 15. Phase 8: file transfer
+
+Phase 8 began on 2026-10-24 from `main` at `b93a10a`
+(`phase-7-complete`), on the branch `phase-8-file-transfer`. Its brief:
+secure, resumable, bounded file transfer between accepted contacts, in the
+core, the command line and the desktop client, without weakening anything
+Phases 1 to 7 verified. The design is ADR 0013 (the exchange) and ADR 0014
+(staging); each was reviewed before code relied on it.
+
+### 15.1 Decisions
+
+P8-1 The label of the session stays `MONOLITH-SESSION-V1`, and section 13
+    of `PROTOCOL.md` is amended in place: FileAccept gains an offset, and
+    transfers outlive sessions. No implementation of the earlier exchange
+    existed; a peer of Phase 7 answers every FileOffer with FileReject and
+    never offers, so it never meets a changed message. The private Tor
+    network test runs a peer built from the tag `phase-7-complete` against
+    a node of Phase 8 (step 31).
+
+P8-2 A transfer is durable state of each side, offered again on each
+    session that is the only one of its contact, and answered from the
+    receiver's record: what it holds durably, its decision, its
+    completion. A repeated offer finds the record and allocates nothing.
+
+P8-3 The window of four chunks is an obligation of the sender. A receiver
+    cannot know which of its acknowledgements the sender read, so it does
+    not hold the sender to them; a sender that ignores the window can make
+    it stage no more than the declared size, and holds up no chat.
+
+P8-4 A completion that crosses a cancellation of the sender delivers:
+    the receiver holds the file, and the sender is never told that a
+    cancellation took back bytes already received.
+
+P8-5 A FileChunk carries no offset. The offerer writes chunks only after
+    an acceptance on the same session, from the offset it gave; a sender
+    that broke the rule would be found only at the completion, as a
+    digest that differs, and the transfer would fail. Fault FT62.
+
+P8-6 The size of a transfer is at most 256 MiB (`MAX_TRANSFER_SIZE`), as
+    the owner set for this phase.
+
+P8-7 Files are chosen by dropping them on a conversation or by typing a
+    path, held to the rules of a file of this computer of Phase 7, which
+    moved from the desktop client to `monolith-storage` (`local`). A file
+    chooser of the system is left for later, before a public release.
+
+P8-8 A received file is saved by the runtime as a new file at a path the
+    user confirms, never over a name that exists, through a temporary
+    file given its name only once synced (ADR 0014). The client never
+    opens, previews or runs a file.
+
+P8-9 In the desktop client the cards of transfers sit in a strip above
+    the composer of their conversation, not in its thread, and attach is
+    a file icon; the icon font has no paperclip.
+
+P8-10 The interface is shown what the transfer store holds durably, never
+    a change applied in memory whose write has not completed. Found by
+    the model of the transfers between two runtimes: a crash could show a
+    cancelled transfer offered again, or a received file receiving again.
+    Fault FT45.
+
+P8-11 A file message that tells the peer something the state decided (an
+    offer, an acceptance, a rejection, a cancellation) is written only
+    once every change applied so far is durable. Found while the
+    candidates of mutation of the brief were mapped: a crash could leave
+    the peer with a message the other side no longer held. Crash tests at
+    every storage step of an offer, of each decision of the receiver and
+    of a cancellation of the sender; faults FT51 to FT53.
+
+P8-12 A cancelled outgoing transfer whose cancellation the receiver has not
+    read yet can be removed: its record goes, and the receiver learns that
+    the file is no longer offered. Before, the card offered the removal
+    and the core refused it. Fault FT46.
+
+P8-13 The UI model keeps the bytes of a progress event until a read asked
+    after it answers; of an event and a read it shows the greater, since
+    either may be the newer and the bytes only grow; a read that says the
+    bytes are not known drops the event's. A transfer action is taken
+    only where its card offers it, and a received file not saved is
+    removed only through its dialog. Control characters of a remote name
+    are shown as marks. Found by the property test of the UI model once
+    its truth held transfers; faults FT47 to FT50. The rule of the
+    greater hid fault FT40 from the test of Phase 8 that caught it; a test
+    of a read that says fewer bytes (a staged file started again) catches
+    it again.
+
+P8-14 The records of a blocked contact go when the installation opens
+    again, as its conversation does: the contact store holds no record of
+    a blocked contact, and what a store holds of a record the vault does
+    not hold goes at open.
+
+P8-15 A rejection, an expiry or a final answer makes no dial; the offerer
+    learns it on its next session (ADR 0013, "Scheduling").
+
+P8-16 What the completion proves is the integrity of the transfer: the
+    file is the one its sender declared, every byte, with that digest. It
+    says nothing about whether the content is safe.
+
+### 15.2 Not part of Phase 8
+
+Previews, thumbnails, opening files, folders, several files in one offer,
+groups, a file chooser of the system, transfers to people who are not
+accepted contacts, and transfers larger than 256 MiB.

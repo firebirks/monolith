@@ -102,11 +102,16 @@ Onion Service, which the next read of the identity returns too, and a
 deferred delivery, whose reason and time of the next attempt no query
 returns. Since Phase 8 a third: the bytes a progress event of a transfer
 says, kept until a read asked after it answers, which knows them too; a
-progress event alone asks for no read. A transfer whose bytes the runtime
-does not know (after a restart, until it goes on) is shown as being
-restored, with a bar that shows no share, never as 0%; a file being read
-and encrypted before its offer exists is shown as being prepared, never as
-sent. After missed events everything is read again and Tor is checked
+progress event alone asks for no read. Of the bytes of an event and those
+of a read, either may be the newer, and the bytes of a transfer only grow:
+the greater is shown. A read that says the runtime does not know them
+drops the event's, whenever it was asked, so no number the runtime no
+longer stands by is shown. A transfer whose bytes the runtime does not
+know (after a restart, until it goes on) is shown as being restored, with
+a bar that shows no share, never as 0%; a file being read and encrypted
+before its offer exists is shown as being prepared, never as sent. The
+runtime answers reads of transfers from what its transfer store holds
+durably, so nothing shown is taken back by a crash. After missed events everything is read again and Tor is checked
 again. Transient
 state belongs to the window: the selection (a handle), the open dialog
 (with the handles it captured when it opened), drafts, the filter, focus.
@@ -493,6 +498,12 @@ Measured on the development machine (Windows 11, release build):
   switching identity 0.3 ms; a burst of 1000 events is folded into 2 reads
   in 0.03 ms.
 
+Preparing the largest file, 256 MiB, took 0.8 s on that machine (about
+350 MB/s of reading, hashing, encrypting and writing by the runtime); the
+window ran 5307 frames meanwhile and none waited for it, the slowest under
+a millisecond of work on the window's thread (`examples/files.rs`,
+scenario L; painting is not part of those frames).
+
 A conversation lays out and paints only the messages in view and half a
 view above and below it. The height of a message at the width it is shown
 in is measured the first time it is laid out and kept; until then it is
@@ -528,4 +539,12 @@ start of the newest message.
 - The window's size and maximized state are kept, not its position.
 - On Windows the permissions of the profile folder are not checked
   (`STORAGE.md` section 3.8).
+- Files are chosen by dropping them on a conversation or by typing a path;
+  there is no file chooser of the system yet. A received file is saved at a
+  path the user confirms, never opened, previewed or run by the client.
+- A received file is exactly the one its sender declared, every byte,
+  with its digest; that says nothing about whether its content is safe.
+- A transfer action is taken only where its card offers it (an offer is
+  accepted or rejected, a paused transfer resumed, an ended one removed);
+  a received file not saved is removed only through its dialog.
 - See also section 9.

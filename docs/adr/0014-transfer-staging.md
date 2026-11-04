@@ -325,12 +325,14 @@ These cases are in the crash table of `STORAGE.md` section 8.
 
 ### Saving a received file
 
-The front end asks for a reader of a complete incoming transfer. The
-reader authenticates and decrypts the blob segment by segment, hashes
-what it returns, and, after the last byte, returns an error, never the
-end of the file, unless the length and the hash are those of the
-record. Before it writes anything, the record gets the flag that a save
-began, durably. The front end then:
+The runtime saves a complete incoming transfer at the path the user
+chose (`Runtime::save_transfer`); the front end only gives the path. It
+takes a reader of the transfer, which authenticates and decrypts the
+blob segment by segment, hashes what it returns, and, after the last
+byte, returns an error, never the end of the file, unless the length and
+the hash are those of the record. Before it writes anything, the record
+gets the flag that a save began, durably. The runtime then
+(`monolith_storage::export::save_new`):
 
 1. finds out whether the folder takes a hard link, with a probe file of
    no content, created with exclusive create, linked and removed;
@@ -511,3 +513,20 @@ persistent installation; that is the user's act, as saving a card is.
 - Writing a saved file directly under its final name, or renaming over a
   name that exists: a crash would leave a partial file under the final
   name, or replace a file of the user.
+
+## Changes during the implementation
+
+- Saving a received file is done by the runtime, not by the front end
+  (section "Saving a received file"): the front end is a client of the
+  runtime and gives a path, which the runtime holds to the rules of a
+  folder of this computer (`monolith_storage::local`) before anything is
+  written.
+- The interface is shown what the transfer store holds, never a change
+  applied in memory whose write has not completed: the records of the
+  last completed write, with what is known of the blobs beside them
+  (`Transfers::show`). A crash therefore never takes back what the user
+  saw. Commands and the session tasks still decide on the state in
+  memory, and every answer and event follows a durable write, as before.
+- Every segment of a blob is sealed under a nonce drawn for its write;
+  a test stages one file twice under one key and finds no nonce used
+  twice and no run of the file's bytes in either blob.

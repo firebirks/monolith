@@ -54,8 +54,15 @@ state of its window (`monolith-ui-model`), its design system
 (`monolith-ui-kit`) and its screens (`monolith-ui`) depend on no other
 Monolith crate, and `monolith-desktop` joins them to the runtime
 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`). Since Phase 7 the core
-answers the file messages of a session (`transfers`) and enforces the
-rates of contacts (`rates`).
+answers the file messages of a session and enforces the rates of contacts
+(`rates`). Since Phase 8 it transfers files (`adr/0013-file-transfer.md`,
+`adr/0014-transfer-staging.md`): the state machine of the transfers of an
+installation and their durable records (`transfers`), the rules of a
+session for file messages (`exchange`), the staged files (`blobs`) and the
+file work of the session tasks (`runtime/transfer`). `monolith-storage`
+holds the formats of the transfer store and of staged files, saves a
+received file as a new file (`export`), and says what a file of this
+computer is (`local`, moved there from the desktop client in Phase 8).
 
 | Crate | Owns | Must not |
 | --- | --- | --- |
@@ -63,7 +70,7 @@ rates of contacts (`rates`).
 | `monolith-protocol` | limits, frame and message encoding, contact cards, the credentials of a contact, the session state machine | do cryptography other than verifying a card; open sockets, touch files, know which Tor is used |
 | `monolith-session` | the handshake, the encrypted session, the transport secret key, every call to the Noise library, the random source | open sockets, touch files, read a clock, know about contacts beyond the record it is handed |
 | `monolith-tor` | the `TorBackend` trait and its implementations: SOCKS5 client, control client, listener | know about identities' meaning, messages or contacts |
-| `monolith-storage` | the vault and its records, the message store, transfer files | change contact or session state on its own, interpret peer input |
+| `monolith-storage` | the vault and its records, the message store, the transfer store and staged files, saving a received file as a new file, the rules of a file of this computer | change contact or session state on its own, interpret peer input |
 | `monolith-core` | contacts, sessions, queues, policy, budgets, the command and event interface | contain UI code, socket code or file formats |
 | `monolith-runtime` | what a front end may use: the commands, queries and events of the core as plain values | hand out a local identity, an installation, a link, a session, a key or a capability |
 | `monolith-cli` | argument parsing, terminal output | contain protocol logic |
@@ -292,7 +299,12 @@ Persistent state is written only at "applied".
     publishes the outcome
     however the task ends; tasks that wait at the same time find their
     change covered;
-  - one writer task per active file transfer.
+  - the chunks of a file are staged and read by the task of the session
+    that carries it, through jobs on the blocking pool; staging a file
+    that is being offered, or saving a received one, runs one at a time
+    (ADR 0014). What a front end is shown of a transfer, and what a
+    session tells the peer of it, is what the transfer store holds
+    durably.
 - Every channel is bounded, with its capacity in `limits.rs` (S12).
   Unbounded channel constructors are banned by lint.
 - Every task is owned by the supervisor through a join handle and has a
@@ -324,14 +336,17 @@ Commands (version 1): create or unlock identity; lock; show own contact
 card; create a card with a new invitation capability and a local label;
 revoke an invitation capability; set request mode; add contact card;
 accept, decline, block a request; block, unblock, delete a contact; mark
-verified; send message; offer file; accept, reject, abort a transfer;
+verified; send message; offer a file by its path; accept, reject,
+cancel, remove, resume, save a transfer;
 confirm endpoint update; set profile; shut down. For several local
 identities, later: create another identity, set its local label, take it
 online or offline, delete it (`STORAGE.md` section 1.1).
 
 Events (version 1): Tor state; service state; peer state per contact;
 identity mismatch; request count changed; message received; message
-acknowledged; file offered; transfer progress and result; endpoint update
+acknowledged; file offered; transfer changed; transfer progress (the
+bytes staged or acknowledged, a value kept until a later read); save
+interrupted; endpoint update
 pending; queue full notices.
 
 Front ends must be able to show these states distinctly, and none of them
@@ -532,6 +547,7 @@ the platform's packaging.
 | 5 | Messaging runtime: the message store, durable delivery with acknowledgements and deduplication, the session manager with duplicate resolution, the reconnect scheduler, the command and event interface (`DESIGN_QUESTIONS.md` section 12). |
 | 6 | Desktop client for Linux and Windows: egui and eframe over the runtime, with a design system of its own (`DESIGN_QUESTIONS.md` section 13). |
 | 7 | Security and protocol hardening: the findings of the reviews of Phases 5 and 6 and the deferred items they name, with no new feature (`DESIGN_QUESTIONS.md` section 14). |
+| 8 | File transfer between accepted contacts: offer, explicit acceptance, chunks over the session with a window, resume across sessions and restarts, encrypted staging, a received file saved as a new file where the user chooses, in the core, the command line and the desktop client (`DESIGN_QUESTIONS.md` section 15). |
 | later | Tails. |
 | later | Whonix. |
 | later | Hardening: attack simulation, fuzzing corpus, benchmarks, dependency audit. |
@@ -542,8 +558,9 @@ plan Tails was Phase 6, Whonix Phase 7 and the GUI Phase 8; the brief of
 Phase 5 named the GUI on the runtime as Phase 6, and the owner's brief of
 Phase 6 made it so. The owner's brief of Phase 7 made it the hardening
 of what Phases 5 and 6 built. The rows marked "later" are what remains
-of the earlier plan; the owner's briefs set their order. File transfer, which
-was Phase 5 in the earlier plan, is not part of the messaging runtime.
+of the earlier plan; the owner's briefs set their order. File transfer,
+which was Phase 5 in the earlier plan, was left out of the messaging
+runtime then; the owner's brief of Phase 8 made it Phase 8.
 
 Preconditions beyond review:
 

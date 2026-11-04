@@ -547,3 +547,34 @@ transfer for good.
   acknowledgements past their timeouts.
 - No resume, as in version 1: fails the brief, and an upload of more than
   a few minutes would rarely finish on Tor.
+
+## Changes during the implementation
+
+- What a front end is shown of a transfer is what the transfer store
+  holds durably (ADR 0014, "Changes during the implementation"): a
+  completion, a cancellation or an offer recorded in memory is not
+  listed until its write completed. The model test of the transfers
+  found that a crash could otherwise show a cancelled transfer offered
+  again, or a received file receiving again.
+- A file message that tells the peer something the state decided (an
+  offer, FileAccept, FileReject or FileAbort) is written only once every
+  change applied so far is durable (`Transfers::settled`). Before, a
+  session could write an offer, a decision or a cancellation from the
+  state in memory, and a crash could leave the peer with a message the
+  other side no longer held. Crash tests at every storage step of an
+  offer, of each decision of the receiver and of a cancellation of the
+  sender check it.
+- The user may remove a cancelled outgoing transfer whose cancellation
+  the receiver has not read yet: its record goes, and the receiver learns
+  that the file is no longer offered (an accepted transfer fails as
+  `OffererGone`, an undecided offer expires). Before, the interface
+  offered the removal and the core refused it.
+- An offerer writes a chunk only after an acceptance on the same
+  session, from the offset that acceptance gave. A FileChunk carries no
+  offset, so a sender that broke this rule would stage bytes at another
+  offset than it meant; the receiver would find it only at the
+  completion, as a digest that differs, and the transfer would fail.
+- What the completion proves is the integrity of the transfer: the file
+  is the one its sender declared, every byte, with that digest. It says
+  nothing about whether the content is safe. Monolith never opens,
+  previews or runs a received file.

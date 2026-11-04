@@ -1777,6 +1777,13 @@ and transfers outlive sessions. A peer that implements only the earlier
 rules of Phase 7 answers every FileOffer with FileReject, never offers,
 and so never receives a message whose layout or meaning changed.
 
+A side writes a FileOffer, FileAccept, FileReject, FileAbort or
+FileComplete only for state it holds durably: a peer may take any of
+them as an answer that a crash of the side that wrote it does not take
+back. A FileAccept never counts bytes that are not staged durably, and a
+FileComplete of the receiver follows the durable record of the completion
+(section 13.1).
+
 Identity of a transfer and of its file:
 
 - `transfer_id` is 16 random bytes chosen by the offerer. Each side keys
