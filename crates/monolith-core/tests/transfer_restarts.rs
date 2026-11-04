@@ -43,7 +43,7 @@ use monolith_protocol::limits::{
 use monolith_protocol::session::Action;
 use monolith_protocol::text::{ChatText, Filename};
 use monolith_storage::StorageError;
-use monolith_storage::dir::{CrashOutcome, MemoryDir, VaultDir};
+use monolith_storage::dir::{CrashOutcome, MemoryDir, TRANSFERS, VaultDir};
 use monolith_storage::vault::{KdfParams, Passphrase};
 use monolith_tor::{MockNetwork, MockTorBackend};
 use proptest::prelude::*;
@@ -2570,6 +2570,75 @@ fn a_transfer_goes_on_over_the_session_that_replaces_its_own() {
         }));
         assert_eq!(saved(&b, &received).await, data);
     });
+}
+
+/// A block is durable in the vault before the transfers of the contact are
+/// cancelled in their own store. A crash at any step between leaves
+/// nothing of the blocked contact live or saveable: the vault no longer
+/// holds its record, and the transfer store, matched against it when it
+/// opens, drops what it held of it.
+#[test]
+fn a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable() {
+    for outcome in CrashOutcome::ALL {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut b, a, at_b, _) = contacts(&network).await;
+            let data = file(2 * L);
+            let mut link = hand_link(&network, &b, &a).await;
+            let received = offered_and_accepted(&b, &mut link, &data).await;
+            send_rest(&mut link, &data, 0).await;
+            assert_eq!(b.status(&received), Some(TransferStatus::Received));
+            b.stop().await;
+            let base = b.dir().restart(CrashOutcome::ALL[0]);
+            let again = |b: &mut Node| {
+                b.identity = None;
+                b.installation = None;
+                b.dir = Some(base.restart(CrashOutcome::ALL[0]));
+                b.open();
+            };
+            // The storage steps of the block, with no crash.
+            again(&mut b);
+            b.start(&network).await;
+            let start = b.dir().steps();
+            b.runtime().block_contact(&b.id(), &at_b).await.unwrap();
+            let steps = b.dir().steps() - start;
+            b.stop().await;
+            // Crashes with the block durable and the transfers not yet
+            // cancelled in their store: the sweep reaches that window.
+            let mut between = 0;
+            for step in 1..=steps {
+                again(&mut b);
+                b.start(&network).await;
+                b.dir().crash_at(b.dir().steps() + step);
+                let _ = b.runtime().block_contact(&b.id(), &at_b).await;
+                b.crash(outcome).await;
+                // What the transfer store holds as the process starts again.
+                let store_kept = b.dir().content(TRANSFERS).ok() == base.content(TRANSFERS).ok();
+                b.open();
+                b.start(&network).await;
+                let at = format!("step {step} of {steps}, {outcome:?}");
+                if b.identity().blocked().is_empty() {
+                    // The block did not hold: the file is there, whole.
+                    assert_eq!(saved(&b, &received).await, data, "{at}");
+                } else {
+                    let views = b.runtime().transfers(&b.id()).unwrap();
+                    if store_kept {
+                        between += 1;
+                    }
+                    assert!(
+                        views
+                            .iter()
+                            .all(|view| matches!(view.status, TransferStatus::Cancelled)),
+                        "{at}"
+                    );
+                    assert!(b.runtime().begin_save(&received).await.is_err(), "{at}");
+                    assert!(within_a_minute(|| b.blobs().is_empty()).await, "{at}");
+                }
+                b.stop().await;
+            }
+            assert!(between > 0, "{outcome:?}");
+        });
+    }
 }
 
 #[test]
