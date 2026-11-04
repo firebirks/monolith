@@ -954,6 +954,8 @@ proptest! {
     /// received only with exactly the size offered and a digest the sender
     /// declared, from bytes staged durably, and so it stays; the bytes shown
     /// never pass the size, and the status moves only along the table.
+    /// That is the integrity of the transfer: the file is the one its sender
+    /// declared, whole. Nothing here says that what it holds is safe.
     #[test]
     fn whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified(
         steps in prop::collection::vec(hostile(), 1..32),
