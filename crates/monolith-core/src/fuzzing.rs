@@ -218,9 +218,16 @@ impl Transfers {
             .is_some_and(|key| self.state.remove(&key, now).is_ok())
     }
 
-    /// The peer accepted `named` holding `offset` bytes.
+    /// The size of the record of `named`, if there is one.
+    fn size(&self, key: &Key) -> Option<u64> {
+        self.state.record(key).map(|record| record.size)
+    }
+
+    /// The peer accepted `named` holding `offset` bytes, at most its size:
+    /// the rules of a session refuse an offset beyond it.
     pub fn accepted_by_peer(&mut self, named: Named, offset: u64, now: u64) {
         if let Some(key) = named.key() {
+            let offset = offset.min(self.size(&key).unwrap_or(0));
             self.state.accepted_by_peer(&key, offset, now);
         }
     }
@@ -248,9 +255,11 @@ impl Transfers {
         }
     }
 
-    /// `bytes` of `named` are staged durably.
+    /// `bytes` of `named`, at most its size, are staged durably: the rules
+    /// of a session refuse a chunk beyond it.
     pub fn staged(&mut self, named: Named, bytes: u64, now: u64) {
         if let Some(key) = named.key() {
+            let bytes = bytes.min(self.size(&key).unwrap_or(0));
             self.state.staged(&key, bytes, now);
         }
     }
