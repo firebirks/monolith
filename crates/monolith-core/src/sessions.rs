@@ -298,6 +298,12 @@ impl SessionManager {
                     if let Some(pending) = contenders.pending.take() {
                         pending.control.close();
                     }
+                    // The only session of its contact now: what it holds
+                    // back while there are two (the offers of transfers)
+                    // goes.
+                    if let Some(preferred) = &contenders.preferred {
+                        preferred.control.wake();
+                    }
                 }
                 ProbeOutcome::CloseOlder => {
                     if let Some(pending) = contenders.pending.take() {
@@ -338,6 +344,11 @@ impl SessionManager {
                 .is_some_and(|pending| pending.serial == serial)
             {
                 contenders.pending = None;
+                // As after a probe that closed it: the preferred session is
+                // the only one now.
+                if let Some(preferred) = &contenders.preferred {
+                    preferred.control.wake();
+                }
             } else {
                 // Not registered (closed when it registered): nothing
                 // changed, and nobody is woken.
@@ -590,6 +601,43 @@ mod tests {
         assert!(!first.closing());
         assert!(side.manager.is_preferred(&record(), 1));
         assert!(side.manager.is_preferred(&other, 2));
+    }
+
+    /// True if the task of `control` was woken since it last looked.
+    fn woken(control: &SessionControl) -> bool {
+        let mut woken = core::pin::pin!(control.woken());
+        woken
+            .as_mut()
+            .poll(&mut core::task::Context::from_waker(core::task::Waker::noop()))
+            .is_ready()
+    }
+
+    /// The preferred session holds back what it sends only to one session
+    /// of its contact (the offers of its transfers) while a second one
+    /// waits: once that one is gone, by the probe or by its own end, the
+    /// task of the preferred session is woken to send it.
+    #[test]
+    fn the_preferred_session_is_woken_when_the_one_that_waited_goes() {
+        let (small, large) = pair();
+        for answered in [true, false] {
+            let side = Side::new(large, small);
+            let (_, older) = side.register(1, Initiator::Remote);
+            let (_, newer) = side.register(2, Initiator::Local);
+            let nonce = older.take_probe().unwrap();
+            assert!(woken(&older));
+            assert_eq!(side.manager.sessions(&record()), 2);
+            if answered {
+                // The probe answered: the waiting session is closed.
+                side.manager.probe_ended(&record(), 1, nonce, true, true);
+                assert!(newer.closing());
+            } else {
+                // The waiting session ended by itself.
+                side.manager.unregister(&record(), 2);
+            }
+            assert_eq!(side.manager.sessions(&record()), 1);
+            assert!(woken(&older), "answered {answered}");
+            assert!(!older.closing());
+        }
     }
 
     #[test]
