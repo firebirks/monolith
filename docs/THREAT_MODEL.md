@@ -116,7 +116,8 @@ send an endpoint update.
   sends that is taken in rewrites the message store; the rate bounds
   how often (`RESOURCE_LIMITS.md` section 12).
 - Cannot make a file arrive without acceptance (S13), choose where it is
-  written (S14), or have it opened (S16).
+  written (S14), or have it opened (S16). What it can try with file
+  transfers, and what answers it, is in T.
 - Cannot change its own pinned identity (S9), and cannot roll back its
   endpoint or its transport key: a card older than the active one, or one
   that states the retired key, is not accepted, in an update or in a
@@ -268,7 +269,7 @@ observe both ends is outside what Monolith can address.
   there is none to trust.
 
 Residual: a received file can be malicious. Monolith does not make it safe
-to open.
+to open. Filenames and received files in Phase 8 are treated in T.
 
 ### J. Attacker with the storage medium but not the passphrase
 
@@ -316,7 +317,10 @@ endpoint.
 ### N. Resource exhaustion
 
 Every queue, count, rate and timeout is bounded (`RESOURCE_LIMITS.md`,
-S12). A declared size never causes an allocation. Streaming paths apply
+S12). A declared size never causes an allocation. Since Phase 8 a declared
+size does reserve disk space, but only after the user accepted the
+transfer and within `MAX_STAGED_INCOMING_BYTES`
+(`RESOURCE_LIMITS.md` section 13). Streaming paths apply
 backpressure. Peer-influenced memory has a computed ceiling.
 
 ### O. Local processes and other machines on a private network
@@ -484,6 +488,146 @@ protocol. They are not unlinkable, and Monolith does not claim that they
 are. Monolith avoids creating links in the protocol; it cannot remove the
 links that running them together creates.
 
+### T. File transfers (Phase 8)
+
+Since Phase 8 a user can send a file to an accepted contact and receive
+one (`adr/0013-file-transfer.md`, `adr/0014-transfer-staging.md`). The
+file goes over the authenticated session and Tor only, after the receiver
+accepted it, and a transfer survives the loss of a session, a restart of
+either side and a restart of Tor. Limits are in `RESOURCE_LIMITS.md`
+section 13. This adversary adds to B and I, and to the local cases of J
+and O.
+
+What a received file is. A file that arrived is exactly what its sender
+declared: the receiver computed the SHA-256 of the `size` bytes it staged
+and it matched the digest the sender sent. That is the integrity of the
+transfer. It says nothing about whether the content is safe, true or
+wanted, and a contact can send a file with any content. Monolith never
+opens, previews or executes a file, and starts no program for it (S16).
+What the user does with the saved file is outside Monolith.
+
+A hostile authenticated contact. It is authenticated, not trusted
+(section 2). What it can try, and what answers it:
+
+- A flood of offers. Each offer is checked against the pending limits
+  per contact and per identity, the record limits and `FILE_OFFER_RATE`
+  before a record is made. One above `MAX_TRANSFER_SIZE` or the pending
+  limit of its contact is answered with FileReject and leaves no record;
+  one above the limits of the identity or of the records is answered with
+  nothing and leaves no record. Nothing of the file is stored or allocated
+  before the user accepts.
+- Chunks before acceptance, out of order, or beyond the size. They are
+  protocol violations and end the session. Chunks beyond the window are
+  not: the window is an obligation of the sender, the receiver cannot know
+  which acknowledgements the sender had read, and it stages no more than
+  the size the user accepted whatever the sender does. Each chunk is
+  written before the next frame is read, so the receiver's own writes go
+  out between chunks.
+- A wrong digest, or chunks in the wrong place after a resume from another
+  offset than the one given. The digest does not match at completion; the
+  transfer fails for good and the bytes are never offered as a received
+  file. The cost is bandwidth and work, bounded by the declared size. A
+  segment that fails to authenticate in the staged blob counts as not
+  written.
+- Repeated offers. An offer of an identifier that is known gets the answer
+  its record gives and allocates nothing. A second offer of an identifier
+  on one session, a different size or name for a known identifier, and an
+  offer that names an identifier this side offered, are violations.
+  Progress is counted by growth of a durable offset, so repeating an offer
+  or an acknowledgement does not reset the delays of the scheduler.
+- Identifiers of another transfer. A transfer is keyed by the local
+  identity, the contact record, the direction and the identifier. The same
+  16 bytes from two contacts are two transfers, and a message that names
+  an identifier not offered on the session is a violation.
+- A contact that accepts and does nothing, or sends one chunk per session.
+  The delays of dials grow unless a session brought progress, so it cannot
+  make this side dial it often and learn when this side is online. A
+  transfer without progress for `TRANSFER_STALL_LIMIT` fails.
+- A flood of chunks to hold up other contacts. One transfer per contact
+  sends at a time, a chat or control message is written after at most one
+  chunk and waits behind at most the window, and no rate bucket is shared
+  between contacts.
+
+A crash at any point. A transfer is durable state, not state of a session.
+A change that a file message causes is made durable before the next frame
+is read, and an answer is written, an event raised and a command reported
+done only once its record is durable. So the user is never shown, and the
+peer never told, a state that a crash can take back. What the peer is not
+known to have read is recorded as such and told again; a Ping and its Pong
+are the proof that the peer read what came before. A crash between two
+steps repeats a step and never makes a second transfer. Data staged but
+not yet covered by a durable acknowledgement counts as not written and is
+written again. A blob that no record names is removed at the next open. A
+crash while a received file is saved leaves a file named
+`monolith-partial-` and a record that says a save began; the user is told
+at the next start. A write of the transfer store that fails stops all
+sessions and transfers until the process starts again (S53).
+
+Lost sessions and restarts of Tor. A session ends after any loss, and the
+transfer goes on over the next one, from the offset the receiver holds
+durably. The offerer offers again on every session, and the receiver
+answers from its record. A restart of Tor is a lost session. A message
+that names a transfer that ended on the session is discarded, not treated
+as a violation, within the identifiers remembered per session
+(`MAX_ENDED_TRANSFER_IDS`).
+
+A contact deleted and made again. It inherits nothing: contact records
+have identifiers that are never reused, so the transfers of the old record
+are gone with their staged data, and an offer from the new record is a new
+offer that the user decides. This holds for a contact the user deleted and
+for one made again for the same person.
+
+A blocked contact. Blocking ends its sessions and cancels every transfer of
+the record; nothing is announced to the peer. The data staged for those
+transfers is removed, and nothing staged for the contact is kept.
+
+A peer of Phase 7. It never offers, and it answers every offer with
+FileReject; a file message of a transfer it remembers is discarded. The
+offerer marks the transfer rejected and never offers it again, and chat
+goes on. No label or message type changed, so a peer of Phase 7 is not cut
+off.
+
+A rotation of the peer's key keeps the contact record, so its transfers go
+on over the session of the new key.
+
+Hostile filenames. A name is data, never a path, and Monolith builds no
+path from it (S14). It is shown with invisible and control characters made
+visible, not as they would render. What Monolith suggests for saving comes
+from the name and is a suggestion: the user confirms the name and the folder, the file is
+created under a visible temporary name, and the final name is made without
+replacing anything that exists. A file is never saved over another.
+
+The staged copy. A persistent installation keeps staged data and the
+transfer store encrypted under keys derived from the vault key, and an
+ephemeral one keeps them in memory under keys drawn at start and written
+nowhere (S25). Whoever holds the medium sees the sizes of blobs to within
+a segment of 64490 bytes, and the times of creation and last write. A
+saved file is plaintext where the user put it (J).
+
+Local attackers stay inside the existing model. A process of the same user
+is trusted as Monolith is (section 2) and can read a saved file; it cannot
+read staged data without the vault key. Another user is kept out by the
+permissions of the data directory. Staged files are created without
+following a link, and only names of the exact pattern of a blob are
+treated as blobs.
+
+Out of scope for transfers:
+
+- Malware, or any other harmful or illegal content, in a file. Integrity
+  is not safety. The user decides what to open, with what program, and on
+  which machine.
+- Traffic analysis of file sizes beyond what Tor hides. A transfer of a
+  large file is a long burst of frames of the largest size, and its
+  duration and volume are visible to an observer of the connection (L). The
+  size of a file is also known to its peer from the offer.
+- A contact that sends unwanted but well-formed files. The limits keep it
+  from filling the disk or the interface, and the user declines or blocks.
+  Nothing stops the user from receiving a file that the contact is
+  entitled to offer.
+- A contact that keeps a file it received, or the copy it staged, after the
+  transfer.
+- Secure deletion of staged data or of a saved file (J).
+
 ## 5. Lessons from TorChat
 
 The 2015 analysis of TorChat (Viigipuu, Tallinn University of Technology)
@@ -525,7 +669,12 @@ interface must not suggest otherwise.
   conversation.
 - It cannot completely prevent targeted denial of service against an Onion
   Service.
-- It cannot make a received file safe to open.
+- It cannot make a received file safe to open. A received file is exactly
+  what its sender declared, and that says nothing about its content.
+  Monolith never opens, previews or executes a file.
+- It does not hide the size of a transferred file from an observer of the
+  connection beyond what Tor hides, and it does not stop a contact from
+  sending well-formed files the user does not want (T).
 - It cannot hide a conversation from the two parties having it.
 - It does not promise secure deletion on SSDs or modern filesystems.
 - Reachability of the Onion Service reveals presence. Anyone who holds the

@@ -70,8 +70,8 @@ confirmed as a contact session.
 | `MAX_FILE_CHUNK_LEN` | 64490 | 65536 | A 64 KiB chunk cannot fit in a frame that is itself capped at 64 KiB. This is the largest chunk that fills a maximum frame. |
 | handshake message | 48 / 48 / 235 | 8192 | Fixed sizes. |
 | `MAX_CONTACT_CARD_TEXT_LEN` | 512 bytes | - | Input bound for the textual card parser; the longest valid card is 310 characters, and whitespace may be mixed in. |
-| `MAX_FILE_SIZE` | 4 GiB | - | Largest size accepted in an offer. The field is 64 bits wide. With no resume and bounded session lifetime, larger files are out of scope for version 1. |
-| `DEFAULT_MAX_FILE_SIZE` | 1 GiB | - | Local policy, configurable up to `MAX_FILE_SIZE`. |
+| `MAX_FILE_SIZE` | 4 GiB | - | Largest size an offer may declare on the wire, and the ceiling of the transfer store format. The field is 64 bits wide. Since Phase 8 the size Monolith sends or accepts is `MAX_TRANSFER_SIZE` (section 13). |
+| `MAX_TRANSFER_SIZE` | 256 MiB | - | Local limit of a file sent or accepted, since Phase 8. It replaces `DEFAULT_MAX_FILE_SIZE` (1 GiB), which no longer exists. An offer above it is answered with FileReject. |
 
 Identifiers: message and transfer identifiers are 16 random bytes, invitation
 capabilities are 16 random bytes, ping nonces are 8 bytes.
@@ -128,6 +128,11 @@ until the transfer ends, starts no new transfer, and is closed at 48 hours
 whatever happens. A transfer that would begin after 24 hours does not
 extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 
+Phase 8 does not use the longer lifetime. A session ends at
+`MAX_SESSION_LIFETIME` whatever its transfers do, and they go on over the
+next session (`adr/0013-file-transfer.md`). `MAX_SESSION_LIFETIME_WITH_TRANSFER`
+stays a constant of the protocol.
+
 ## 4. Timeouts (local)
 
 | Constant | Value | Purpose |
@@ -144,7 +149,7 @@ extend the session. A 4 GiB file needs under 50 KiB/s to finish in a day.
 | `SESSION_LINGER` | 120 s | A confirmed session on which, for this long, no ChatMessage was sent or taken in and no MessageAck delivered a message, with nothing queued or in flight, is closed by the local side with Close (`adr/0009-session-manager.md`). A message held already and an acknowledgement of nothing do not count. |
 | `FRAME_READ_TIMEOUT` | 60 s | From the first byte of a frame's length prefix to its last byte, an absolute deadline: later bytes of the same frame do not move it. The session ends without a Close. |
 | `FRAME_WRITE_TIMEOUT` | 60 s | One frame write. |
-| `FILE_OFFER_TIMEOUT` | 10 min | An unanswered file offer is dropped. |
+| `FILE_OFFER_TIMEOUT` | 24 hours | An incoming offer the user has not decided expires after this, across sessions and restarts (it was 10 minutes while an offer lived and died with its session). The timeouts of transfers are in section 13. |
 | `CONTROL_COMMAND_TIMEOUT` | 30 s | One Tor control command. |
 | `CONTROL_CONNECT_TIMEOUT` | 10 s | Opening a control connection and authenticating on it. |
 | `SOCKS_NEGOTIATION_TIMEOUT` | 10 s | Reaching the SOCKS endpoint and its greeting and authentication replies. The CONNECT reply, which waits for the Onion Service, has `CONNECT_TIMEOUT`. |
@@ -184,10 +189,10 @@ written, within `FRAME_WRITE_TIMEOUT`.
 | `MAX_PENDING_REQUESTS_PER_INVITATION` | 8 | Per capability, or for requests without one. |
 | `MAX_ACTIVE_INVITATIONS` | 16 | Size of the active set (PROTOCOL.md 12.3). Kept in Phase 4, see below. |
 | `MAX_UI_EVENTS` | 256 | Coalesced, see section 8. |
-| `MAX_PENDING_FILE_OFFERS_PER_CONTACT` | 4 | |
-| `MAX_PENDING_FILE_OFFERS` | 16 | |
-| `MAX_ACTIVE_TRANSFERS_PER_CONTACT` | 2 | |
-| `MAX_ACTIVE_TRANSFERS` | 4 | |
+| `MAX_PENDING_FILE_OFFERS_PER_CONTACT` | 4 | Incoming offers waiting for the user. |
+| `MAX_PENDING_FILE_OFFERS` | 16 | The same, per local identity since Phase 8. |
+| `MAX_ACTIVE_TRANSFERS_PER_CONTACT` | 2 | Incoming transfers accepted and not complete, per contact. |
+| `MAX_ACTIVE_TRANSFERS` | 4 | The same, per local identity since Phase 8. |
 | `MAX_ENDED_TRANSFER_IDS` | 64 | Per session; lets messages that crossed an abort be discarded. |
 | `FILE_FREE_SPACE_MARGIN` | 64 MiB | Free space required beyond the declared size. |
 | `MAX_QUEUED_MESSAGES_PER_CONTACT` | 256 | Outbound, not yet acknowledged, per contact record. |
@@ -349,7 +354,9 @@ Token buckets. "Burst" is the capacity, "per minute" the refill.
 
 FileChunk is not rate limited by count. It is limited by the declared size
 of an accepted transfer and by backpressure: Monolith stops reading from a
-session while the disk writer or the UI queue is behind.
+session while the disk writer or the UI queue is behind. Since Phase 8
+FileOffer counts against `FILE_OFFER_RATE` and the other file messages
+against `CONTROL_MESSAGE_RATE`; the bounds on chunks are in section 13.
 
 How the rates are enforced since Phase 7 (`crate::rates` in the core,
 `DESIGN_QUESTIONS.md` P7-8):
@@ -434,6 +441,10 @@ failure or after a session that ended with messages left, and the delay
 starts over once a session of the contact stayed up for
 `RECONNECT_RESET_AFTER`. At startup the first attempts are spread at random
 over `STARTUP_DIAL_SPREAD`. A contact with nothing queued is not dialed.
+
+Since Phase 8 the same schedule also runs while a transfer needs a
+session, and a dial made for transfers alone resets the delays only if
+the session brought progress (section 13.4).
 
 With 1000 offline contacts at the cap, a dial comes due about every 1.8 s
 on average. Only 4 run at once. A dial that is due waits for a free slot in
@@ -538,6 +549,9 @@ Memory that a peer can influence, with every budget full:
 | Contacts with profiles, block and declined lists | about 2 MiB |
 | Total | about 136 MiB |
 
+The total does not include what an ephemeral installation stages in memory,
+up to `MAX_EPHEMERAL_STAGED_BYTES`, 256 MiB (section 13.1).
+
 The message store holds what the user queued and what contacts sent, up to
 its bound (`MAX_MESSAGE_STORE_FILE_LEN`); a contact fills at most its
 conversation (`MAX_CONVERSATION_STORE_LEN`). Full-size session buffers are
@@ -561,7 +575,8 @@ Other resources:
   per frame, and none is detached from its supervisor.
 - Disk: an incoming transfer is accepted only if free space is at least the
   declared size plus `FILE_FREE_SPACE_MARGIN`. At most 4 transfers of at most
-  `DEFAULT_MAX_FILE_SIZE` each are in progress. The vault is capped at
+  `MAX_TRANSFER_SIZE` each are in progress, and the staged bytes are bound
+  as section 13.2 says. The vault is capped at
   16 MiB, and so is the message store (`MAX_MESSAGE_STORE_FILE_LEN`);
   each is rewritten whole, under another name, so a write needs as much
   again while it runs.
@@ -747,3 +762,218 @@ can make sessions that present new keys. Each is a pending-key session,
 counted with the strangers, so it competes for `MAX_UNKNOWN_SESSIONS`
 and not for the room of the contact, and each replaces at most the one
 pending card held for that contact.
+
+## 13. File transfers (Phase 8)
+
+The limits of file transfer between accepted contacts
+(`adr/0013-file-transfer.md`, `adr/0014-transfer-staging.md`). All are
+local except `FILE_WINDOW_CHUNKS` and the chunk size, which both ends of a
+session have to agree on. Every limit is checked before anything changes:
+before a record is made, a blob is created or a byte is staged. A declared
+size never causes an allocation; disk is reserved only after the user
+accepted, and within the quotas below.
+
+### 13.1 Memory
+
+| Item | Bound |
+| --- | --- |
+| A chunk in flight | one frame: `MAX_FILE_CHUNK_LEN`, 64490 bytes, in a frame of at most `MAX_FRAME_CIPHERTEXT_LEN` |
+| Staging a file | one segment buffer at a time, 64490 bytes plus its tag, and the hash state; neither side holds a whole file |
+| Files staged or saved at a time | `MAX_STAGING_JOBS`, 1 |
+| Ended identifiers per session | `MAX_ENDED_TRANSFER_IDS`, 64 |
+| Ephemeral installation | the file is staged in memory, in the same format: the declared sizes of both directions together are at most `MAX_EPHEMERAL_STAGED_BYTES`, 256 MiB; each segment buffer is allocated, fallibly, when it is written |
+
+The 256 MiB of an ephemeral installation is memory the peer can fill, but
+only with what the user accepted or offered, up to that sum. It is not
+counted in the total of section 11.
+
+### 13.2 Disk and records
+
+| Constant | Value | What it bounds |
+| --- | --- | --- |
+| `MAX_TRANSFER_SIZE` | 256 MiB | One file, sent or accepted. An offer above it is answered with FileReject and leaves no record. |
+| `MAX_STAGED_OUTGOING_BYTES` | 1 GiB | Declared sizes of outgoing transfers not finished, per installation. |
+| `MAX_STAGED_INCOMING_BYTES` | 1 GiB | Declared sizes of incoming transfers accepted, per installation. A complete one counts until the user saves or removes it. |
+| `FILE_FREE_SPACE_MARGIN` | 64 MiB | Space every reservation leaves free: at least what the stores need to be written once more (16 + 1 + 16 MiB). |
+| `MAX_TRANSFER_RECORDS_PER_CONTACT` | 16 | Records of one contact, ended ones included. |
+| `MAX_TRANSFER_RECORDS` | 256 | Records of the installation. |
+| `MAX_TRANSFER_STORE_FILE_LEN` | 1 MiB | The transfer store file. |
+| `MAX_PENDING_FILE_OFFERS_PER_CONTACT` | 4 | Incoming offers waiting for the user, per contact. |
+| `MAX_PENDING_FILE_OFFERS` | 16 | The same, per local identity. |
+| `MAX_ACTIVE_TRANSFERS_PER_CONTACT` | 2 | Incoming transfers accepted and not complete, per contact. |
+| `MAX_ACTIVE_TRANSFERS` | 4 | The same, per local identity. |
+| `MAX_WAITING_OFFERS_PER_CONTACT` | 4 | Outgoing transfers not yet accepted, cancellations not yet told included, per contact. |
+| `MAX_WAITING_OFFERS` | 16 | The same, per local identity. |
+
+Enforcement is in `crate::transfers`, which holds the state of the
+installation under one lock and checks each limit before it changes a
+record. What an offer that is over a limit gets:
+
+- Over `MAX_TRANSFER_SIZE` or `MAX_PENDING_FILE_OFFERS_PER_CONTACT`:
+  FileReject, no record. The same offer gets the same answer every time.
+- Over `MAX_PENDING_FILE_OFFERS`, `MAX_TRANSFER_RECORDS_PER_CONTACT` or
+  `MAX_TRANSFER_RECORDS`: no answer and no record. The offerer repeats the
+  offer on a later session.
+- Acceptance by the user needs room in `MAX_STAGED_INCOMING_BYTES`, a free
+  place among the active transfers, and the whole blob reserved on disk with
+  `FILE_FREE_SPACE_MARGIN` left over. If any is missing the offer stays
+  pending and the interface says why. An accepted transfer is never removed
+  to make room for another.
+- The offerer never refuses an acceptance because of its own limits; the
+  limits of active transfers bind the side that accepts.
+
+To make room among records, the store removes, oldest first: an ended
+outgoing record; then an ended incoming record that ended more than
+`TRANSFER_STALL_LIMIT` plus a day ago; then an ended incoming record
+whose final answer the peer is known to have read. A record of a transfer
+that is not ended, and one that says the peer is not known to have read a
+decision or a cancellation, is never removed for this. If nothing can go,
+an offer leaves no record and a file the user would send is refused with a
+message that the list of transfers is full.
+
+A blob is reserved at its full length when it is created, so the disk
+needed by a transfer is known when it is accepted. A blob is
+`32 + k * (40 + L)` bytes for k segments of L = 64490 bytes. The staged
+copy is a second copy of the file, besides the place where it is saved.
+
+### 13.3 Time
+
+| Constant | Value | What it bounds |
+| --- | --- | --- |
+| `FILE_OFFER_TIMEOUT` | 24 hours | An incoming offer the user has not decided. Then the record is expired and the next offer of it gets FileReject. |
+| `TRANSFER_STALL_LIMIT` | 7 days | A transfer that made no progress for this long fails, on either side. |
+| `ENDED_TRANSFER_RETENTION` | 14 days | How long the record of an ended incoming transfer is kept, so that an offer repeated after a lost answer finds it. Above `TRANSFER_STALL_LIMIT`, so a receiver holds the record of any transfer an offerer may still offer. |
+| `TRANSFER_PROGRESS_BYTES` | 4 MiB | Growth of a durable offset that counts as progress. A contact can reset the delays of the scheduler at most `size / TRANSFER_PROGRESS_BYTES` times per transfer, 64 for the largest file. |
+| `TRANSFER_PROGRESS_RECORD_INTERVAL` | 1 hour | At most one write of the transfer store per transfer for its stall deadline. |
+| `TRANSFER_HOLD` | 10 min | How long a receiver holds a transfer after a write of its blob failed for a full disk or a file held by another process. During the hold its offers are answered with nothing and it makes no dial. The user may resume it sooner. |
+| `FILE_PROGRESS_CHUNKS` | 2 | Chunks made durable between two acknowledgements of a receiver. |
+| `FILE_PROGRESS_INTERVAL` | 30 s | Longest time between two acknowledgements while data arrives; well below `IDLE_TIMEOUT`. |
+| `TRANSFER_UNOFFERED_SESSIONS` | 3 | Sessions in a row on which the offerer did not offer an accepted transfer, after which the receiver fails it. |
+| `TRANSFER_GRACE` | 60 s | Reading time a session must have spent as the only one of the contact to count for the rule above. Below `SESSION_LINGER`. |
+| `MIN_TRANSFER_THROUGHPUT` | 10 KB/s | The floor the window is sized for. |
+
+A session is not idle while a transfer on it made progress (a chunk read
+or written, an offset acknowledged) within the last `SESSION_LINGER`.
+Discarded messages are not activity.
+
+### 13.4 Sessions and dials
+
+The reconnect schedule of section 7 is unchanged: `RECONNECT_DELAY_INITIAL`
+10 s, doubled after each failure up to `RECONNECT_DELAY_MAX` 30 min, each
+delay multiplied by a random factor of 50 percent either way
+(`RECONNECT_JITTER_PERCENT`), and reset after a session stayed up for
+`RECONNECT_RESET_AFTER`. What Phase 8 adds is when a contact is dialed.
+
+- The scheduler of a contact runs while a transfer needs a session. On the
+  offerer: an offer not yet read, a transfer being sent, a cancellation not
+  yet read. On the receiver: a transfer accepted and not complete, and a
+  cancellation of its own not yet read.
+- An offer waiting for the user, a rejection or an expiry not yet read, a
+  final answer not yet read, and a transfer held after a failed write make
+  no dial on either side. Cancelling or failing a transfer removes its
+  claim.
+- A dial made for transfers alone resets the delays only if the session
+  brought progress to one of them, as `TRANSFER_PROGRESS_BYTES` defines
+  it. Otherwise the delays keep growing, as after an acknowledgement
+  timeout. A contact that accepts and then never sends, sends one chunk
+  per session, or never answers, cannot make this side dial it every few
+  minutes, which would tell it when this side is online. The test
+  `a_dial_for_a_transfer_alone_that_brings_no_progress_is_repeated_with_growing_delays`
+  covers this.
+- An offer repeated, or an offset acknowledged again, is not progress.
+- The offerer offers a transfer at most once per session, only on a
+  session that is confirmed, is its preferred one for the contact and is
+  the only one it has with the contact.
+- A session ends at `MAX_SESSION_LIFETIME` whatever its transfers do.
+  Transfers go on over the next session, from the offset the receiver
+  holds.
+
+### 13.5 Fairness
+
+| Constant | Value | Notes |
+| --- | --- | --- |
+| `FILE_WINDOW_CHUNKS` | 4 | Chunks the offerer may have written beyond the last offset the receiver acknowledged on the session: about 252 KiB. With the window full it writes no chunk until a FileAccept moves the offset. |
+
+The window is an obligation of the sender. The receiver does not end a
+session for a chunk beyond it, because it cannot know which of its
+acknowledgements the sender had read when it wrote the chunk: a check
+against the last FileAccept it wrote would catch some breaches and prove
+none. What the receiver checks bounds what a sender that ignores the window
+gets:
+
+- the length and the place of every chunk;
+- nothing beyond the declared size: a chunk beyond it is a violation and
+  ends the session;
+- nothing staged beyond the blob reserved at acceptance;
+- each chunk written before the next frame is read, so that the receiver's
+  own writes go out between chunks.
+
+A sender that ignores the window makes the receiver stage no more than the
+declared size, which the user accepted and which is reserved already. It
+gains speed in its own direction of the session and nothing else. A
+sender that resumes from another offset than the one it was given puts
+chunks of the right length in the wrong place; this shows at FileComplete
+as a digest that does not match. The cost of that fault is bandwidth,
+staging and one pass of hashing over the declared size, never a wrong file.
+The test
+`a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat`
+covers the first case.
+
+Order of writes in a session:
+
+- Replies to what was read come first (Pong, MessageAck, file answers,
+  FileAccept progress), then the head of the chat queue, then decisions
+  and cancellations of the user, then offers at their pace, then at most
+  one FileChunk.
+- Before it writes a chunk the session task takes every complete frame
+  that has arrived without waiting for one that has not. With transfers in
+  both directions neither side stops reading.
+- A chat or control message waiting to be written goes out after at most
+  one chunk, and waits behind at most the window. At `MIN_TRANSFER_THROUGHPUT`
+  a full window takes about 26 s, below half of `MESSAGE_ACK_TIMEOUT`. The
+  test `a_chat_message_waiting_while_chunks_go_out_is_written_after_at_most_one_chunk`
+  covers it.
+- One transfer per contact sends at a time, the oldest accepted first.
+- The receiver writes each chunk before it reads the next frame, and
+  reads no frame while it verifies a file.
+
+Between contacts:
+
+- No bucket is shared between contacts. A contact that is at its own limit
+  is answered as section 13.2 says; its limit is not drawn from another
+  contact's.
+- A contact that floods chunks is bounded by the declared size of the
+  transfer the user accepted, and the receiver reads a chunk only after it
+  has written the one before. It holds up neither the chat nor the file of
+  another contact. The test
+  `a_contact_flooding_its_chunks_holds_up_neither_the_chat_nor_the_file_of_another`
+  covers it.
+- What a contact can make the receiver decrypt and hash is at most what it
+  declared and the receiver accepted, once per transfer at completion, plus
+  one pass over an accepted blob after each start of the installation. A
+  digest mismatch fails the transfer for good.
+- Offers above the pending limit of a contact are answered with FileReject
+  and leave no record
+  (`offers_above_the_pending_limit_of_a_contact_are_rejected_without_a_record`).
+- Through lost sessions, repeated offers and a full disk, a receiver keeps
+  one record and at most one staged file for what it accepted, never more
+  bytes than the size, and neither writes nor dials more than a few times
+  an hour while nothing can be written or no sender can be reached
+  (`a_receiver_stays_bounded_through_lost_sessions_repeated_offers_and_a_full_disk`).
+
+### 13.6 What the limits of transfers do not prevent
+
+- Contacts can fill the pending offers of the identity
+  (`MAX_PENDING_FILE_OFFERS`, 16) or the records of the installation, and so
+  keep other offers from being taken in; those are answered with nothing
+  and repeated by their senders. Blocking a contact cancels its transfers
+  and removes their staged data.
+- The user can be made to hold up to `MAX_STAGED_INCOMING_BYTES`, 1 GiB of
+  disk, but only by accepting offers.
+- A contact that accepts and then does not read holds an outgoing transfer
+  and its staged copy until `TRANSFER_STALL_LIMIT`, 7 days, or until the
+  user cancels it.
+- Below `MIN_TRANSFER_THROUGHPUT` a chat acknowledgement can time out and
+  end the session, which the transfer survives. Below about 25 KB/s a
+  duplicate probe can wait behind the window past its timeout and close the
+  session it probes, after which the transfer goes on over the other one.
