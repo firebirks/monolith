@@ -1188,6 +1188,16 @@ impl<B: TorBackend + 'static> Inner<B> {
             // A frame taken before the chunk may have ended the session (a
             // write that failed): nothing more is read on it.
             if Box::pin(self.files_pump(runtime, link, running)).await? || running.files.close {
+                // A peer that keeps the window open by acknowledging file
+                // progress still owes the acknowledgement of a message in
+                // time, as it does while the task waits.
+                if running
+                    .in_flight
+                    .is_some_and(|(_, due)| Instant::now() >= due)
+                {
+                    let _ = link_close(link).await;
+                    return Ok(Ended::AckTimeout);
+                }
                 continue;
             }
             let reading = Instant::now();
