@@ -340,6 +340,52 @@ fn a_file_offered_by_its_path_is_sent_as_staged_and_saved_where_the_user_chooses
 }
 
 #[test]
+fn a_file_of_a_unicode_name_deep_in_folders_is_offered_and_saved_under_that_name() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, mut b, at_a, _) = accepted(&network).await;
+        // Folders deep enough that the full paths pass 260 characters,
+        // the old limit of a path on Windows, and a name in three scripts.
+        let dir = scratch("unicode");
+        let mut deep = dir.clone();
+        for level in 0..8 {
+            deep = deep.join(format!("folder-{level}-{}", "x".repeat(24)));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        let name =
+            "r\u{e9}sum\u{e9} \u{65e5}\u{672c} \u{43f}\u{440}\u{438}\u{432}\u{435}\u{442}.txt";
+        let source = deep.join(name);
+        assert!(source.to_string_lossy().chars().count() > 260);
+        let data = file(2 * L + 9);
+        std::fs::write(&source, &data).unwrap();
+        let mut events = b.runtime().subscribe();
+        let sent = a
+            .runtime()
+            .offer_path(&a.id(), &at_a, &source)
+            .await
+            .unwrap();
+        let received = offered(&mut events).await;
+        assert_eq!(b.view(&received).unwrap().name, name);
+        b.runtime().accept_transfer(&received).await.unwrap();
+        until(|| a.status(&sent) == Some(TransferStatus::Completed)).await;
+        let saves = deep.join("saved");
+        std::fs::create_dir(&saves).unwrap();
+        let save_name = Filename::new(name).unwrap().save_name();
+        assert_eq!(save_name, name);
+        let destination = saves.join(&save_name);
+        assert_eq!(
+            b.runtime().save_transfer(&received, &destination).await,
+            Ok(SaveOutcome::Saved)
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), data);
+        assert_eq!(names(&saves), vec![save_name]);
+        a.stop().await;
+        b.stop().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+}
+
+#[test]
 fn a_path_that_is_not_a_regular_file_of_this_computer_is_never_offered() {
     run_paused(async {
         let network = MockNetwork::new();

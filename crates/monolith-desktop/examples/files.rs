@@ -15,6 +15,9 @@
 //!    on from what was held, not from the start.
 //! K. A file offered to Alice's Personal identity while she shows Work:
 //!    Work shows nothing of it; Personal does once shown.
+//! L. Bob drops a file of the largest size, 256 MiB: while the runtime
+//!    reads and encrypts it the window keeps drawing; every frame is timed,
+//!    and the slowest must stay under 250 ms.
 
 #![allow(
     clippy::print_stdout,
@@ -302,6 +305,46 @@ fn main() {
             .any(|item| item.name == "meeting-notes.txt" && item.phase == TransferPhase::Offered)
     });
     alice.picture("personal-offer");
+
+    println!("L. A file of the largest size is prepared while the window keeps drawing");
+    let large = files.join("disk-image.bin");
+    // `MAX_TRANSFER_SIZE` of the protocol, which the desktop does not use.
+    let len = 256 * 1024 * 1024;
+    fixture(&large, len);
+    bob.drop_file(&large);
+    bob.until(
+        "the send dialog holds the large file",
+        |model| matches!(model.dialog(), Some(Dialog::SendFile { path, .. }) if !path.is_empty()),
+    );
+    bob.model().confirm();
+    let started = Instant::now();
+    let mut slowest = Duration::ZERO;
+    let mut frames = 0_u32;
+    let prepared = |client: &Client| {
+        card(client, at_bob, "disk-image.bin")
+            .is_some_and(|(_, phase)| phase == TransferPhase::Waiting)
+    };
+    while !prepared(&bob) {
+        assert!(
+            started.elapsed() < PATIENCE,
+            "the large file was not prepared"
+        );
+        let frame = Instant::now();
+        bob.frame();
+        slowest = slowest.max(frame.elapsed());
+        frames += 1;
+    }
+    let took = started.elapsed().as_secs_f64();
+    println!(
+        "   prepared {len} bytes in {took:.1} s ({:.0} MB/s); {frames} frames meanwhile, the slowest {:.0} ms",
+        len as f64 / took / 1e6,
+        slowest.as_secs_f64() * 1000.0
+    );
+    assert!(
+        slowest < Duration::from_millis(250),
+        "a frame took {slowest:?} while the file was prepared"
+    );
+    bob.picture("large-prepared");
 
     alice.close();
     bob.close();
