@@ -358,6 +358,24 @@ mod tests {
 
     use super::*;
 
+    /// The name suggested for a received file never names a device this
+    /// side refuses to write to: the two lists agree.
+    #[test]
+    fn a_suggested_name_never_names_a_device() {
+        use monolith_protocol::text::Filename;
+        for device in DEVICES {
+            for name in [
+                device.to_owned(),
+                device.to_ascii_lowercase(),
+                format!("{device}.txt"),
+                format!("{device} .log"),
+            ] {
+                let suggested = Filename::new(&name).unwrap().save_name();
+                assert!(!names_a_device(&suggested), "{name:?} -> {suggested:?}");
+            }
+        }
+    }
+
     #[test]
     fn the_names_windows_keeps_for_devices_are_known_in_every_form() {
         for name in [

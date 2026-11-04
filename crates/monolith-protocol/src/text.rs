@@ -212,7 +212,9 @@ const RESERVED_IN_SAVE_NAMES: [char; 7] = ['<', '>', ':', '"', '|', '?', '*'];
 
 /// Device names that some systems treat specially, with or without an
 /// extension. `COM` and `LPT` followed by one digit are handled separately.
-const RESERVED_DEVICE_NAMES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
+const RESERVED_DEVICE_NAMES: [&str; 8] = [
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$", "KEYBD$",
+];
 
 /// Returns true if `stem`, the part of a name before its first dot, is a
 /// reserved device name. Letter case does not matter.
@@ -724,6 +726,8 @@ mod tests {
             ("LPT\u{b3}.tar.gz", "_LPT\u{b3}.tar.gz"),
             ("CONIN$", "_CONIN$"),
             ("conout$.txt", "_conout$.txt"),
+            ("CLOCK$", "_CLOCK$"),
+            ("keybd$.txt", "_keybd$.txt"),
             // A reserved character is replaced first; what is left is not a
             // device name.
             ("CON:", "CON_"),
