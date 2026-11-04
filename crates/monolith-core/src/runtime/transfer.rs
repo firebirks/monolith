@@ -923,14 +923,19 @@ impl<B: TorBackend + 'static> Inner<B> {
             }
             Ok(None) => match transfers.blobs.create(size).await {
                 Ok(new) => {
-                    if self
+                    match self
                         .apply(transfers, key, |state, _| {
                             ((), state.replace_blob(key, new))
                         })
                         .await
-                        .is_none()
                     {
-                        return Offer::Answer(Answer::Nothing);
+                        None => return Offer::Answer(Answer::Nothing),
+                        // Ended while the new file was made (cancelled, its
+                        // identity deleted): no record holds that file.
+                        Some((_, change)) if !change.changed => {
+                            self.release(transfers, Some(new));
+                        }
+                        Some(_) => {}
                     }
                 }
                 Err(error) => self.write_failed(running, transfers, key, error).await,

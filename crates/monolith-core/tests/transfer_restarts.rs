@@ -2531,6 +2531,54 @@ fn a_transfer_goes_on_over_the_session_that_replaces_its_own() {
 }
 
 #[test]
+fn a_staged_file_made_again_for_a_transfer_cancelled_meanwhile_is_removed() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut b, a, _, _) = contacts(&network).await;
+        let data = file(6 * L);
+        let mut link = hand_link(&network, &b, &a).await;
+        let received = offered_and_accepted(&b, &mut link, &data).await;
+        for n in 0..2 {
+            link.send(&chunk(TRANSFER, &data, n * L)).await.unwrap();
+        }
+        drain(&mut link, QUIET).await;
+        // The staged copy goes while nothing runs.
+        b.crash(CrashOutcome::ALL[0]).await;
+        let name = b.blobs().pop().unwrap();
+        b.dir().remove(&name).unwrap();
+        b.open();
+        b.start(&network).await;
+        // Offered again, the transfer gets a new staged file; the user
+        // cancels it while that file is made.
+        let dir = b.dir().clone();
+        let _released = Released(&dir);
+        let mut link = hand_link(&network, &b, &a).await;
+        dir.hold_writes();
+        link.send(&offer_of(&data)).await.unwrap();
+        spin_until(|| dir.write_held()).await;
+        let runtime = b.runtime().clone();
+        let cancelling = tokio::spawn(async move { runtime.cancel_transfer(&received).await });
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
+        dir.release_writes();
+        cancelling.await.unwrap().unwrap();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert!(
+            messages.contains(&Message::FileAbort(TRANSFER)),
+            "{messages:?}"
+        );
+        // Nothing holds the new file: it goes.
+        assert!(
+            within_a_minute(|| b.blobs().is_empty()).await,
+            "{:?}",
+            b.blobs()
+        );
+        b.stop().await;
+    });
+}
+
+#[test]
 fn a_received_file_whose_staged_copy_is_damaged_or_missing_fails_when_it_is_saved() {
     for missing in [false, true] {
         run_paused(async {
