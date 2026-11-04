@@ -1886,6 +1886,39 @@ fn an_accepted_transfer_the_sender_no_longer_offers_fails() {
     });
 }
 
+/// The session on which the offer first came, and was accepted, offered
+/// it: only the sessions after it that offer nothing count against it.
+#[test]
+fn the_session_of_the_first_offer_counts_as_one_that_offered_it() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (a, mut b, _, mut link) = a_by_hand(&network).await;
+        let data = file(4 * L);
+        let (_, received, _) = offer_by_hand(&b, &mut link, &data).await;
+        drain(&mut link, TRANSFER_GRACE + QUIET).await;
+        link.close().await.unwrap();
+        for round in 0..3 {
+            // The count of the session that ended is taken in a task of
+            // its own: it is in before the status is looked at.
+            tokio::time::sleep(QUIET).await;
+            assert_eq!(
+                b.status(&received),
+                Some(TransferStatus::Receiving),
+                "{round}"
+            );
+            let mut link = hand_link(&network, &b, &a).await;
+            drain(&mut link, TRANSFER_GRACE + QUIET).await;
+            link.close().await.unwrap();
+        }
+        until(|| b.status(&received) == Some(TransferStatus::Failed)).await;
+        assert_eq!(
+            b.view(&received).unwrap().reason,
+            Some(TransferReason::OffererGone)
+        );
+        b.stop().await;
+    });
+}
+
 #[test]
 fn a_dial_for_a_transfer_alone_that_brings_no_progress_is_repeated_with_growing_delays() {
     run_paused(async {

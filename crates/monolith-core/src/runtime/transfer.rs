@@ -412,8 +412,14 @@ impl<B: TorBackend + 'static> Inner<B> {
         match step.received {
             Received::Violation | Received::Discard => Ok(()),
             Received::Offer { size, name } => {
-                self.on_offer(runtime, link, running, &transfers, key, size, &name)
-                    .await
+                let answered = self
+                    .on_offer(runtime, link, running, &transfers, key, size, &name)
+                    .await;
+                // A new offer has its record only now.
+                if transfers.read(|state, _| state.record(&key).is_some()) {
+                    running.files.counted.insert(step.transfer);
+                }
+                answered
             }
             Received::Accept { offset, .. } => {
                 running.activity = Instant::now();
