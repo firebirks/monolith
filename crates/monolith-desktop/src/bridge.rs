@@ -16,7 +16,7 @@
 //! the window names with it.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -339,21 +339,54 @@ fn suggested_place(name: &str) -> PathBuf {
     let Some(folder) = crate::places::home_dir().map(|home| crate::places::save_dir(&home)) else {
         return PathBuf::from(name);
     };
+    suggested_in(&folder, name)
+}
+
+/// The longest name a received file has, in bytes: `MAX_FILENAME_LEN` of
+/// the protocol, which the client does not depend on.
+const NAME_BYTES: usize = 255;
+
+/// The first of `name`, `name-2`, ... in `folder` that no file has yet,
+/// each no longer than `name` may be: the number takes the place of the
+/// end of the stem. Only a name that is known to be free is taken: one
+/// that cannot be looked at (a folder that cannot be read) is passed over.
+fn suggested_in(folder: &Path, name: &str) -> PathBuf {
     let (stem, extension) = match name.rsplit_once('.') {
         Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
         _ => (name, String::new()),
     };
     for number in 1..=99_u32 {
         let candidate = if number == 1 {
-            folder.join(name)
+            name.to_owned()
         } else {
-            folder.join(format!("{stem}-{number}{extension}"))
+            let suffix = format!("-{number}{extension}");
+            let mut candidate = format!(
+                "{}{suffix}",
+                cut(stem, NAME_BYTES.saturating_sub(suffix.len()))
+            );
+            // An extension too long for any stem is cut too.
+            let end = cut(&candidate, NAME_BYTES).len();
+            candidate.truncate(end);
+            candidate
         };
-        if std::fs::symlink_metadata(&candidate).is_err() {
+        let candidate = folder.join(candidate);
+        if std::fs::symlink_metadata(&candidate)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        {
             return candidate;
         }
     }
     folder.join(name)
+}
+
+/// The longest start of `text` of at most `bytes` bytes, on a character
+/// boundary.
+fn cut(text: &str, bytes: usize) -> &str {
+    let mut end = bytes.min(text.len());
+    while !text.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    text.get(..end).unwrap_or_default()
 }
 
 /// A reference of the core that belongs to one identity.
@@ -1116,6 +1149,30 @@ mod tests {
 
     fn id(byte: u8) -> IdentityId {
         IdentityId::from_bytes([byte; 16]).unwrap()
+    }
+
+    /// The names suggested for a file already in the folder are no
+    /// longer than a received name may be, also for one of that length,
+    /// whatever characters end its stem.
+    #[test]
+    fn a_suggested_place_keeps_to_the_length_of_a_name() {
+        let folder =
+            std::env::temp_dir().join(format!("monolith-bridge-suggested-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let long = format!("{}.pdf", "a".repeat(NAME_BYTES - 4));
+        let wide = format!("{}b.pdf", "\u{e9}".repeat((NAME_BYTES - 5) / 2));
+        let ext = format!("a.{}", "x".repeat(NAME_BYTES - 2));
+        for name in [long, wide, ext] {
+            assert!(name.len() <= NAME_BYTES, "{}", name.len());
+            for _ in 0..3 {
+                let place = suggested_in(&folder, &name);
+                let given = place.file_name().unwrap().to_str().unwrap().to_owned();
+                assert!(given.len() <= NAME_BYTES, "{} bytes", given.len());
+                std::fs::write(&place, b"held").unwrap();
+            }
+        }
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]
