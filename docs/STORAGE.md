@@ -5,17 +5,20 @@ Status: the vault (section 3) is implemented in Phase 4, in
 tests of section 8; Phase 5 adds the durable identifiers of payload
 version 2. Its KDF defaults are provisional until the benchmark of section
 3.3 has been run on every target. The message store (section 5) is
-implemented in Phase 5 (`adr/0008-message-store.md`).
+implemented in Phase 5 (`adr/0008-message-store.md`). The transfer store and
+the encrypted blobs of file transfers (section 5.1 to 5.6) are implemented in
+Phase 8 (`adr/0014-transfer-staging.md`).
 
 ## 1. What is stored, and where
 
-Three kinds of state, kept apart:
+Four kinds of state, kept apart:
 
 | State | Contents | Where |
 | --- | --- | --- |
 | Identity and contacts | identity key, transport key, Onion Service key, card epoch, invitations, contacts with their pinned cards (identity key, transport key, endpoints, epoch), block and declined lists, verification marks, settings that are not secret | the vault |
 | Messages | the outbound queue, delivered and received messages, the identifiers of deleted received messages | the message store (section 5); in memory in ephemeral mode |
-| Runtime | sessions, session keys, isolation tokens, pending requests and offers, UI queue, partial downloads | memory; partial downloads in temporary files |
+| Transfers | the record of every file transfer (direction, state, name, size, digest), and the staged data of the files being sent or received | the transfer store and the blobs (section 5.1); in memory in ephemeral mode |
+| Runtime | sessions, session keys, isolation tokens, pending requests and offers, UI queue | memory |
 
 Since Phase 5 a persistent installation always has a message store: a
 message is acknowledged only once it is durably held there
@@ -31,9 +34,11 @@ Modes:
 - Persistent: the vault exists in a directory the user chose or confirmed.
   Default on other Linux systems and on Whonix.
 
-In ephemeral mode the messages live in memory with everything else and are
-gone when the process exits. In persistent mode they are in the message
-store, encrypted under a key derived from the vault key (section 5).
+In ephemeral mode the messages and the transfers live in memory with
+everything else and are gone when the process exits. In persistent mode the
+messages are in the message store and the transfers in the transfer store
+and the blobs, each encrypted under a key derived from the vault key
+(sections 5 and 5.1).
 
 Data directory: `$XDG_DATA_HOME/monolith`, falling back to
 `~/.local/share/monolith`. On Tails there is no default outside the
@@ -49,6 +54,9 @@ nothing. On Windows the data directory is `%LOCALAPPDATA%\Monolith\Profile`
       lock               0600   single-instance lock
       messages           0600   message store (section 5)
       messages.new       0600   only during a write
+      transfers          0600   transfer store (section 5.1)
+      transfers.new      0600   only during a write
+      transfer-<32 hex>  0600   staged data of one transfer (section 5.2)
 
 Monolith writes no log file. Logs go to standard error or the journal and
 contain nothing sensitive (S18).
@@ -64,6 +72,9 @@ section 1.1). Every stored record belongs to one of them:
       +-- identity B   the same, separately
     message store
       +-- (A, record)  queue, messages, identifiers of deleted messages
+      +-- (B, record)  the same, separately
+    transfer store
+      +-- (A, record)  transfers with the contact, their staged data
       +-- (B, record)  the same, separately
 
 - Records of contacts, blocked, declined and former contacts, verification
@@ -379,7 +390,12 @@ authenticate, with one exception: a `vault.new` next to a `vault` that
 authenticates. The message store, which follows these cases with its own
 names, has a second one: a `messages.new` alone that does not open is
 removed before an empty store is made (`docs/adr/0008-message-store.md`,
-Writing; since Phase 7, P7-20, said here).
+Writing; since Phase 7, P7-20, said here). The transfer store follows the
+same cases with the names `transfers` and `transfers.new` and the same
+second exception. Phase 8 adds the others, all listed in section 5.4:
+the blobs no record names, the records of contacts the vault no longer
+holds, and the segments written over after the last good one of an
+incoming accepted blob.
 
 `generation` lets a person or a recovery tool tell which of two valid files
 is newer. It does not detect rollback: an older valid file is still a valid
@@ -455,18 +471,24 @@ Two more limitations of the Windows build:
   names its file by the path of the directory joined with the file name,
   and Windows resolves that path again on each operation.
 
-## 4. Temporary files
+## 4. Temporary files, and saved files
 
-Incoming transfers are written to a file with a generated name, created
-with exclusive-create and mode 0600 in the destination directory the user
-chose, so that the final step is a rename on the same filesystem. The
-final name never replaces an existing file. An aborted or failed transfer
-deletes its partial file; a crash can leave one behind, and Monolith removes
-partial files it recognizes at the next start.
+Staged data is not a temporary file: a transfer is held in a blob of the
+profile directory, encrypted (section 5.2), until the user saves it or
+removes it. The files this section covers are the ones Monolith writes
+outside the profile directory, in a folder the user chose, when the user
+saves a received file (section 5.5): a probe file of no content and a
+temporary file, both named `monolith-partial-` followed by 16 random
+hexadecimal digits, a visible name. The final name never replaces an
+existing file. A failed or cancelled save removes the temporary file; a
+crash can leave one behind, and the interface tells the user at the next
+start which save was interrupted. Monolith does not search folders for
+partial files, and keeps no record of the folder.
 
-Received files are plaintext on disk. That is what saving a file means.
+Received files are plaintext where the user saves them. That is what
+saving a file means.
 
-## 5. Message store
+## 5. Message store and transfer store
 
 Decided in Phase 5: `adr/0008-message-store.md`, which closes ST1 for
 version 1. In short:
@@ -497,6 +519,319 @@ version 1. In short:
   above the minimum supported version, and SQLCipher brings C code and
   OpenSSL into the process. A store for long histories is later work.
 
+### 5.1 The transfer store
+
+Decided in Phase 8: `adr/0014-transfer-staging.md`. One file, `transfers`
+(and `transfers.new` while it is written), beside the vault and under its
+lock: the records of every transfer of the installation, in both
+directions. It is built as the message store is, with its own magic
+(`MNLTXFR` followed by 0x00) and its own key,
+
+    store_key = HKDF-SHA256(vault_key, info = "MONOLITH-TRANSFER-STORE-V1")
+
+a 48-byte header authenticated as associated data, a random nonce for
+every write, a generation of its own, and a payload padded with zero bytes
+to a multiple of 64 KiB (`TRANSFER_STORE_PADDING_BLOCK_LEN`). The file is
+at most `MAX_TRANSFER_STORE_FILE_LEN` (1 MiB) and holds at most
+`MAX_TRANSFER_RECORDS` records. A newer format version is refused.
+
+A record holds:
+
+| Field | Meaning |
+| --- | --- |
+| transfer id | 16 bytes the offerer drew |
+| identity id, contact id | the local identity and the contact record (section 3.4); a transfer belongs to both |
+| direction | outgoing or incoming; the same transfer id from two contact records, or in two directions, is two transfers |
+| state | outgoing: waiting, sending, delivered; incoming: offered, accepted, complete, expired; both: rejected, cancelled, failed |
+| flags | the outgoing offer is known to have been read by the peer; the peer is not known to have read the decision or the cancellation yet; the incoming file was saved; a save began and did not end; the user removed the ended incoming transfer from the interface |
+| reason | why it failed (storage, the digest did not match, stalled, the offerer no longer has it) or who cancelled it (this side, the peer, the contact ended); zero in every other state |
+| size, name | the declared size in bytes and the filename of the offer (1 to 255 bytes, a valid filename of `PROTOCOL.md` section 9) |
+| digest | SHA-256 of the file: outgoing, of the staged file; incoming, as verified, zero before |
+| blob id | the blob that holds the staged data; zero when there is none |
+| created, deadline | Unix times; the deadline is when an incoming offer expires, the stall deadline of a record that can stall, or when an ended incoming record may go; zero otherwise |
+
+A record has a blob in these states only: outgoing waiting and sending,
+incoming accepted, and incoming complete unless the file was saved or
+removed.
+
+Reading and writing apply the same checks, so that what is written always
+reads back (section 3.4). The store is refused, as a vault that fails to
+validate is, if: the payload version or the records length is wrong, a
+padding byte is not zero, or a record is cut short; the count or a size is
+above the ceiling of the format (`MAX_FILE_SIZE`); an identifier is zero,
+or two records share their (identity, contact, direction, transfer) or a
+non-zero blob id; a state does not belong to its direction, a flag or a
+reason does not belong to its state, or a reserved bit is set; a blob id is
+zero where the state has a blob, or not zero where it has none; a digest
+is zero where the state needs one, or not zero where it must be zero; a
+deadline is zero where the state needs one, or not zero where it does not;
+a name is not a valid filename; or a contact record belongs to another
+local identity.
+
+#### Writing
+
+The store is rewritten whole and replaced atomically, with the steps of
+section 3.5 and the names `transfers.new` and `transfers`, by one write job
+of its own. Every write of a store (vault, message store, transfer store)
+and every reservation of a blob takes the one lock of the disk of the
+installation, which keeps a reservation from using the space the next write
+of a store needs. The lock is mutual exclusion within the process and
+nothing more: what a crash leaves comes from the order of the writes
+(section 8), not from the lock.
+
+A change is used only once it is durable: a message is written, a command
+reported done, an event raised and a state shown only after the write that
+holds it ended. The store is written when a transfer changes state, and
+for the stall deadline of a transfer at most once per
+`TRANSFER_PROGRESS_RECORD_INTERVAL`; never for each chunk. How much of a
+transfer is staged is read from its blob, not from the store.
+
+A write of the store that fails is treated as a failed write of the
+message store: the store fails closed, every session ends, and no message
+and no transfer is stored or sent until the process starts again. The
+vault is unaffected.
+
+#### What the interface is shown
+
+The interface reads the transfers as the transfer store holds them
+durably. A change in memory that is not yet written is never shown, so a
+crash cannot take back what the user saw: a transfer shown as accepted, as
+complete, as saved or as cancelled is one a restart finds in that state.
+Beside the records the runtime keeps in memory what they do not hold, and
+rebuilds it after a restart: how much of a transfer is known to be staged
+or acknowledged, a transfer held after a full disk, and the sessions in a
+row without an offer.
+
+#### Opening
+
+When the vault has opened, the transfer store is opened as the message
+store is (section 3.5) and matched against the vault:
+
+- If neither `transfers` nor `transfers.new` exists, or a `transfers.new`
+  alone does not open, an empty store is made, as for an installation made
+  before Phase 8. The blobs found then are named by no record: that is
+  reported, as a missing message store is, and the blobs are removed.
+- A record whose local identity or contact record the vault no longer
+  holds goes, and its blob after it. This is what a crash leaves of the
+  deletion of a contact or an identity.
+- A record of a contact record that belongs to another local identity is
+  refused as corrupt.
+- Only after the store has opened and validated, every file whose name is a
+  blob name (section 5.2) that no record names is removed.
+
+### 5.2 Blobs
+
+The staged data of one transfer is a file of the profile directory named
+`transfer-` followed by exactly 32 lower-case hexadecimal digits, the blob
+identifier: 16 random bytes, never zero, drawn when the blob is created and
+drawn again if a file of that name exists or a record names it. A name is
+a blob only if it matches that pattern exactly; `transfers` and
+`transfers.new` are not blobs. A name is never made from anything a peer
+sent.
+
+A blob is a 32-byte header, which is not encrypted, and segments:
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 8 | magic `MNLTBLB` followed by 0x00 |
+| 8 | 2 | format version, 1 |
+| 10 | 2 | reserved, 0 |
+| 12 | 16 | blob identifier |
+| 28 | 4 | segment length L, 64490 in format version 1 |
+
+then, for each of the ceil(size / L) segments, 24 bytes of nonce and
+L + 16 bytes of sealed data (`CRYPTOGRAPHY.md` section 9.1). Every segment
+holds L bytes of plaintext: the last holds the remaining bytes of the file
+followed by zero bytes. The length of a blob therefore shows the size of
+its file only to within a segment. A file of size zero is a header with no
+segment. L is the full chunk size of protocol version 1, so a segment is a
+chunk; any other L is refused before any arithmetic.
+
+Reading checks the magic, the version, the reserved field, that the blob
+identifier is the one the record names, and that L is the constant. Every
+segment must authenticate under its index, the size and its final flag, and
+the padding of the last must be zero. Plaintext segment buffers are cleared
+when dropped.
+
+Every file that transfers write in the profile directory is created with
+exclusive create, mode 0600 on Unix, without following a link or a
+reparse point, in the directory the installation holds locked, and is
+opened again the same way with the owner and mode checks of the other
+files.
+
+### 5.3 Staging, and what a blob holds
+
+- A blob is reserved on disk at its full length when it is created, with
+  `FILE_FREE_SPACE_MARGIN` left over, under the lock of the disk. The
+  margin is at least what the stores need to be written once more, so a
+  reservation never makes the write of a store fail. On Unix the free space
+  is read with `fstatvfs` and the length allocated with `fallocate` on
+  Linux; where that call is refused or does not exist, the file is only
+  extended to its length after the check. On Windows, which gives no safe
+  call to read the free space, the file is extended to its full length plus
+  the margin, which allocates its clusters on an ordinary NTFS volume and
+  fails if the space is missing, and then shortened to its full length. A
+  blob for which the space is missing is not created. The reservation is
+  best effort: a compressed or sparse file, a copy-on-write file system or
+  kept snapshots may need new space for a write after all.
+- The sender stages the whole file before the record exists. It takes the
+  size of the source when it opens it, refuses a source above
+  `MAX_TRANSFER_SIZE`, creates and reserves the blob, writes each segment as
+  it reads and hashes the plaintext, and fails if the source gives fewer or
+  more bytes than its size. It syncs the file and the directory, and only
+  then writes the record (waiting, with the digest). The source is read once
+  and never again: what is offered is what the blob holds.
+- The receiver creates and reserves the blob, header written, when the user
+  accepts. It syncs the file and the directory, and only then writes the
+  record that says accepted and names the blob.
+- The receiver writes one segment per chunk at its computed position. It
+  acknowledges no more than the last sync of the blob covered: it syncs the
+  blob before it sends an acceptance that counts new segments, and before
+  it verifies the file.
+- The first time an installation uses an incoming accepted blob after it
+  opened, it authenticates the segments in order up to the first that
+  fails, syncs the blob and keeps the number of staged segments in memory.
+  Everything after the last good segment counts as not written and is
+  written over. A segment written again gets a new random nonce.
+- Outgoing blobs and complete incoming blobs are not scanned at open. Each
+  segment is authenticated when it is read, for a chunk, a verification or
+  a save, and the first failure stops there.
+- An ephemeral installation stages in memory, in the same format, under
+  keys drawn from the system when it starts and written nowhere. A blob is
+  a list of segment buffers, each allocated when its segment is written,
+  with fallible allocation. The declared sizes of the transfers staged in
+  memory add up to at most `MAX_EPHEMERAL_STAGED_BYTES`. Nothing is written
+  to disk and nothing is left when the process ends.
+
+What a record finds when it uses its blob decides:
+
+- Incoming accepted: a missing blob, a header that does not match, or a
+  length other than the reserved one counts as nothing staged. A new blob
+  is created, reserved, synced and named by the record before any segment
+  counts. A segment that fails to authenticate counts as not written, with
+  every segment after it.
+- Outgoing, and incoming complete: a missing blob, a header or a length
+  that does not match, or a segment that fails, makes the transfer failed
+  with the reason storage. The record is written and the user is told.
+  Nothing is written over.
+
+A write of a blob by the receiver that fails because the disk is full or
+the file is held by another process (sharing violation, access denied) is
+not damage. Everything after the last synced segment counts as not
+written, the receiver acknowledges nothing more and ends the session once.
+It holds the transfer: it stays accepted and makes no claim on the
+scheduler until `TRANSFER_HOLD` has passed or the user resumes it, and the
+user is told why it waits. Any other failure of a blob write by the
+receiver fails the transfer: the failed record is written durably first,
+then the blob is removed. A staging by the sender that fails removes its
+blob and is reported; no record was written, so nothing else changes.
+
+### 5.4 Removing, and what a crash leaves
+
+- A blob is created, and synced with its directory, before the record that
+  names it. The record is written without the blob before the blob is
+  removed. A crash between two steps leaves at most a blob no record names.
+- Removal waits for a reader of the blob (a chunk, a verification, a save)
+  to end, or cancels it; it never removes a blob that is being read.
+- Staged data is removed: for an outgoing transfer, once it is delivered,
+  rejected, cancelled or failed; for an incoming transfer, once it is
+  cancelled or failed, saved, or removed by the user. A complete incoming
+  transfer that was neither saved nor removed is not ended: its blob stays,
+  counted in `MAX_STAGED_INCOMING_BYTES`, until the user saves or removes
+  it.
+- A removal that fails leaves a blob no record names. It is not a failure
+  of the store: the removal is tried again with each write of the transfer
+  store and at the next open.
+- Records of ended incoming transfers (rejected, expired, cancelled, failed,
+  and complete and saved or removed) stay for `ENDED_TRANSFER_RETENTION`, 14
+  days, and then go, so that an offer repeated meanwhile finds its record.
+  Removing a complete transfer from the interface removes its blob and hides
+  its record, which stays for that time. Records of ended outgoing
+  transfers go when the user removes them. To make room the store never
+  removes the record of a transfer that is not ended, nor one that says the
+  peer is not known to have read a decision or a cancellation
+  (`adr/0013-file-transfer.md`).
+
+The rule of section 3.5, that nothing which does not authenticate is
+deleted, has these exceptions in Phase 8, besides a `vault.new` next to a
+vault that authenticates and a `messages.new` alone that does not open: a
+`transfers.new` alone that does not open, the blobs no record names, the
+records of contacts the vault no longer holds, and the segments written
+over after the last good one of an incoming accepted blob. No blob is
+deleted because it fails to authenticate: a blob that fails makes its
+transfer fail, and its record decides when the blob goes.
+
+### 5.5 Saving a received file
+
+The runtime saves the file, not the front end, so that every front end
+saves it the same way (`monolith_storage::export`, `save_new`). The user
+chooses a folder and a name; the name a peer sent is at most a suggestion.
+The place must be one of this computer: on Windows a share, a link or a
+junction on the way, or the name of a device or a stream is refused before
+anything is opened. The place is checked first: an absolute path, a folder
+that exists, no file of that name.
+
+The runtime asks for a reader of the complete transfer. The reader
+authenticates and decrypts the blob segment by segment and hashes what it
+returns. After the last byte it returns an error, never the end of the
+file, unless the length and the SHA-256 are those of the record. Before
+anything is written, the record gets the flag that a save began, durably.
+Then:
+
+1. Whether the folder takes a hard link is found out with a probe file of no
+   content, created only if no file has its name, linked and removed.
+2. A temporary file is created with exclusive create in the folder, named
+   `monolith-partial-` and 16 random hexadecimal digits.
+3. What the reader gives is written to it, up to the first error.
+4. After the reader ended without an error, the file is synced.
+5. It is given the final name without replacing anything: a hard link, which
+   fails if the name exists, and the temporary name removed. On Linux, where
+   the file system takes no hard link (`EPERM`, `EOPNOTSUPP`), a rename that
+   refuses an existing name (`renameat2` with `RENAME_NOREPLACE`).
+6. The folder is synced (on Windows by flushing a handle of the folder, with
+   the caveat of section 3.8).
+7. Only then is the file reported saved.
+
+A failure before step 5 removes the temporary file, clears the flag that a
+save began and leaves the blob untouched. A folder that takes neither a
+hard link nor, on Linux, the rename of step 5 is refused at step 1 before
+anything is written, with a message that says why; on Windows no safe call
+renames without replacing, so a folder without hard links is refused there.
+A failure after step 5 (the folder sync, or removing the temporary name)
+leaves the complete file under its final name, reports that the save could
+not be confirmed, keeps the blob and clears the flag. Nothing is ever
+written under the final name directly, and nothing is replaced.
+
+Once the file is saved, the record gets the saved flag in place of the flag
+that a save began, durably, and then the blob is removed. A crash during a
+save leaves the flag set: at the next start the user is told that the save
+of that file was interrupted and that a file named `monolith-partial-...`
+may be left in the folder it was going to, and the flag is cleared.
+
+### 5.6 Limits of the protection
+
+- The length of a blob shows the size of its file to within a segment from
+  the moment it is created. Every blob is reserved at its full length, so
+  the length alone shows neither how far an incoming transfer is nor its
+  direction. The metadata of the file system does, to someone who holds
+  the medium: allocated but unwritten extents on Linux, the valid data
+  length on NTFS. The birth time of a blob shows when a file was picked or
+  accepted, its modification time when data last arrived, and that of
+  `transfers` when a transfer changed state. Names of blobs are random.
+- An old copy of the vault, with the passphrase it had, decrypts every later
+  blob and transfer store, as section 3.2 says of the message store. A
+  change of passphrase keeps the staged blobs readable; a rekeying of the
+  vault, which is not implemented, would have to discard them.
+- Rolling back the whole profile, or `transfers` alone, to an earlier copy
+  cannot be detected. It can bring back a rejected or cancelled offer, or a
+  record whose blob was removed, which then fails as above.
+- Removing a blob does not reach copies the file system or the medium keep
+  (journals, copy-on-write, flash translation).
+- Memory is not locked; a plaintext segment and the keys can reach swap
+  (`CRYPTOGRAPHY.md` section 8).
+- A saved file is plaintext where the user put it, and a crash while it is
+  saved can leave its partial plaintext there under the temporary name.
+
 ## 6. Deleting
 
 "Delete contact" asks separately about:
@@ -504,6 +839,9 @@ version 1. In short:
 - the contact itself: pinned identity, endpoint, verification mark;
 - queued messages to that contact;
 - stored history with that contact;
+- the transfers with that contact and their staged files (section 5.1);
+  a record that outlives its contact is removed, with its blob, when the
+  installation next opens;
 - whether the identity stays on the block list.
 
 Deleting a contact never makes room for "the same person with a new key".
@@ -519,7 +857,9 @@ The vault file is a complete, encrypted backup of every identity it holds:
 for each, its keys, its Onion Service key, its contacts and its endpoint
 epoch. Copying it while Monolith
 is not running is a valid backup. Message history is a separate file and is
-included only if the user copies it too.
+included only if the user copies it too. So are the transfer store and the
+blobs: a vault copied alone holds no transfer, and where a backup of the
+vault meets blobs no record names, they are removed (section 5.1).
 
 There is no plaintext export of secrets. A command that prints or exports a
 private key does not exist in version 1.
@@ -545,6 +885,13 @@ must find:
 | Endpoint update | pinned epoch never lower than before |
 | Queue update | no message lost that was reported queued; no message reported delivered without an acknowledgement; no received message acknowledged before it is durable |
 | File completion | final file complete, or absent |
+| Staging a file to send | no record, and at most a blob no record names, or a record with its whole blob; never a record whose blob was not synced |
+| Accepting a file to receive | the offer, or the accepted record with a reserved blob; at most a blob no record names |
+| Receiving a chunk | the segments synced before the crash count; the rest is written again, with new nonces |
+| Verifying a received file | complete with its digest, or still accepted; the record is durable before the peer is told |
+| Removing staged data | the record is written before the blob goes; at most a blob no record names, removed at the next open |
+| Saving a received file | the final file complete, or absent; at most a file named `monolith-partial-...` in the folder, and the flag that a save began, which the next start reports and clears |
+| Deleting a contact or an identity | records of the transfers go with it at the next open at the latest, and their blobs |
 
 Each has a test that kills the write at every step (T-CRASH): the vault's
 own tests stop a write and a creation at each step of `MemoryDir`
@@ -561,8 +908,11 @@ step, and `tests/messages.rs` in the core crashes the installation at
 every step of queueing a message and at each boundary of delivery: before
 a message is durable at the sender or at the receiver, after it is
 durable and before it is acknowledged, after the acknowledgement and
-before the delivery is durable. File completion comes with file
-transfer.
+before the delivery is durable. For transfers, the storage tests stop the
+write of the transfer store and of a blob at each step, with the outcomes
+of a crash above plus a write at an offset that is lost or torn, writes
+made durable out of order, and reserved regions that read as zero bytes
+(`MemoryDir`). File completion is the save of section 5.5.
 
 What is written is used only once it is durable (`DESIGN_QUESTIONS.md`
 P4-4). The write is a job of its own on the blocking pool, which ends the

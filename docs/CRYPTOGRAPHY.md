@@ -5,7 +5,10 @@ a transport key that the identity certifies in the contact card (ADR
 0002). Sections 4 to 8 describe it, and the crate `monolith-session`
 implements it. The vault of section 9 is specified in `STORAGE.md` and
 implemented in `monolith-storage` in Phase 4; the message store beside it
-in Phase 5 (`adr/0008-message-store.md`).
+in Phase 5 (`adr/0008-message-store.md`). The encrypted staging of file
+transfers (section 9.1) and the checks that make a received file the bytes
+its sender declared (section 9.2) are implemented in Phase 8
+(`adr/0014-transfer-staging.md`).
 
 Monolith defines no primitive, no key exchange and no key schedule of its
 own. It uses the Noise Protocol Framework and Ed25519 as specified, and
@@ -34,7 +37,8 @@ Tor's own onion service encryption and does not replace any of it.
 | Onion address checksum | SHA3-256 | `sha3` |
 | Vault key derivation | Argon2id, RFC 9106 | `argon2` |
 | Vault encryption | XChaCha20-Poly1305 | `chacha20poly1305` |
-| Subkeys from the vault key | HKDF-SHA256, RFC 5869 | `hkdf` |
+| Staged files of transfers | XChaCha20-Poly1305, one message for each segment | `chacha20poly1305` |
+| Subkeys from the vault key, and from the staging key | HKDF-SHA256, RFC 5869 | `hkdf` |
 | Randomness | operating system CSPRNG | `getrandom` |
 | Secret comparison | constant time, best effort | `subtle` |
 | Secret erasure | best effort | `zeroize` |
@@ -78,7 +82,9 @@ made:
   duplicate session;
 - the storage crate: the salt, the vault key and the nonces of the vault
   and of the message store, and the identifiers of local identities and
-  contact records;
+  contact records; since Phase 8 also the nonce of the transfer store, the
+  nonce of every segment written to a staged file, the identifiers of
+  staged files and the keys of an ephemeral installation (section 9.1);
 - the Tor crate: SOCKS isolation tokens and the client nonce of
   SAFECOOKIE;
 - the development commands of the CLI: message identifiers.
@@ -494,6 +500,10 @@ reduced values exists only in test builds of the session crate.
 | Invitation capability | by Monolith | until revoked | vault, and inside every card that carries it | only by an explicit `clone`: with a card that carries it, and once into a session that sends a request with it | by its type on drop, every copy |
 | Vault key | derived at unlock | while the vault is unlocked | never | no | by its type on drop |
 | Message store key | derived from the vault key at unlock | while the vault is unlocked | never | no | by its type on drop |
+| Transfer store key | derived from the vault key at unlock | while the vault is unlocked | never | no | by its type on drop |
+| Staging key | derived from the vault key at unlock | while the vault is unlocked | never | no | by its type on drop |
+| Blob key | derived from the staging key and the blob identifier | while a staged file is open | never | no | by its type on drop |
+| Store and staging keys of an ephemeral installation | drawn at start | the process | never | no | by its type on drop |
 
 Session keys and ephemeral keys are never written to storage. Types that
 hold a secret do not derive `Debug`; that includes the records of the
@@ -595,6 +605,110 @@ write. It has no passphrase and no KDF of its own; a passphrase change
 that keeps the vault key keeps its key. Its payload is padded to a
 multiple of `MESSAGE_STORE_PADDING_BLOCK_LEN`, so its length shows the
 amount of history only to that granularity.
+
+### 9.1 Transfer store and staged files
+
+Decided in Phase 8: `adr/0014-transfer-staging.md`. Specified in
+`STORAGE.md` sections 5.1 to 5.5. Monolith still defines no primitive: each
+segment of a staged file is an ordinary AEAD message, and the format fixes
+what goes into its key, nonce and associated data.
+
+Keys, all 32 bytes, derived with HKDF-SHA256 (RFC 5869, extract then
+expand, no salt) and held in types that clear their memory on drop:
+
+    store_key   = HKDF-SHA256(vault_key, info = "MONOLITH-TRANSFER-STORE-V1")
+    staging_key = HKDF-SHA256(vault_key, info = "MONOLITH-TRANSFER-STAGING-V1")
+    blob_key    = HKDF-SHA256(staging_key, info = "MONOLITH-TRANSFER-BLOB-V1" || blob_id)
+
+`blob_id` is 16 bytes from `getrandom`, never zero. The key of a blob is
+always derived from the `blob_id` of the record that names it, never from
+bytes read from the blob, and a blob is never written under another key.
+The three labels are apart from the labels of the vault payload and of the
+message store. A change of passphrase keeps the vault key, so the staged
+files stay readable; a rekeying of the vault would have to discard them. An
+ephemeral installation draws `store_key` and `staging_key` from `getrandom`
+when it starts and writes them nowhere.
+
+The transfer store is a container of the kind of the message store:
+XChaCha20-Poly1305 under `store_key`, the 48-byte header as associated
+data, a random 24-byte nonce for every write.
+
+A staged file is a header of 32 bytes, not encrypted, and segments of
+64490 plaintext bytes (the last one padded with zero bytes). Each segment
+is written as
+
+    nonce (24 bytes) || XChaCha20-Poly1305(blob_key, nonce, plaintext, ad)
+
+with a nonce drawn from `getrandom` for each write of the segment. A
+segment written again, as the receiver does with the tail of a file after a
+crash, gets a new nonce, so a key and a nonce never meet two plaintexts. The
+associated data is
+
+    ad = header (32 bytes) || u64 size || u64 index || u8 final
+
+with all integers big-endian, `size` the declared size of the file taken
+from the record, which the transfer store authenticates, `index` the
+position of the segment, and `final` 1 for the last segment and 0 for the
+others. The header holds the blob identifier and the segment length, so a
+segment is bound to its blob, to the size of its file, to its place in it
+and to whether it ends it.
+
+What happens to a segment that is not the one written for its place:
+
+- A segment moved to another place in the blob, taken from another blob,
+  cut, or followed by data where the record says the file ends, fails to
+  authenticate. So does one read under a size other than the record's, and
+  a last segment that is not marked last.
+- Bytes that the blob never sealed for that position, zero bytes of a
+  reserved region or old data, fail to authenticate.
+- A segment whose padding is not zero is refused, even if it
+  authenticates.
+- A blob in which no segment authenticates yet (a file of size zero, or an
+  incoming transfer with nothing staged) is never authenticated as a
+  whole: its header is matched against the record, and its length against
+  the reserved length.
+- A segment that fails to authenticate is never repaired or used. In an
+  incoming blob that is being received it counts as not written, with every
+  segment after it, and is written over; in any other blob it fails the
+  transfer.
+
+What the format hides is the content of the file and its exact size, which
+shows only to within a segment; what it does not hide is in `STORAGE.md`
+section 5.6. Test vectors of the blob and of the store, written from the
+ADR alone, are in `crates/monolith-storage/tests/transfer_format.rs`, which
+also checks that every segment the code writes has a nonce of its own and
+that no plaintext shows in the file.
+
+### 9.2 The digest of a file, and what it does and does not say
+
+The digest of a transfer is the SHA-256 of the `size` bytes of the file,
+never of the padding. The sender computes it while it stages the file. The
+receiver, when the peer says the file is complete:
+
+1. checks that it holds exactly `size` bytes, reads and authenticates
+   every segment, and compares the SHA-256 of what it read with the digest
+   it received;
+2. only on a match records the transfer as complete, with the digest, and
+   waits until that record is durable; on a mismatch it records the
+   transfer as failed and never offers the bytes as a received file;
+3. when the user saves the file, reads and hashes it again, segment by
+   segment, and fails the save at the last byte unless the length and the
+   digest are those of the record (`STORAGE.md` section 5.5).
+
+The sender compares the digest it receives back with the one it staged
+before it records the transfer as delivered, and records it as failed on a
+mismatch.
+
+Integrity and content safety are different properties. The checks above
+mean that a received file is exactly the bytes its sender declared, in size
+and in SHA-256, and that staging did not damage it. They say nothing about
+what the bytes are: a file with the right digest may still be malicious.
+The digest binds the file to the offer made over a session that
+authenticates the contact; it is not a statement about the content. Monolith
+never opens, previews or runs a received file, and does not guess its type
+from its content (`adr/0013-file-transfer.md`, `PROTOCOL.md`). A saved file
+is plaintext where the user put it, and whether to open it is the user's
+decision.
 
 ## 10. Implementation rules
 
