@@ -653,6 +653,11 @@ impl<B: TorBackend + 'static> Inner<B> {
         if change.progressed {
             lock(&runtime.bindings).progressed.insert(key.contact);
         }
+        // Ended while its file was synced (cancelled by the user): nothing
+        // more of it is acknowledged, and the next round tells the peer.
+        if Self::accepted_blob(transfers, key).is_none() {
+            return Ok(());
+        }
         link.send(&Message::FileAccept {
             transfer: TransferId::from_bytes(key.transfer),
             offset: bytes,
@@ -868,6 +873,19 @@ impl<B: TorBackend + 'static> Inner<B> {
             return Ok(());
         };
         if matches!(answer, Answer::Nothing) || transfers.settled().await.is_err() {
+            return Ok(());
+        }
+        // Changed while it was made durable (cancelled, failed): the next
+        // round answers from the change, once that is durable too.
+        let again = transfers.read(|state, now| {
+            (
+                state.answer(&key, now),
+                state
+                    .record(&key)
+                    .map(|record| (record.state, record.flags.has(Flags::UNREAD))),
+            )
+        });
+        if again != (Offer::Answer(answer), Some((state, unread))) {
             return Ok(());
         }
         let transfer = TransferId::from_bytes(key.transfer);

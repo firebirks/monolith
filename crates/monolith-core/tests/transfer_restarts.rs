@@ -259,6 +259,33 @@ async fn hand_link(network: &MockNetwork, to: &Node, by: &Node) -> Link<DuplexSt
     }
 }
 
+/// As [`hand_link`], made in a task of its own: it is confirmed while the
+/// test goes on, also while writes of `to` are held.
+fn spawned_link(
+    network: &MockNetwork,
+    to: &Node,
+    by: &Node,
+) -> tokio::task::JoinHandle<Link<DuplexStream>> {
+    let network = network.clone();
+    let (card, identity) = (to.identity().card(), by.identity().clone());
+    tokio::spawn(async move {
+        let established = dial(&network.backend(), &Budgets::new(), &identity, &card)
+            .await
+            .unwrap();
+        let mut link = established.link;
+        for action in established.first {
+            assert_eq!(action, Action::SendContactAccept);
+            link.send(&Message::ContactAccept).await.unwrap();
+        }
+        loop {
+            let arrived = link.receive().await.unwrap();
+            if arrived.received().actions.contains(&Action::Confirmed) {
+                return link;
+            }
+        }
+    })
+}
+
 /// What arrives on `link` until nothing more comes for `quiet`, Pings
 /// answered and left out; and whether the session ended.
 async fn drain(link: &mut Link<DuplexStream>, quiet: Duration) -> (Vec<Message>, bool) {
@@ -1779,26 +1806,7 @@ fn a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered() {
         let third = sent[2];
         let cancelling = tokio::spawn(async move { runtime.cancel_transfer(&third).await });
         spin_until(|| a.dir().write_held()).await;
-        let link = {
-            let network = network.clone();
-            let (a_card, b_identity) = (a.identity().card(), b.identity().clone());
-            tokio::spawn(async move {
-                let established = dial(&network.backend(), &Budgets::new(), &b_identity, &a_card)
-                    .await
-                    .unwrap();
-                let mut link = established.link;
-                for action in established.first {
-                    assert_eq!(action, Action::SendContactAccept);
-                    link.send(&Message::ContactAccept).await.unwrap();
-                }
-                loop {
-                    let arrived = link.receive().await.unwrap();
-                    if arrived.received().actions.contains(&Action::Confirmed) {
-                        return link;
-                    }
-                }
-            })
-        };
+        let link = spawned_link(&network, &a, &b);
         for _ in 0..1000 {
             tokio::task::yield_now().await;
         }
@@ -1827,6 +1835,101 @@ fn a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered() {
             "{messages:?}"
         );
         a.stop().await;
+    });
+}
+
+#[test]
+fn an_answer_that_changed_while_it_was_made_durable_is_not_written() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut b, a, at_b, _) = contacts(&network).await;
+        let dir = b.dir().clone();
+        let _released = Released(&dir);
+        let data = file(6 * L);
+        let mut link = hand_link(&network, &b, &a).await;
+        let received = offered_and_accepted(&b, &mut link, &data).await;
+        for n in 0..2 {
+            link.send(&chunk(TRANSFER, &data, n * L)).await.unwrap();
+        }
+        drain(&mut link, QUIET).await;
+        drop(link);
+        until(|| b.runtime().sessions(&b.id(), &at_b).unwrap() == 0).await;
+        // A file of B's own, offered while no session is open.
+        let theirs = b
+            .runtime()
+            .offer_file(
+                &b.id(),
+                &at_b,
+                "theirs.bin",
+                2 * L,
+                Box::new(Cursor::new(file(2 * L))),
+            )
+            .await
+            .unwrap();
+        // Its cancellation waits to be durable as the next session starts:
+        // the answer to the offer made again waits for it, read.
+        dir.hold_writes();
+        let runtime = b.runtime().clone();
+        let cancelling = tokio::spawn(async move { runtime.cancel_transfer(&theirs).await });
+        spin_until(|| dir.write_held()).await;
+        let link = spawned_link(&network, &b, &a);
+        let mut link = {
+            for _ in 0..1000 {
+                tokio::task::yield_now().await;
+            }
+            link.await.unwrap()
+        };
+        link.send(&offer_of(&data)).await.unwrap();
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
+        // The user cancels the transfer meanwhile.
+        let runtime = b.runtime().clone();
+        let cancelled = tokio::spawn(async move { runtime.cancel_transfer(&received).await });
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
+        dir.release_writes();
+        cancelling.await.unwrap().unwrap();
+        cancelled.await.unwrap().unwrap();
+        // The sender is told it ends, and never told first to go on.
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert!(acceptances(&messages, TRANSFER).is_empty(), "{messages:?}");
+        assert!(
+            messages.contains(&Message::FileAbort(TRANSFER)),
+            "{messages:?}"
+        );
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_cancellation_while_the_progress_is_synced_is_never_answered_with_an_acceptance() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut b, a, _, _) = contacts(&network).await;
+        let dir = b.dir().clone();
+        let _released = SyncsReleased(&dir);
+        let data = file(6 * L);
+        let mut link = hand_link(&network, &b, &a).await;
+        let received = offered_and_accepted(&b, &mut link, &data).await;
+        // The sync that would acknowledge the first chunks waits; the user
+        // cancels meanwhile.
+        dir.hold_blob_syncs();
+        for n in 0..2 {
+            link.send(&chunk(TRANSFER, &data, n * L)).await.unwrap();
+        }
+        spin_until(|| dir.blob_sync_held()).await;
+        b.runtime().cancel_transfer(&received).await.unwrap();
+        dir.release_blob_syncs();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert!(acceptances(&messages, TRANSFER).is_empty(), "{messages:?}");
+        assert!(
+            messages.contains(&Message::FileAbort(TRANSFER)),
+            "{messages:?}"
+        );
+        assert_eq!(b.status(&received), Some(TransferStatus::Cancelled));
+        b.stop().await;
     });
 }
 
