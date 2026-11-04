@@ -41,11 +41,21 @@
 # A's request and answers; each shows its message delivered and the
 # other's received, and both close.
 #
-# Phase 8, with `dev-runtime` (steps 22 to 24, also run before step 12):
-# a file offered, accepted, sent through Tor while chat goes both ways,
-# completed on both sides and saved with the bytes staged; a larger file
-# that survives a crash of the receiver and then of the sender while on
-# its way, received once and saved whole.
+# Phase 8, with `dev-runtime` (steps 22, 23 and 25 to 31) and the
+# `tor_network` test of monolith-core (step 32), then step 24, all run
+# before step 12: a file offered, accepted, sent through Tor while chat
+# goes both ways, completed on both sides and saved with the bytes staged;
+# a larger file that survives a crash of the receiver and then of the
+# sender while on its way, received once and saved whole; a file each way
+# at once; Tor A gone and back while a file goes; every session through a
+# proxy that cuts it mid-frame and holds data back; the receiver crashing
+# as the file completes, with no second file; a contact deleted and made
+# again that inherits nothing; a block that stops the chunks and leaves
+# nothing staged; a peer built from the tag phase-7-complete, which
+# refuses the offer while chat goes on; and a file that goes on across a
+# rotation of the receiver's transport key, to the same contact record.
+# Each prints the SHA-256 of what went and what was saved, the times, and
+# the memory and CPU of the nodes.
 #
 # Every Monolith process runs under strace, and every connect it makes
 # must go to a loopback address or a Unix socket, with no UDP socket and
@@ -58,7 +68,8 @@
 # binaries prebuilt: MONOLITH_BIN for `monolith`, MONOLITH_LIFECYCLE_BIN
 # for the `tor_network` test of monolith-core and MONOLITH_DESKTOP_SMOKE_BIN
 # for the `tor_smoke` example of monolith-desktop, built in release (the
-# Dockerfile here runs it that way).
+# Dockerfile here runs it that way); and MONOLITH_PHASE7_BIN, `monolith`
+# built from the tag phase-7-complete, for step 31.
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -888,16 +899,17 @@ echo "ok   Tor listed each SOCKS endpoint; each client showed its message delive
 
 # --- Phase 8: files -----------------------------------------------------------
 
-# Writes `size` bytes to `path`, the same bytes on every run: a generated
-# fixture, no data of anyone's.
+# Writes `size` bytes to `path`, the same bytes on every run for the same
+# `seed` (0 unless given): a generated fixture, no data of anyone's.
 fixture() {
-    python3 - "$1" "$2" <<'PY'
+    python3 - "$1" "$2" "${3:-0}" <<'PY'
 import hashlib, sys
-path, size = sys.argv[1], int(sys.argv[2])
+path, size, seed = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 written, counter = 0, 0
+prefix = seed.to_bytes(8, "big") if seed else b""
 with open(path, "wb") as out:
     while written < size:
-        block = hashlib.sha256(counter.to_bytes(8, "big")).digest() * 2048
+        block = hashlib.sha256(prefix + counter.to_bytes(8, "big")).digest() * 2048
         part = block[: size - written]
         out.write(part)
         written += len(part)
@@ -1020,6 +1032,336 @@ expect fb "^saved 0 $tb Saved$" 1 600
 cmp "$work/files/archive.bin" "$work/saved/archive.bin"
 test "$(count fb "^offered 0 $fa0 t[0-9]+ size=$size2 ")" = 1
 echo "ok   both crashes survived; the file was received once and saved whole"
+
+# The SHA-256 of a file, for the record of what went and what was saved.
+sha() {
+    sha256sum "$1" | cut -d' ' -f1
+}
+
+# The peak resident memory (kB) and the CPU seconds so far of the Monolith
+# process of node `name` (the child of its strace).
+usage_of() {
+    local child
+    child=$(pgrep -P "${pids[$1]}" | head -1)
+    awk '/^VmHWM/ { printf "%s kB peak, ", $2 }' "/proc/$child/status"
+    awk -v hz="$(getconf CLK_TCK)" '{ printf "%.1f s CPU\n", ($14 + $15) / hz }' "/proc/$child/stat"
+}
+
+# Starts a proxy on `port` to `target` (host:port) that, with the random
+# seed given, cuts each connection abruptly after a number of bytes drawn
+# between 256 KiB and 3 MiB, wherever in a frame that falls, and holds
+# some of what it forwards back by up to three seconds: test tooling on
+# loopback, between a node and its Tor. Writes one line per cut to `log`.
+fault_proxy() {
+    python3 - "$1" "$2" "$3" "$4" <<'PY' >/dev/null 2>&1 &
+import asyncio, random, socket, struct, sys
+port, target, seed, log = int(sys.argv[1]), sys.argv[2], int(sys.argv[3]), sys.argv[4]
+host, target_port = target.rsplit(":", 1)
+rng = random.Random(seed)
+number = 0
+out = open(log, "a", buffering=1)
+
+def abort(writer):
+    sock = writer.get_extra_info("socket")
+    if sock is not None:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    writer.close()
+
+async def handle(reader, writer):
+    global number
+    number += 1
+    conn = number
+    budget = rng.randint(256 * 1024, 3 * 1024 * 1024)
+    try:
+        up_reader, up_writer = await asyncio.open_connection(host, int(target_port))
+    except OSError:
+        writer.close()
+        return
+    state = {"left": budget, "cut": False}
+
+    async def pump(src, dst):
+        while not state["cut"]:
+            data = await src.read(16384)
+            if not data:
+                break
+            if rng.random() < 0.02:
+                await asyncio.sleep(rng.uniform(1.0, 3.0))
+            if len(data) >= state["left"]:
+                dst.write(data[: state["left"]])
+                state["cut"] = True
+                out.write(f"cut connection {conn} after {budget} bytes\n")
+                abort(writer)
+                abort(up_writer)
+                return
+            state["left"] -= len(data)
+            dst.write(data)
+            await dst.drain()
+        if not state["cut"]:
+            dst.close()
+
+    try:
+        await asyncio.gather(pump(reader, up_writer), pump(up_reader, writer))
+    except (OSError, ConnectionError):
+        pass
+
+async def main():
+    server = await asyncio.start_server(handle, "127.0.0.1", port)
+    async with server:
+        await server.serve_forever()
+
+asyncio.run(main())
+PY
+    echo $!
+}
+
+# Starts Tor `side` (a or b) again from its torrc, as test tooling;
+# Chutney stops it by its pid file.
+start_tor() {
+    local dir=$1
+    tor -f "$dir/torrc" >>"$work/tor-$(basename "$dir")-restarted.log" 2>&1 &
+    echo "$!" >"$dir/pid"
+}
+
+# Offers the fixture `file` from node `from` to node `to`, whose names
+# for each other are `peer_at_from` and `peer_at_to`, and has `to` accept
+# it. Sets `tx` (the transfer at `from`) and `rx` (at `to`), and prints
+# the time staging took.
+offer_and_accept() {
+    local from=$1 to=$2 peer_at_from=$3 peer_at_to=$4 file=$5 size n started
+    size=$(stat -c %s "$file")
+    n=$(count "$from" "^offering 0 $peer_at_from t[0-9]+$")
+    started=$(date +%s.%N)
+    tell "$from" offer 0 "$peer_at_from" "$file"
+    expect "$from" "^offering 0 $peer_at_from t[0-9]+$" $((n + 1)) 300
+    echo "     staged $size bytes in $(python3 -c "import sys; print(round($(date +%s.%N) - $started, 1))") s"
+    tx=$(last "$from" "^offering 0 $peer_at_from " | cut -d' ' -f4)
+    n=$(count "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size ")
+    expect "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size " $((n + 1)) 900
+    rx=$(last "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size " | cut -d' ' -f4)
+    tell "$to" accept 0 "$rx"
+    expect "$to" "^accept-done 0 $rx$" 1 60
+}
+
+# Lists the transfers of identity 0 of node `name` and prints how many
+# lines of that listing match `pattern`.
+listed() {
+    local name=$1 pattern=$2 n lines
+    n=$(count "$name" '^transfers 0 ')
+    lines=$(wc -l <"$work/$name.out")
+    tell "$name" transfers 0
+    expect "$name" '^transfers 0 ' $((n + 1)) 10
+    sleep 1
+    tail -n +$((lines + 1)) "$work/$name.out" | grep -cE -- "$pattern" || true
+}
+
+# Saves transfer `t` of node `name` to `path` and checks it holds exactly
+# the bytes of `original`; prints both digests.
+save_and_compare() {
+    local name=$1 t=$2 path=$3 original=$4
+    tell "$name" save 0 "$t" "$path"
+    expect "$name" "^saved 0 $t Saved$" 1 600
+    cmp "$original" "$path"
+    echo "     sha256 sent  $(sha "$original")"
+    echo "     sha256 saved $(sha "$path")"
+}
+
+echo "25. A file each way at once, chat both ways meanwhile; each side saves the other's bytes."
+fixture "$work/files/a-to-b.bin" 16000000 25
+fixture "$work/files/b-to-a.bin" 12000017 26
+started=$(date +%s)
+offer_and_accept fa fb "$fb0" "$fa0" "$work/files/a-to-b.bin"
+ab_out=$tx ab_in=$rx
+offer_and_accept fb fa "$fa0" "$fb0" "$work/files/b-to-a.bin"
+ba_out=$tx ba_in=$rx
+chat_at=$(date +%s.%N)
+tell fa send 0 "$fb0" both ways at once
+expect fb "^received 0 $fa0 [0-9]+ \"both ways at once\"$" 1 600
+echo "     chat latency during both transfers: $(python3 -c "print(round($(date +%s.%N) - $chat_at, 1))") s"
+tell fb send 0 "$fa0" and back again
+expect fa "^received 0 $fb0 [0-9]+ \"and back again\"$" 1 600
+expect fb "^transfer 0 $fa0 $ab_in in Received " 1 1800
+expect fa "^transfer 0 $fb0 $ba_in in Received " 1 1800
+expect fa "^transfer 0 $fb0 $ab_out out Completed " 1 600
+expect fb "^transfer 0 $fa0 $ba_out out Completed " 1 600
+elapsed=$(since "$started")
+echo "     both completed in ${elapsed}s: $(( (16000000 + 12000017) / (elapsed > 0 ? elapsed : 1) )) bytes/s together"
+echo "     A: $(usage_of fa)"
+echo "     B: $(usage_of fb)"
+save_and_compare fb "$ab_in" "$work/saved/a-to-b.bin" "$work/files/a-to-b.bin"
+save_and_compare fa "$ba_in" "$work/saved/b-to-a.bin" "$work/files/b-to-a.bin"
+echo "ok   both files went at once and were saved whole on the other side"
+
+echo "26. Tor A goes away and comes back while a file is on its way: it goes on."
+fixture "$work/files/tor-restart.bin" 32000000 27
+started=$(date +%s)
+offer_and_accept fa fb "$fb0" "$fa0" "$work/files/tor-restart.bin"
+expect fb "^progress 0 $rx [0-9]+$" 1 600
+published=$(count fa '^published 0$')
+before=$(progress_of fb "$rx")
+stop_tor "$a"
+sleep 20
+start_tor "$a"
+expect fa '^published 0$' $((published + 1)) 300
+expect fb "^transfer 0 $fa0 $rx in Received " 1 3600
+expect fa "^transfer 0 $fb0 $tx out Completed " 1 900
+echo "     Tor A stopped at $before bytes acknowledged; completed $(since "$started")s after the offer"
+save_and_compare fb "$rx" "$work/saved/tor-restart.bin" "$work/files/tor-restart.bin"
+echo "ok   the transfer went on after Tor A came back"
+
+echo "27. Faults on the way: every session crosses a proxy that cuts it mid-frame and holds data back."
+stop_node fa
+stop_node fb
+proxy_a_port=$(closed_port)
+proxy_b_port=$(closed_port)
+proxy_a=$(fault_proxy "$proxy_a_port" "$(endpoint_of "$a")" 1 "$work/proxy-a.log")
+proxy_b=$(fault_proxy "$proxy_b_port" "$(endpoint_of "$b")" 2 "$work/proxy-b.log")
+cut_a=(--socks "127.0.0.1:$proxy_a_port" --control "$(control_of "$a")" --cookie-file "$(cookie_of "$a")")
+cut_b=(--socks "127.0.0.1:$proxy_b_port" --control "$(control_of "$b")" --cookie-file "$(cookie_of "$b")")
+published_a=$(count fa '^published 0$')
+published_b=$(count fb '^published 0$')
+start_runtime fa "$data_fa" 0 "${cut_a[@]}"
+start_runtime fb "$data_fb" 0 "${cut_b[@]}"
+expect fa '^published 0$' $((published_a + 1)) 120
+expect fb '^published 0$' $((published_b + 1)) 120
+fixture "$work/files/faults.bin" 16000003 28
+started=$(date +%s)
+offer_and_accept fa fb "$fb0" "$fa0" "$work/files/faults.bin"
+tell fa send 0 "$fb0" through the cuts
+expect fb "^received 0 $fa0 [0-9]+ \"through the cuts\"$" 1 1800
+expect fb "^transfer 0 $fa0 $rx in Received " 1 3600
+expect fa "^transfer 0 $fb0 $tx out Completed " 1 1800
+cuts=$(cat "$work/proxy-a.log" "$work/proxy-b.log" 2>/dev/null | wc -l)
+echo "     completed through $cuts cut connections in $(since "$started")s (seeds 1 and 2)"
+test "$cuts" -ge 3
+save_and_compare fb "$rx" "$work/saved/faults.bin" "$work/files/faults.bin"
+test "$(count fb "^offered 0 $fa0 t[0-9]+ size=16000003 ")" = 1
+stop_node fa
+stop_node fb
+kill "$proxy_a" "$proxy_b" 2>/dev/null || true
+published_a=$(count fa '^published 0$')
+published_b=$(count fb '^published 0$')
+start_runtime fa "$data_fa" 0 "${tor_a[@]}"
+start_runtime fb "$data_fb" 0 "${tor_b[@]}"
+expect fa '^published 0$' $((published_a + 1)) 120
+expect fb '^published 0$' $((published_b + 1)) 120
+echo "ok   the file arrived whole and once through interrupted frames, lost sessions and late data"
+
+echo "28. B crashes as it has the whole file, before A may have its acknowledgement: no second file."
+fixture "$work/files/last-ack.bin" 4000000 29
+offer_and_accept fa fb "$fb0" "$fa0" "$work/files/last-ack.bin"
+expect fb "^transfer 0 $fa0 $rx in Received " 1 1800
+crash_node fb
+if grep -qE "^transfer 0 $fb0 $tx out Completed " "$work/fa.out"; then
+    echo "     A had the acknowledgement before B crashed"
+else
+    echo "     A had no acknowledgement when B crashed"
+fi
+published=$(count fb '^published 0$')
+start_runtime fb "$data_fb" 0 "${tor_b[@]}"
+expect fb '^published 0$' $((published + 1)) 120
+expect fa "^transfer 0 $fb0 $tx out Completed " 1 1800
+test "$(listed fb "^transfer 0 $fa0 t[0-9]+ in .*size=4000000 ")" = 1
+test "$(count fb "^offered 0 $fa0 t[0-9]+ size=4000000 ")" = 1
+rx=$(transfer_of fb 4000000)
+save_and_compare fb "$rx" "$work/saved/last-ack.bin" "$work/files/last-ack.bin"
+echo "ok   A completed once B answered from its record; one file, saved once"
+
+echo "29. B deletes A while a file comes and adds A again: the new contact gets the offer anew."
+fixture "$work/files/recreated.bin" 16000005 30
+offer_and_accept fa fb "$fb0" "$fa0" "$work/files/recreated.bin"
+old_rx=$rx
+expect fb "^progress 0 $old_rx [0-9]+$" 1 900
+tell fb delete 0 "$fa0"
+expect fb "^deleted 0 $fa0$" 1 30
+# Nothing of the old record stays staged.
+for _ in $(seq 30); do
+    test "$(ls "$data_fb" | grep -c '^transfer-' || true)" = 0 && break
+    sleep 1
+done
+test "$(ls "$data_fb" | grep -c '^transfer-' || true)" = 0
+tell fb add 0 "$(last fa '^card 0 ' | cut -d' ' -f3)"
+expect fb "^added 0 $fa0$" 2 30
+tell fb send 0 "$fa0" here again
+expect fb "^delivered 0 $fa0 [0-9]+$" $(($(count fb "^delivered 0 $fa0 ") + 1)) 900
+expect fb "^offered 0 $fa0 t[0-9]+ size=16000005 " 2 1800
+new_rx=$(last fb "^offered 0 $fa0 t[0-9]+ size=16000005 " | cut -d' ' -f4)
+test "$new_rx" != "$old_rx"
+test "$(listed fb "^transfer 0 $fa0 $new_rx in Offered ")" = 1
+tell fb accept 0 "$new_rx"
+expect fb "^accept-done 0 $new_rx$" 1 60
+expect fb "^transfer 0 $fa0 $new_rx in Received " 1 3600
+save_and_compare fb "$new_rx" "$work/saved/recreated.bin" "$work/files/recreated.bin"
+echo "ok   the contact made again inherited nothing; the file came again from its start"
+
+echo "30. B blocks A while a file comes: nothing more is staged, nothing is kept."
+fixture "$work/files/blocked.bin" 32000007 31
+offer_and_accept fa fb "$fb0" "$fa0" "$work/files/blocked.bin"
+expect fb "^progress 0 $rx [0-9]+$" 1 900
+tell fb block 0 "$fa0"
+expect fb "^blocked 0 $fa0$" 1 30
+expect fb "^transfer 0 $fa0 $rx in Cancelled reason=Some\(ContactEnded\) " 1 30
+progress=$(count fb "^progress 0 $rx ")
+sleep 120
+test "$(count fb "^progress 0 $rx ")" = "$progress"
+test "$(ls "$data_fb" | grep -c '^transfer-' || true)" = 0
+echo "     A after the block: $(last fa "^transfer 0 $fb0 $tx ")"
+echo "ok   no chunk was taken after the block, and the staged file went"
+
+echo "31. A peer of the tag phase-7-complete, built from it: it refuses the offer, chat goes on."
+: "${MONOLITH_PHASE7_BIN:?set MONOLITH_PHASE7_BIN to the monolith binary built from phase-7-complete}"
+phase8=$monolith
+monolith=$MONOLITH_PHASE7_BIN
+echo "     Phase 7 binary: $(sha "$MONOLITH_PHASE7_BIN")"
+data_c7="$work/phase7-c"
+start_runtime c7 "$data_c7" 0 "${tor_b[@]}"
+monolith=$phase8
+expect c7 '^created$' 1 10
+tell c7 new-identity
+expect c7 '^published 0$' 1 120
+c70=$(last c7 '^identity 0 ' | cut -d' ' -f3)
+tell c7 card 0
+expect c7 '^card 0 ' 1 10
+tell fa add 0 "$(last c7 '^card 0 ' | cut -d' ' -f3)"
+expect fa "^added 0 $c70$" 1 30
+tell c7 add 0 "$(last fa '^card 0 ' | cut -d' ' -f3)"
+expect c7 "^added 0 $fa0$" 1 30
+tell fa send 0 "$c70" hello seven
+expect c7 "^received 0 $fa0 [0-9]+ \"hello seven\"$" 1 900
+expect fa "^delivered 0 $c70 [0-9]+$" 1 600
+fixture "$work/files/to-seven.bin" 2000000 32
+n=$(count fa "^offering 0 $c70 t[0-9]+$")
+tell fa offer 0 "$c70" "$work/files/to-seven.bin"
+expect fa "^offering 0 $c70 t[0-9]+$" $((n + 1)) 300
+t7=$(last fa "^offering 0 $c70 " | cut -d' ' -f4)
+expect fa "^transfer 0 $c70 $t7 out Rejected " 1 900
+tell c7 send 0 "$fa0" still here
+expect fa "^received 0 $c70 [0-9]+ \"still here\"$" 1 900
+tell fa send 0 "$c70" after the offer
+expect c7 "^received 0 $fa0 [0-9]+ \"after the offer\"$" 1 900
+# The peer of Phase 7 took the offer for no session error, and A offers
+# it no more: one rejection, and both stay contacts with one session at
+# most.
+if grep -qi 'violation' "$work/c7.out"; then
+    echo "FAIL the Phase 7 peer reported a violation"
+    tail -20 "$work/c7.out"
+    exit 1
+fi
+sleep 60
+test "$(count fa "^transfer 0 $c70 $t7 out Rejected ")" = 1
+test "$(sessions_of fa 0 "$c70")" -le 1
+stop_node c7
+echo "ok   the Phase 7 peer rejected the file, and chat went both ways before and after"
+
+echo "32. A file goes on across a rotation of B's transport key; a contact made again inherits nothing."
+MONOLITH_TOR_A_SOCKS=$(endpoint_of "$a") MONOLITH_TOR_A_CONTROL=$(control_of "$a")     MONOLITH_TOR_A_COOKIE=$(cookie_of "$a")     MONOLITH_TOR_B_SOCKS=$(endpoint_of "$b") MONOLITH_TOR_B_CONTROL=$(control_of "$b")     MONOLITH_TOR_B_COOKIE=$(cookie_of "$b")     traced rotation "$lifecycle" --ignored --exact --nocapture     a_transfer_goes_on_across_a_key_rotation_and_a_contact_made_again_inherits_nothing     >"$work/rotation.out" 2>&1 || {
+    cat "$work/rotation.out"
+    exit 1
+}
+cat "$work/rotation.out"
+grep -q 'Bob switched to his new key with' "$work/rotation.out"
+grep -q 'The file went on over the new key, to the same contact, whole.' "$work/rotation.out"
+grep -q 'The contact made again inherited no transfer.' "$work/rotation.out"
+echo "ok   the transfer kept its contact record across the rotation; nothing went to the new record"
 
 echo "24. Every file node run contacted only loopback and Unix sockets, no DNS."
 stop_node fa

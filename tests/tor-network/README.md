@@ -1,6 +1,6 @@
 # Private Tor network test
 
-`two-node.sh` is the end-to-end test of Phases 3 to 6 on a private Tor
+`two-node.sh` is the end-to-end test of Phases 3 to 8 on a private Tor
 network built with Chutney, the Tor Project's tool for local test
 networks:
 
@@ -119,8 +119,41 @@ Phase 8, with `dev-runtime` and generated files (no data of anyone's):
     durably, its first acknowledgement after the restart above the last
     one before. Then A is killed and started again. The file is received
     once, completed on both sides and saved whole.
+25. A file each way at once, of 16 MB and 12 MB, while chat goes both
+    ways: each side completes the other's and saves it, byte for byte.
+    The step prints the chat latency during the two transfers, the time
+    and throughput, and the peak memory and CPU time of each node.
+26. Tor A is stopped while a file of 32 MB is on its way and started
+    again 20 seconds later; A publishes again and the file goes on to
+    the end.
+27. Both nodes start again with their SOCKS endpoint behind a proxy of
+    the test that cuts every connection after a number of bytes drawn
+    between 256 KiB and 3 MiB, wherever that falls in a frame, and holds
+    some of what it forwards back by up to three seconds (seeds 1 and 2,
+    each cut logged). A file of 16 MB and a chat message go through the
+    cuts, lost sessions and late data; the file arrives whole and once.
+28. B is killed as it reports a file complete, maybe before A has its
+    acknowledgement; started again, it answers A's next offer from its
+    record, A completes, and there is one file, saved once.
+29. B deletes A while a file comes, and adds A's card again: nothing of
+    the old record stays staged; the new record is offered the file as a
+    new offer, from its start, and saves it whole.
+30. B blocks A while a file comes: the transfer is cancelled, no chunk
+    is taken for two minutes after, and nothing stays staged.
+31. A peer built from the tag `phase-7-complete` (`MONOLITH_PHASE7_BIN`):
+    A and it become contacts and chat; A's offer of a file is rejected
+    once, with no violation reported by the peer; chat goes both ways
+    after it, and there is one session at most.
+32. `tests/tor_network.rs` in `monolith-core`, on both client Tors: B
+    begins a rotation of its transport key and A learns the successor; B
+    accepts a file of 3 MB and switches to the new key while it comes;
+    the file goes on over a session of the new key, to the same contact
+    record, and arrives whole. B deletes A and adds A again: the new
+    record holds none of the old one's transfers, also after a session.
 24. Every file node run is checked: loopback and Unix sockets only, no
     DNS, no UDP.
+
+Steps 22 and 25 to 31 print the SHA-256 of each file sent and saved.
 
 And again Phase 3, as the last step because it ends Tor B (it was step 3
 of Phase 3, hence the gap in the numbers):

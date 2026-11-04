@@ -4,7 +4,10 @@
 //!
 //! A service whose control connection is gone is published again from
 //! the key held in memory, under the same name, and is reached again; a
-//! dial without its SOCKS endpoint fails and tries nothing else.
+//! dial without its SOCKS endpoint fails and tries nothing else. A file
+//! goes on across a rotation of the receiver's transport key, over a
+//! session of the new key, to the same contact record, and arrives whole;
+//! a contact deleted and made again inherits none of its transfers.
 
 // Test code builds its own inputs, and the script reads what it reports.
 #![allow(
@@ -19,12 +22,15 @@
 use core::future::{Future, poll_fn};
 use core::pin::pin;
 use core::task::Poll;
+use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use monolith_core::api::{ContactId, IdentityId, MessageStatus, TransferStatus};
 use monolith_core::budget::Budgets;
 use monolith_core::identity::{IdentityKeys, Installation, LocalIdentity};
 use monolith_core::link::{Established, Link, LinkError, answer, dial};
+use monolith_core::runtime::{Runtime, RuntimeOptions};
 use monolith_identity::{EndpointEpoch, IdentitySecretKey, OnionServiceKey};
 use monolith_protocol::body::{Message, MessageId};
 use monolith_protocol::session::Action;
@@ -250,5 +256,152 @@ fn a_service_published_again_from_its_key_is_reached_again() {
         let failed = dial(&without_socks, &Budgets::new(), &alice, &bob.card()).await;
         assert!(matches!(failed.err(), Some(LinkError::Tor(_))));
         println!("Without SOCKS the dial failed.");
+    });
+}
+
+/// Waits, looking every second, for up to `seconds`, until `condition`
+/// holds. Returns whether it did.
+async fn eventually(seconds: u64, condition: impl Fn() -> bool) -> bool {
+    for _ in 0..seconds {
+        if condition() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    condition()
+}
+
+/// A runtime of an ephemeral installation on client Tor `side`.
+fn runtime(side: &str) -> Runtime<SystemTorBackend> {
+    Runtime::start(
+        Installation::ephemeral(),
+        SystemTorBackend::new(config(side)),
+        Budgets::new(),
+        RuntimeOptions {
+            startup_spread: Duration::ZERO,
+            ..RuntimeOptions::default()
+        },
+    )
+}
+
+/// Whether every message of the conversation is delivered.
+fn delivered(runtime: &Runtime<SystemTorBackend>, id: &IdentityId, at: &ContactId) -> bool {
+    runtime
+        .messages(id, at, None, 100)
+        .unwrap()
+        .iter()
+        .all(|message| message.status == MessageStatus::Delivered)
+}
+
+#[test]
+#[ignore = "needs the private Tor network of tests/tor-network"]
+fn a_transfer_goes_on_across_a_key_rotation_and_a_contact_made_again_inherits_nothing() {
+    run(async {
+        let alice = runtime("A");
+        let bob = runtime("B");
+        let a = alice.create_identity(None).await.unwrap();
+        let b = bob.create_identity(None).await.unwrap();
+        let (la, lb) = (
+            alice.local_identity(&a).unwrap(),
+            bob.local_identity(&b).unwrap(),
+        );
+        la.import(&lb.card()).await.unwrap();
+        lb.import(&la.card()).await.unwrap();
+        let at_a = la.contact_id(lb.identity()).unwrap();
+        let at_b = lb.contact_id(la.identity()).unwrap();
+        alice.send_message(&a, &at_a, "hello").await.unwrap();
+        assert!(
+            eventually(900, || delivered(&alice, &a, &at_a)).await,
+            "no first session"
+        );
+        // Bob begins a rotation of his transport key; Alice learns the
+        // successor on the next session.
+        lb.begin_rotation().await.unwrap();
+        alice
+            .send_message(&a, &at_a, "the successor, please")
+            .await
+            .unwrap();
+        let cards = || {
+            la.dial_plan(lb.identity())
+                .map_or(0, |plan| plan.cards.len())
+        };
+        assert!(
+            eventually(900, || cards() == 2).await,
+            "the successor was not learned"
+        );
+        println!("Alice holds the successor of Bob's key.");
+        // A file goes; Bob switches to the new key while it is on its way.
+        let data: Vec<u8> = (0..3_000_000_u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8)
+            .collect();
+        let sent = alice
+            .offer_file(
+                &a,
+                &at_a,
+                "rotation.bin",
+                data.len() as u64,
+                Box::new(Cursor::new(data.clone())),
+            )
+            .await
+            .unwrap();
+        let offered = || {
+            bob.transfers(&b)
+                .unwrap()
+                .first()
+                .map(|view| view.reference)
+        };
+        assert!(eventually(900, || offered().is_some()).await, "no offer");
+        let received = offered().unwrap();
+        bob.accept_transfer(&received).await.unwrap();
+        let held = || {
+            bob.transfer(&received)
+                .unwrap()
+                .and_then(|view| view.bytes)
+                .unwrap_or(0)
+        };
+        assert!(eventually(1800, || held() > 0).await, "no progress");
+        let rotation = lb.rotation_id().unwrap();
+        assert!(lb.switch_rotation(rotation, true).await.unwrap());
+        println!("Bob switched to his new key with {} bytes staged.", held());
+        let completed = || {
+            alice.transfer(&sent).unwrap().map(|view| view.status)
+                == Some(TransferStatus::Completed)
+        };
+        assert!(eventually(3600, completed).await, "not completed");
+        assert_eq!(
+            bob.transfer(&received).unwrap().map(|view| view.status),
+            Some(TransferStatus::Received)
+        );
+        assert_eq!(received.contact, at_b);
+        assert_eq!(cards(), 1, "the new key is not the only one");
+        let mut reader = bob.begin_save(&received).await.unwrap();
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        drop(reader);
+        bob.end_save(&received, true).await.unwrap();
+        assert!(bytes == data, "other bytes");
+        println!("The file went on over the new key, to the same contact, whole.");
+        // Bob deletes Alice and adds her again: the new record holds none
+        // of the old one's transfers, also after a session.
+        bob.delete_contact(&b, &at_b).await.unwrap();
+        lb.import(&la.card()).await.unwrap();
+        let again = lb.contact_id(la.identity()).unwrap();
+        assert_ne!(again, at_b);
+        bob.send_message(&b, &again, "hello again").await.unwrap();
+        assert!(
+            eventually(900, || delivered(&bob, &b, &again)).await,
+            "no session"
+        );
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        assert!(
+            bob.transfers(&b)
+                .unwrap()
+                .iter()
+                .all(|view| view.reference.contact != again),
+            "the new record inherited a transfer"
+        );
+        println!("The contact made again inherited no transfer.");
+        alice.shutdown(Duration::from_secs(5)).await;
+        bob.shutdown(Duration::from_secs(5)).await;
     });
 }
