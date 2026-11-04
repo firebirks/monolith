@@ -1185,7 +1185,9 @@ impl<B: TorBackend + 'static> Inner<B> {
             if running.files.close {
                 continue;
             }
-            if Box::pin(self.files_pump(runtime, link, running)).await? {
+            // A frame taken before the chunk may have ended the session (a
+            // write that failed): nothing more is read on it.
+            if Box::pin(self.files_pump(runtime, link, running)).await? || running.files.close {
                 continue;
             }
             let reading = Instant::now();

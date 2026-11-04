@@ -685,12 +685,16 @@ impl<B: TorBackend + 'static> Inner<B> {
         let transfer = TransferId::from_bytes(key.transfer);
         match transfers.blobs.verify(blob, size).await {
             Ok(Verified::Digest(held)) if held == digest => {
-                if self
+                // The transfer may have ended while its file was verified
+                // (cancelled by the user, its contact ended): then nothing
+                // was completed, and the answer is the one its record
+                // gives, never FileComplete.
+                if !self
                     .apply(transfers, &key, |state, now| {
                         ((), state.complete(&key, held, now))
                     })
                     .await
-                    .is_none()
+                    .is_some_and(|(_, change)| change.changed)
                 {
                     return Ok(());
                 }
@@ -794,16 +798,30 @@ impl<B: TorBackend + 'static> Inner<B> {
                     .record(&key)
                     .map(|record| (record.state, record.flags.has(Flags::UNREAD)))
             });
-            if let Some((state @ (State::Cancelled | State::Failed), unread)) = held {
-                if transfers.settled().await.is_err() {
-                    return Ok(());
+            match held {
+                Some((state @ (State::Cancelled | State::Failed), unread)) => {
+                    if transfers.settled().await.is_err() {
+                        return Ok(());
+                    }
+                    link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))
+                        .await?;
+                    running.files.exchange.end(&transfer, true);
+                    if unread {
+                        running.files.barrier.push(Fact::Told(key, state));
+                    }
                 }
-                link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))
-                    .await?;
-                running.files.exchange.end(&transfer, true);
-                if unread {
-                    running.files.barrier.push(Fact::Told(key, state));
+                // Removed while it went on here (cancelled and taken off
+                // the list before this session told the peer): it ends on
+                // the session, which sends nothing more of it.
+                None => {
+                    if transfers.settled().await.is_err() {
+                        return Ok(());
+                    }
+                    link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))
+                        .await?;
+                    running.files.exchange.end(&transfer, true);
                 }
+                Some(_) => {}
             }
         }
         self.offer(runtime, link, running, &transfers).await?;

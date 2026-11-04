@@ -314,6 +314,8 @@ impl MemoryState {
 pub struct MemoryDir {
     state: Arc<Mutex<MemoryState>>,
     hold: Arc<Hold>,
+    /// Syncs of blob files held back by a test.
+    sync_hold: Arc<Hold>,
 }
 
 /// Writes held back by a test.
@@ -398,6 +400,24 @@ impl MemoryDir {
         self.hold.changed.notify_all();
     }
 
+    /// Holds the next sync of a blob file before its step, until
+    /// [`Self::release_blob_syncs`]: a staged file being verified, for
+    /// instance, waits there.
+    pub fn hold_blob_syncs(&self) {
+        self.sync_hold.state().holding = true;
+    }
+
+    /// Returns true while a sync of a blob file waits at its hold.
+    pub fn blob_sync_held(&self) -> bool {
+        self.sync_hold.state().waiting
+    }
+
+    /// Lets syncs of blob files go on.
+    pub fn release_blob_syncs(&self) {
+        self.sync_hold.state().holding = false;
+        self.sync_hold.changed.notify_all();
+    }
+
     /// The directory as a new process finds it after a crash at this
     /// point. Names and contents that were flushed survive; the rest as
     /// `outcome` says.
@@ -457,6 +477,7 @@ impl MemoryDir {
                 fail_next_write: None,
             })),
             hold: Arc::default(),
+            sync_hold: Arc::default(),
         }
     }
 
@@ -504,6 +525,7 @@ impl MemoryDir {
 struct MemoryBlob {
     state: Arc<Mutex<MemoryState>>,
     node: usize,
+    sync_hold: Arc<Hold>,
 }
 
 impl MemoryBlob {
@@ -550,6 +572,7 @@ impl BlobFile for MemoryBlob {
     }
 
     fn sync(&mut self) -> Result<(), StorageError> {
+        self.sync_hold.pass();
         let mut state = self.state();
         state.step()?;
         let node = state.nodes.get_mut(self.node).ok_or(StorageError::Io)?;
@@ -673,6 +696,7 @@ impl VaultDir for MemoryDir {
         Ok(Box::new(MemoryBlob {
             state: Arc::clone(&self.state),
             node,
+            sync_hold: Arc::clone(&self.sync_hold),
         }))
     }
 
@@ -688,6 +712,7 @@ impl VaultDir for MemoryDir {
         Ok(Some(Box::new(MemoryBlob {
             state: Arc::clone(&self.state),
             node,
+            sync_hold: Arc::clone(&self.sync_hold),
         })))
     }
 

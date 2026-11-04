@@ -1694,6 +1694,160 @@ proptest! {
     }
 }
 
+/// Lets the syncs of blob files of `0` go on when dropped, also on a panic.
+struct SyncsReleased<'a>(&'a MemoryDir);
+
+impl Drop for SyncsReleased<'_> {
+    fn drop(&mut self) {
+        self.0.release_blob_syncs();
+    }
+}
+
+#[test]
+fn a_cancellation_while_the_file_is_verified_is_never_answered_with_a_completion() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut b, a, _, _) = contacts(&network).await;
+        let dir = b.dir().clone();
+        let _released = SyncsReleased(&dir);
+        let data = file(3 * L + 5);
+        let mut link = hand_link(&network, &b, &a).await;
+        let received = offered_and_accepted(&b, &mut link, &data).await;
+        for n in 0..4 {
+            link.send(&chunk(TRANSFER, &data, n * L)).await.unwrap();
+        }
+        drain(&mut link, QUIET).await;
+        // The verification of the whole file waits at its sync of the
+        // staged file; the user cancels meanwhile.
+        dir.hold_blob_syncs();
+        link.send(&Message::FileComplete {
+            transfer: TRANSFER,
+            digest: sha(&data),
+        })
+        .await
+        .unwrap();
+        spin_until(|| dir.blob_sync_held()).await;
+        b.runtime().cancel_transfer(&received).await.unwrap();
+        dir.release_blob_syncs();
+        // The verification ends with the right digest, but the transfer
+        // was cancelled: the sender is told so, never that the file is
+        // complete, and nothing here holds it.
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert!(
+            !messages
+                .iter()
+                .any(|message| matches!(message, Message::FileComplete { .. })),
+            "{messages:?}"
+        );
+        assert!(
+            messages.contains(&Message::FileAbort(TRANSFER)),
+            "{messages:?}"
+        );
+        assert_eq!(b.status(&received), Some(TransferStatus::Cancelled));
+        until(|| b.blobs().is_empty()).await;
+        b.stop().await;
+    });
+}
+
+#[test]
+fn a_transfer_cancelled_and_removed_at_once_while_it_goes_is_ended_on_its_session() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, _) = contacts(&network).await;
+        let first = a.dir().clone();
+        let _released = Released(&first);
+        let data = file(40 * L);
+        let sent = a
+            .runtime()
+            .offer_file(
+                &a.id(),
+                &at_a,
+                "report.pdf",
+                data.len() as u64,
+                Box::new(Cursor::new(data.clone())),
+            )
+            .await
+            .unwrap();
+        let mut link = hand_link(&network, &a, &b).await;
+        let (transfer, _, _) = offer_in(&drain(&mut link, QUIET).await.0);
+        link.send(&Message::FileAccept {
+            transfer,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+        drain(&mut link, QUIET).await;
+        // The user stops it and takes it off the list at once: both are
+        // applied before the session looks at it again.
+        a.dir().hold_writes();
+        let runtime = a.runtime().clone();
+        let cancelling = tokio::spawn(async move { runtime.cancel_transfer(&sent).await });
+        let runtime = a.runtime().clone();
+        let removing = tokio::spawn(async move { runtime.remove_transfer(&sent).await });
+        spin_until(|| a.dir().write_held()).await;
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
+        a.dir().release_writes();
+        cancelling.await.unwrap().unwrap();
+        removing.await.unwrap().unwrap();
+        // The receiver is told it ends, on the session it goes on.
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert!(
+            messages.contains(&Message::FileAbort(transfer)),
+            "{messages:?}"
+        );
+        assert_eq!(a.status(&sent), None);
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_chunk_that_could_not_be_written_is_never_acknowledged_while_this_side_also_sends() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut b, a, at_b, _) = contacts(&network).await;
+        let data = file(6 * L);
+        let mut link = hand_link(&network, &b, &a).await;
+        let received = offered_and_accepted(&b, &mut link, &data).await;
+        // B sends a file of its own on the same session.
+        b.runtime()
+            .offer_file(
+                &b.id(),
+                &at_b,
+                "theirs.bin",
+                8 * L,
+                Box::new(Cursor::new(file(8 * L))),
+            )
+            .await
+            .unwrap();
+        let (theirs, _, _) = offer_in(&drain(&mut link, QUIET).await.0);
+        // The acceptance of B's file and two chunks of A's arrive together;
+        // the first chunk cannot be written, the disk is full.
+        b.dir().fail_next_write(StorageError::Full);
+        link.send(&Message::FileAccept {
+            transfer: theirs,
+            offset: 0,
+        })
+        .await
+        .unwrap();
+        for n in 0..2 {
+            link.send(&chunk(TRANSFER, &data, n * L)).await.unwrap();
+        }
+        // B acknowledges nothing it did not stage, and holds the transfer.
+        let (messages, _) = drain(&mut link, QUIET).await;
+        assert!(
+            acceptances(&messages, TRANSFER)
+                .iter()
+                .all(|offset| *offset == 0),
+            "{:?}",
+            acceptances(&messages, TRANSFER)
+        );
+        assert!(b.view(&received).unwrap().held);
+        b.stop().await;
+    });
+}
+
 /// The offer the persistent sender makes on `link`.
 fn offer_in(messages: &[Message]) -> (TransferId, u64, Filename) {
     messages
