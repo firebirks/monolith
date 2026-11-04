@@ -323,6 +323,9 @@ pub struct Slice {
     /// the number the next command had then: kept until a read asked later
     /// answers, which knows them too (as `queued_since`).
     progress: BTreeMap<UiTransferId, (u64, u64)>,
+    /// Received files the runtime said were saved, each with the number the
+    /// next command had then: kept until a read asked later answers.
+    saved_here: BTreeMap<UiTransferId, u64>,
     /// Files that could not be offered, until the user dismisses them.
     pub unsent: Vec<Unsent>,
     /// The interrupted saves the user was told of.
@@ -337,6 +340,18 @@ pub struct Slice {
 }
 
 impl Slice {
+    /// The phase the card of `view` shows: as the last read said, with
+    /// the bytes of a later progress event, and saved once the runtime
+    /// said so after that read.
+    fn phase_of(&self, view: &TransferView) -> TransferPhase {
+        let now = phase(view, self.progress.get(&view.id).map(|(bytes, _)| *bytes));
+        if matches!(now, TransferPhase::Received) && self.saved_here.contains_key(&view.id) {
+            TransferPhase::Saved
+        } else {
+            now
+        }
+    }
+
     /// Makes the rows of the sidebar again: every contact and every
     /// conversation, newest activity first, then by name. A row whose
     /// newest message reads as before keeps its preview.
@@ -1996,7 +2011,7 @@ impl Model {
         let Some(view) = slice.transfers.iter().find(|view| view.id == transfer) else {
             return;
         };
-        let now = phase(view, slice.progress.get(&transfer).map(|(bytes, _)| *bytes));
+        let now = slice.phase_of(view);
         let applies = match action {
             TransferAction::Accept | TransferAction::Reject => {
                 view.incoming && matches!(now, TransferPhase::Offered)
@@ -2101,7 +2116,7 @@ impl Model {
                 // one, its length bounded.
                 name: present::file_name(&view.name, present::FILE_NAME_CHARS),
                 size: Some(view.size),
-                phase: phase(view, slice.progress.get(&view.id).map(|(bytes, _)| *bytes)),
+                phase: slice.phase_of(view),
                 busy: self.transfer_busy(view.id),
             })
             .collect();
@@ -2232,6 +2247,7 @@ impl Model {
                             slice.progress.retain(|id, (_, since)| {
                                 *since > command.get() && !unknown.contains(id)
                             });
+                            slice.saved_here.retain(|_, since| *since > command.get());
                         }
                     }
                     Outcome::Failed(Failure::NoSuchIdentity) => {
@@ -2803,6 +2819,12 @@ impl Model {
             ) if saved == *transfer => {
                 if confirmed {
                     message = Some("File saved.");
+                    // The runtime said it is saved: the card says so before
+                    // the next read, and offers what a saved file has.
+                    let since = self.next;
+                    if let Some(slice) = self.slices.get_mut(&saved.identity()) {
+                        slice.saved_here.insert(saved, since);
+                    }
                 } else {
                     unconfirmed = true;
                 }

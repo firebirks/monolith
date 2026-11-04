@@ -816,6 +816,14 @@ fn a_save_starts_from_the_suggested_place_and_keeps_what_the_user_typed() {
     let notices = model.take_notices();
     assert_eq!(notices[0].kind, NoticeKind::Success);
     assert_eq!(notices[0].text.plain(), "File saved.");
+    // Its card says so at once, before the next read of the transfers: it
+    // no longer offers to save it, or to remove it as a file not saved.
+    let items = model.transfers_of(carol);
+    let item = items
+        .iter()
+        .find(|item| item.key == TransferKey::Transfer(received))
+        .expect("its card");
+    assert_eq!(item.phase, TransferPhase::Saved);
 }
 
 #[test]

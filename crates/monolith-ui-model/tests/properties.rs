@@ -764,6 +764,8 @@ struct Said {
     bytes: BTreeMap<(UiTransferId, u64), u32>,
     /// The failures answered to offers of a file, with their contact.
     unsent: Vec<(UiContactId, Failure)>,
+    /// The transfers a save of theirs was answered saved for.
+    saved: BTreeSet<UiTransferId>,
 }
 
 impl Said {
@@ -2097,6 +2099,15 @@ impl Env {
             (Command::OfferFile { contact, .. }, Outcome::Failed(failure)) => {
                 self.said.unsent.push((*contact, *failure));
             }
+            (
+                Command::SaveTransfer { transfer, .. },
+                Outcome::Saved {
+                    transfer: saved,
+                    confirmed: true,
+                },
+            ) if saved == transfer => {
+                self.said.saved.insert(*saved);
+            }
             _ => {}
         }
         model.take_notices();
@@ -3033,8 +3044,13 @@ fn check_card(
         item.incoming == view.incoming && item.size == Some(view.size),
         "the card of {id:?} says another direction or size than its read"
     );
+    // A file the runtime said it saved may be shown saved before a read
+    // says so.
     assert!(
-        agrees(item.phase, view),
+        agrees(item.phase, view)
+            || (matches!(item.phase, TransferPhase::Saved)
+                && view.status == TransferStatus::Received
+                && env.said.saved.contains(&id)),
         "{id:?} shown {:?}, read as {view:?}",
         item.phase
     );
