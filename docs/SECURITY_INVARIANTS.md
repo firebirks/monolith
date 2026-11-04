@@ -24,8 +24,8 @@ vault, S36 and S48 to S51 through the store, S38 and S39 to S46, and S17
 for the new users of the random source. Since Phase 5, the messaging
 runtime: S53 to S57, and the parts of S12, S18 and S32 named in their
 entries. Since Phase 6, the desktop client: S58 to S62, and the parts of
-S15, S16, S25 and S29 named in their entries. File transfer is still
-a planned mechanism.
+S15, S16, S25 and S29 named in their entries. Since Phase 8, file
+transfer: S63 to S72, and S13 and S14 as their entries now say.
 
 Each invariant names the mechanism that enforces it and the tests that check
 it. "Mechanism" means a structural property of the code (a type, a single
@@ -776,6 +776,246 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
   field tests of `monolith-ui-kit`, `config::tests`, mutation faults UI14,
   UI15, UI22 and UI31.
 
+## File transfer
+
+The file transfers of Phase 8 (`adr/0013-file-transfer.md`,
+`adr/0014-transfer-staging.md`). The state machine is
+`crates/monolith-core/src/transfers.rs`, the rules of a session are
+`exchange.rs`, the sessions that act on them are `runtime/transfer.rs`,
+the staging is `blobs.rs` and `monolith-storage/src/blob.rs`, and the save
+is `monolith-storage/src/export.rs`. The mutation faults FT1 to FT62 are
+listed in `mutation/README.md`.
+
+### S63. A transfer belongs to one local identity, one contact record and one direction
+
+- Mechanism: a transfer is keyed by the durable identifiers of its local
+  identity and its contact record, its direction and the identifier the
+  offerer drew (`transfers::Key`). The same 16 bytes under two contact
+  records or in two directions are two transfers. The handle a front end
+  holds (`TransferRef`) names the same four values, and every read,
+  command and event of an identity acts on its own transfers only. A
+  contact deleted or blocked and made again gets a new contact record and
+  inherits nothing. A transfer of a record the vault no longer holds, or
+  of another identity, is dropped when the installation opens. Blocking or
+  deleting a contact cancels or removes its transfers and frees their
+  blobs, and an identity being deleted keeps none.
+- Tests: `transfers::tests`
+  (`a_contact_made_again_inherits_nothing`,
+  `reconciling_drops_what_the_vault_no_longer_holds_and_refuses_another_owner`,
+  `a_blocked_contact_has_its_transfers_cancelled_and_a_deleted_one_loses_them`),
+  `tests/transfers.rs`
+  (`a_deleted_contact_loses_its_transfers_and_a_contact_made_again_inherits_none`,
+  `blocking_the_sender_stops_the_transfer_and_nothing_revives_it`),
+  `tests/transfer_restarts.rs`
+  (`a_deleted_identity_leaves_no_transfer_and_no_blob`,
+  `an_identity_deleted_while_its_file_is_staged_gets_no_offer_and_keeps_no_blob`),
+  `tests/tor_network.rs`
+  (`a_transfer_goes_on_across_a_key_rotation_and_a_contact_made_again_inherits_nothing`,
+  against the private network), the models `tests/transfer_model.rs` and
+  `transfers::tests::model`, fuzz target `transfer_sequence` (two
+  identities with two contact records each, both directions) and
+  `transfer_store` (no two records with one key or one blob),
+  `monolith-ui-model/tests/transfers.rs`
+  (`late_events_and_answers_of_one_identity_change_nothing_shown_of_another`,
+  `an_offer_is_told_only_for_the_identity_shown_and_not_in_its_own_conversation`,
+  `a_decision_names_its_transfer_and_one_no_longer_listed_asks_for_nothing`),
+  mutation faults FT21, FT28, FT39, FT44, FT55 and FT56.
+
+### S64. An ended transfer never goes on
+
+- Mechanism: the transitions of `transfers.rs` are a table, each with the
+  authority that makes it. None leaves rejected, expired, cancelled,
+  failed, complete or delivered, with one exception: an outgoing transfer
+  cancelled at the sender becomes delivered when the receiver's
+  completion, with the digest staged, arrives. A cancellation never takes
+  back bytes the receiver holds. A rejected or cancelled transfer is
+  answered, not accepted, when it is offered again. A transfer that ended
+  on a session is remembered there with what may still cross it
+  (`exchange.rs`): that is discarded, anything beyond it is a violation.
+  The record of an ended incoming transfer stays for
+  `ENDED_TRANSFER_RETENTION` so that a repeated offer finds it, and room
+  is never made from a record whose answer the peer may still need.
+- Tests: `transfers::tests`
+  (`a_rejection_or_an_abort_of_the_peer_ends_the_offer`,
+  `a_receiver_that_completed_before_reading_a_cancellation_delivered_the_file`,
+  `a_rejected_expired_cancelled_or_failed_offer_is_answered_for_good`,
+  `room_is_made_from_ended_records_in_the_order_of_the_adr_and_never_from_others`),
+  `exchange::tests`
+  (`chunks_on_the_way_when_this_side_ended_a_transfer_are_discarded_within_the_window`,
+  `a_completion_that_crossed_a_cancellation_of_this_side_still_counts_once`),
+  `tests/transfers.rs`
+  (`a_rejected_offer_ends_on_both_sides_and_is_never_offered_again`,
+  `a_receiver_that_completed_before_it_read_a_cancellation_holds_the_file`),
+  `tests/transfer_restarts.rs`
+  (`a_cancellation_of_the_sender_that_meets_the_completion_ends_completed_in_every_order`),
+  `tests/transfer_model.rs` (an ended transfer never goes on, across every
+  crash; the one exception is the cancelled outgoing transfer that the
+  receiver had completed), fuzz target `transfer_sequence`, mutation
+  faults FT8, FT9, FT15 and FT57.
+
+### S65. A file is received only whole and verified, and completed at the sender only by the receiver's acknowledgement of that file
+
+- Mechanism: an incoming transfer becomes complete only when its whole
+  size is staged durably and the SHA-256 of the staged bytes equals the
+  digest the offerer declared in its FileComplete; a digest that differs
+  fails the transfer for good. A FileComplete before every byte arrived is
+  a violation. An outgoing transfer becomes delivered only by a
+  FileComplete of the receiver carrying the digest of the staged file;
+  another digest fails it. The reader of a blob checks the digest again
+  when a received file is saved.
+- Tests: `tests/transfers.rs`
+  (`a_file_that_does_not_match_its_digest_fails_and_is_never_offered_as_received`,
+  `a_completion_before_every_byte_arrived_ends_the_session`),
+  `transfers::tests` (`a_completion_with_another_digest_fails_the_transfer`),
+  `exchange::tests`
+  (`a_completion_of_the_offerer_counts_only_with_every_byte_received`),
+  `tests/transfer_restarts.rs`
+  (`whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified`,
+  `a_received_file_whose_staged_copy_is_damaged_or_missing_fails_when_it_is_saved`),
+  `monolith-storage` blob tests
+  (`the_reader_fails_at_the_end_when_the_digest_differs`), mutation faults
+  FT7, FT10, FT31, FT36 and FT54.
+
+### S66. The interface is shown only what is durable
+
+- Mechanism: `Transfers::show` gives a front end the records the transfer
+  store holds as the last write that completed left them (`Written`),
+  never a change whose write is under way or only applied in memory: a
+  completion, a cancellation or an offer that a crash could still take
+  back is not listed. Without a vault, where the state is durable, it
+  reads the state. Events are notifications and the queries are the
+  truth. A command is reported done only once its generation is durable.
+- Tests: `tests/transfer_restarts.rs`
+  (`what_is_shown_of_a_transfer_is_durable_and_no_crash_takes_it_back`,
+  `a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole`),
+  `tests/transfer_model.rs` (what was shown stays shown across every
+  crash, at once and at a later step of the storage, under every
+  outcome), fuzz target `transfer_sequence` (a restart lists the same
+  transfers with the same statuses), mutation fault FT45. A transfer shown
+  in a state a crash can still take back was found by the model tests of
+  Phase 8 and fixed before the verification; FT45 restores it.
+
+### S67. A message to the peer derived from the state is written only once that state is durable
+
+- Mechanism: an offer, an acceptance, a rejection, a cancellation or a
+  completion is read from the transfer store, never kept by a session, and
+  written only after `Transfers::settled` returned, that is, after every
+  change applied so far is durable (`runtime/transfer.rs`, `files_write`).
+  A FileAccept never counts what a sync of the blob did not cover, and a
+  completion is acknowledged only once it is recorded. A change of state
+  that a file message causes is durable before the next frame is read.
+  That the peer read a message is recorded only from a Pong that answers a
+  Ping written after it.
+- Tests: `tests/transfer_restarts.rs`
+  (`an_offer_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step`,
+  `a_decision_the_sender_read_is_held_by_the_receiver_after_a_crash_at_any_step`,
+  `a_cancellation_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step`,
+  `a_receiver_that_crashes_after_its_completion_acknowledges_it_again_with_one_file`,
+  `a_transfer_store_that_cannot_be_written_stops_everything_until_a_restart`),
+  `tests/transfers.rs`
+  (`a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it`),
+  mutation faults FT22, FT23, FT27, FT34 and FT51 to FT53. FT51 to FT53
+  are the code as it was before it was fixed: the three sweeps found it.
+
+### S68. A chunk goes only after an acceptance on the same session, from the offset accepted, within the window
+
+- Mechanism: `Exchange` keeps what one session knows. A FileChunk is taken
+  only for an offer of the peer that this side accepted on this session,
+  at the offset of the next byte, with no gap and no overlap, and of
+  exactly `min(L, bytes left)` bytes. The offerer writes a chunk only
+  after a FileAccept of the receiver on the session, from the offset of
+  that acceptance, and no more than `FILE_WINDOW_CHUNKS` chunks beyond the
+  last offset acknowledged, one transfer at a time. The offsets
+  acknowledged on a session never go down, are whole chunks or the size,
+  and never pass the bytes written on it. A chunk beyond the size, or for
+  a transfer that was never accepted, ends the session (S13).
+- Tests: `exchange::tests`
+  (`chunks_follow_the_acceptance_with_no_gap_and_no_overlap_to_the_size`,
+  `an_acceptance_offset_that_is_stale_future_misaligned_or_of_another_transfer_is_refused`,
+  `the_offerer_writes_at_most_the_window_beyond_the_acknowledged_offset`,
+  `one_transfer_sends_at_a_time_the_one_accepted_first`),
+  `tests/transfers.rs`
+  (`the_sender_never_has_more_than_the_window_beyond_what_the_receiver_acknowledged`,
+  `an_acknowledgement_that_is_misaligned_beyond_what_was_sent_or_of_another_transfer_ends_the_session`,
+  `a_transfer_resumes_from_what_the_receiver_holds_and_nothing_else`,
+  `a_sender_that_resumes_from_another_offset_than_the_receiver_never_completes`),
+  `tests/transfer_restarts.rs`
+  (`a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat`),
+  mutation faults FT1 to FT6 and FT62.
+
+### S69. Staged data is encrypted, each segment under a nonce of its own
+
+- Mechanism: a persistent installation keeps nothing of a file in
+  plaintext at rest, and an ephemeral one writes nothing to disk. A blob
+  is a sequence of segments, each sealed with XChaCha20-Poly1305 under a
+  key derived for that blob and a 24-byte nonce drawn for that write, so a
+  segment that is changed, moved or taken from another blob does not
+  open. The only plaintext file Monolith writes is the one the user saves
+  (S70).
+- Tests: `monolith-storage/tests/transfer_format.rs`
+  (`every_segment_the_code_writes_has_a_nonce_of_its_own_and_no_plaintext_shows`,
+  `a_blob_built_by_the_adr_opens_and_is_pinned`,
+  `a_blob_the_code_writes_opens_by_the_adr`) and the blob tests of
+  `monolith-storage`
+  (`a_segment_changed_moved_or_taken_from_another_blob_does_not_authenticate`,
+  `after_a_crash_the_scan_stops_at_the_first_segment_that_does_not_authenticate`),
+  mutation faults FT32 and FT60.
+
+### S70. A received file is saved only as a new file, in a place the user chose
+
+- Mechanism: the runtime saves, so that every front end saves the same
+  way (`export::save_new`). The place is a path the user chose and one of
+  this computer; the name a peer gave is at most a suggestion. The file is
+  written to a temporary file that is created only if no file has its
+  name, synced, and given its name without replacing anything (a hard
+  link, or a rename that keeps an existing name); a folder that allows
+  neither is refused before anything is written. A source that fails
+  leaves no file and no temporary file. The name offered for a local path
+  is its last component made valid, never the folders above it.
+- Tests: `monolith-storage/tests/export.rs`
+  (`an_existing_name_is_never_replaced`,
+  `a_name_taken_while_the_file_is_written_is_not_replaced`,
+  `a_source_that_fails_midway_or_at_its_end_leaves_nothing`,
+  `a_place_that_is_not_a_folder_of_this_computer_is_refused_before_anything_is_written`,
+  `a_name_a_peer_suggests_saves_in_the_folder_chosen_and_nowhere_else`),
+  `tests/transfers.rs`
+  (`a_file_offered_by_its_path_is_sent_as_staged_and_saved_where_the_user_chooses`,
+  `a_file_of_a_unicode_name_deep_in_folders_is_offered_and_saved_under_that_name`),
+  `tests/transfer_restarts.rs`
+  (`a_save_cut_short_by_a_crash_is_reported_and_the_file_kept`), the tests
+  of `text.rs` in `monolith-protocol`
+  (`a_local_name_is_offered_as_its_last_component_made_valid` and the save
+  names), mutation faults FT33, FT35, FT36 and FT61. FT61 is the Unix
+  case; on Windows a hard link refuses an existing name, which
+  `tests/export.rs` checks.
+
+### S71. A remote file name is shown as data
+
+- Mechanism: a file name from the peer is a `Filename` (S14), kept as a
+  display string. The interface draws it with control characters, invisible
+  characters and marks that turn direction made visible (`<U+001B>`), on a
+  line of its own in the card of the transfer; no sentence of the
+  interface carries it.
+- Tests: `monolith-ui-model/tests/transfers.rs`
+  (`a_file_name_is_drawn_with_its_control_characters_shown`), the property
+  test `the_model_shows_what_the_runtime_said_and_acts_on_what_was_named`
+  in `monolith-ui-model/tests/properties.rs` (a name drawn on one line with
+  no control character and no mark that hides text or turns its
+  direction), mutation fault FT49.
+
+### S72. The transfer guarantees integrity, not that the content is safe
+
+- Mechanism: what is guaranteed is that the received bytes are exactly
+  those the sender declared: the size offered and a digest it declared
+  (S65). The digest comes from the sender, so it says nothing about what
+  the file is or whether the sender is honest. Monolith never opens,
+  previews, executes or follows a received file (S16), and nothing in the
+  interface says that a file is safe.
+- Tests: `tests/transfer_restarts.rs`
+  (`whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified`:
+  the file is the one its sender declared, whole; nothing in the test says
+  it is safe), and the tests of S65 and S16.
+
 ## Protocol and parsing
 
 ### S10. Every network read has a strict upper bound before allocation
@@ -882,13 +1122,29 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
   the `Accepted` state, and that state is entered only by a user command.
   A chunk for a transfer that was never accepted is a violation and closes
   the session. A chunk for a transfer that has already ended is discarded.
-  Since Phase 7 (P7-4) the runtime, which transfers no file, rejects every
-  offer at once and remembers it as ended on its session; every other
-  file message for an identifier the session did not reject ends the
-  session, and nothing of a file is stored.
-- Tests: T-FILE-1, T-FILE-2; `transfers::tests`, `tests/runtime.rs`
+  In Phase 7 (P7-4) the runtime, which transferred no file, rejected every
+  offer at once and remembered it as ended on its session. Since Phase 8
+  an offer within the limits is recorded and waits for the user, who
+  accepts only when a place and room to stage are free; an offer above the
+  limits is rejected without a record, and one not decided within
+  `FILE_OFFER_TIMEOUT` expires. A chunk is taken only after the
+  acceptance written on the same session (S68), and every other file
+  message for an identifier the session did not offer ends the session.
+  A peer of Phase 7 still rejects every offer, and chat goes on.
+- Tests: T-FILE-1, T-FILE-2; `transfers::tests`
+  (`accepting_needs_a_free_place_and_room_to_stage`,
+  `an_offer_above_the_limits_is_refused_without_a_record`),
+  `exchange::tests`
+  (`a_file_message_for_a_transfer_never_offered_on_the_session_is_a_violation`),
+  `tests/transfers.rs`
+  (`an_offer_not_decided_in_time_expires_and_the_sender_learns_it`,
+  `offers_above_the_pending_limit_of_a_contact_are_rejected_without_a_record`,
+  `a_peer_of_phase_7_rejects_the_offer_and_chat_goes_on`,
+  `a_sender_of_phase_8_sends_a_peer_of_phase_7_nothing_that_ends_its_session`),
+  `tests/runtime.rs`
   (`a_file_offer_is_rejected_at_once_and_what_crosses_it_is_discarded`
-  and the two after it); mutation faults HR17 to HR20.
+  and the two after it, for an offer above `MAX_TRANSFER_SIZE`); mutation
+  faults HR17 to HR20, FT6, FT13 and FT58.
 
 ## Data handling
 
@@ -899,7 +1155,12 @@ Since Phase 6 (`DESKTOP.md`, `adr/0011-ui-security-boundary.md`).
   a file whose name Monolith generates. The final name is chosen by the user
   in a save dialog (or derived from the sanitized display name inside a
   directory the user chose) and created with exclusive-create semantics.
-- Tests: T-FILE-NAME-*, fuzz target `text_fields`.
+  Since Phase 8 a staged blob is named by an identifier Monolith draws
+  (`blob.rs`: a prefix and 32 lower case hexadecimal digits), and the save
+  is S70.
+- Tests: T-FILE-NAME-*, fuzz target `text_fields`; the tests of S70 and S71
+  for what the save and the screen do with a name; `monolith-storage`
+  blob test `a_blob_name_is_the_prefix_and_32_lower_case_hexadecimal_digits`.
 
 ### S15. Remote text is data, never markup or code
 
