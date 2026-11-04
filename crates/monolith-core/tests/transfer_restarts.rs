@@ -1750,6 +1750,87 @@ fn a_cancellation_while_the_file_is_verified_is_never_answered_with_a_completion
 }
 
 #[test]
+fn a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, _) = contacts(&network).await;
+        let first = a.dir().clone();
+        let _released = Released(&first);
+        let mut sent = Vec::new();
+        for name in ["one.pdf", "two.pdf", "three.pdf"] {
+            let data = file(2 * L);
+            sent.push(
+                a.runtime()
+                    .offer_file(
+                        &a.id(),
+                        &at_a,
+                        name,
+                        data.len() as u64,
+                        Box::new(Cursor::new(data)),
+                    )
+                    .await
+                    .unwrap(),
+            );
+        }
+        // A change of the store waits to be durable as the session starts:
+        // its offers wait for it, listed.
+        a.dir().hold_writes();
+        let runtime = a.runtime().clone();
+        let third = sent[2].clone();
+        let cancelling = tokio::spawn(async move { runtime.cancel_transfer(&third).await });
+        spin_until(|| a.dir().write_held()).await;
+        let link = {
+            let network = network.clone();
+            let (a_card, b_identity) = (a.identity().card(), b.identity().clone());
+            tokio::spawn(async move {
+                let established = dial(&network.backend(), &Budgets::new(), &b_identity, &a_card)
+                    .await
+                    .unwrap();
+                let mut link = established.link;
+                for action in established.first {
+                    assert_eq!(action, Action::SendContactAccept);
+                    link.send(&Message::ContactAccept).await.unwrap();
+                }
+                loop {
+                    let arrived = link.receive().await.unwrap();
+                    if arrived.received().actions.contains(&Action::Confirmed) {
+                        return link;
+                    }
+                }
+            })
+        };
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
+        // The second is cancelled before it was ever offered.
+        let runtime = a.runtime().clone();
+        let second = sent[1].clone();
+        let cancelled = tokio::spawn(async move { runtime.cancel_transfer(&second).await });
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
+        a.dir().release_writes();
+        cancelling.await.unwrap().unwrap();
+        cancelled.await.unwrap().unwrap();
+        let mut link = link.await.unwrap();
+        let (messages, _) = drain(&mut link, QUIET).await;
+        let offers: Vec<Filename> = messages
+            .iter()
+            .filter_map(|message| match message {
+                Message::FileOffer { filename, .. } => Some(filename.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            offers,
+            vec![Filename::new("one.pdf").unwrap()],
+            "{messages:?}"
+        );
+        a.stop().await;
+    });
+}
+
+#[test]
 fn a_transfer_cancelled_and_removed_at_once_while_it_goes_is_ended_on_its_session() {
     run_paused(async {
         let network = MockNetwork::new();

@@ -979,6 +979,21 @@ impl<B: TorBackend + 'static> Inner<B> {
             if !running.files.exchange.may_offer(&offer.transfer) {
                 continue;
             }
+            // The list was read before the waits: a session asked to close
+            // (its contact blocked) offers nothing more, and a transfer
+            // that changed since (cancelled before it was ever offered) is
+            // left to the next round, which settles its change first.
+            if running.control.closing() || running.files.close {
+                return Ok(());
+            }
+            let listed = transfers.read(|state, now| {
+                state
+                    .to_offer(&identity.id(), &contact, now)
+                    .contains(&offer)
+            });
+            if !listed {
+                continue;
+            }
             let now = Instant::now();
             let paced = lock(&runtime.bindings)
                 .pace
