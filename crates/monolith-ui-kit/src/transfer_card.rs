@@ -13,7 +13,7 @@ use crate::icons::{self, Icon};
 use crate::interact;
 use crate::line::Line;
 use crate::progress::{Fill, Progress};
-use crate::rows::{join_label, single_line};
+use crate::rows::{join_label, single_line, single_line_middle};
 use crate::theme;
 
 /// What a card can ask for.
@@ -207,7 +207,8 @@ impl<'a> TransferCard<'a> {
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 2.0;
                             let width = ui.available_width();
-                            let name = single_line(ui, self.name, &theme.text.body_strong, width);
+                            let name =
+                                single_line_middle(ui, self.name, &theme.text.body_strong, width);
                             let (rect, _) = ui.allocate_exact_size(name.size(), Sense::hover());
                             ui.painter().galley(rect.min, name, c.text);
                             if !self.status.is_empty() {

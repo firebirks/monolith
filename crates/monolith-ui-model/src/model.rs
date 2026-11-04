@@ -2099,7 +2099,7 @@ impl Model {
                 // The contact's text, made ready to draw on one line:
                 // invisible and direction marks shown, white space made
                 // one, its length bounded.
-                name: present::preview(&view.name, present::FILE_NAME_CHARS),
+                name: present::file_name(&view.name, present::FILE_NAME_CHARS),
                 size: Some(view.size),
                 phase: phase(view, slice.progress.get(&view.id).map(|(bytes, _)| *bytes)),
                 busy: self.transfer_busy(view.id),

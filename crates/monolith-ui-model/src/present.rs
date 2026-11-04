@@ -230,6 +230,58 @@ pub fn sendable(draft: &str) -> bool {
 /// with an ellipsis.
 pub const FILE_NAME_CHARS: usize = 60;
 
+/// The characters a filename cut to its line keeps at its end: its
+/// extension, or two of them.
+const FILE_NAME_TAIL: usize = 12;
+
+/// A filename made ready to draw on one line, as [`preview`] makes a text,
+/// and cut in its middle when it has more than `max_chars` characters: its
+/// end, where the extension is, stays in view. The mark of an invisible
+/// character is kept whole or left out, never cut in two.
+pub fn file_name(text: &str, max_chars: usize) -> String {
+    let whole = preview(text, usize::MAX);
+    let chars: Vec<char> = whole.chars().collect();
+    if chars.len() <= max_chars {
+        return whole;
+    }
+    let mut tail = chars
+        .len()
+        .saturating_sub(FILE_NAME_TAIL.min(max_chars / 2));
+    if let Some(mark) = mark_around(&chars, tail) {
+        tail = mark;
+    }
+    let mut head = max_chars
+        .saturating_sub(1)
+        .saturating_sub(chars.len().saturating_sub(tail));
+    if let Some(mark) = mark_around(&chars, head) {
+        head = mark;
+    }
+    let mut out: String = chars.iter().take(head).collect();
+    out.push(ELLIPSIS);
+    out.extend(chars.iter().skip(tail));
+    out
+}
+
+/// Where the mark of an invisible character (`<U+202E>`) that a cut at
+/// `at` would split starts, if one would be.
+fn mark_around(chars: &[char], at: usize) -> Option<usize> {
+    let from = at.saturating_sub(MARK_LEN.saturating_sub(1));
+    (from..at).find(|&start| {
+        let mark: String = chars.iter().skip(start).take(3).collect();
+        mark == "<U+"
+            && chars
+                .iter()
+                .skip(start)
+                .take(MARK_LEN)
+                .position(|c| *c == '>')
+                .is_some_and(|close| start.saturating_add(close) >= at)
+    })
+}
+
+/// The longest mark of an invisible character: `<U+` and up to six hex
+/// digits and `>`.
+const MARK_LEN: usize = 10;
+
 /// A size in bytes as people read it: "0 bytes", "1 byte", "999 bytes",
 /// then kilobytes, megabytes and gigabytes of 1000 each, with one decimal
 /// below ten, rounded down. Integers only: what is shown never decides
@@ -282,7 +334,7 @@ pub fn progress(bytes: u64, total: u64) -> String {
 pub fn local_file_name(path: &str) -> String {
     let trimmed = path.trim().trim_end_matches(['/', '\\']);
     let last = trimmed.rsplit(['/', '\\']).next().unwrap_or_default();
-    preview(last, FILE_NAME_CHARS)
+    file_name(last, FILE_NAME_CHARS)
 }
 
 /// A day and a time of day in local time.
@@ -599,6 +651,40 @@ mod tests {
     #[test]
     fn a_preview_is_one_line_and_cut_with_an_ellipsis() {
         assert_eq!(preview("hello\n\n  world", 40), "hello world");
+    }
+
+    /// A filename longer than its line is cut in its middle: its end, where
+    /// the extension is, stays, and the mark of an invisible character is
+    /// never cut in two.
+    #[test]
+    fn a_long_filename_is_cut_in_its_middle_and_keeps_its_end() {
+        assert_eq!(file_name("report.pdf", FILE_NAME_CHARS), "report.pdf");
+        let long = format!("{}.pdf.exe", "a".repeat(80));
+        let shown = file_name(&long, FILE_NAME_CHARS);
+        assert!(shown.ends_with(".pdf.exe"), "{shown}");
+        assert!(shown.contains(ELLIPSIS), "{shown}");
+        assert_eq!(shown.chars().count(), FILE_NAME_CHARS);
+        let marked = format!("{}\u{202e}gpj.exe", "b".repeat(70));
+        let shown = file_name(&marked, FILE_NAME_CHARS);
+        assert!(shown.ends_with("<U+202E>gpj.exe"), "{shown}");
+        assert!(shown.chars().count() <= FILE_NAME_CHARS, "{shown}");
+        for at in 40..50 {
+            let name = format!("{}\u{200b}{}.txt", "c".repeat(at), "d".repeat(60));
+            let shown = file_name(&name, FILE_NAME_CHARS);
+            let head = shown.split(ELLIPSIS).next().unwrap();
+            assert!(
+                !head.contains('<') || head.ends_with("<U+200B>") || head.contains("<U+200B>"),
+                "{shown}"
+            );
+            assert!(
+                !head.ends_with("<U+") && !head.ends_with("<U+200") && !head.ends_with("<U+200B"),
+                "{shown}"
+            );
+            assert!(shown.ends_with("dddd.txt"), "{shown}");
+            assert!(shown.chars().count() <= FILE_NAME_CHARS, "{shown}");
+        }
+        // The name of a local file before it is offered is cut the same way.
+        assert!(local_file_name(&format!("C:\\files\\{long}")).ends_with(".pdf.exe"));
         assert_eq!(preview("abcdefghij", 4), "abcd\u{2026}");
         assert_eq!(preview("abcd", 4), "abcd");
     }

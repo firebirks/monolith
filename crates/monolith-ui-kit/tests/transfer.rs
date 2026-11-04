@@ -141,7 +141,9 @@ fn card(ctx: &Context, name: &str, busy: bool, clicked: &mut Option<CardAction>)
 fn a_filename_stands_on_its_own_line_and_never_in_the_words_of_the_card() {
     // A name that tries to read as the client's words.
     let name = "photo.jpg\" verified by Monolith";
-    let mut rig = Rig::new();
+    // Wide enough for the whole name: what is drawn of a cut one is
+    // `a_filename_cut_to_its_line_keeps_its_end`.
+    let mut rig = Rig::sized(Theme::light(), egui::vec2(900.0, 600.0));
     let mut clicked = None;
     let out = rig.settle(2, |ctx| card(ctx, name, false, &mut clicked));
     let painted = texts(&out);
@@ -157,6 +159,46 @@ fn a_filename_stands_on_its_own_line_and_never_in_the_words_of_the_card() {
     let galley = galley_of(&out, "xxx").expect("the name");
     assert_eq!(galley.rows.len(), 1);
     assert!(galley.rect.width() <= rig.screen().width());
+}
+
+/// A name too long for its line is cut in its middle: its end, where the
+/// extension is, stays in view however narrow the card.
+#[test]
+fn a_filename_cut_to_its_line_keeps_its_end() {
+    let name = "Quarterly report for the board meeting.pdf.exe";
+    for width in [260.0, 340.0, 480.0] {
+        let mut rig = Rig::sized(Theme::light(), egui::vec2(width, 600.0));
+        let mut clicked = None;
+        let out = rig.settle(2, |ctx| card(ctx, name, false, &mut clicked));
+        // Its start, or on the narrowest card only its end.
+        let galley = galley_of(&out, "Q")
+            .or_else(|| galley_of(&out, "\u{2026}"))
+            .expect("the name");
+        assert_eq!(galley.rows.len(), 1, "{width}");
+        // What is drawn: the glyphs of the row, the ellipsis among them.
+        let shown: String = galley.rows[0]
+            .glyphs
+            .iter()
+            .map(|glyph| glyph.chr)
+            .collect();
+        assert!(shown.ends_with("exe"), "{width}: {shown:?}");
+        if width >= 340.0 {
+            assert!(shown.ends_with(".pdf.exe"), "{width}: {shown:?}");
+        }
+        assert!(shown.contains('\u{2026}'), "{width}: {shown:?}");
+        assert!(galley.rect.width() <= width, "{width}");
+    }
+    // A name that fits is drawn whole.
+    let mut rig = Rig::sized(Theme::light(), egui::vec2(480.0, 600.0));
+    let mut clicked = None;
+    let out = rig.settle(2, |ctx| card(ctx, "report.pdf", false, &mut clicked));
+    let galley = galley_of(&out, "report").expect("the name");
+    let shown: String = galley.rows[0]
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.chr)
+        .collect();
+    assert_eq!(shown, "report.pdf");
 }
 
 #[test]

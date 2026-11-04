@@ -35,6 +35,69 @@ pub(crate) fn single_line(ui: &Ui, text: &str, token: &TextToken, max_width: f32
     ui.painter().layout_job(job)
 }
 
+/// The characters a line cut in its middle keeps at its end.
+const MIDDLE_TAIL: usize = 12;
+
+/// As [`single_line`], cut in its middle where it does not fit: the end of
+/// the text, which for a filename holds its extension, stays in view, and
+/// as much of its start as fits comes before the ellipsis.
+pub(crate) fn single_line_middle(
+    ui: &Ui,
+    text: &str,
+    token: &TextToken,
+    max_width: f32,
+) -> Arc<Galley> {
+    let clean: Vec<char> = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let max_width = max_width.max(1.0);
+    let lay = |text: String| {
+        let mut job = LayoutJob::single_section(text, token.format(Color32::PLACEHOLDER));
+        job.wrap = TextWrapping {
+            max_width: f32::INFINITY,
+            max_rows: 1,
+            break_anywhere: true,
+            overflow_character: None,
+        };
+        ui.painter().layout_job(job)
+    };
+    let whole = lay(clean.iter().collect());
+    if whole.rect.width() <= max_width {
+        return whole;
+    }
+    let count = clean.len();
+    let cut = |head: usize, tail: usize| -> String {
+        let mut out: String = clean.iter().take(head).collect();
+        out.push('\u{2026}');
+        out.extend(clean.iter().skip(count.saturating_sub(tail)));
+        out
+    };
+    let fits = |head: usize, tail: usize| lay(cut(head, tail)).rect.width() <= max_width;
+    // The most of the end that fits, up to `MIDDLE_TAIL`, then the most of
+    // the start before it.
+    let most = |limit: usize, fits: &dyn Fn(usize) -> bool| {
+        let (mut low, mut high) = (0_usize, limit);
+        while low < high {
+            let mid = low.saturating_add(high).saturating_add(1) / 2;
+            if fits(mid) {
+                low = mid;
+            } else {
+                high = mid.saturating_sub(1);
+            }
+        }
+        low
+    };
+    let tail = most(MIDDLE_TAIL.min(count / 2), &|tail| fits(0, tail));
+    if tail == 0 && !fits(0, 0) {
+        return single_line(ui, text, token, max_width);
+    }
+    let head = most(count.saturating_sub(tail).saturating_sub(1), &|head| {
+        fits(head, tail)
+    });
+    lay(cut(head, tail))
+}
+
 /// Lays out `text` in `color` wrapped at `max_width`, breaking inside
 /// words when a word does not fit, with at most `max_rows` rows and an
 /// ellipsis after the last. `color` can be the placeholder colour.
