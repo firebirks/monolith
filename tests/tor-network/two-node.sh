@@ -1127,16 +1127,18 @@ start_tor() {
 # it. Sets `tx` (the transfer at `from`) and `rx` (at `to`), and prints
 # the time staging took.
 offer_and_accept() {
-    local from=$1 to=$2 peer_at_from=$3 peer_at_to=$4 file=$5 size n started
+    local from=$1 to=$2 peer_at_from=$3 peer_at_to=$4 file=$5 size n offered started
     size=$(stat -c %s "$file")
     n=$(count "$from" "^offering 0 $peer_at_from t[0-9]+$")
+    # Counted before the offer: on a session already open it can arrive
+    # before the sender reports it staged.
+    offered=$(count "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size ")
     started=$(date +%s.%N)
     tell "$from" offer 0 "$peer_at_from" "$file"
     expect "$from" "^offering 0 $peer_at_from t[0-9]+$" $((n + 1)) 300
     echo "     staged $size bytes in $(python3 -c "import sys; print(round($(date +%s.%N) - $started, 1))") s"
     tx=$(last "$from" "^offering 0 $peer_at_from " | cut -d' ' -f4)
-    n=$(count "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size ")
-    expect "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size " $((n + 1)) 900
+    expect "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size " $((offered + 1)) 900
     rx=$(last "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size " | cut -d' ' -f4)
     tell "$to" accept 0 "$rx"
     expect "$to" "^accept-done 0 $rx$" 1 60
