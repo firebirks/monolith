@@ -2022,6 +2022,52 @@ fn a_sender_that_crashes_before_recording_the_completion_is_completed_again() {
 }
 
 #[test]
+fn an_offer_of_the_peer_under_the_identifier_of_a_transfer_of_this_side_ends_the_session() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, b, at_a, _) = contacts(&network).await;
+        let data = file(L + 7);
+        let sent = a
+            .runtime()
+            .offer_file(
+                &a.id(),
+                &at_a,
+                "report.pdf",
+                data.len() as u64,
+                Box::new(Cursor::new(data.clone())),
+            )
+            .await
+            .unwrap();
+        let mut link = hand_link(&network, &a, &b).await;
+        let (transfer, size, name) = offer_in(&drain(&mut link, QUIET).await.0);
+        receive_rest(&mut link, transfer, size, 0).await;
+        link.send(&Message::FileComplete {
+            transfer,
+            digest: sha(&data),
+        })
+        .await
+        .unwrap();
+        drain(&mut link, QUIET).await;
+        assert_eq!(a.status(&sent), Some(TransferStatus::Completed));
+        // On a later session the peer offers a file of its own under that
+        // identifier, before anything else: a violation, recorded nowhere.
+        let mut link = hand_link(&network, &a, &b).await;
+        link.send(&Message::FileOffer {
+            transfer,
+            size,
+            filename: name,
+        })
+        .await
+        .unwrap();
+        let (messages, ended) = drain(&mut link, QUIET).await;
+        assert!(ended, "{messages:?}");
+        assert_eq!(a.runtime().transfers(&a.id()).unwrap().len(), 1);
+        assert_eq!(a.status(&sent), Some(TransferStatus::Completed));
+        a.stop().await;
+    });
+}
+
+#[test]
 fn a_staging_cut_short_by_a_crash_leaves_no_offer_and_no_blob() {
     for outcome in CrashOutcome::ALL {
         run_paused(async {

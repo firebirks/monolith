@@ -278,6 +278,31 @@ fn an_outgoing_transfer_is_refused_above_its_limits() {
     assert_eq!(state.may_offer(&identity(1), &contact(2), 100, NOW), Ok(()));
 }
 
+/// The peer offers a transfer under the identifier of one of this side to
+/// it: an offer of its own carries an identifier it drew at random, so this
+/// one is a violation, recorded nowhere, whatever the state of the transfer
+/// of this side, which goes on.
+#[test]
+fn an_offer_of_the_peer_under_an_identifier_of_this_side_is_a_violation() {
+    let mut state = state();
+    state.add_outgoing(staged(1, 3 * L), NOW).unwrap();
+    for ours in [TransferStatus::Waiting, TransferStatus::Completed] {
+        assert_eq!(status(&state, &outgoing(1)), ours);
+        assert_eq!(
+            state.offered(&incoming(1), 3 * L, &name(), NOW),
+            Offer::Violation
+        );
+        assert!(state.record(&incoming(1)).is_none());
+        assert_eq!(status(&state, &outgoing(1)), ours);
+        checked(&state);
+        // Delivered, the identifier is still the one of this side.
+        state.mark_offered(&outgoing(1));
+        state.completed_by_peer(&outgoing(1), &DIGEST, NOW);
+    }
+    // Another identifier is an offer like any other.
+    assert_eq!(state.offered(&incoming(2), 3 * L, &name(), NOW), Offer::New);
+}
+
 #[test]
 fn an_ephemeral_installation_stages_both_directions_within_one_budget() {
     let mut limits = Limits::ephemeral();

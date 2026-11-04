@@ -1804,9 +1804,12 @@ Identity of a transfer and of its file:
 
 Each session keeps the set of transfer identifiers offered on it. A file
 message whose identifier was not offered on the session is a violation,
-and so is a second FileOffer of an identifier already offered on it. The
-offerer writes a file message only on a session on which it offered the
-transfer.
+and so is a second FileOffer of an identifier already offered on it. A
+FileOffer under the identifier of a transfer the receiving side holds
+for that contact as its own offer is a violation too, on any session:
+an offerer draws its identifiers at random, so it never offers one of
+the other side's. The offerer writes a file message only on a session on
+which it offered the transfer.
 
     offerer                               receiver
     FileOffer(id, size, name)  ->

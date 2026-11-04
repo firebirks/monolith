@@ -871,6 +871,15 @@ impl TransferState {
             }
             return self.answer(key, now);
         }
+        // The identifier of a transfer of this side to the contact: an offer
+        // of the peer's own carries one it drew at random, so this is a
+        // violation, as an offer back of it on the session that made it is.
+        if self.entries.iter().any(|entry| {
+            Self::of_contact(entry, &key.identity, &key.contact)
+                && entry.record.transfer == key.transfer
+        }) {
+            return Offer::Violation;
+        }
         // An identifier of zero bytes, which no random source gives and no
         // record may hold, is refused as an offer above the limits is.
         if size > self.limits.size || key.transfer == [0; TRANSFER_ID_LEN] {
