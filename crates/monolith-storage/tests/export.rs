@@ -86,6 +86,42 @@ fn a_file_is_saved_whole_under_its_name_and_nothing_else_is_left() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A source that must not be read.
+#[cfg(windows)]
+struct Unread;
+
+#[cfg(windows)]
+impl Read for Unread {
+    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        panic!("the source was read");
+    }
+}
+
+/// A name with a character Windows refuses is refused before anything is
+/// read or written, not with a failure of the disk once the whole file is.
+#[cfg(windows)]
+#[test]
+fn a_name_windows_refuses_is_refused_before_anything_is_written() {
+    let dir = scratch("refused-name");
+    for name in [
+        "a*b.txt",
+        "what?.pdf",
+        "x<y",
+        "x>y",
+        "pipe|d",
+        "quote\"d",
+        "tab\u{9}bed",
+    ] {
+        assert_eq!(
+            save_new(&dir.join(name), &mut Unread),
+            Err(ExportError::Refused),
+            "{name:?}"
+        );
+    }
+    assert!(names(&dir).is_empty(), "{:?}", names(&dir));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn an_existing_name_is_never_replaced() {
     let dir = scratch("exists");

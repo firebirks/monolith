@@ -135,6 +135,15 @@ fn place(destination: &Path) -> Result<(&Path, &OsStr), ExportError> {
     if !destination.is_absolute() || !local::named_here(destination) || !local::here(folder) {
         return Err(ExportError::Refused);
     }
+    // A character Windows refuses in a name is refused here, before
+    // anything is written, not at the last step once the whole file is.
+    #[cfg(windows)]
+    if name.to_str().is_none_or(|name| {
+        name.contains(['<', '>', '"', '|', '?', '*'])
+            || name.chars().any(|c| ('\u{1}'..='\u{1f}').contains(&c))
+    }) {
+        return Err(ExportError::Refused);
+    }
     Ok((folder, name))
 }
 
