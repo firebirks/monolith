@@ -277,6 +277,8 @@ struct MemoryState {
     free: Option<u64>,
     /// The error the next write of a blob fails with, once.
     fail_next_write: Option<StorageError>,
+    /// The error the next removal fails with, once: the file stays.
+    fail_next_remove: Option<StorageError>,
 }
 
 impl MemoryState {
@@ -475,6 +477,7 @@ impl MemoryDir {
                 crashed: false,
                 free: state.free,
                 fail_next_write: None,
+                fail_next_remove: None,
             })),
             hold: Arc::default(),
             sync_hold: Arc::default(),
@@ -517,6 +520,12 @@ impl MemoryDir {
     /// crash: a full disk, or a file another process holds.
     pub fn fail_next_write(&self, error: StorageError) {
         self.state().fail_next_write = Some(error);
+    }
+
+    /// Makes the next removal fail with `error`, once, as one of a file
+    /// another program holds open fails on Windows: the file stays.
+    pub fn fail_next_remove(&self, error: StorageError) {
+        self.state().fail_next_remove = Some(error);
     }
 }
 
@@ -647,6 +656,9 @@ impl VaultDir for MemoryDir {
     fn remove(&self, name: &str) -> Result<(), StorageError> {
         let mut state = self.state();
         state.step()?;
+        if let Some(error) = state.fail_next_remove.take() {
+            return Err(error);
+        }
         state.names.remove(name).ok_or(StorageError::Io)?;
         Ok(())
     }

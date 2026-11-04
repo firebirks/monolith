@@ -1776,7 +1776,7 @@ fn a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered() {
         // its offers wait for it, listed.
         a.dir().hold_writes();
         let runtime = a.runtime().clone();
-        let third = sent[2].clone();
+        let third = sent[2];
         let cancelling = tokio::spawn(async move { runtime.cancel_transfer(&third).await });
         spin_until(|| a.dir().write_held()).await;
         let link = {
@@ -1804,7 +1804,7 @@ fn a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered() {
         }
         // The second is cancelled before it was ever offered.
         let runtime = a.runtime().clone();
-        let second = sent[1].clone();
+        let second = sent[1];
         let cancelled = tokio::spawn(async move { runtime.cancel_transfer(&second).await });
         for _ in 0..1000 {
             tokio::task::yield_now().await;
@@ -2199,6 +2199,48 @@ fn a_source_that_gives_fewer_or_more_bytes_than_its_size_offers_nothing() {
         }
         assert!(a.runtime().transfers(&a.id()).unwrap().is_empty());
         until(|| a.blobs().is_empty()).await;
+        a.stop().await;
+    });
+}
+
+#[test]
+fn a_staging_that_failed_and_could_not_remove_its_file_removes_it_later() {
+    run_paused(async {
+        let network = MockNetwork::new();
+        let (mut a, _b, at_a, _) = contacts(&network).await;
+        // The source ends early, and the staged file cannot be removed at
+        // once (another program has it open).
+        a.dir().fail_next_remove(StorageError::Busy);
+        let offered = a
+            .runtime()
+            .offer_file(
+                &a.id(),
+                &at_a,
+                "report.pdf",
+                10,
+                Box::new(Cursor::new(vec![1_u8; 9])),
+            )
+            .await;
+        assert_eq!(offered, Err(TransferError::Source));
+        assert_eq!(a.blobs().len(), 1);
+        // The next change of the transfers tries it again.
+        let sent = a
+            .runtime()
+            .offer_file(
+                &a.id(),
+                &at_a,
+                "notes.txt",
+                10,
+                Box::new(Cursor::new(vec![2_u8; 10])),
+            )
+            .await
+            .unwrap();
+        a.runtime().cancel_transfer(&sent).await.unwrap();
+        assert!(
+            within_a_minute(|| a.blobs().is_empty()).await,
+            "{:?}",
+            a.blobs()
+        );
         a.stop().await;
     });
 }

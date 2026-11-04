@@ -290,11 +290,13 @@ impl Blobs {
         let dir = self.dir.clone();
         let disk = self.disk.clone();
         let margin = self.margin;
+        let common = self.common.clone();
         let (blob, digest) = tokio::task::spawn_blocking(move || {
             let blob = {
                 let _disk = lock(&disk);
                 Blob::create(&*dir, &key, size, margin).map_err(StageError::Storage)?
             };
+            let id = blob.id();
             let mut watched = Watched {
                 inner: source,
                 read: 0,
@@ -304,6 +306,11 @@ impl Blobs {
             let staged = blob::fill(&*dir, blob, &mut watched);
             drop(permit);
             staged.map_err(|error| {
+                // The staging removed its blob; one whose file did not go
+                // is tried again later, as any removal that failed.
+                if !dir.open_blob(&id.name()).is_ok_and(|file| file.is_none()) {
+                    lock(&common.stale).insert(id);
+                }
                 if watched.failed || watched.read > size || (watched.ended && watched.read < size) {
                     StageError::Source
                 } else {
