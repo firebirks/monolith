@@ -497,7 +497,9 @@ The Phase 8 list, FT1 and up, covers file transfer
   one that goes on, an acceptance with no room left to stage, a chat
   message that waits until no chunk is left, every segment of a blob
   sealed under the same nonce, a received file saved over another of the
-  same name on Unix (FT54 to FT61).
+  same name on Unix (FT54 to FT61);
+- an offerer that writes chunks before the receiver's acceptance on the
+  session, so from no offset the receiver gave (FT62).
 
 The candidates of the Phase 8 brief (section 51), and what covers each:
 

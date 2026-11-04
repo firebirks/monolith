@@ -2275,6 +2275,10 @@ PHASE8 = [
     fault("FT61", ST + "export.rs", "a received file is saved over a file of the same name (Unix)",
           ("                Way::Link => rustix::fs::linkat(&self.0, partial, &self.0, name, AtFlags::empty()),\n",
            "                Way::Link => rustix::fs::renameat(&self.0, partial, &self.0, name),\n")),
+    # FT-I: what makes a chunk sent before the receiver's offset impossible.
+    fault("FT62", CORE + "exchange.rs", "the offerer writes chunks before an acceptance on the session",
+          ("                Live::Out(out) if out.acked.is_some() && out.sent < out.size => {\n",
+           "                Live::Out(out) if out.sent < out.size => {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that
