@@ -608,7 +608,9 @@ mod tests {
         let mut woken = core::pin::pin!(control.woken());
         woken
             .as_mut()
-            .poll(&mut core::task::Context::from_waker(core::task::Waker::noop()))
+            .poll(&mut core::task::Context::from_waker(
+                core::task::Waker::noop(),
+            ))
             .is_ready()
     }
 
