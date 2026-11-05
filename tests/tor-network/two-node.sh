@@ -255,7 +255,7 @@ echo "ok   same name after publishing again, reached twice; no SOCKS, no connect
 # --- Phase 4: nodes over a persistent vault ---------------------------------
 
 printf 'test passphrase\n' >"$work/pass"
-declare -A pids fds
+declare -A pids fds runs
 traces=0
 
 # Starts node `name` on the vault in `data` with the Tor options given,
@@ -296,6 +296,30 @@ expect() {
         sleep 1
     done
     echo "FAIL $name: fewer than $n lines matching '$pattern' after ${timeout}s"
+    failed "$name"
+}
+
+# As `expect`, counting only what node `name` said in its current run (since
+# `start_runtime` last started it): the handles of transfers (t0, t1, ...)
+# are numbered again in each run, so a line of an earlier run can name
+# another transfer.
+expect_run() {
+    local name=$1 pattern=$2 n=$3 timeout=$4 i from
+    from=$((${runs[$name]:-0} + 1))
+    for ((i = 0; i < timeout; i++)); do
+        if [ "$(tail -n +"$from" "$work/$name.out" | grep -cE -- "$pattern" || true)" -ge "$n" ]; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "FAIL $name: fewer than $n lines matching '$pattern' in its current run after ${timeout}s"
+    failed "$name"
+}
+
+# Says what every node process was doing, and what node `name` said last,
+# and ends the test.
+failed() {
+    local name=$1
     # What every node process was doing: state, CPU time and wait channel
     # of each thread, twice, two seconds apart.
     for p in $(pgrep -f " dev-(node|runtime) " || true); do
@@ -647,6 +671,7 @@ start_runtime() {
     rm -f "$work/$name.in"
     mkfifo "$work/$name.in"
     touch "$work/$name.out"
+    runs[$name]=$(wc -l <"$work/$name.out")
     ready=$(count "$name" '^ready$')
     traces=$((traces + 1))
     strace -f -qq -e trace=socket,connect,sendto,sendmsg \
@@ -969,14 +994,14 @@ expect fb "^offered 0 $fa0 t[0-9]+ size=$size1 name=\"report.bin\"$" 1 900
 tb=$(transfer_of fb "$size1")
 echo "     offer to B: $(since "$started")s"
 tell fb accept 0 "$tb"
-expect fb "^accept-done 0 $tb$" 1 10
-expect fb "^progress 0 $tb [0-9]+$" 1 600
+expect_run fb "^accept-done 0 $tb$" 1 10
+expect_run fb "^progress 0 $tb [0-9]+$" 1 600
 tell fa send 0 "$fb0" while the file goes
 tell fb send 0 "$fa0" and back
 expect fb "^received 0 $fa0 [0-9]+ \"while the file goes\"$" 1 600
 expect fa "^received 0 $fb0 [0-9]+ \"and back\"$" 1 600
-expect fb "^transfer 0 $fa0 $tb in Received .*size=$size1 " 1 1800
-expect fa "^transfer 0 $fb0 $ta out Completed .*size=$size1 " 1 600
+expect_run fb "^transfer 0 $fa0 $tb in Received .*size=$size1 " 1 1800
+expect_run fa "^transfer 0 $fb0 $ta out Completed .*size=$size1 " 1 600
 echo "     offer to completed at both: $(since "$started")s for $size1 bytes"
 # The chat came while the file was still on its way.
 chat=$(grep -nE "^received 0 $fa0 [0-9]+ \"while the file goes\"$" "$work/fb.out" | head -1 | cut -d: -f1)
@@ -984,13 +1009,13 @@ finished=$(grep -nE "^transfer 0 $fa0 $tb in Received " "$work/fb.out" | head -1
 test "$chat" -lt "$finished"
 # Saved under the name suggested to B, never over a file that exists.
 tell fb suggest 0 "$tb"
-expect fb "^suggest 0 $tb \"report.bin\"$" 1 10
+expect_run fb "^suggest 0 $tb \"report.bin\"$" 1 10
 printf 'mine' >"$work/saved/taken.bin"
 tell fb save 0 "$tb" "$work/saved/taken.bin"
 expect fb '^error a file of that name exists$' 1 60
 test "$(cat "$work/saved/taken.bin")" = mine
 tell fb save 0 "$tb" "$work/saved/report.bin"
-expect fb "^saved 0 $tb Saved$" 1 300
+expect_run fb "^saved 0 $tb Saved$" 1 300
 cmp "$work/files/report.orig" "$work/saved/report.bin"
 test "$(ls "$work/saved" | grep -c '^monolith-partial-' || true)" = 0
 echo "ok   B saved exactly the $size1 bytes A staged; chat went both ways while the file did"
@@ -1004,7 +1029,7 @@ expect fa "^offering 0 $fb0 t[0-9]+$" 2 300
 expect fb "^offered 0 $fa0 t[0-9]+ size=$size2 " 1 900
 tb=$(transfer_of fb "$size2")
 tell fb accept 0 "$tb"
-expect fb "^progress 0 $tb [0-9]+$" 1 600
+expect_run fb "^progress 0 $tb [0-9]+$" 1 600
 crash_node fb
 before=$(progress_of fb "$tb")
 published=$(count fb '^published 0$')
@@ -1028,7 +1053,7 @@ expect fa "^transfer 0 $fb0 t[0-9]+ out Completed .*size=$size2 " 1 900
 echo "     offer to completed, across both crashes: $(since "$started")s for $size2 bytes"
 tb=$(transfer_of fb "$size2")
 tell fb save 0 "$tb" "$work/saved/archive.bin"
-expect fb "^saved 0 $tb Saved$" 1 600
+expect_run fb "^saved 0 $tb Saved$" 1 600
 cmp "$work/files/archive.bin" "$work/saved/archive.bin"
 test "$(count fb "^offered 0 $fa0 t[0-9]+ size=$size2 ")" = 1
 echo "ok   both crashes survived; the file was received once and saved whole"
@@ -1141,7 +1166,7 @@ offer_and_accept() {
     expect "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size " $((offered + 1)) 900
     rx=$(last "$to" "^offered 0 $peer_at_to t[0-9]+ size=$size " | cut -d' ' -f4)
     tell "$to" accept 0 "$rx"
-    expect "$to" "^accept-done 0 $rx$" 1 60
+    expect_run "$to" "^accept-done 0 $rx$" 1 60
 }
 
 # Lists the transfers of identity 0 of node `name` and prints how many
@@ -1161,7 +1186,7 @@ listed() {
 save_and_compare() {
     local name=$1 t=$2 path=$3 original=$4
     tell "$name" save 0 "$t" "$path"
-    expect "$name" "^saved 0 $t Saved$" 1 600
+    expect_run "$name" "^saved 0 $t Saved$" 1 600
     cmp "$original" "$path"
     echo "     sha256 sent  $(sha "$original")"
     echo "     sha256 saved $(sha "$path")"
@@ -1181,10 +1206,10 @@ expect fb "^received 0 $fa0 [0-9]+ \"both ways at once\"$" 1 600
 echo "     chat latency during both transfers: $(python3 -c "print(round($(date +%s.%N) - $chat_at, 1))") s"
 tell fb send 0 "$fa0" and back again
 expect fa "^received 0 $fb0 [0-9]+ \"and back again\"$" 1 600
-expect fb "^transfer 0 $fa0 $ab_in in Received " 1 1800
-expect fa "^transfer 0 $fb0 $ba_in in Received " 1 1800
-expect fa "^transfer 0 $fb0 $ab_out out Completed " 1 600
-expect fb "^transfer 0 $fa0 $ba_out out Completed " 1 600
+expect_run fb "^transfer 0 $fa0 $ab_in in Received " 1 1800
+expect_run fa "^transfer 0 $fb0 $ba_in in Received " 1 1800
+expect_run fa "^transfer 0 $fb0 $ab_out out Completed " 1 600
+expect_run fb "^transfer 0 $fa0 $ba_out out Completed " 1 600
 elapsed=$(since "$started")
 echo "     both completed in ${elapsed}s: $(( (16000000 + 12000017) / (elapsed > 0 ? elapsed : 1) )) bytes/s together"
 echo "     A: $(usage_of fa)"
@@ -1197,15 +1222,15 @@ echo "26. Tor A goes away and comes back while a file is on its way: it goes on.
 fixture "$work/files/tor-restart.bin" 32000000 27
 started=$(date +%s)
 offer_and_accept fa fb "$fb0" "$fa0" "$work/files/tor-restart.bin"
-expect fb "^progress 0 $rx [0-9]+$" 1 600
+expect_run fb "^progress 0 $rx [0-9]+$" 1 600
 published=$(count fa '^published 0$')
 before=$(progress_of fb "$rx")
 stop_tor "$a"
 sleep 20
 start_tor "$a"
 expect fa '^published 0$' $((published + 1)) 300
-expect fb "^transfer 0 $fa0 $rx in Received " 1 3600
-expect fa "^transfer 0 $fb0 $tx out Completed " 1 900
+expect_run fb "^transfer 0 $fa0 $rx in Received " 1 3600
+expect_run fa "^transfer 0 $fb0 $tx out Completed " 1 900
 echo "     Tor A stopped at $before bytes acknowledged; completed $(since "$started")s after the offer"
 save_and_compare fb "$rx" "$work/saved/tor-restart.bin" "$work/files/tor-restart.bin"
 echo "ok   the transfer went on after Tor A came back"
@@ -1230,8 +1255,8 @@ started=$(date +%s)
 offer_and_accept fa fb "$fb0" "$fa0" "$work/files/faults.bin"
 tell fa send 0 "$fb0" through the cuts
 expect fb "^received 0 $fa0 [0-9]+ \"through the cuts\"$" 1 1800
-expect fb "^transfer 0 $fa0 $rx in Received " 1 3600
-expect fa "^transfer 0 $fb0 $tx out Completed " 1 1800
+expect_run fb "^transfer 0 $fa0 $rx in Received " 1 3600
+expect_run fa "^transfer 0 $fb0 $tx out Completed " 1 1800
 cuts=$(cat "$work/proxy-a.log" "$work/proxy-b.log" 2>/dev/null | wc -l)
 echo "     completed through $cuts cut connections in $(since "$started")s (seeds 1 and 2)"
 test "$cuts" -ge 3
@@ -1251,9 +1276,9 @@ echo "ok   the file arrived whole and once through interrupted frames, lost sess
 echo "28. B crashes as it has the whole file, before A may have its acknowledgement: no second file."
 fixture "$work/files/last-ack.bin" 4000000 29
 offer_and_accept fa fb "$fb0" "$fa0" "$work/files/last-ack.bin"
-expect fb "^transfer 0 $fa0 $rx in Received " 1 1800
+expect_run fb "^transfer 0 $fa0 $rx in Received " 1 1800
 crash_node fb
-if grep -qE "^transfer 0 $fb0 $tx out Completed " "$work/fa.out"; then
+if tail -n +$((${runs[fa]} + 1)) "$work/fa.out" | grep -qE "^transfer 0 $fb0 $tx out Completed "; then
     echo "     A had the acknowledgement before B crashed"
 else
     echo "     A had no acknowledgement when B crashed"
@@ -1261,7 +1286,7 @@ fi
 published=$(count fb '^published 0$')
 start_runtime fb "$data_fb" 0 "${tor_b[@]}"
 expect fb '^published 0$' $((published + 1)) 120
-expect fa "^transfer 0 $fb0 $tx out Completed " 1 1800
+expect_run fa "^transfer 0 $fb0 $tx out Completed " 1 1800
 test "$(listed fb "^transfer 0 $fa0 t[0-9]+ in .*size=4000000 ")" = 1
 test "$(count fb "^offered 0 $fa0 t[0-9]+ size=4000000 ")" = 1
 rx=$(transfer_of fb 4000000)
@@ -1272,7 +1297,7 @@ echo "29. B deletes A while a file comes and adds A again: the new contact gets 
 fixture "$work/files/recreated.bin" 16000005 30
 offer_and_accept fa fb "$fb0" "$fa0" "$work/files/recreated.bin"
 old_rx=$rx
-expect fb "^progress 0 $old_rx [0-9]+$" 1 900
+expect_run fb "^progress 0 $old_rx [0-9]+$" 1 900
 tell fb delete 0 "$fa0"
 expect fb "^deleted 0 $fa0$" 1 30
 # Nothing of the old record stays staged.
@@ -1290,18 +1315,18 @@ new_rx=$(last fb "^offered 0 $fa0 t[0-9]+ size=16000005 " | cut -d' ' -f4)
 test "$new_rx" != "$old_rx"
 test "$(listed fb "^transfer 0 $fa0 $new_rx in Offered ")" = 1
 tell fb accept 0 "$new_rx"
-expect fb "^accept-done 0 $new_rx$" 1 60
-expect fb "^transfer 0 $fa0 $new_rx in Received " 1 3600
+expect_run fb "^accept-done 0 $new_rx$" 1 60
+expect_run fb "^transfer 0 $fa0 $new_rx in Received " 1 3600
 save_and_compare fb "$new_rx" "$work/saved/recreated.bin" "$work/files/recreated.bin"
 echo "ok   the contact made again inherited nothing; the file came again from its start"
 
 echo "30. B blocks A while a file comes: nothing more is staged, nothing is kept."
 fixture "$work/files/blocked.bin" 32000007 31
 offer_and_accept fa fb "$fb0" "$fa0" "$work/files/blocked.bin"
-expect fb "^progress 0 $rx [0-9]+$" 1 900
+expect_run fb "^progress 0 $rx [0-9]+$" 1 900
 tell fb block 0 "$fa0"
 expect fb "^blocked 0 $fa0$" 1 30
-expect fb "^transfer 0 $fa0 $rx in Cancelled reason=Some\(ContactEnded\) " 1 30
+expect_run fb "^transfer 0 $fa0 $rx in Cancelled reason=Some\(ContactEnded\) " 1 30
 progress=$(count fb "^progress 0 $rx ")
 sleep 120
 test "$(count fb "^progress 0 $rx ")" = "$progress"
