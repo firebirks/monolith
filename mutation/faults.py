@@ -2279,6 +2279,109 @@ PHASE8 = [
     fault("FT62", CORE + "exchange.rs", "the offerer writes chunks before an acceptance on the session",
           ("                Live::Out(out) if out.acked.is_some() && out.sent < out.size => {\n",
            "                Live::Out(out) if out.sent < out.size => {\n")),
+    # FT-K: the defects the reviews found, each put back.
+    fault("FT63", CORE + "runtime/transfer.rs",
+          "a transfer cancelled while its file is verified is answered with FileComplete",
+          ("                    .await\n"
+           "                    .is_some_and(|(_, change)| change.changed)\n",
+           "                    .await\n"
+           "                    .is_some()\n")),
+    fault("FT64", CORE + "runtime/transfer.rs",
+          "a transfer cancelled and removed at once is never ended on its session",
+          ("                None => {\n"
+           "                    if transfers.settled().await.is_err() {\n"
+           "                        return Ok(());\n"
+           "                    }\n"
+           "                    link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))\n"
+           "                        .await?;\n"
+           "                    running.files.exchange.end(&transfer, true);\n"
+           "                }\n"
+           "                Some(_) => {}\n",
+           "                None | Some(_) => {}\n")),
+    fault("FT65", CORE + "sessions.rs",
+          "the preferred session is not woken when a probe closes the one that waited",
+          ("                    // goes.\n"
+           "                    if let Some(preferred) = &contenders.preferred {\n"
+           "                        preferred.control.wake();\n"
+           "                    }\n",
+           "                    // goes.\n")),
+    fault("FT66", CORE + "sessions.rs",
+          "the preferred session is not woken when the one that waited ends",
+          ("                // the only one now.\n"
+           "                if let Some(preferred) = &contenders.preferred {\n"
+           "                    preferred.control.wake();\n"
+           "                }\n",
+           "                // the only one now.\n")),
+    fault("FT67", CORE + "transfers.rs",
+          "an offer of the peer under an identifier of this side is recorded",
+          ("        }) {\n"
+           "            return Offer::Violation;\n"
+           "        }\n"
+           "        // An identifier of zero bytes",
+           "        }) && false {\n"
+           "            return Offer::Violation;\n"
+           "        }\n"
+           "        // An identifier of zero bytes")),
+    fault("FT68", CORE + "runtime/transfer.rs",
+          "a new offer is not counted as made on the session that brought it",
+          ("                // A new offer has its record only now.\n"
+           "                if transfers.read(|state, _| state.record(&key).is_some()) {\n",
+           "                // A new offer has its record only now.\n"
+           "                if false {\n")),
+    fault("FT69", CORE + "runtime/transfer.rs",
+          "an offer is written from a list read before the waits",
+          ("            if !listed {\n"
+           "                continue;\n"
+           "            }\n",
+           "            if !listed && false {\n"
+           "                continue;\n"
+           "            }\n")),
+    fault("FT70", CORE + "runtime/transfer.rs",
+          "a staged file made again for a transfer that ended meanwhile is kept",
+          ("                        Some((_, change)) if !change.changed => {\n"
+           "                            self.release(transfers, Some(new));\n"
+           "                        }\n",
+           "                        Some((_, change)) if !change.changed => {}\n")),
+    fault("FT71", CORE + "blobs.rs",
+          "a staged file whose removal failed after its staging failed is never tried again",
+          ("                if !dir.open_blob(&id.name()).is_ok_and(|file| file.is_none()) {\n"
+           "                    lock(&common.stale).insert(id);\n"
+           "                }\n",
+           "")),
+    fault("FT72", CORE + "runtime/transfer.rs",
+          "an answer that changed while it was made durable is written as it was read",
+          ("        if again != (Offer::Answer(answer), Some((state, unread))) {\n",
+           "        if again != (Offer::Answer(answer), Some((state, unread))) && false {\n")),
+    fault("FT73", CORE + "runtime/transfer.rs",
+          "progress is acknowledged for a transfer cancelled while its file was synced",
+          ("        // more of it is acknowledged, and the next round tells the peer.\n"
+           "        if Self::accepted_blob(transfers, key).is_none() {\n",
+           "        // more of it is acknowledged, and the next round tells the peer.\n"
+           "        if false {\n")),
+    fault("FT74", PR + "text.rs", "a suggested name may name a device the save refuses",
+          ("    \"CON\", \"PRN\", \"AUX\", \"NUL\", \"CONIN$\", \"CONOUT$\", \"CLOCK$\", \"KEYBD$\",\n",
+           "    \"CON\", \"PRN\", \"AUX\", \"NUL\", \"CONIN$\", \"CONOUT$\", \"CON\", \"CON\",\n")),
+    fault("FT75", DK + "bridge.rs", "a suggested place is longer than a name may be",
+          ("                \"{}{suffix}\",\n"
+           "                cut(stem, NAME_BYTES.saturating_sub(suffix.len()))\n",
+           "                \"{}{suffix}\",\n"
+           "                stem\n"),
+          ("            let end = cut(&candidate, NAME_BYTES).len();\n", "            let end = candidate.len();\n")),
+    fault("FT76", UM + "present.rs", "a long filename is cut at its end, its extension out of view",
+          ("    let mut out: String = chars.iter().take(head).collect();\n"
+           "    out.push(ELLIPSIS);\n"
+           "    out.extend(chars.iter().skip(tail));\n",
+           "    let mut out: String = chars.iter().take(max_chars).collect();\n"
+           "    out.push(ELLIPSIS);\n"
+           "    let _ = (head, tail);\n")),
+    fault("FT77", UK + "rows.rs", "a filename cut to its card keeps its start only",
+          ("    let tail = most(MIDDLE_TAIL.min(count / 2), &|tail| fits(0, tail));\n",
+           "    let tail = most(0, &|tail| fits(0, tail));\n")),
+    fault("FT78", UM + "model.rs", "a file the runtime said it saved is shown received until the next read",
+          ("                        slice.saved_here.insert(saved, since);\n", "                        let _ = (slice, since);\n")),
+    fault("FT79", UM + "model.rs", "a dialog of a transfer that ended stays open",
+          ("        if !self.transfer_phase(transfer).is_some_and(applies) {\n",
+           "        if !self.transfer_phase(transfer).is_some_and(applies) && false {\n")),
 ]
 
 # Phase 7 faults in code built on Windows only (P7-3). The tests that
@@ -2330,4 +2433,13 @@ PHASE7_WINDOWS = [
     fault("HR75", ST + "disk_windows.rs", "a removal another process blocks is tried once",
           ("        retried(|| std::fs::remove_file(&path))\n",
            "        std::fs::remove_file(&path).map_err(std_io)\n")),
+]
+
+# Phase 8 faults in code built on Windows only, run there as "phase8w",
+# like PHASE7_WINDOWS.
+PHASE8_WINDOWS = [
+    fault("FT80", ST + "export.rs", "a name Windows refuses is written whole before the save fails",
+          ("        name.contains(['<', '>', '\"', '|', '?', '*'])\n"
+           "            || name.chars().any(|c| ('\\u{1}'..='\\u{1f}').contains(&c))\n",
+           "        false\n")),
 ]

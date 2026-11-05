@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the mutation suite. See README.md in this directory.
 
-Usage: python3 mutation/run.py <phase1|...|phase8|phase7w|all> <workers> [fault id ...]
+Usage: python3 mutation/run.py <phase1|...|phase8|phase7w|phase8w|all> <workers> [fault id ...]
 
 Each fault of faults.py is applied to a copy of the committed HEAD, one at
 a time; the tests of the affected crates run; the file is restored. The
@@ -11,8 +11,8 @@ directory. The working tree of the repository is never modified.
 The exit code is 0 when every fault has the outcome its entry expects, 1
 when one does not, and 2 or 3 when the suite could not start.
 
-It runs on Linux and on Windows; the list `phase7w`, of code built on
-Windows only, runs on Windows only, and `all` leaves it out.
+It runs on Linux and on Windows; the lists `phase7w` and `phase8w`, of
+code built on Windows only, run on Windows only, and `all` leaves them out.
 """
 
 import concurrent.futures
@@ -360,6 +360,7 @@ def run_main():
         "phase7": faults.PHASE7,
         "phase7w": faults.PHASE7_WINDOWS,
         "phase8": faults.PHASE8,
+        "phase8w": faults.PHASE8_WINDOWS,
     }.get(
         phase,
         faults.PHASE1
@@ -375,8 +376,8 @@ def run_main():
         selected = [item for item in selected if item["id"] in only]
     # Code built on Windows only: elsewhere its faults change nothing that
     # is compiled, and would be counted survived.
-    if phase == "phase7w" and not WINDOWS:
-        log("the list phase7w runs on Windows only")
+    if phase in ("phase7w", "phase8w") and not WINDOWS:
+        log(f"the list {phase} runs on Windows only")
         sys.exit(2)
     commit = subprocess.run(
         ["git", "-C", REPO, "rev-parse", "HEAD"], check=True, capture_output=True, text=True

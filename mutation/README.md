@@ -12,8 +12,8 @@ key kept.
 
 ## Files
 
-- `faults.py`: the lists `PHASE1` to `PHASE8`, and `PHASE7_WINDOWS` of
-  code built on Windows only. An entry names the
+- `faults.py`: the lists `PHASE1` to `PHASE8`, and `PHASE7_WINDOWS` and
+  `PHASE8_WINDOWS` of code built on Windows only. An entry names the
   file, the exact text to replace and its replacement, and what the fault
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
@@ -25,6 +25,7 @@ key kept.
     python3 mutation/run.py phase8 3
     python3 mutation/run.py phase7 3
     python3 mutation/run.py phase7w 1
+    python3 mutation/run.py phase8w 1
     python3 mutation/run.py phase6 3
     python3 mutation/run.py phase5 3
     python3 mutation/run.py phase4 3
@@ -54,9 +55,9 @@ with `--no-fail-fast`, so the result names every test that noticed. When
 `monolith-ui` is among them, its `fixtures` feature is on, so that the
 tests of the screens run in the states their fixtures build. The runner
 runs on Linux and on Windows, with the same checks, outcomes and results
-file on both (since Phase 7). The list `phase7w`, of code built on
-Windows only, runs on Windows only, and `all` leaves it out: elsewhere
-its faults change nothing that is compiled.
+file on both (since Phase 7). The lists `phase7w` and `phase8w`, of
+code built on Windows only, run on Windows only, and `all` leaves them
+out: elsewhere their faults change nothing that is compiled.
 
 Outcomes:
 
@@ -500,6 +501,22 @@ The Phase 8 list, FT1 and up, covers file transfer
   same name on Unix (FT54 to FT61);
 - an offerer that writes chunks before the receiver's acceptance on the
   session, so from no offset the receiver gave (FT62).
+- what the reviews of FT-K found, each as it was before its fix: a
+  transfer cancelled while its file is verified answered with
+  FileComplete, one cancelled and removed at once never ended on its
+  session, the preferred session not woken when the duplicate that waited
+  goes (by the probe or by its end), an offer of the peer under an
+  identifier of this side recorded, a new offer not counted as made on its
+  session, an offer written from a list read before the waits, a staged
+  file made again for a transfer that ended meanwhile kept, a staged file
+  whose removal failed after a failed staging never tried again, an answer
+  or an acknowledgement that changed while it was made durable written as
+  read, a suggested name that names a device the save refuses, a
+  suggested place longer than a name may be, a long filename cut at its
+  end in the model or on its card, a file the runtime said it saved shown
+  received, a dialog of a transfer that ended left open (FT63 to FT79);
+  and on Windows only, in `phase8w`, a name Windows refuses written whole
+  before the save fails (FT80).
 
 The candidates of the Phase 8 brief (section 51), and what covers each:
 
@@ -522,7 +539,7 @@ The candidates of the Phase 8 brief (section 51), and what covers each:
 | file chunks starve chat | FT59, FT1 |
 | destination uses the remote path | FT33, and the faults of save names of Phase 7 |
 | overwrite protection removed | FT61 (Unix; on Windows a hard link refuses an existing name, tested by `tests/export.rs`), FT35 |
-| invalid filename in trusted prose | none: no sentence of the interface carries a file name, a card draws it on a line of its own; FT49 for the name itself |
+| invalid filename in trusted prose | none: a card draws a file name on a line of its own, and the dialogs of a transfer carry it as a name of their sentence (`Prose::name`), never as the client's words; FT49 for the name itself |
 | staging plaintext written | FT60 (one nonce for all), FT32 (a segment that does not authenticate counted) |
 | resource limit disabled | FT13, FT14, FT58 |
 
