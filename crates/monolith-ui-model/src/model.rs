@@ -2000,6 +2000,46 @@ impl Model {
             .find(|view| view.id == transfer)
     }
 
+    /// Closes the dialog of a transfer that a read says ended, was saved or
+    /// is gone, unless its command is under way (its answer closes it):
+    /// what it asks no longer applies.
+    fn close_ended_dialog(&mut self) {
+        let (transfer, applies): (UiTransferId, fn(TransferPhase) -> bool) = match &self.dialog {
+            Some(Dialog::CancelTransfer {
+                transfer,
+                busy: None,
+                ..
+            }) => (*transfer, |phase| !phase.ended()),
+            Some(
+                Dialog::RemoveFile {
+                    transfer,
+                    busy: None,
+                    ..
+                }
+                | Dialog::SaveFile {
+                    transfer,
+                    busy: None,
+                    ..
+                },
+            ) => (*transfer, |phase| matches!(phase, TransferPhase::Received)),
+            _ => return,
+        };
+        if !self.transfer_phase(transfer).is_some_and(applies) {
+            self.dialog = None;
+        }
+    }
+
+    /// The phase the card of `transfer` shows, if it is listed: what an
+    /// action on it goes by.
+    pub fn transfer_phase(&self, transfer: UiTransferId) -> Option<TransferPhase> {
+        let slice = self.slices.get(&transfer.identity())?;
+        slice
+            .transfers
+            .iter()
+            .find(|view| view.id == transfer)
+            .map(|view| slice.phase_of(view))
+    }
+
     /// Issues `action` on `transfer` if its card offers it: an acceptance
     /// or a rejection of an offer to this side, a resumption of a paused
     /// transfer, a removal of an ended one. A received file not saved is
@@ -2249,6 +2289,7 @@ impl Model {
                             });
                             slice.saved_here.retain(|_, since| *since > command.get());
                         }
+                        self.close_ended_dialog();
                     }
                     Outcome::Failed(Failure::NoSuchIdentity) => {
                         self.identities_stale = true;

@@ -280,10 +280,12 @@ fn act(app: &mut App, contact: UiContactId, key: TransferKey, action: CardAction
         }
         (TransferKey::Transfer(transfer), CardAction::Remove) => {
             // A received file not saved goes with its card: the user is
-            // asked first.
-            let unsaved = model.transfer(transfer).is_some_and(|view| {
-                view.status == monolith_ui_model::TransferStatus::Received && !view.saved
-            });
+            // asked first. The phase its card shows is the one gone by (a
+            // file just saved is saved before the next read).
+            let unsaved = matches!(
+                model.transfer_phase(transfer),
+                Some(monolith_ui_model::TransferPhase::Received)
+            );
             if unsaved {
                 model.open(Dialog::RemoveFile {
                     transfer,

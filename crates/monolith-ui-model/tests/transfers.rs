@@ -739,6 +739,79 @@ fn a_decision_names_its_transfer_and_one_no_longer_listed_asks_for_nothing() {
     assert!(model.dialog().is_none());
 }
 
+/// A dialog about a transfer closes once a read says what it asks no
+/// longer applies (the transfer ended, was saved or is gone), unless its
+/// command is under way.
+#[test]
+fn a_dialog_of_a_transfer_that_ended_meanwhile_closes() {
+    let mut world = world();
+    let carol = contact(1, 10);
+    let sending = transfer(carol, 3);
+    let received = transfer(carol, 4);
+    world.transfers.insert(
+        identity(1),
+        vec![
+            view(sending, false, TransferStatus::Sending),
+            view(received, true, TransferStatus::Received),
+        ],
+    );
+    let mut model = ready(&world);
+    let read_again = |world: &mut World, model: &mut Model, views: Vec<TransferView>| {
+        world.transfers.insert(identity(1), views);
+        model.apply(Update::Event(RuntimeEvent::TransferChanged(sending)));
+        world.settle(model);
+    };
+    // Stop a file being sent: it completes meanwhile.
+    model.open(Dialog::CancelTransfer {
+        transfer: sending,
+        busy: None,
+        error: None,
+    });
+    read_again(
+        &mut world,
+        &mut model,
+        vec![
+            view(sending, false, TransferStatus::Sending),
+            view(received, true, TransferStatus::Received),
+        ],
+    );
+    assert!(model.dialog().is_some());
+    read_again(
+        &mut world,
+        &mut model,
+        vec![
+            view(sending, false, TransferStatus::Completed),
+            view(received, true, TransferStatus::Received),
+        ],
+    );
+    assert!(model.dialog().is_none());
+    // Remove a received file, or save it: it is gone meanwhile.
+    for dialog in [
+        Dialog::RemoveFile {
+            transfer: received,
+            busy: None,
+            error: None,
+        },
+        Dialog::SaveFile {
+            transfer: received,
+            place: "/home/me/a.zip".to_owned(),
+            suggesting: None,
+            busy: None,
+            error: None,
+        },
+    ] {
+        read_again(
+            &mut world,
+            &mut model,
+            vec![view(received, true, TransferStatus::Received)],
+        );
+        model.open(dialog);
+        read_again(&mut world, &mut model, Vec::new());
+        assert!(model.dialog().is_none());
+    }
+    assert_eq!(model.transfer_phase(received), None);
+}
+
 #[test]
 fn a_save_starts_from_the_suggested_place_and_keeps_what_the_user_typed() {
     let mut world = world();

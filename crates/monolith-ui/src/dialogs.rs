@@ -156,16 +156,16 @@ const SAVES_NOTHING: &str = "This session saves nothing. Closing Monolith delete
 
 /// What stopping a file being sent does. A file the contact already holds
 /// whole stays theirs: a cancellation takes nothing back.
-const STOP_SENDING: &str = "The file stops being sent, and your contact is told. If they \
-                            already received all of it, they keep it.";
+const STOP_SENDING: &str = " stops being sent, and your contact is told. If they already \
+                            received all of it, they keep it.";
 
 /// What stopping a file being received does.
-const STOP_RECEIVING: &str = "The file stops being received, and what arrived of it is \
-                              deleted from this device. Your contact is told.";
+const STOP_RECEIVING: &str = " stops being received, and what arrived of it is deleted from \
+                              this device. Your contact is told.";
 
 /// What removing a received file that was not saved does.
-const REMOVE_FILE: &str = "The received file is deleted from this device and can no longer be \
-                           saved. Your contact is not told.";
+const REMOVE_FILE: &str = " is deleted from this device and can no longer be saved. Your \
+                           contact is not told.";
 
 /// How a file to send travels.
 const SEND_FILE_HELP: &str = "Monolith first reads and encrypts the file on this device, then \
@@ -332,11 +332,11 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                 .model
                 .transfer(transfer)
                 .is_some_and(|view| view.incoming);
-            let message = if incoming {
-                Prose::said(STOP_RECEIVING)
+            let message = file_named(app, transfer, "The file").and(if incoming {
+                STOP_RECEIVING
             } else {
-                Prose::said(STOP_SENDING)
-            };
+                STOP_SENDING
+            });
             danger(
                 ctx,
                 app,
@@ -357,7 +357,7 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
                 &Danger {
                     salt: ("remove-file", transfer),
                     title: "Remove received file?",
-                    message: Prose::said(REMOVE_FILE),
+                    message: file_named(app, transfer, "The received file").and(REMOVE_FILE),
                     action: "Remove file",
                     checkbox: false,
                 },
@@ -367,6 +367,15 @@ pub(crate) fn show(ctx: &Context, app: &mut App) {
 }
 
 // ---- What the dialogs say ----
+
+/// `start` and the name of the file of `transfer`, as the contact or the
+/// user gave it: the dialog says which file it acts on.
+fn file_named(app: &App, transfer: monolith_ui_model::UiTransferId, start: &str) -> Prose {
+    match app.model.transfer(transfer) {
+        Some(view) => Prose::said(format!("{start} ")).name(&view.name),
+        None => Prose::said(start),
+    }
+}
 
 /// What revoking `invitation` does, naming it by its label.
 fn revoke_text(app: &App, invitation: UiInvitationId) -> Prose {
