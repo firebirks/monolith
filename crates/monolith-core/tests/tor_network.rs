@@ -316,7 +316,7 @@ fn a_transfer_goes_on_across_a_key_rotation_and_a_contact_made_again_inherits_no
         );
         // Bob begins a rotation of his transport key; Alice learns the
         // successor on the next session.
-        lb.begin_rotation().await.unwrap();
+        let successor = lb.begin_rotation().await.unwrap();
         // A successor is announced on a session confirmed after the rotation
         // began: the session of the first message is let go first, so that
         // the next one is dialed.
@@ -383,7 +383,14 @@ fn a_transfer_goes_on_across_a_key_rotation_and_a_contact_made_again_inherits_no
             Some(TransferStatus::Received)
         );
         assert_eq!(received.contact, at_b);
-        assert_eq!(cards(), 1, "the new key is not the only one");
+        // Switched, not finished: Alice dials the new key first and keeps
+        // the old one to fall back on (PROTOCOL.md section 11.4).
+        assert_eq!(
+            la.dial_plan(lb.identity())
+                .and_then(|plan| plan.cards.first().cloned()),
+            Some(successor),
+            "the new key is not dialed first"
+        );
         let mut reader = bob.begin_save(&received).await.unwrap();
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).unwrap();
