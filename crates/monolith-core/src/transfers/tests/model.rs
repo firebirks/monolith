@@ -140,6 +140,14 @@ fn edge(direction: Direction, from: State, to: State) -> bool {
     }
 }
 
+/// What the user may take off the list: an ended transfer, and also an
+/// outgoing one stopped before its receiver was told (FT46), whose
+/// session then ends it if it goes on there. Room is never made from the
+/// latter (`ended`).
+fn removable(record: &TransferRecord) -> bool {
+    ended(record) || (record.direction == Direction::Outgoing && record.state == State::Cancelled)
+}
+
 fn ended(record: &TransferRecord) -> bool {
     match record.direction {
         Direction::Outgoing => match record.state {
@@ -375,7 +383,7 @@ proptest::proptest! {
                         let room = matches!(op, Op::AddOutgoing { .. } | Op::Offered { .. })
                             && ended(old);
                         proptest::prop_assert!(
-                            by_contact || retention || room || (lawful_removal && ended(old)),
+                            by_contact || retention || room || (lawful_removal && removable(old)),
                             "{op:?} removed {old:?}"
                         );
                     }

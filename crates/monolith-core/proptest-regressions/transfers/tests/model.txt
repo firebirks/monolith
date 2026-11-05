@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 40d7b0377cce6648575916935169f2194cfa8c5c5e7baeb8835d1afacca2a056 # shrinks to ops = [AddOutgoing { transfer: 10, size: 0 }, AcceptedByPeer { transfer: 10, offset: 0 }, Cancel { direction: true, transfer: 10 }, Remove { direction: true, transfer: 10 }]
