@@ -181,6 +181,15 @@ fn present_seeds() -> Vec<(String, Vec<u8>)> {
             "ui_present/trailing_space.bin".to_owned(),
             text(0x06, "abcde \n  "),
         ),
+        // The controls shown as marks, next to the tab, line feed and
+        // carriage return that are not.
+        (
+            "ui_present/controls.bin".to_owned(),
+            text(
+                0x0A,
+                "\u{0}a\u{8}\u{b}\u{c}\u{e}\u{1f}\u{7f}\u{80}\u{85}\u{9f}\tb\nc\r",
+            ),
+        ),
     ]
 }
 

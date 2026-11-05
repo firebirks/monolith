@@ -104,13 +104,19 @@ To check that the targets compile without running them:
 
 ## Status
 
-All twenty targets build (`fuzz_targets/session_fixtures.rs` holds
+All twenty-two targets build (`fuzz_targets/session_fixtures.rs` holds
 fixtures they share and is not one); Phase 4 added `vault_payload` and
 `contact_store` and extended `credential_sequence`, Phase 5 added
 `message_store` and `message_sequence`, and Phase 6 `ui_present` and
 `ui_model_sequence`. Phase 7 added none: `ui_present` now covers the
 larger set of marks and `message_store` holds the decoder to the
-ceilings of the store (`docs/DESIGN_QUESTIONS.md` P7-22). In the final
+ceilings of the store (`docs/DESIGN_QUESTIONS.md` P7-22). Phase 8
+added `transfer_sequence` and `transfer_store`. The first run of
+`ui_present` in the final verification of Phase 8 (on `f7f8d81`) failed
+on a text starting with two NUL characters: `present.rs` has shown the
+C0 and C1 controls and DEL as marks since `082e1d6`, and the list of the
+target did not have them yet. The list now follows `PROTOCOL.md` section
+9 for them too, and the seed `controls.bin` holds them. In the final
 verification of Phase 7 (on `740b671`) each of the twenty ran for 26
 seconds, and `ui_present`, `message_store`, `message_sequence`,
 `session_sequence` and `ui_model_sequence` for 600 seconds each (1.1,

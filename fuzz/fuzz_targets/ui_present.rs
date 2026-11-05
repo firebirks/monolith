@@ -16,11 +16,13 @@
 //! fingerprint.
 //!
 //! The classes of characters and of white space are written out here from
-//! `PROTOCOL.md` section 9, independently of `present.rs`: the characters
-//! that list rejects as drawn as nothing or changing direction, and the
-//! format controls of Egyptian hieroglyphs. U+2800 and U+FFFC, drawn as a
-//! blank and a box, are in that list but not in the set `present.rs`
-//! shows, so they are not checked.
+//! `PROTOCOL.md` section 9, independently of `present.rs`: the C0 and C1
+//! controls and DEL that every text field rejects (tab, line feed and
+//! carriage return are not among them), the characters that list rejects
+//! as drawn as nothing or changing direction, and the format controls of
+//! Egyptian hieroglyphs. U+2800 and U+FFFC, drawn as a blank and a box,
+//! are in that list but not in the set `present.rs` shows, so they are
+//! not checked.
 
 #![no_main]
 
@@ -33,8 +35,13 @@ use monolith_ui_model::present::{
     sendable,
 };
 
-/// Drawn as nothing or changing the direction of text: shown as a mark.
-const INVISIBLE: [(u32, u32); 18] = [
+/// Controls, or drawn as nothing or changing the direction of text: shown
+/// as a mark.
+const INVISIBLE: [(u32, u32); 22] = [
+    (0x0000, 0x0008),
+    (0x000B, 0x000C),
+    (0x000E, 0x001F),
+    (0x007F, 0x009F),
     (0x00AD, 0x00AD),
     (0x034F, 0x034F),
     (0x061C, 0x061C),
