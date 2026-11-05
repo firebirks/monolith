@@ -2240,11 +2240,11 @@ PHASE8 = [
           ("        if matches!(answer, Answer::Nothing) || transfers.settled().await.is_err() {\n",
            "        if matches!(answer, Answer::Nothing) {\n")),
     fault("FT53", CORE + "runtime/transfer.rs", "a cancellation is told before it is durable",
-          ("                if transfers.settled().await.is_err() {\n"
-           "                    return Ok(());\n"
-           "                }\n"
-           "                link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))\n",
-           "                link.send(&Message::FileAbort(TransferId::from_bytes(transfer)))\n")),
+          ("                Some((state @ (State::Cancelled | State::Failed), unread)) => {\n"
+           "                    if transfers.settled().await.is_err() {\n"
+           "                        return Ok(());\n"
+           "                    }\n",
+           "                Some((state @ (State::Cancelled | State::Failed), unread)) => {\n")),
     fault("FT54", CORE + "runtime/transfer.rs", "the receiver completes a file whatever digest the sender declares",
           ("            Ok(Verified::Digest(held)) if held == digest => {\n",
            "            Ok(Verified::Digest(held)) => {\n")),
