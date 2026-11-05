@@ -3210,3 +3210,141 @@ P8-16 What the completion proves is the integrity of the transfer: the
 Previews, thumbnails, opening files, folders, several files in one offer,
 groups, a file chooser of the system, transfers to people who are not
 accepted contacts, and transfers larger than 256 MiB.
+
+### 15.3 The reviews of FT-K
+
+The code of file transfer was read again in five areas, each by a
+reviewer that had only the code and the documents: the protocol and its
+security, the runtime and its concurrency, persistence, the file system
+and the platforms, and the trust the desktop client gives what it shows.
+Nothing was built or run for the reviews. None found a high defect. Each
+finding was reproduced on its own before it was fixed, with a test that
+failed before the fix; each fix has a fault of the mutation list that
+puts the defect back (FT63 to FT80).
+
+Fixed:
+
+- A transfer cancelled while its file was verified was answered with
+  FileComplete: the completion is a no-op on a cancelled record, and only
+  a failed store was checked (medium). The completion is written only if
+  it was recorded (`5541bba`,
+  `a_cancellation_while_the_file_is_verified_is_never_answered_with_a_completion`,
+  FT63). The same reading of a state before a wait, then writing it, was
+  in the acknowledgement of progress after the sync of its blob and in
+  the answer to a repeated offer after it became durable: the peer got a
+  FileAccept just before the FileAbort. Both are read again after the
+  wait (`794b667`,
+  `a_cancellation_while_the_progress_is_synced_is_never_answered_with_an_acceptance`,
+  `an_answer_that_changed_while_it_was_made_durable_is_not_written`, FT72,
+  FT73).
+- The preferred session of a contact makes its offers only while it is
+  the only session; the duplicate that waited for a probe could go, by
+  the probe or by its own end, without waking it, and nothing was offered
+  until an unrelated change (medium). The manager wakes the preferred
+  session in both cases (`385ebbc`,
+  `the_preferred_session_is_woken_when_the_one_that_waited_goes`, FT65,
+  FT66).
+- A transfer cancelled and taken off the list at once left its session
+  without a record to read: no FileAbort, and the exchange kept it as the
+  transfer that sends, holding up the next accepted one until the session
+  ended. It is ended on its session (`5541bba`,
+  `a_transfer_cancelled_and_removed_at_once_while_it_goes_is_ended_on_its_session`,
+  FT64).
+- The offers of a session were written from a list read before the wait
+  for durability: a transfer cancelled before it was ever offered was
+  offered, then aborted. Each offer is checked against the store as it is
+  written, and a session asked to close offers nothing more (`fddfae9`,
+  `a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered`,
+  FT69).
+- A peer could offer a transfer under the identifier of one of this
+  side's to it, before this side's offer on a new session: the fake
+  incoming record took a pending place, and the exchange, keyed by
+  identifier, never offered the real one. Such an offer is a violation on
+  any session, as an offer back of the identifier already was on the
+  session that offered it (`298dec7`, `PROTOCOL.md` section 13.1,
+  `an_offer_of_the_peer_under_an_identifier_of_this_side_is_a_violation`,
+  `an_offer_of_the_peer_under_the_identifier_of_a_transfer_of_this_side_ends_the_session`,
+  FT67).
+- The session on which an offer first came was not counted as one that
+  offered it: its record did not exist yet when the offer was counted,
+  and a transfer accepted there failed with `OffererGone` one session
+  early (`bc926bf`,
+  `the_session_of_the_first_offer_counts_as_one_that_offered_it`, FT68).
+- A blob made again for an accepted transfer whose blob was missing was
+  kept when the transfer was cancelled while it was made, and the blob of
+  a staging that failed was not tried again when its removal failed. Both
+  are removed (`e6b54f6`, `9bf1fc0`,
+  `a_staged_file_made_again_for_a_transfer_cancelled_meanwhile_is_removed`,
+  `a_staging_that_failed_and_could_not_remove_its_file_removes_it_later`,
+  FT70, FT71). A blob whose header could not be written right after it was
+  reserved, and whose removal also failed, is left to the next open
+  (`STORAGE.md` section 5.4).
+- File system: a suggested place for a name of 255 bytes already taken
+  was longer than a name may be, and an error other than "not found" read
+  as a free name (`8e23f39`,
+  `a_suggested_place_keeps_to_the_length_of_a_name`, FT75); `CLOCK$` and
+  `KEYBD$` were suggested though a save refuses them (`a52ec95`,
+  `a_suggested_name_never_names_a_device`, FT74); on Windows a name with a
+  wildcard or a control character was written whole before the save
+  failed as a disk failure (`730f4ab`,
+  `a_name_windows_refuses_is_refused_before_anything_is_written`, FT80).
+- The desktop client: a long remote name lost its extension, cut at its
+  end in the model and again on its card, and is cut in its middle in
+  both (`b5ea4de`, `a_long_filename_is_cut_in_its_middle_and_keeps_its_end`,
+  `a_filename_cut_to_its_line_keeps_its_end`, FT76, FT77); a file just
+  saved stayed Received on its card until the next read, and Remove then
+  asked about a file not saved: the card shows it saved once the runtime
+  said so, and actions go by the phase the card shows (`bba9eda`,
+  `5617b14`, FT78); the dialogs of a transfer named no file and stayed
+  open after it ended: they name it, as a name apart from the client's
+  words, and close once a read says what they ask no longer applies
+  (`5617b14`, `a_dialog_of_a_transfer_that_ended_meanwhile_closes`, FT79).
+
+Not reproduced, made safe anyway:
+
+- A write of a chunk that failed for a full disk inside the pump of a
+  session that also sends could be followed by one more frame read before
+  the session closed, and so by an acknowledgement over the chunk not
+  written. In the runtime the change the failure makes wakes the session
+  before it reads again (the wakeups are polled before the read), and a
+  test with a transfer each way and the failing write sees no such
+  acknowledgement
+  (`a_chunk_that_could_not_be_written_is_never_acknowledged_while_this_side_also_sends`).
+  The session now also checks that it is to close after the pump
+  (`5541bba`).
+- While chunks flow without the window filling, the deadlines of the
+  session (the acknowledgement of a message, the Pong) were not looked
+  at. A sender waits in the select whenever its window is full, which is
+  where the deadlines run, so only a peer that acknowledges file progress
+  before the window fills and never acknowledges a message is affected,
+  and that only delays the message. The acknowledgement of a message is
+  checked after each chunk too (`0f46f07`).
+
+Refuted:
+
+- A crash between the block of a contact, durable in the vault, and the
+  cancellation of its transfers was said to leave them live, the contact
+  being still known to the vault. A block replaces the contact's record
+  in the vault (`Record::Blocked`), so the transfer store, matched against
+  the vault when it opens, drops its records and their blobs. A sweep of
+  crashes at every step of a block, under every crash outcome, reaches
+  that window and finds nothing of the contact live or saveable
+  (`8a53c27`,
+  `a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable`).
+
+Kept, and documented:
+
+- A sync that failed for a full disk and succeeds when tried again can
+  count, on Linux, pages the kernel dropped (`STORAGE.md` section 5.6).
+- The plaintext of a chunk is held in heap buffers that are not cleared
+  (`STORAGE.md` section 5.6; memory is not locked, `CRYPTOGRAPHY.md`
+  section 8).
+- A local name is offered as the part after its last `/` or `\`, on every
+  system, so that no folder of a name written on any system shows; on
+  Linux a file named `a\b.txt` is offered as `b.txt`
+  (`a_local_name_is_offered_as_its_last_component_made_valid`).
+
+The private Tor network test found one fault of its own script: the
+offers of the receiver were counted after the sender reported its file
+staged, and on a session already open the offer could arrive first
+(`c7b6a37`).

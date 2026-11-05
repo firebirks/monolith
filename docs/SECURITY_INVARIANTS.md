@@ -791,7 +791,10 @@ listed in `mutation/README.md`.
 - Mechanism: a transfer is keyed by the durable identifiers of its local
   identity and its contact record, its direction and the identifier the
   offerer drew (`transfers::Key`). The same 16 bytes under two contact
-  records or in two directions are two transfers. The handle a front end
+  records or in two directions are two transfers. An offer of the peer
+  under the identifier of a transfer this side holds for that contact is a
+  violation, on any session: it records nothing, and the transfer of this
+  side goes on. The handle a front end
   holds (`TransferRef`) names the same four values, and every read,
   command and event of an identity acts on its own transfers only. A
   contact deleted or blocked and made again gets a new contact record and
@@ -819,7 +822,15 @@ listed in `mutation/README.md`.
   (`late_events_and_answers_of_one_identity_change_nothing_shown_of_another`,
   `an_offer_is_told_only_for_the_identity_shown_and_not_in_its_own_conversation`,
   `a_decision_names_its_transfer_and_one_no_longer_listed_asks_for_nothing`),
-  mutation faults FT21, FT28, FT39, FT44, FT55 and FT56.
+  `transfers::tests`
+  (`an_offer_of_the_peer_under_an_identifier_of_this_side_is_a_violation`),
+  `tests/transfer_restarts.rs`
+  (`an_offer_of_the_peer_under_the_identifier_of_a_transfer_of_this_side_ends_the_session`,
+  `a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable`:
+  a block is durable in the vault before the transfers are cancelled in
+  their store, and a crash between the two leaves nothing of the contact
+  live or saveable, since the vault no longer holds its record),
+  mutation faults FT21, FT28, FT39, FT44, FT55, FT56 and FT67.
 
 ### S64. An ended transfer never goes on
 
@@ -834,7 +845,14 @@ listed in `mutation/README.md`.
   (`exchange.rs`): that is discarded, anything beyond it is a violation.
   The record of an ended incoming transfer stays for
   `ENDED_TRANSFER_RETENTION` so that a repeated offer finds it, and room
-  is never made from a record whose answer the peer may still need.
+  is never made from a record whose answer the peer may still need. A
+  transfer that ends while its session waits (for a sync, the
+  verification of its file, a write to be durable) is never answered by
+  what that session read before: a completion is written only if it was
+  recorded, an acknowledgement only while the transfer is still accepted,
+  an offer only while it is still to offer, and an answer only if it is
+  the same once durable. A transfer cancelled and taken off the list at
+  once is ended on the session it went on.
 - Tests: `transfers::tests`
   (`a_rejection_or_an_abort_of_the_peer_ends_the_offer`,
   `a_receiver_that_completed_before_reading_a_cancellation_delivered_the_file`,
@@ -847,11 +865,18 @@ listed in `mutation/README.md`.
   (`a_rejected_offer_ends_on_both_sides_and_is_never_offered_again`,
   `a_receiver_that_completed_before_it_read_a_cancellation_holds_the_file`),
   `tests/transfer_restarts.rs`
-  (`a_cancellation_of_the_sender_that_meets_the_completion_ends_completed_in_every_order`),
+  (`a_cancellation_of_the_sender_that_meets_the_completion_ends_completed_in_every_order`,
+  `a_cancellation_while_the_file_is_verified_is_never_answered_with_a_completion`,
+  `a_cancellation_while_the_progress_is_synced_is_never_answered_with_an_acceptance`,
+  `a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered`,
+  `an_answer_that_changed_while_it_was_made_durable_is_not_written`,
+  `a_transfer_cancelled_and_removed_at_once_while_it_goes_is_ended_on_its_session`),
   `tests/transfer_model.rs` (an ended transfer never goes on, across every
   crash; the one exception is the cancelled outgoing transfer that the
   receiver had completed), fuzz target `transfer_sequence`, mutation
-  faults FT8, FT9, FT15 and FT57.
+  faults FT8, FT9, FT15, FT57, FT63, FT64, FT69, FT72 and FT73. The waits
+  were found by the reviews of Phase 8 and fixed before the verification;
+  FT63, FT64, FT69, FT72 and FT73 restore them.
 
 ### S65. A file is received only whole and verified, and completed at the sender only by the receiver's acknowledgement of that file
 

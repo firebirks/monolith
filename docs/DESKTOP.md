@@ -546,5 +546,12 @@ start of the newest message.
   with its digest; that says nothing about whether its content is safe.
 - A transfer action is taken only where its card offers it (an offer is
   accepted or rejected, a paused transfer resumed, an ended one removed);
-  a received file not saved is removed only through its dialog.
+  a received file not saved is removed only through its dialog. A file the
+  runtime said it saved is shown saved at once, before the next read.
+- A file name too long for its line is cut in its middle, in the model to
+  60 characters and on the card to its width, so that its end, where the
+  extension is, stays in view. The dialogs of a transfer (stop, remove,
+  save) name the file as a name apart from the client's words, and close
+  once a read says the transfer ended, was saved or is gone, unless their
+  command is under way.
 - See also section 9.

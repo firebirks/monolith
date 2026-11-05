@@ -741,7 +741,20 @@ blob and is reported; no record was written, so nothing else changes.
   it.
 - A removal that fails leaves a blob no record names. It is not a failure
   of the store: the removal is tried again with each write of the transfer
-  store and at the next open.
+  store and at the next open. That holds also for the blob of a staging
+  that failed (a source that gave too few or too many bytes, a write that
+  failed), and for a blob made again for an accepted transfer whose blob
+  was missing, when the transfer ended while it was made. One case is left
+  to the next open alone: a blob whose header could not be written or
+  synced right after it was reserved, and whose removal then failed too;
+  nothing names it but its file.
+- A block of a contact is made durable in the vault first, and the
+  cancellation of its transfers in their own store after it. A crash
+  between the two leaves the vault without the contact's record, and the
+  transfer store, matched against the vault when it opens, drops the
+  records of that contact and their blobs: nothing of the contact is left
+  live or saveable, though its transfers are then gone rather than shown
+  cancelled.
 - Records of ended incoming transfers (rejected, expired, cancelled, failed,
   and complete and saved or removed) stay for `ENDED_TRANSFER_RETENTION`, 14
   days, and then go, so that an offer repeated meanwhile finds its record.
@@ -828,7 +841,17 @@ may be left in the folder it was going to, and the flag is cleared.
 - Removing a blob does not reach copies the file system or the medium keep
   (journals, copy-on-write, flash translation).
 - Memory is not locked; a plaintext segment and the keys can reach swap
-  (`CRYPTOGRAPHY.md` section 8).
+  (`CRYPTOGRAPHY.md` section 8). The plaintext of a chunk is held in
+  ordinary heap buffers while it is sealed, read or sent, and those are
+  not cleared when they are freed.
+- A sync of a blob that fails for a full disk holds the transfer, and the
+  scan that resumes it syncs again. On Linux a second sync can succeed
+  after the kernel gave up pages the first one could not write; the scan
+  then counts what the page cache holds, and an acknowledgement may count
+  bytes that never reached the medium. A crash after that gives a lower
+  scan, and the transfer goes on from there: nothing wrong is completed,
+  but the rule that an acknowledgement never counts more than a sync
+  covered rests on what the system reports.
 - A saved file is plaintext where the user put it, and a crash while it is
   saved can leave its partial plaintext there under the temporary name.
 
