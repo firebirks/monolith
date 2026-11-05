@@ -93,6 +93,8 @@ cleanup() {
     rm -rf "$work"
 }
 trap cleanup EXIT
+# A check that fails without a word of its own says where it was.
+trap 'echo "FAIL at line $LINENO: $BASH_COMMAND"' ERR
 
 if [ -n "${MONOLITH_BIN:-}" ]; then
     monolith=$MONOLITH_BIN
@@ -1373,8 +1375,14 @@ if grep -qi 'violation' "$work/c7.out"; then
     tail -20 "$work/c7.out"
     exit 1
 fi
+# Each change of the transfer is printed (the rejection, then the flag
+# that the peer read it): once rejected, nothing but its rejection is said
+# of it, and it was offered once.
+lines=$(wc -l <"$work/fa.out")
 sleep 60
-test "$(count fa "^transfer 0 $c70 $t7 out Rejected ")" = 1
+test "$(tail -n +$((lines + 1)) "$work/fa.out" | grep -E "^(transfer|offering) 0 $c70 $t7( |$)" | grep -vc " out Rejected " || true)" = 0
+test "$(count fa "^offering 0 $c70 $t7$")" = 1
+test "$(count fa "^transfer 0 $c70 $t7 out (Sending|Completed|Cancelled|Failed) ")" = 0
 test "$(sessions_of fa 0 "$c70")" -le 1
 stop_node c7
 echo "ok   the Phase 7 peer rejected the file, and chat went both ways before and after"
