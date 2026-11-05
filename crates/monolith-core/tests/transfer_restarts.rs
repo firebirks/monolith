@@ -1026,8 +1026,10 @@ proptest! {
                         let open = link.as_mut().unwrap();
                         if open.send(&offer).await.is_ok() {
                             let (messages, ended) = drain(open, QUIET).await;
-                            if resume && let Some(offset) = acceptances(&messages, TRANSFER).last() {
-                                position = *offset;
+                            if resume {
+                                if let Some(offset) = acceptances(&messages, TRANSFER).last() {
+                                    position = *offset;
+                                }
                             }
                             if ended {
                                 link = None;
@@ -1271,10 +1273,10 @@ fn a_contact_flooding_its_chunks_holds_up_neither_the_chat_nor_the_file_of_anoth
         .await
         .unwrap();
         let from_y = loop {
-            if let Ok(Event::TransferOffered(offered)) = events.recv().await
-                && offered.contact == at_b[1]
-            {
-                break offered;
+            if let Ok(Event::TransferOffered(offered)) = events.recv().await {
+                if offered.contact == at_b[1] {
+                    break offered;
+                }
             }
         };
         b.runtime().accept_transfer(&from_y).await.unwrap();

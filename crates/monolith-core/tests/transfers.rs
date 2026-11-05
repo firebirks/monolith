@@ -1150,11 +1150,11 @@ struct Paused<R> {
 
 impl<R: Read> Read for Paused<R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.given >= self.after
-            && let Some(started) = self.started.take()
-        {
-            let _ = started.send(());
-            let _ = self.go.recv();
+        if self.given >= self.after {
+            if let Some(started) = self.started.take() {
+                let _ = started.send(());
+                let _ = self.go.recv();
+            }
         }
         let room = buf.len().min(self.after.saturating_sub(self.given).max(1));
         let read = self.inner.read(&mut buf[..room])?;

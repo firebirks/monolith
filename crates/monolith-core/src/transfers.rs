@@ -1703,9 +1703,10 @@ impl Written {
             .writing
             .as_ref()
             .is_some_and(|(covered, _)| *covered <= durable)
-            && let Some((_, records)) = self.writing.take()
         {
-            self.durable = records;
+            if let Some((_, records)) = self.writing.take() {
+                self.durable = records;
+            }
         }
     }
 }
