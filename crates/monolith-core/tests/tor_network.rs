@@ -317,6 +317,16 @@ fn a_transfer_goes_on_across_a_key_rotation_and_a_contact_made_again_inherits_no
         // Bob begins a rotation of his transport key; Alice learns the
         // successor on the next session.
         lb.begin_rotation().await.unwrap();
+        // A successor is announced on a session confirmed after the rotation
+        // began: the session of the first message is let go first, so that
+        // the next one is dialed.
+        assert!(
+            eventually(900, || {
+                alice.sessions(&a, &at_a).unwrap() == 0 && bob.sessions(&b, &at_b).unwrap() == 0
+            })
+            .await,
+            "the first session did not end"
+        );
         alice
             .send_message(&a, &at_a, "the successor, please")
             .await
