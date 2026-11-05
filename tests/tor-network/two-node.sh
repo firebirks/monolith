@@ -1252,7 +1252,10 @@ start_runtime fa "$data_fa" 0 "${cut_a[@]}"
 start_runtime fb "$data_fb" 0 "${cut_b[@]}"
 expect fa '^published 0$' $((published_a + 1)) 120
 expect fb '^published 0$' $((published_b + 1)) 120
-fixture "$work/files/faults.bin" 16000003 28
+# 8 MB: a session that brings less than TRANSFER_PROGRESS_BYTES does not
+# start the delays of the dials again (ADR 0013, "Scheduling"), so each
+# cut costs a longer wait; 16 MB took from 13 to 57 minutes.
+fixture "$work/files/faults.bin" 8000003 28
 started=$(date +%s)
 offer_and_accept fa fb "$fb0" "$fa0" "$work/files/faults.bin"
 tell fa send 0 "$fb0" through the cuts
@@ -1263,7 +1266,7 @@ cuts=$(cat "$work/proxy-a.log" "$work/proxy-b.log" 2>/dev/null | wc -l)
 echo "     completed through $cuts cut connections in $(since "$started")s (seeds 1 and 2)"
 test "$cuts" -ge 3
 save_and_compare fb "$rx" "$work/saved/faults.bin" "$work/files/faults.bin"
-test "$(count fb "^offered 0 $fa0 t[0-9]+ size=16000003 ")" = 1
+test "$(count fb "^offered 0 $fa0 t[0-9]+ size=8000003 ")" = 1
 stop_node fa
 stop_node fb
 kill "$proxy_a" "$proxy_b" 2>/dev/null || true

@@ -130,8 +130,12 @@ Phase 8, with `dev-runtime` and generated files (no data of anyone's):
     the test that cuts every connection after a number of bytes drawn
     between 256 KiB and 3 MiB, wherever that falls in a frame, and holds
     some of what it forwards back by up to three seconds (seeds 1 and 2,
-    each cut logged). A file of 16 MB and a chat message go through the
-    cuts, lost sessions and late data; the file arrives whole and once.
+    each cut logged). A file of 8 MB and a chat message go through the
+    cuts, lost sessions and late data; the file arrives whole and once,
+    through at least three cuts. A session that brings less than
+    `TRANSFER_PROGRESS_BYTES` does not start the delays of the dials again
+    (ADR 0013, "Scheduling"), so each cut costs a longer wait: with 16 MB
+    the step took from 13 to 57 minutes.
 28. B is killed as it reports a file complete, maybe before A has its
     acknowledgement; started again, it answers A's next offer from its
     record, A completes, and there is one file, saved once.
