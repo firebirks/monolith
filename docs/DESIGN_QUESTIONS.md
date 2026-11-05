@@ -3344,7 +3344,20 @@ Kept, and documented:
   Linux a file named `a\b.txt` is offered as `b.txt`
   (`a_local_name_is_offered_as_its_last_component_made_valid`).
 
-The private Tor network test found one fault of its own script: the
-offers of the receiver were counted after the sender reported its file
-staged, and on a session already open the offer could arrive first
-(`c7b6a37`).
+The private Tor network test, run whole for the first time in FT-I,
+found faults of its own, none of the code: the offers of the receiver
+were counted after the sender reported its file staged, and on a session
+already open the offer could arrive first (`c7b6a37`); the handles of
+transfers are numbered again in each run of a node, so after a restart a
+line of an earlier run matched (`7389bd9`); step 31 counted the printed
+changes of a rejected transfer instead of checking it was not offered
+again (`e86b9f6`); a file of 16 MB through the cutting proxy took from 13
+to 57 minutes, since a session that brings less than
+`TRANSFER_PROGRESS_BYTES` does not start the delays of the dials again
+(`2e8c548`, by design); and the rotation test asked for the successor on
+the session already open, and expected the old key gone after a switch
+(`c571abe`, `03ef045`). On `03ef045` every step passed. The model of the
+transfer state had not been brought up to date when a transfer stopped
+before its receiver was told became removable (`8763156`): a seed found
+on Linux showed it (`ea4d2f0`). Rust 1.85.1, the minimum version, had
+stopped building the core with four let chains (`0b4b098`).
