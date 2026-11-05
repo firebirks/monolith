@@ -29,4 +29,10 @@ ignore = [
     "RUSTSEC-2026-0370",
     "RUSTSEC-2026-0371",
     "RUSTSEC-2026-0372",
+    # ctutils 0.4.2: mask functions of `Choice` that could branch, and
+    # `u128` comparisons that branch on 32-bit targets. digest 0.11 and
+    # universal-hash 0.6, through which it comes, compare bytes with `ct_eq`
+    # on `u8`, the assembly of `cmov`; no 32-bit target is built. 0.4.3 and
+    # 0.4.4 need Rust 1.87. Review on 2027-01-15.
+    "RUSTSEC-2026-0385",
 ]

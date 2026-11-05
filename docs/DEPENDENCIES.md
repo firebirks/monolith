@@ -115,7 +115,7 @@ the core or of the `monolith` binary.
 | `getrandom` | 0.3.4 | MIT OR Apache-2.0 | 1.63 | the random source of the operating system | none; no default features |
 | `zeroize` | 1.9.0 | Apache-2.0 OR MIT | 1.85 | erasing key bytes on their way into a key type, and invitation capabilities | none; no default features. The desktop crates add `alloc`. |
 | `sha3` | 0.11.0 | MIT OR Apache-2.0 | 1.85 | the checksum of an onion address | none; no default features |
-| `tokio` | 1.53.1 | MIT | 1.71 | the runtime of the Tor adapter: sockets, timeouts, channels | `io-util`, `net`, `sync`, `time`; no default features. Tests add `rt` and `test-util`; the desktop adds `macros`. |
+| `tokio` | 1.53.3 | MIT | 1.71 | the runtime of the Tor adapter: sockets, timeouts, channels | `io-util`, `net`, `sync`, `time`; no default features. Tests add `rt` and `test-util`; the desktop adds `macros`. |
 | `hmac` | 0.13.0 | MIT OR Apache-2.0 | 1.85 | HMAC-SHA256 of SAFECOOKIE control authentication | none; no default features |
 | `argon2` | 0.6.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | Argon2id, the key-encryption key of the vault from the passphrase | `alloc`, `zeroize`; no default features |
 | `hkdf` | 0.13.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | HKDF-SHA256, the payload key of the vault from the vault key | none; no default features |
@@ -288,7 +288,12 @@ the core or of the `monolith` binary.
   `syn` 3 while the core is built with `syn` 2. Both are build-time only,
   and the window stack brings `syn` 3 in any case (section 4). The core
   crates and the `monolith` binary do not enable `macros`.
-- Advisories: none for 1.53.1. Unsafe: much, in the I/O driver and the
+- Advisories: RUSTSEC-2026-0386 (2026-10-13, found by the final
+  verification of Phase 8): the safe constructors of `AsyncFd` accept a
+  descriptor they do not own, which unsound code can turn into a use after
+  free. Monolith constructs no `AsyncFd`. Fixed in 1.53.3, which
+  `Cargo.lock` holds since Phase 8 (from 1.53.1; a patch release, with
+  `AsyncFd::new` deprecated). Unsafe: much, in the I/O driver and the
   scheduler; it is the runtime every networked Rust program of this kind
   relies on, and the alternative is writing one.
 - Pulls in `mio`, `socket2` and `libc` for the system calls, and `bytes`
@@ -559,7 +564,7 @@ gives the full list.
 | `ahash` | 0.8.12 | MIT OR Apache-2.0 | `egui`, `epaint`, `winit` | 7 |
 | `arboard` | 3.6.1 | MIT OR Apache-2.0 | `egui-winit` | 53 |
 | `smithay-clipboard` | 0.7.3 | MIT | `egui-winit`, on Linux | 6 |
-| `clipboard-win` | 5.4.1 | BSL-1.0 | `arboard`, on Windows | 72 |
+| `clipboard-win` | 5.4.3 | BSL-1.0 | `arboard`, on Windows | 72 |
 | `error-code` | 3.4.0 | BSL-1.0 | `clipboard-win` | 15 |
 | `accesskit` | 0.19.0 | MIT OR Apache-2.0 | `egui` | 0 |
 | `accesskit_winit` | 0.27.0 | Apache-2.0 | `egui-winit` | 3 |
@@ -568,7 +573,7 @@ gives the full list.
 | `accesskit_atspi_common` | 0.12.0 | MIT OR Apache-2.0 | `accesskit_unix` | 0 |
 | `atspi` | 0.25.0 | Apache-2.0 OR MIT | `accesskit_unix` | 0 |
 | `zbus` | 5.13.2 | MIT | `accesskit_unix`, `atspi` | 54 |
-| `async-executor` | 1.14.0 | Apache-2.0 OR MIT | `accesskit_unix`, `zbus` | 21 |
+| `async-executor` | 1.14.1 | Apache-2.0 OR MIT | `accesskit_unix`, `zbus` | 22 |
 | `fastrand` | 2.5.0 | Apache-2.0 OR MIT | `async-executor`, `futures-lite`, `piper` | 0 |
 | `zbus_xml` | 5.1.0 | MIT | `zbus-lockstep` under `atspi-common` | 0 |
 | `quick-xml` | 0.38.4 | MIT | `zbus_xml` | 0 |
@@ -657,6 +662,23 @@ Advisories ignored, to be reviewed on 2027-01-15:
   them is used on Windows. `zbus` 6 needs Rust 1.89, above the minimum
   Rust version, and an `accesskit_unix` that uses it; neither `Cargo.lock`
   nor any code changed for these exceptions.
+- RUSTSEC-2026-0385, `ctutils` 0.4.2 (2026-10-23, found by the final
+  verification of Phase 8): the functions of `Choice` that make a mask
+  from an integer of each size are `const fn`, cannot use the assembly of
+  `cmov`, and could compile to a branch; and its `u128` comparisons branch
+  on 32-bit targets. `ctutils` comes only through `digest` 0.11, for the
+  verification of a MAC and the comparison of `CtOutput`, and through
+  `universal-hash` 0.6, for the verification of the Poly1305 tag of every
+  frame and record. Both compare byte arrays with `ct_eq` on `u8`, which
+  `ctutils` implements with `cmov::CmovEq`, the assembly, and combine the
+  results with `Choice::and`; neither calls the mask functions, and
+  Monolith builds no 32-bit target. 0.4.4, the fixed release, and 0.4.3
+  need Rust 1.87, above the minimum Rust version. `Cargo.lock` keeps
+  0.4.2.
+
+Yanked releases replaced in Phase 8 (found by the final verification):
+`async-executor` 1.14.0 by 1.14.1 and `clipboard-win` 5.4.1 by 5.4.3,
+both patch releases of crates of the window stack.
 
 Banned crates allowed only as a direct dependency of named crates
 (`wrappers`); any other crate that depends on them still fails the check:

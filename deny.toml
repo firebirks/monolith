@@ -34,6 +34,14 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant through zbus 5, the accessibility bridge of accesskit on Linux; unmaintained, no vulnerability; zbus 6 needs Rust 1.89. Review 2027-01-15." },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names through zbus 5, the accessibility bridge of accesskit on Linux; unmaintained, no vulnerability; zbus 6 needs Rust 1.89. Review 2027-01-15." },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, the derive macros of zvariant through zbus 5, the accessibility bridge of accesskit on Linux; unmaintained, no vulnerability; zbus 6 needs Rust 1.89. Review 2027-01-15." },
+    # ctutils 0.4.2: the mask functions of `Choice` for each integer size
+    # could compile to a branch, and its `u128` comparisons branch on 32-bit
+    # targets. It comes through digest 0.11 (the verification of a MAC) and
+    # universal-hash 0.6 (the tag of Poly1305): both compare bytes with
+    # `ct_eq` on `u8`, which is the assembly of `cmov`, not those
+    # functions, and Monolith builds no 32-bit target. 0.4.3 and 0.4.4
+    # need Rust 1.87. Review on 2027-01-15.
+    { id = "RUSTSEC-2026-0385", reason = "ctutils through digest and universal-hash compares bytes with the cmov assembly, not the affected mask functions; no 32-bit target; the fix needs Rust 1.87. Review 2027-01-15." },
 ]
 
 [licenses]
