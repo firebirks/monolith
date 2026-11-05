@@ -1169,6 +1169,12 @@ mod tests {
                 let place = suggested_in(&folder, &name);
                 let given = place.file_name().unwrap().to_str().unwrap().to_owned();
                 assert!(given.len() <= NAME_BYTES, "{} bytes", given.len());
+                // A name no file has yet: on Linux a name too long is not
+                // reported missing, and must not be the one given.
+                assert!(
+                    std::fs::symlink_metadata(&place).is_err(),
+                    "{given:?} is taken"
+                );
                 std::fs::write(&place, b"held").unwrap();
             }
         }
