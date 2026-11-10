@@ -3361,3 +3361,48 @@ transfer state had not been brought up to date when a transfer stopped
 before its receiver was told became removable (`8763156`): a seed found
 on Linux showed it (`ea4d2f0`). Rust 1.85.1, the minimum version, had
 stopped building the core with four let chains (`0b4b098`).
+
+### 15.4 The priority of a chat, and the lock of the disk
+
+In the final verification of Phase 8 (gate C, 2026-11-09 and
+2026-11-10) the unmodified run of a copy of the mutation runner failed
+twice in one test,
+`a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat`,
+which passed in more than seventy other runs of the same build. It queued
+a chat after the first progress of a sender that ignores the window, and
+expected it before the acknowledgement of `10 * L`; it came after that of
+`12 * L`, with the file still pouring in. The first failure left no name:
+the runner kept the last 3000 characters of the output; since `c896861` it
+keeps the whole output of every run and names the tests that failed.
+
+The test measured two things at once:
+
+- How long the chat takes to be in the queue. `send_message` waits for the
+  vault to be durable, then the message store writes the chat. Those
+  writes, the writes of the transfer store at every progress and the
+  reservations of blobs take the one lock of the disk of the installation
+  (`persist::Serialized`, `blobs::DiskLock`, a `std::sync::Mutex`), on
+  threads of the blocking pool, which paused time does not order.
+- What a session does with a chat in the queue. It sends it at the top of
+  its loop, before it reads another frame; `next_to_send` waits for the
+  write of the chat to complete.
+
+The test now looks at the second alone. It holds the sync of a progress
+(`MemoryDir::hold_blob_syncs`), queues the chat and waits until it is
+durable, lets the sync go, and expects the chat right after that progress
+is acknowledged, ahead of every later acknowledgement, at the first
+progress and at one past `10 * L`. Only that sync is held: the chunks keep
+arriving, and the writes of the chat go through the vault, the message
+store and the lock of the disk on threads of their own. The test is more
+precise about the priority of a chat on the session, with another
+precondition: it no longer bounds the time from the queueing of a chat to
+its leaving.
+
+Kept, and not bounded in this phase: the lock of the disk has no order, so
+a write of the message store can wait behind any number of writes of the
+transfer store and reservations of blobs. Nothing shows starvation, but no
+bound on that latency is guaranteed. The priority of messages on the
+transport and the priority of writes to storage are separate; P8-3 ("holds
+up no chat") is the first. A lock that serves writes in order, or a
+priority for the writes of the message store, would bound the second; no
+scheduler of the disk is added before a delay is measured on a real disk.

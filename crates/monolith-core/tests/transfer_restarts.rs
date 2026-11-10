@@ -445,78 +445,125 @@ fn a_receiver_that_crashes_resumes_from_what_it_holds_durably() {
 /// acknowledgements the sender read. A sender that ignores it gets no more
 /// staged than the size it offered, holds up no chat of the receiver, and
 /// a chunk beyond the size ends its session.
+///
+/// The chat is queued, and made durable, while the receiver waits at the
+/// sync of a progress (the first, and one past `10 * L`): once that
+/// progress is acknowledged the chat is the next thing the receiver
+/// writes, ahead of every later acknowledgement. This is the priority of a
+/// chat that is durable. How long a chat takes to become durable while a
+/// file pours in is not bounded here: its write and those of the transfer
+/// take the lock of the disk in no set order (`docs/DESIGN_QUESTIONS.md`
+/// section 15.4).
 #[test]
 fn a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat() {
-    run_paused(async {
-        let network = MockNetwork::new();
-        let (mut b, a, at_b, _) = contacts(&network).await;
-        let data = file(24 * L + 9);
-        let mut link = hand_link(&network, &b, &a).await;
-        let received = offered_and_accepted(&b, &mut link, &data).await;
-        let blobs = b.blobs();
-        assert_eq!(blobs.len(), 1);
-        let reserved = b.dir().content(&blobs[0]).unwrap().len();
-        let mut events = b.runtime().subscribe();
-        // The whole file at once, never waiting for an acknowledgement, and
-        // then one chunk more than the file.
-        let sent = data.clone();
-        let flood = tokio::spawn(async move {
-            let mut offset = 0;
-            while offset < sent.len() as u64 {
-                link.send(&chunk(TRANSFER, &sent, offset)).await.unwrap();
-                offset = (offset + L).min(sent.len() as u64);
+    for after in [0, 10 * L] {
+        run_paused(async {
+            let network = MockNetwork::new();
+            let (mut b, a, at_b, _) = contacts(&network).await;
+            let dir = b.dir().clone();
+            let _released = SyncsReleased(&dir);
+            let data = file(24 * L + 9);
+            let mut link = hand_link(&network, &b, &a).await;
+            let received = offered_and_accepted(&b, &mut link, &data).await;
+            let blobs = b.blobs();
+            assert_eq!(blobs.len(), 1);
+            let reserved = b.dir().content(&blobs[0]).unwrap().len();
+            let mut events = b.runtime().subscribe();
+            if after == 0 {
+                dir.hold_blob_syncs();
             }
-            let more = Message::FileChunk(FileChunk::new(TRANSFER, vec![7; L as usize]).unwrap());
-            let refused = link.send(&more).await.is_err();
-            let (messages, ended) = drain(&mut link, QUIET).await;
-            (messages, ended || refused)
+            // The whole file at once, never waiting for an acknowledgement,
+            // and then one chunk more than the file.
+            let sent = data.clone();
+            let flood = tokio::spawn(async move {
+                let mut offset = 0;
+                while offset < sent.len() as u64 {
+                    link.send(&chunk(TRANSFER, &sent, offset)).await.unwrap();
+                    offset = (offset + L).min(sent.len() as u64);
+                }
+                let more =
+                    Message::FileChunk(FileChunk::new(TRANSFER, vec![7; L as usize]).unwrap());
+                let refused = link.send(&more).await.is_err();
+                let (messages, ended) = drain(&mut link, QUIET).await;
+                (messages, ended || refused)
+            });
+            // What the receiver acknowledged before the sync it waits at.
+            let mut acknowledged = 0;
+            if after > 0 {
+                let Event::TransferProgressed { bytes, .. } = event(&mut events, |event| {
+                    matches!(
+                        event,
+                        Event::TransferProgressed { reference, bytes }
+                            if *reference == received && *bytes >= after
+                    )
+                })
+                .await
+                else {
+                    panic!("not a progress");
+                };
+                acknowledged = bytes;
+                dir.hold_blob_syncs();
+            }
+            spin_until(|| dir.blob_sync_held()).await;
+            loop {
+                match events.try_recv() {
+                    Ok(Event::TransferProgressed { reference, bytes }) if reference == received => {
+                        acknowledged = acknowledged.max(bytes);
+                    }
+                    Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) => {}
+                    Err(_) => break,
+                }
+            }
+            // Queued and durable while the chunks pour in and the receiver
+            // waits at the sync.
+            b.runtime()
+                .send_message(&b.id(), &at_b, "while the file pours in")
+                .await
+                .unwrap();
+            dir.release_blob_syncs();
+            let (messages, ended) = flood.await.unwrap();
+            assert!(ended, "a chunk beyond the size ends the session");
+            let offsets = acceptances(&messages, TRANSFER);
+            assert!(
+                offsets.windows(2).all(|pair| pair[0] < pair[1]),
+                "{offsets:?}"
+            );
+            assert!(offsets.iter().all(|offset| *offset <= data.len() as u64));
+            let chat = messages
+                .iter()
+                .position(|message| matches!(message, Message::ChatMessage { .. }))
+                .expect("the chat message");
+            // The progress it waited at is acknowledged, then the chat goes
+            // out, and the file goes on after it.
+            assert_eq!(
+                acceptances(&messages[..chat], TRANSFER).last(),
+                Some(&(acknowledged + 2 * L)),
+                "the chat waited behind the file: {messages:?}"
+            );
+            assert!(
+                !acceptances(&messages[chat..], TRANSFER).is_empty(),
+                "{messages:?}"
+            );
+            // Nothing beyond the reservation, and nothing staged beyond the
+            // size.
+            assert_eq!(b.blobs(), blobs);
+            assert_eq!(b.dir().content(&blobs[0]).unwrap().len(), reserved);
+            let view = b.view(&received).unwrap();
+            assert_eq!(view.status, TransferStatus::Receiving);
+            assert!(view.bytes.is_some_and(|bytes| bytes <= data.len() as u64));
+            // A sender that keeps to the rules then completes it.
+            let mut link = hand_link(&network, &b, &a).await;
+            let from = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
+            assert_eq!(from.len(), 1);
+            let answer = send_rest(&mut link, &data, from[0]).await;
+            assert!(answer.contains(&Message::FileComplete {
+                transfer: TRANSFER,
+                digest: sha(&data),
+            }));
+            assert_eq!(saved(&b, &received).await, data);
+            b.stop().await;
         });
-        // Chat queued while the chunks pour in goes out between them.
-        event(&mut events, |event| {
-            matches!(event, Event::TransferProgressed { reference, .. } if *reference == received)
-        })
-        .await;
-        b.runtime()
-            .send_message(&b.id(), &at_b, "while the file pours in")
-            .await
-            .unwrap();
-        let (messages, ended) = flood.await.unwrap();
-        assert!(ended, "a chunk beyond the size ends the session");
-        let chat = messages
-            .iter()
-            .position(|message| matches!(message, Message::ChatMessage { .. }))
-            .expect("the chat message");
-        let offsets = acceptances(&messages, TRANSFER);
-        assert!(
-            offsets.windows(2).all(|pair| pair[0] < pair[1]),
-            "{offsets:?}"
-        );
-        assert!(offsets.iter().all(|offset| *offset <= data.len() as u64));
-        let late = messages
-            .iter()
-            .position(|message| {
-                matches!(message, Message::FileAccept { offset, .. } if *offset >= 10 * L)
-            })
-            .expect("acknowledgements up to the end");
-        assert!(chat < late, "the chat waited behind the file: {messages:?}");
-        // Nothing beyond the reservation, and nothing staged beyond the size.
-        assert_eq!(b.blobs(), blobs);
-        assert_eq!(b.dir().content(&blobs[0]).unwrap().len(), reserved);
-        let view = b.view(&received).unwrap();
-        assert_eq!(view.status, TransferStatus::Receiving);
-        assert!(view.bytes.is_some_and(|bytes| bytes <= data.len() as u64));
-        // A sender that keeps to the rules then completes it.
-        let mut link = hand_link(&network, &b, &a).await;
-        let from = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
-        assert_eq!(from.len(), 1);
-        let answer = send_rest(&mut link, &data, from[0]).await;
-        assert!(answer.contains(&Message::FileComplete {
-            transfer: TRANSFER,
-            digest: sha(&data),
-        }));
-        assert_eq!(saved(&b, &received).await, data);
-        b.stop().await;
-    });
+    }
 }
 
 #[test]
