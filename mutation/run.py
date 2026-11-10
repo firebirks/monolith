@@ -6,7 +6,8 @@ Usage: python3 mutation/run.py <phase1|...|phase8|phase7w|phase8w|all> <workers>
 Each fault of faults.py is applied to a copy of the committed HEAD, one at
 a time; the tests of the affected crates run; the file is restored. The
 copies live under mutation/work/, one per worker, each with its own target
-directory. The working tree of the repository is never modified.
+directory. The working tree of the repository is never modified. The
+stdout and stderr of every cargo run are kept under mutation/work/logs/.
 
 The exit code is 0 when every fault has the outcome its entry expects, 1
 when one does not, and 2 or 3 when the suite could not start.
@@ -33,6 +34,9 @@ import faults
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 WORK = os.path.join(HERE, "work")
+# The stdout and stderr of every cargo run, one directory for each run of
+# the runner.
+LOGS = os.path.join(WORK, "logs")
 # The bound of the unmodified run of a copy. The bound of the run of a
 # fault is the slowest unmodified run, SLOWER times for each worker, and
 # never less than TIMEOUT: a fault is counted caught by the timeout only
@@ -108,7 +112,10 @@ def precheck(selected, tree):
     return problems
 
 
-def cargo_test(tree, crates, limit):
+def cargo_test(tree, crates, limit, logged):
+    """Runs the tests of `crates` in `tree`; stdout and stderr go to
+    `logged` + ".stdout" and ".stderr". Returns the exit code and whether
+    the run reached `limit`."""
     command = ["cargo", "test", "--locked", "--no-fail-fast"]
     for crate in crates:
         command += ["-p", crate]
@@ -116,6 +123,27 @@ def cargo_test(tree, crates, limit):
     if "monolith-ui" in crates:
         command += ["--features", "monolith-ui/fixtures"]
     env = dict(os.environ, CARGO_TERM_COLOR="never")
+    return run_logged(command, tree, env, limit, logged)
+
+
+def copy_stream(stream, path):
+    """Writes what `stream` gives to the file at `path` as it comes, so
+    that the output of a run is on disk whatever ends it, and none of it
+    is held in memory."""
+    with open(path, "wb") as sink:
+        for chunk in iter(lambda: stream.read1(65536), b""):
+            sink.write(chunk)
+            sink.flush()
+    stream.close()
+
+
+def run_logged(command, cwd, env, limit, logged):
+    """Runs `command` with its stdout and stderr written to `logged` +
+    ".stdout" and ".stderr" as they come. The run ends when the command
+    has exited and both streams are closed, as with
+    `Popen.communicate`; one that has not ended in `limit` seconds is
+    killed. Returns the exit code, None for a run killed, and whether it
+    reached the limit."""
     group = (
         {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         if WINDOWS
@@ -123,33 +151,119 @@ def cargo_test(tree, crates, limit):
     )
     process = subprocess.Popen(
         command,
-        cwd=tree,
+        cwd=cwd,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         **group,
     )
     with running_lock:
         running.add(process)
+    copies = [
+        threading.Thread(target=copy_stream, args=(stream, logged + suffix), daemon=True)
+        for stream, suffix in ((process.stdout, ".stdout"), (process.stderr, ".stderr"))
+    ]
+    for copy in copies:
+        copy.start()
+
+    def wait(seconds):
+        """Whether the command exited and both streams closed in time."""
+        ends = time.monotonic() + seconds
+        try:
+            process.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            return False
+        for copy in copies:
+            copy.join(max(0, ends - time.monotonic()))
+        return not any(copy.is_alive() for copy in copies)
+
     try:
-        out, err = process.communicate(timeout=limit)
-        return process.returncode, out + err, False
-    except subprocess.TimeoutExpired:
+        if wait(limit):
+            return process.returncode, False
         # Killing cargo alone would leave the test binary it started
         # running beside the next fault.
         kill_group(process)
-        try:
-            out, err = process.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
-            # A process the kill did not reach still holds the pipes.
-            out, err = "", ""
-        return None, (out or "") + (err or ""), True
+        # A process the kill did not reach may still hold the streams;
+        # what they gave until then is kept.
+        wait(60)
+        return None, True
     finally:
         with running_lock:
             running.discard(process)
+
+
+def output(logged):
+    """The text of a run of `run_logged`: its stdout, then its stderr,
+    decoded as `Popen.communicate` decodes them, which is what `classify`
+    reads."""
+    text = ""
+    for suffix in (".stdout", ".stderr"):
+        if os.path.exists(logged + suffix):
+            with open(logged + suffix, encoding="utf-8", errors="replace") as handle:
+                text += handle.read()
+    return text
+
+
+# How much of the failures of a run the summary shows; the whole of
+# them is in the files of the run.
+FAILURES_SHOWN = 20000
+
+
+def lines(path):
+    """The lines of the file at `path`, one at a time, without their line
+    ends; none if there is no such file."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            yield line.rstrip("\n")
+
+
+def failure_report(logged, code, timed_out):
+    """What a run of `run_logged` that did not pass tells: its exit code,
+    the tests that failed, the `failures:` sections of their binaries and
+    the errors cargo gave, read line by line from the files of the run."""
+    failed, slow, sections = [], [], []
+    shown, cut = 0, False
+    section = None
+    for line in lines(logged + ".stdout"):
+        name = re.match(r"^test (.+) \.\.\. FAILED$", line)
+        if name:
+            failed.append(name.group(1))
+        name = re.match(r"^test (.+) has been running for over 60 seconds$", line)
+        if name:
+            slow.append(name.group(1))
+        if section is None and line == "failures:":
+            section = []
+        if section is not None:
+            if shown + len(line) < FAILURES_SHOWN:
+                section.append(line)
+                shown += len(line) + 1
+            else:
+                cut = True
+            if line.startswith("test result:"):
+                sections.append("\n".join(section))
+                section = None
+    if section:
+        sections.append("\n".join(section))
+    errors = [
+        line for line in lines(logged + ".stderr")
+        if line.startswith("error") or line.startswith("    `-p ")
+    ]
+    report = ["timed out" if timed_out else f"exit code {code}"]
+    report.append(f"tests that failed: {len(failed)}")
+    report += [f"    {name}" for name in failed]
+    if slow:
+        report.append("tests that ran for over 60 seconds:")
+        report += [f"    {name}" for name in slow]
+    if errors:
+        report.append("errors of cargo:")
+        report += [f"    {line}" for line in errors[:40]]
+    report += sections
+    if cut:
+        report.append(f"(the failures are cut at {FAILURES_SHOWN} characters)")
+    report.append(f"the whole output: {logged}.stdout and {logged}.stderr")
+    return "\n".join(report)
 
 
 def kill_group(process):
@@ -210,15 +324,16 @@ def restore(path, original):
         sys.exit(3)
 
 
-def run_one(item, tree, limit):
+def run_one(item, tree, limit, logs):
     path = os.path.join(tree, item["path"])
+    logged = os.path.join(logs, item["id"])
     started = time.time()
     original = mutate(path, item["pairs"])
     try:
-        code, output, timed_out = cargo_test(tree, item["crates"], limit)
+        code, timed_out = cargo_test(tree, item["crates"], limit, logged)
     finally:
         restore(path, original)
-    verdict, details = classify(code, output, timed_out)
+    verdict, details = classify(code, output(logged), timed_out)
     seeds_only = (
         verdict == "caught"
         and any("seeds" in name for name in details)
@@ -235,6 +350,22 @@ def run_one(item, tree, limit):
         "failed": details,
         "seconds": round(time.time() - started),
     }
+
+
+def unmodified_run(tree, crates, logged):
+    """Runs the tests of `crates` on the unmodified copy `tree` and returns
+    how long they took. A run that does not pass stops the runner, with
+    what it tells: the exit code, the tests that failed and why."""
+    started = time.time()
+    code, timed_out = cargo_test(tree, crates, UNMODIFIED_TIMEOUT, logged)
+    if code != 0:
+        log(failure_report(logged, code, timed_out))
+        if timed_out:
+            log(f"the unmodified tree does not end its tests in {UNMODIFIED_TIMEOUT}s")
+        else:
+            log("the unmodified tree does not pass its tests")
+        sys.exit(3)
+    return round(time.time() - started)
 
 
 def check_copy(tree):
@@ -399,18 +530,13 @@ def run_main():
         set(faults.TESTS["monolith-identity"])
         | {crate for item in selected for crate in item["crates"]}
     )
+    logs = os.path.join(LOGS, f"{phase}-{commit[:7]}-{time.strftime('%Y%m%d-%H%M%S')}")
+    os.makedirs(logs)
+    log(f"the output of each run goes to {logs}")
     slowest = 0
     for tree in trees:
-        started = time.time()
-        code, output, timed_out = cargo_test(tree, unmodified, UNMODIFIED_TIMEOUT)
-        if code != 0:
-            log(output[-3000:])
-            if timed_out:
-                log(f"the unmodified tree does not end its tests in {UNMODIFIED_TIMEOUT}s")
-            else:
-                log("the unmodified tree does not pass its tests")
-            sys.exit(3)
-        slowest = max(slowest, round(time.time() - started))
+        logged = os.path.join(logs, f"{os.path.basename(tree)}-unmodified")
+        slowest = max(slowest, unmodified_run(tree, unmodified, logged))
         problem = check_copy(tree)
         if problem:
             log(problem)
@@ -428,7 +554,7 @@ def run_main():
         with free_lock:
             tree = free.pop()
         try:
-            result = run_one(item, tree, limit)
+            result = run_one(item, tree, limit, logs)
         finally:
             with free_lock:
                 free.append(tree)

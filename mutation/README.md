@@ -18,6 +18,8 @@ key kept.
   means. `expect` is `"caught"` or the reason why the fault survives.
 - `run.py`: the runner.
 - `affected.py`: the faults a change can affect, for an incremental run.
+- `test_run.py`: tests of the runner, with a small program in place of
+  cargo: `python3 -m unittest discover -s mutation`.
 
 ## Running
 
@@ -58,6 +60,16 @@ runs on Linux and on Windows, with the same checks, outcomes and results
 file on both (since Phase 7). The lists `phase7w` and `phase8w`, of
 code built on Windows only, run on Windows only, and `all` leaves them
 out: elsewhere their faults change nothing that is compiled.
+
+The stdout and stderr of every cargo run go to files as they come, in
+`mutation/work/logs/<list>-<commit>-<time>/`: `tree<N>-unmodified` for
+the unmodified run of each copy, and the identifier of each fault. When
+an unmodified run does not pass, the runner prints its exit code or that
+it reached its bound, the tests that failed, those that ran for over 60
+seconds, the errors of cargo and the `failures:` sections of the test
+binaries, and stops. Until Phase 8 it printed only the last 3000
+characters of the output, where the name of a test that failed before
+the other binaries ran was lost.
 
 Outcomes:
 
@@ -134,7 +146,8 @@ that runs them. A fault runs again when:
 
 Documents, `deny.toml`, `.cargo/audit.toml`, `clippy.toml`, the CI
 workflows, the fuzz targets, packaging, integrations, the network tests
-under `tests/` and the verification outputs change no outcome.
+under `tests/`, the verification outputs and the tests of the runner
+change no outcome.
 
 A test file is matched by the names of the functions it holds before and
 after the change, helpers included, so a selection can only be wider than

@@ -48,7 +48,8 @@ EVERYTHING = re.compile(
 NOTHING = re.compile(
     r"^(docs/|\.github/|integrations/|packaging/|verification/|tests/"
     r"|fuzz/(?!seeds/)|[^/]+\.md$|LICENSE$|deny\.toml$|clippy\.toml$"
-    r"|\.cargo/audit\.toml$|\.gitignore$|mutation/README\.md$|mutation/affected\.py$)"
+    r"|\.cargo/audit\.toml$|\.gitignore$|mutation/README\.md$|mutation/affected\.py$"
+    r"|mutation/test_run\.py$)"
 )
 
 # Tests that read files outside their own crate. A test that starts to
