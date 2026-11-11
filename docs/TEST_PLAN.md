@@ -123,9 +123,14 @@ races, fairness and boundedness (`tests/transfer_restarts.rs`); in
 written from the ADR (`tests/transfer_format.rs`) and the save of a
 received file (`tests/export.rs`); in `monolith-ui-model`, the cards of
 transfers and transfers in the property test; two more fuzz targets
-(`transfer_sequence`, `transfer_store`); the Phase 8 mutation list (FT1 to
-FT62); and the private Tor network test extended to files (steps 22 to
-32). Covered now: T-FT-RULES to T-FT-NET, and T-CRASH for file completion.
+(`transfer_sequence`, `transfer_store`); the Phase 8 mutation lists (FT1 to
+FT80, FT80 in a list for Windows, `phase8w`); and the private Tor network
+test extended to files (steps 22 to 32). Covered now: T-FT-RULES to
+T-FT-NET, and T-CRASH for file completion. Verified with the production
+code of `9851c24` and the tests of `c90d5e5` (`DESIGN_QUESTIONS.md`
+15.5); since `c90d5e5` the hostile-sender test holds a sync while its
+chat becomes durable, and checks the priority of a chat on the session,
+not the time it takes to become durable (15.4).
 
 The rest is not written yet.
 

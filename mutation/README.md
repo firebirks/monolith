@@ -161,9 +161,8 @@ next selection; the evidence of each fault is its newest result.
 
 ## Expected results
 
-With Phase 7; the final verification on `740b671`, with the targeted
-runs on `ba12472` and `bbf1279` (below), gave exactly this, every fault
-with the outcome its entry expects:
+With Phase 8; every fault the final verifications of Phases 7 and 8 ran
+had the outcome this table gives it:
 
 | List | Faults | Caught | Expected to survive |
 | --- | --- | --- | --- |
@@ -175,19 +174,58 @@ with the outcome its entry expects:
 | Phase 6 | 160 | 160 | none |
 | Phase 7 | 71 | 71 | none |
 | Phase 7, Windows (`phase7w`) | 14 | 14 | none |
+| Phase 8 | 79 | 79 | none |
+| Phase 8, Windows (`phase8w`) | 1 | 1 | none |
 
-640 faults, 631 to be caught, 9 expected to survive. On `740b671` MR36
-survived: since P7-7 a dial that fails for a record that is gone says
-nothing, and its test watched only events. The test now also sees the
-stream of the attempt close (`e6d5a75`), and MR36 was caught by it on
-`ba12472`. The six lists of Phase 1 to 6 gave the same on `68ac655`,
-the verification of Phase 6, the first five on `91bf22c`, that of
-Phase 5, and the first four on `970316f`, that of Phase 4.
+720 faults, 711 to be caught, 9 expected to survive.
+
+The final verification of Phase 8 (production code of `9851c24`, tests
+and runner of `c90d5e5`, `docs/DESIGN_QUESTIONS.md` 15.5) did not run
+every list. The full run on `9851c24` was stopped on the owner's request
+after the Phase 8 list and 23 faults of the Phase 7 list; in its place
+the owner approved targeted runs of the faults Phase 8 can affect:
+
+| Run | Commit | Faults | Result |
+| --- | --- | --- | --- |
+| Phase 8, in two parts | `9851c24` | FT1 to FT79 | all caught; FT29 by the timeout alone |
+| `phase8w`, `phase7w` (Windows) | `f7f8d81` | FT80, and the 14 of `phase7w` | all caught, each by a test that failed |
+| Phase 7, first part | `9851c24` | HR1 to HR11, HR17 to HR28 | all caught, each by a test that failed |
+| Gate B | `9851c24` | 84: a mutated text in a function `b93a10a..9851c24` edits (78), or a last catch only by tests in files it changes (6) | all caught; MR26 by the timeout alone, MR9 and HR31 by the timeout and tests that failed |
+| Gate C | `c90d5e5` | 98: the 92 more whose killing tests are in changed files, MR25, K4, CS30 and Q1 (their last evidence was not a catch by named tests alone), and MR26 and FT29 again | all caught; MR25, MR26 and FT29 by the timeout alone, Q1 and CS30 by the timeout and tests that failed |
+
+Of the 626 faults of Phases 1 to 7 for Linux, 203 ran on the candidate
+and were caught. The other 423 did not run: the nine expected to
+survive, and 414 whose killing test is in a file Phase 8 did not change
+and whose mutated function it did not edit, so their last evidence, on
+`740b671`, `ba12472` or `bbf1279`, stands. `f7f8d81..9851c24` changes no
+code built on Windows only. Two exceptions to the rules of `affected.py`
+were approved by the owner and are not runs: `c896861` changes
+`run.py`, which selects every fault, and changes no production code and
+no test; `c90d5e5` changes one test of `tests/transfer_restarts.rs`, and
+of the 44 faults that file selects, 38 did not run again (the nine
+expected to survive, MR9 and HR31, FT23 and FT36, which the changed test
+caught with several others, and 25 caught by other tests of the file).
+
+Each verdict of gate C was read against the whole output of its run and
+the earlier evidence: every test that caught a fault before still fails
+under it, a fault caught by the timeout is one where a binary that takes
+0.2 to 109 s unmodified was still running at the end, and no fault was
+caught by property tests alone.
+
+In the final verification of Phase 7, on `740b671`, every list for
+Linux ran with four workers, and MR36 survived: since P7-7 a dial that
+fails for a record that is gone says nothing, and its test watched only
+events. The test now also sees the stream of the attempt close
+(`e6d5a75`), and MR36 was caught by it on `ba12472`. The six lists of
+Phase 1 to 6 gave the same on `68ac655`, the verification of Phase 6,
+the first five on `91bf22c`, that of Phase 5, and the first four on
+`970316f`, that of Phase 4.
 
 Phase 4 was closed on 2026-10-11, Phase 5 on 2026-10-14, Phase 6 on
-2026-10-18 and Phase 7 on 2026-10-24. From then on the faults and the
-regression tests of Phases 1 to 6, and HR1 to HR85, are a baseline to
-preserve: none is weakened without an explicit design decision.
+2026-10-18, Phase 7 on 2026-10-24 and Phase 8 on 2026-11-11. From then
+on the faults and the regression tests of Phases 1 to 7, and FT1 to
+FT80, are a baseline to preserve: none is weakened without an explicit
+design decision.
 
 On `91bf22c` CS29 was caught by the timeout alone: under it the wait for
 publication of `Peer::start` in `tests/runtime.rs` lasts hours, so its
@@ -197,7 +235,18 @@ own). On `68ac655` it still reached the timeout, but twelve tests of
 first. Since Phase 7 the wait is bounded (P7-13), and on `740b671` CS29
 was caught without reaching the timeout. There MR9, MR25, MR26, CS30 and
 Q1 still reached it; MR9, CS30 and Q1 also name tests that failed
-before it.
+before it. In the final verification of Phase 8 they did again, and
+HR31 too, with `a_session_that_ends_with_its_record_announces_no_retry`,
+which caught it within 601 s on `740b671`; what waited under HR31 is not
+known, because the runner kept only the end of the output until
+`c896861`.
+
+K4 is caught by a doc-test: the `compile_fail` example of `LocalParty`
+in `monolith-session/src/key.rs` compiles once the fault gives the type
+a public constructor, and fails as it must. The runner reports it as a
+non-zero exit with no failing test named, because it reads the names of
+tests without spaces, and a doc-test is named by its file, its item and
+its line. The catch is real; only the name is missing from the result.
 
 The Phase 5 list, MR1 to MR57, covers the messaging runtime
 (`docs/adr/0007-delivery-semantics.md` to `0009-session-manager.md`):
@@ -530,6 +579,18 @@ The Phase 8 list, FT1 and up, covers file transfer
   received, a dialog of a transfer that ended left open (FT63 to FT79);
   and on Windows only, in `phase8w`, a name Windows refuses written whole
   before the save fails (FT80).
+
+FT29 is caught by the timeout alone since `9851c24` (4088 s there, 2976
+s on `c90d5e5`). It leaves the delay after a session for transfers alone
+at zero, so the dial is repeated at once, and with time paused a loop
+that never waits stops the clock, as MR25 and MR26 do. On `c90d5e5` the
+run ended while `transfers_between_two_runtimes_follow_the_model`
+(`tests/transfer_model.rs`) had run for about 42 minutes, against 85 to
+109 s unmodified. The test that bears on the fault most directly,
+`a_dial_for_a_transfer_alone_that_brings_no_progress_is_repeated_with_growing_delays`
+in `tests/transfers.rs`, runs after it and is not reached. On `71d5c5a`
+it caught FT29 within 729 s; the model tests failed there too, for the
+defect of the model fixed in `ea4d2f0`.
 
 The candidates of the Phase 8 brief (section 51), and what covers each:
 

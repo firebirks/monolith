@@ -212,11 +212,13 @@ the run; the script kills a Tor that has not ended 10 seconds after
 SIGTERM. The test is not part of CI, because it needs Tor and takes about
 twenty minutes, and some more with the steps of Phase 5.
 
-Status: steps 1 to 21 passed in the final verification of Phase 7, on
-`740b671`, in 1073 seconds, with Tor 0.4.9.13 and Chutney at commit
-`ae3a33c` in the container and 3 restart cycles, the default
-(`docs/DESIGN_QUESTIONS.md` 14.3), and in that of Phase 6, on
-`68ac655`, in 790 seconds (13.3). Steps 1 to 20 had passed in that of
+Status: steps 1 to 32 passed in the final verification of Phase 8, on
+`f7f8d81`, in 1887 seconds, every one of the 95 checks, with Tor
+0.4.9.13 and Chutney at commit `ae3a33c` in the container and 3 restart
+cycles, the default (`docs/DESIGN_QUESTIONS.md` 15.5); the script and
+the code it runs are the same on `9851c24`. Steps 1 to 21 passed in that
+of Phase 7, on `740b671`, in 1073 seconds (14.3), and in that of Phase
+6, on `68ac655`, in 790 seconds (13.3). Steps 1 to 20 had passed in that of
 Phase 5, on `91bf22c`, in 2085 seconds with 15 restart cycles (12.8),
 and steps 1 to 12 in that of Phase 4, on `970316f` (11.6). The clients
 of step 21 also run on the in-memory Tor with `cargo run --release -p

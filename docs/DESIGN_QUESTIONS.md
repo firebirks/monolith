@@ -3406,3 +3406,82 @@ transport and the priority of writes to storage are separate; P8-3 ("holds
 up no chat") is the first. A lock that serves writes in order, or a
 priority for the writes of the message store, would bound the second; no
 scheduler of the disk is added before a delay is measured on a real disk.
+
+### 15.5 Final verification and completion
+
+The production code verified is that of
+`9851c24b9814092c2a50efdc6da51d99e0633460`; its tests and the mutation
+runner are those of `c90d5e54735542764fe46855ad68cbfd342273dc`. The
+candidate frozen first, on 2026-11-05, was `f7f8d81`; `7d31573` brought
+the oracle of the fuzz target `ui_present` up to `PROTOCOL.md` section 9,
+and `9851c24` moved the pattern of FT53, which a review fix had left
+behind; neither changed production code or a test other than a seed
+test. `c896861` made the runner keep the whole output of every run, and
+`c90d5e5` changed one test and added section 15.4; neither changed
+production code, a manifest or the lockfile. The stages ran on
+`f7f8d81`, one after the other: the container (Debian 12, Rust 1.95.0,
+1.85.1 and 1.99.1, Tor 0.4.9.13, Chutney `ae3a33c`), Windows (Windows
+11, Rust 1.95.0 and 1.85.1, in a worktree at the commit), the Windows
+mutation lists, and WSL (Debian; deny, audit, fuzzing, the Linux
+package). What `f7f8d81..9851c24` changes ran again on the commit that
+changed it. The final report is section 4 of the status file of Phase 8
+(`STATUS.md`). Results:
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check`; clippy on all targets, with and without the fixtures, warnings denied; `cargo doc` | clean, on Windows and in the container; fmt and clippy again on `7d31573` |
+| `cargo test --workspace --locked` with the fixtures | Windows, Rust 1.95.0 and 1.85.1: 84 test runs, 1458 passed, 0 failed, 3 ignored, on each, and Rust 1.99.1 on `9851c24` the same; Linux, Rust 1.95.0, 1.85.1 and 1.99.1: 84 test runs, 1444 passed, 0 failed, 3 ignored, on each. The difference is the tests of code built on Windows only; the ignored ones are two tests the private network test runs and the KDF measurement |
+| Rust 1.85.1: `check --workspace --all-targets` | clean, on Windows and in the container |
+| `cargo deny check`, `cargo audit` | deny passed (advisories, bans, licenses, sources); audit passed over the 445 crates of the lockfile. `cargo tree -d`: the second versions `DEPENDENCIES.md` accepts, `rand_core` and those of the window stack |
+| Fuzz, 22 targets, 25 seconds each | no crash, except `ui_present` on `f7f8d81`: its oracle had not been updated for the marks of `082e1d6`; the product was right. On `7d31573` it ran 25 and 600 seconds without a crash |
+| Fuzz, 600 seconds each: `transfer_sequence`, `transfer_store`, `message_body`, `text_fields`, `ui_model_sequence`, `ui_present` | no crash (1.06, 77.5, 10.5, 30.9, 2.19 and 0.94 million executions; `ui_present` on `7d31573`) |
+| Mutation | every fault run had the outcome its entry expects (below, and `mutation/README.md`) |
+| `tests/network/fail-closed.sh` (T-NET-1) | pass |
+| `tests/tor-network/two-node.sh`, `RESTART_CYCLES=3` | pass, steps 1 to 32, every one of the 95 checks, in 1887 seconds; the peer of `phase-7-complete` built from the tag |
+| Workflows by script, the file scenarios, pictures of every fixture, frames | pass, on Windows and in the container |
+| Packages | the Windows zip and the Linux tar.gz, each with its third-party notices, built from the commit |
+
+The brief asks for one complete mutation baseline of Phases 1 to 8. It
+was started on `9851c24`, and the owner stopped it on 2026-11-07 once the
+Phase 8 list and 23 faults of Phase 7 had run, all caught. On the
+owner's rules for converging a release, targeted gates replaced the rest:
+gate B (84 faults, on `9851c24`) and gate C (98 faults, on `c90d5e5`),
+chosen from what Phase 8 changed and from the evidence of the three
+verifications of Phase 7. Of the 626 faults of Phases 1 to 7 for Linux,
+203 ran on the candidate and were caught; 423 did not run, the nine
+expected to survive and 414 whose killing test is in a file Phase 8 did
+not change and whose mutated function it did not edit. The Phase 8 list,
+79 faults, was caught on `9851c24`, and the 15 faults of code built on
+Windows only on `f7f8d81`. Two exceptions to the selector's rules were
+approved by the owner, and are not counted as runs: the runner change of
+`c896861`, and 38 faults the test change of `c90d5e5` selects only by
+its file.
+
+Gate C stopped twice before its faults, on the unmodified run of a copy,
+in `tests/transfer_restarts.rs`; the second time, with the whole output
+kept, in the hostile-sender test. This is an
+intermittent anomaly, attributed with reasonable evidence to the
+dependence of the former test on the scheduling of persistence; its exact
+cause was not reproduced deterministically. The test was replaced by a
+check with controlled interleavings, shown to detect violations of the
+priority on the transport (section 15.4). Windows restarted the host for
+an update during gate C, with 96 of its 98 faults ended; the copies were
+checked and restored, and the two left ran again from a controlled start.
+
+The lock of the disk stays a known limit, not a property shown: Monolith
+guarantees that a chat already durable goes ahead of the transfer on the
+transport, not a bound on the time a chat takes to become durable while
+transfers write (section 15.4). It is not changed in this phase.
+
+The owner accepted the report and its verdict on 2026-11-11 and declared
+Phase 8 complete: production code of `9851c24`, tests and runner of
+`c90d5e5`. The commit of this record changes documents only. From then
+on the mutation faults and the regression tests of Phases 1 to 7, and
+FT1 to FT80, are a baseline to preserve: none is weakened without an
+explicit design decision.
+
+Left for later: section 15.2, the limits the report names, a lock of the
+disk that serves writes in order, a runner that names a failing doc-test
+and tells a bound reached under contention from a hang (BL54), and the
+423 faults of Phases 1 to 7 that did not run on this candidate, which the
+next full baseline runs again.

@@ -116,7 +116,13 @@ added `transfer_sequence` and `transfer_store`. The first run of
 on a text starting with two NUL characters: `present.rs` has shown the
 C0 and C1 controls and DEL as marks since `082e1d6`, and the list of the
 target did not have them yet. The list now follows `PROTOCOL.md` section
-9 for them too, and the seed `controls.bin` holds them. In the final
+9 for them too, and the seed `controls.bin` holds them. In that
+verification the other twenty-one ran for 25 seconds each, and
+`transfer_sequence`, `transfer_store`, `message_body`, `text_fields` and
+`ui_model_sequence` for 600 seconds each (1.06, 77.5, 10.5, 30.9 and
+2.19 million executions), without a failure; `ui_present`, on
+`7d31573`, ran 25 and 600 seconds (0.94 million executions) without one
+(`docs/DESIGN_QUESTIONS.md` 15.5). In the final
 verification of Phase 7 (on `740b671`) each of the twenty ran for 26
 seconds, and `ui_present`, `message_store`, `message_sequence`,
 `session_sequence` and `ui_model_sequence` for 600 seconds each (1.1,

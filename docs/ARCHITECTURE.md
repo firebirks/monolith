@@ -1,13 +1,13 @@
 # Architecture
 
-Status: Phase 7 complete (tag `phase-7-complete`). The protocol core,
-the session layer, the integration with a Tor the system runs, the
-contact store, the vault, the publication supervisor, the messaging
-runtime of Phase 5 (the message store, the session manager, the
-reconnect scheduler, the command and event interface) and the desktop
-client of Phase 6 for Linux and Windows are implemented and verified,
-with the hardening of Phase 7. `DESIGN_QUESTIONS.md` sections 13.3 and
-14.3 record the final verifications of Phases 6 and 7. This document
+Status: Phase 8 complete. The protocol core, the session layer, the
+integration with a Tor the system runs, the contact store, the vault,
+the publication supervisor, the messaging runtime of Phase 5 (the
+message store, the session manager, the reconnect scheduler, the command
+and event interface), the desktop client of Phase 6 for Linux and
+Windows with the hardening of Phase 7, and the file transfer of Phase 8
+are implemented and verified. `DESIGN_QUESTIONS.md` sections 14.3 and
+15.5 record the final verifications of Phases 7 and 8. This document
 describes the structure the phases build.
 
 ## 1. Shape

@@ -29,15 +29,17 @@ during a rotation of a contact's key, a sender's words kept apart from
 the client's, the checks of local files on Windows, file messages
 refused as the protocol says, stores that still open after a limit is
 lowered, the liveness of sessions, and the rates of each contact. Phase
-8, on the branch `phase-8-file-transfer`, adds file transfer between
-accepted contacts (`docs/adr/0013-file-transfer.md`): a file offered and
-explicitly accepted, sent in chunks over the session, resumed across lost
-sessions and restarts, staged encrypted, verified before it counts as
-received, and saved as a new file where the user chooses; its final
-verification is not done yet. The Tails and Whonix integrations (control
-port filters, the firewall rule) are drafts. `docs/DESIGN_QUESTIONS.md`
-sections 10.4, 11.6, 12.8, 13.3 and 14.3 record the final verifications
-of Phases 3 to 7. Nothing here has been audited. Monolith is still experimental software. Do not rely on it for
+8, complete and verified, adds file transfer between accepted contacts
+(`docs/adr/0013-file-transfer.md`): a file offered and explicitly
+accepted, sent in chunks over the session, resumed across lost sessions
+and restarts, staged encrypted, verified before it counts as received,
+and saved as a new file where the user chooses. A completed transfer
+proves the file is the one its sender declared, not that its content is
+safe; the client never opens a received file. The Tails and Whonix
+integrations (control port filters, the firewall rule) are drafts.
+`docs/DESIGN_QUESTIONS.md` sections 10.4, 11.6, 12.8, 13.3, 14.3 and 15.5
+record the final verifications of Phases 3 to 8. Nothing here has been
+audited. Monolith is still experimental software. Do not rely on it for
 high-stakes or production use yet.
 
 ## What it is
