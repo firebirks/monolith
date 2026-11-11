@@ -12,9 +12,11 @@ documents. The outputs are on `verification-9851c24`.
 
 This file is the result of P9-A, the readiness audit, after an
 independent review of its first draft (section 12), and the record of
-the workstreams approved since (section 13). Of the workstreams after
-P9-A only P9-B0 is approved. Section 9 lists the decisions asked of the
-owner and those taken.
+the work approved since: P9-B0 (section 13) and the maintenance of
+`main` (section 14). Of the workstreams after P9-A only P9-B0 was
+approved; it is done and published. P9-S and the later workstreams have
+not started. Section 9 lists the decisions asked of the owner and those
+taken.
 
 ## 1. What Phase 9 is
 
@@ -63,9 +65,13 @@ Rules that hold until the phase is closed:
 | Verification outputs | `verification-9851c24` (`33d88aa`) |
 
 `main` was clean and equal to `origin/main` when this branch was made.
+Since then `main` has two commits that this branch does not have, both
+approved by the owner apart from Phase 9 (section 14): `88359d4`, the
+lockfile of P9-B0, and `f813528`, a new README. `phase-8-complete` and the
+Phase 8 branches are unchanged.
 
-CI on `main` and on the Phase 8 branches fails in one job since the
-publication: `cargo deny check` reports RUSTSEC-2026-0486, published after
+CI on `main` and on the Phase 8 branches failed in one job after the
+publication: `cargo deny check` reported RUSTSEC-2026-0486, published after
 the final verification, an unsound handling of zero-length buffers in the
 extended-attribute functions of `rustix::fs` (`getxattr`, `listxattr` and
 their variants) in `rustix` 1.1.5, fixed in 1.1.6 (MSRV 1.65). `rustix` is
@@ -74,11 +80,13 @@ the profile, its lock, the user id) and a development dependency of
 `monolith-desktop` on Unix (its tests); it also comes through the window
 stack. Monolith calls none of the affected functions, and none of the
 crates that depend on `rustix` 1.1.5 calls them in its sources.
-`cargo audit` passes because it reports unsound advisories as warnings.
-fmt, clippy, doc, the tests, MSRV, stable and the fuzz build pass. The
+`cargo audit` passed because it reports unsound advisories as warnings.
+fmt, clippy, doc, the tests, MSRV, stable and the fuzz build passed. The
 earlier failures of CI after Phases 6 and 7 were other advisories (tokio,
-ctutils, clipboard-win), handled in Phase 8 (`3b6d63d`). P9-B0 updates
-`rustix` to 1.1.6 on this branch (section 13).
+ctutils, clipboard-win), handled in Phase 8 (`3b6d63d`). P9-B0 updated
+`rustix` to 1.1.6 on this branch, and the same lockfile went to `main`
+(sections 13 and 14); CI is green on both. The earlier runs of the Phase 8
+branches and of `phase-8-complete` stay as they were.
 
 Approved deferrals that bear on a beta: BL14 to BL17 (tests with screen
 readers, shaping and bidi, a message list reachable by keyboard, unread
@@ -118,7 +126,7 @@ Tails or Whonix, on Windows 10, or on a clean machine.
 | Release version | MISSING | the workspace version is `0.0.0`; the client does not show it (`monolith-ui/src/settings.rs`) |
 | Release pipeline, Windows CI | MISSING | CI runs on `ubuntu-latest` only; no Windows job, no packaging job; Windows results come from recorded manual runs (15.5) |
 | Update check or updater | MISSING by design | none in the code; `ARCHITECTURE.md` 11 and the READMEs say no update checks |
-| Security contact | MISSING | `SECURITY.md` still says "design phase", no release, contact and key to come |
+| Security contact | MISSING | `SECURITY.md` still says "design phase", no release, contact and key to come; it sends reporters to the private vulnerability reporting of the repository host, which is off for this repository (checked on 2026-11-11), so no private channel works today (section 14.3, D17) |
 
 ### 3.2 Tor
 
@@ -211,7 +219,8 @@ Tails or Whonix, on Windows 10, or on a clean machine.
 
 ## 5. Critical blockers for a controlled beta
 
-1. CI is red (section 2).
+1. CI was red (section 2); fixed by P9-B0, green on this branch and on
+   `main` (sections 13.6 and 14).
 2. Testers cannot tell an archive is the owner's, nor which build they run
    (no signed manifest or key channel, version `0.0.0`, version not shown).
 3. Nothing has run on a clean machine; the Linux archive needs the glibc
@@ -252,7 +261,8 @@ changes no protocol, Tor semantics, storage format or transfer rule.
   tests of `monolith-storage` and the CI run on the branch.
 - Effort: 0.5. Exclusions: no other update.
 - Approved on 2026-11-11 with D1 and D15, limited to `Cargo.lock` and
-  this file; done on this branch (section 13).
+  this file; done and published on this branch, and its lockfile taken
+  to `main` with the owner's approval (sections 13 and 14).
 
 ### P9-S Early clean-machine smoke
 
@@ -471,7 +481,8 @@ contrast.
 ## 9. Decisions asked of the owner
 
 - D1. CI: update `rustix` to 1.1.6 (proposed) or ignore the advisory.
-  Decided on 2026-11-11: the update (section 13).
+  Decided on 2026-11-11: the update (section 13); done, on this branch
+  and on `main`.
 - D2. Beta artifacts: portable archives with a signed manifest
   (proposed), or an installer now; a deterministic Windows zip and an
   SBOM now or later (later proposed).
@@ -509,6 +520,10 @@ contrast.
   version and the desktop's `rustix` dependency.
 - D16. P3: left open, with no restore offered in the beta (proposed), or
   a design review of the epoch after a restore now.
+- D17. A private channel for vulnerability reports: turn on the private
+  vulnerability reporting of the repository host, which `SECURITY.md`
+  already names (proposed), or publish an address and a key now (section
+  14.3).
 
 ## 10. Proposed order
 
@@ -525,8 +540,8 @@ because what it finds may change them.
 | ID | Item | Status |
 | --- | --- | --- |
 | P9-A | Readiness audit, threat assessment, this plan, independent review | done; D1 decided, D15 granted for P9-B0 |
-| P9-B0 | CI repair | done on this branch, not pushed; the CI run waits for the owner's authorization to push |
-| P9-S | Early clean-machine smoke | proposed |
+| P9-B0 | CI repair | done; published as `a278e7e` (CI run 43069041967, green); its lockfile on `main` as `88359d4` (CI run 43080006592, green) |
+| P9-S | Early clean-machine smoke | proposed; not started |
 | P9-F | Trust model, versions and updates | proposed |
 | P9-D | First run and identity lifecycle | proposed |
 | P9-G | Operational privacy and network evidence | proposed |
@@ -694,9 +709,9 @@ clippy with `-D warnings` passes and the tests give 1359 passed,
 0 failed, 3 ignored. `rustix` is not built there (13.1); this run shows
 only that the Windows build still passes. There is no Windows CI.
 
-Not run: CI on GitHub (nothing is pushed); the private Tor network test
-(neither the runtime nor the Tor crate changed, and `rustix` is not on
-the path of Tor traffic); the packages; mutation (13.4).
+Not run before the push: CI on GitHub (13.6). Not run: the private Tor
+network test (neither the runtime nor the Tor crate changed, and `rustix`
+is not on the path of Tor traffic); the packages; mutation (13.4).
 
 ### 13.4 D15: no mutation run
 
@@ -721,18 +736,108 @@ again, or the owner decides otherwise then.
 
 ### 13.5 Left
 
-- CI on GitHub: not run. The deny job should pass with this lockfile
-  (cargo-deny 0.20.2 and the advisory database of 2026-11-11 here), but
-  CI is green only once the workflow passes on the pushed branch, and the
-  database can change in between.
 - `fuzz/Cargo.lock`, the lockfile of the separate fuzz project, still
   has `rustix` 1.1.5 (RUSTSEC-2026-0486) and `tokio` 1.53.1
   (RUSTSEC-2026-0386, unsound; the workspace took 1.53.3 in Phase 8).
   `ci.yml` builds it with `--locked`, but neither deny nor audit reads it;
-  it is in no product. Updating it is a separate change for the owner.
-- `docs/DEPENDENCIES.md` still names `rustix` 1.1.5 in sections 3 and 4;
-  this commit was limited to the lockfile and this file. A
-  documentation-only correction is proposed.
+  it is in no product. Assessed on 2026-11-11 and proposed to the owner,
+  not made: `cargo update -p rustix@1.1.5 --precise 1.1.6` and
+  `cargo update -p tokio@1.53.1 --precise 1.53.3` in `fuzz/` change four
+  lines each (version and checksum, as in `Cargo.lock`) and nothing else;
+  `fuzz/Cargo.toml` already allows both. In a scratch copy the fuzz build
+  of `ci.yml` passes with them. Only the `contact_store` target builds a
+  runtime (current thread, without the I/O and time drivers). Under
+  `mutation/affected.py` a change in `fuzz/` selects no fault.
+- `docs/DEPENDENCIES.md` named `rustix` 1.1.5 in sections 3 and 4;
+  corrected on 2026-11-11, keeping 1.1.5 as the version of the verified
+  build of Phase 8.
 - `Cargo.toml` keeps `rustix = "1.1.5"`, a minimum that 1.1.6 meets.
   Raising it to 1.1.6 would keep a resolve without the lockfile from
-  choosing the unsound release; it is a manifest change, not made.
+  choosing the unsound release; it is a manifest change, not made. The
+  crates of the fuzz project inherit this requirement through the
+  workspace, so raising it makes the present `fuzz/Cargo.lock` fail
+  `--locked`: the two would have to change in one commit. Proposed to the
+  owner together with the fuzz update.
+
+### 13.6 Publication
+
+On 2026-11-11 the owner authorized publishing this branch:
+`git push -u origin phase-9-beta-readiness`, an ordinary push of
+`02d5bde` and `a278e7e`, checked with `git ls-remote`; no other reference
+moved. CI run 43069041967 (workflow `ci`, push, `a278e7e`): the nine jobs
+pass.
+
+| Job | Result |
+| --- | --- |
+| fmt, clippy, doc | pass |
+| test (1.95.0), msrv (1.85.1), stable (1.99.1) | 1345 passed, 0 failed, 3 ignored each |
+| fuzz-build | pass, with `rustix` 1.1.5 from `fuzz/Cargo.lock` |
+| deny | advisories, bans, licenses, sources ok |
+| audit | 1458 advisories, 445 crates, nothing reported |
+
+`ci.yml` has no network-isolation job; T-NET-1 ran only here (13.3). A
+green run on a development branch is not a release.
+
+## 14. Maintenance of `main`
+
+Approved by the owner on 2026-11-11, apart from Phase 9 and without
+merging this branch. Each change is one commit, pushed to `main` as an
+ordinary fast-forward after checking that `main` had not moved. No tag
+moved and the Phase 8 branches are unchanged; the earlier runs of
+`phase-8-complete` stay as they were.
+
+### 14.1 The lockfile of P9-B0
+
+`88359d4` ("Backport rustix security update to main"), parent `9882291`,
+changes `Cargo.lock` only: the blob of `a278e7e` (SHA-256 `a7580372...`),
+restored from that commit rather than cherry-picked, so that this file
+stays off `main`. Before the push, on Linux (WSL Debian 13, a fresh clone
+and target, the flags of `ci.yml`): deny and audit report nothing; fmt
+and clippy pass; the tests pass with 1.95.0 and with 1.85.1 (1345 passed,
+0 failed, 3 ignored each), and so does the check with 1.85.1. CI run
+43080006592: the nine jobs pass, with the results of 13.6. D15 covers it
+as it covers P9-B0; no mutation ran. `main` now has the sources verified
+in Phase 8 with another lockfile, so its build is not the one Phase 8
+verified.
+
+### 14.2 The README
+
+`f813528` ("Improve the public README and clarify project limitations"),
+parent `88359d4`, changes `README.md` only. It puts the status in a table
+of Phases 3 to 8 with their tags and records, and states the limits as
+the code and the documents show them: "Start without saving" keeps the
+profile in memory, but the operating system and Tor may still write to
+disk; there is no offline delivery, and a queued message is sent when
+both sides run; there is no telemetry or update check; Monolith does not
+bundle or start Tor. It separates the platforms built for, those
+verified, releases (none; platforms not decided) and the Tails and Whonix
+drafts. A Linux build made on Debian 13 needs glibc 2.39 (the symbol
+versions of a build of this tree), so it does not start on Debian 12 or
+Ubuntu 22.04. It lists the nine jobs of CI and the checks outside it, and
+has one badge, the CI of `main`, served by GitHub. Every relative link
+and heading anchor was checked against the files. CI run 43086736623:
+the nine jobs pass, with the results of 13.6.
+
+This branch still has the README of `9882291` (14.4).
+
+### 14.3 The security contact
+
+`SECURITY.md` tells reporters to use the private vulnerability reporting
+of the repository host. The GitHub API reports that function off for this
+repository (2026-11-11), so a reporter has no private channel; the README
+says so and promises none. Proposed (D17): the owner turns the function
+on in the repository's settings, which makes `SECURITY.md` true as
+written, with no new address; an address and a key for encrypted reports
+can follow with the trust model (P9-F). Nothing was changed.
+
+### 14.4 Reconciling `main` and this branch
+
+The same lockfile is now in two commits, `88359d4` on `main` and
+`a278e7e` here, and `main` has a README this branch lacks. Earlier phases
+closed with a fast-forward of `main` to the phase branch; that is no
+longer possible. Proposed: one ordinary merge of `main` into this branch,
+no rebase, before the first workstream that edits `README.md` (P9-B,
+P9-C) or at the latest before the final gate, so that the gate verifies
+the tree `main` will receive. `Cargo.lock` is the same on both sides, so
+the merge brings only `README.md`, which selects no fault under
+`mutation/affected.py`. Not done: it needs the owner.

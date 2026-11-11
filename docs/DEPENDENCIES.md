@@ -119,7 +119,7 @@ the core or of the `monolith` binary.
 | `hmac` | 0.13.0 | MIT OR Apache-2.0 | 1.85 | HMAC-SHA256 of SAFECOOKIE control authentication | none; no default features |
 | `argon2` | 0.6.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | Argon2id, the key-encryption key of the vault from the passphrase | `alloc`, `zeroize`; no default features |
 | `hkdf` | 0.13.0, pinned exactly | MIT OR Apache-2.0 | 1.85 | HKDF-SHA256, the payload key of the vault from the vault key | none; no default features |
-| `rustix` | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | 1.65 | the vault directory: `openat` without following links, `fstat`, the user id, `flock`, `fsync` of the directory | `std`, `fs`, `process`; no default features |
+| `rustix` | 1.1.6 since Phase 9 (1.1.5 in the verified build of Phase 8) | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | 1.65 | the vault directory: `openat` without following links, `fstat`, the user id, `flock`, `fsync` of the directory | `std`, `fs`, `process`; no default features |
 | `unicode-normalization` | 0.1.25, pinned exactly | MIT OR Apache-2.0 | 1.36 | NFC of the vault passphrase | none; no default features |
 
 `ed25519-dalek`
@@ -351,9 +351,15 @@ the core or of the `monolith` binary.
   and `fsync` of a directory. Monolith keeps `unsafe_code = "forbid"`.
 - Enabled: `std`, `fs`, `process` (for `getuid`). On Linux it uses its
   raw system call back end (`linux-raw-sys`), not `libc`.
-- Advisories: none in the RustSec database. Unsafe: about 1650 lines,
-  as the crate exists to wrap system calls; the raw back end is its
-  largest part.
+- Advisories: RUSTSEC-2026-0486 (2026-10-27, after the final
+  verification of Phase 8): from 1.0.0 to 1.1.5 the extended-attribute
+  functions (`getxattr`, `listxattr` and their variants) mark bytes the
+  system call never wrote as initialized when given a zero-length buffer.
+  Monolith calls none of them. Fixed in 1.1.6, which `Cargo.lock` holds
+  since Phase 9 (P9-B0); the verified build of Phase 8 used 1.1.5. The
+  lock file of the separate fuzz project, `fuzz/Cargo.lock`, still has
+  1.1.5. Unsafe: about 1650 lines, as the crate exists to wrap system
+  calls; the raw back end is its largest part.
 
 `unicode-normalization`
 
@@ -735,10 +741,10 @@ Run on the dependency set above; the date is in each row.
 
 | Check | Result |
 | --- | --- |
-| `cargo audit` | no vulnerability applies; RUSTSEC-2026-0194, RUSTSEC-2026-0195, RUSTSEC-2026-0192, RUSTSEC-2026-0370, RUSTSEC-2026-0371 and RUSTSEC-2026-0372 are ignored with their reasons (section 3, "Exceptions in deny.toml"); 445 crates in `Cargo.lock` (2026-10-14, Phase 6; the last three since 2026-10-19) |
-| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy, no warning (2026-10-14; again on 2026-10-19 with the three exceptions of that day) |
+| `cargo audit` | no vulnerability applies; RUSTSEC-2026-0194, RUSTSEC-2026-0195, RUSTSEC-2026-0192, RUSTSEC-2026-0370, RUSTSEC-2026-0371 and RUSTSEC-2026-0372 are ignored with their reasons (section 3, "Exceptions in deny.toml"); 445 crates in `Cargo.lock` (2026-10-14, Phase 6; the last three since 2026-10-19; again on 2026-11-11 with `rustix` 1.1.6, nothing reported) |
+| `cargo deny check` (advisories, bans, licences, sources) | passes with the repository policy, no warning (2026-10-14; again on 2026-10-19 with the three exceptions of that day; again on 2026-11-11 with `rustix` 1.1.6, which 1.1.5 failed) |
 | `cargo tree -d` | in the core, one pair: `rand_core` 0.9.5 and 0.10.1; in the desktop, the second versions of its window stack; see below (2026-10-14) |
-| Build and tests with Rust 1.85.1 | pass; after the Phase 6 changes to `Cargo.lock` the workspace was built with 1.85.1 on Windows (2026-10-14) |
+| Build and tests with Rust 1.85.1 | pass; after the Phase 6 changes to `Cargo.lock` the workspace was built with 1.85.1 on Windows (2026-10-14); after P9-B0 built and tested with 1.85.1 on Linux (2026-11-11) |
 | Highest declared MSRV in the tree | 1.85 (the dalek and RustCrypto crates, `snow`, `zeroize`, `proptest`; for the desktop `egui`, `eframe`, `zbus`, `zbus_xml`, `webbrowser`, `image`, `unicode-segmentation` and others) |
 
 The highest declared MSRV equals the project's. A later release of any of
@@ -784,7 +790,7 @@ never the one the core uses.
 
 | Crate | Accepted in `skip` | Other version | Where the accepted one comes from |
 | --- | --- | --- | --- |
-| `rustix` | 0.38.44 | 1.1.5 | `winit` 0.30, `calloop` 0.13 and `smithay-client-toolkit` 0.19 on Linux |
+| `rustix` | 0.38.44 | 1.1.6 (1.1.5 in Phase 8) | `winit` 0.30, `calloop` 0.13 and `smithay-client-toolkit` 0.19 on Linux |
 | `linux-raw-sys` | 0.4.15 | 0.12.1 | `rustix` 0.38 |
 | `smithay-client-toolkit` | 0.19.2 | 0.20.0 | `winit` 0.30; 0.20 is under `smithay-clipboard` |
 | `calloop` | 0.13.0 | 0.14.4 | `winit` and `smithay-client-toolkit` 0.19 |
