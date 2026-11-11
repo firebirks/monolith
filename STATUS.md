@@ -127,7 +127,7 @@ Tails or Whonix, on Windows 10, or on a clean machine.
 | Release version | MISSING | the workspace version is `0.0.0`; the client does not show it (`monolith-ui/src/settings.rs`) |
 | Release pipeline, Windows CI | MISSING | CI runs on `ubuntu-latest` only; no Windows job, no packaging job; Windows results come from recorded manual runs (15.5) |
 | Update check or updater | MISSING by design | none in the code; `ARCHITECTURE.md` 11 and the READMEs say no update checks |
-| Security contact | MISSING | `SECURITY.md` still says "design phase", no release, contact and key to come; it sends reporters to the private vulnerability reporting of the repository host, which is off for this repository (checked on 2026-11-11), so no private channel works today (section 14.3, D17) |
+| Security contact | MISSING | `SECURITY.md` still says "design phase", no release, contact and key to come; it sends reporters to the private vulnerability reporting of the repository host, which is off for this repository (checked on 2026-11-11, and again after the owner approved turning it on), so no private channel works today (section 14.3, D17) |
 
 ### 3.2 Tor
 
@@ -236,7 +236,8 @@ Tails or Whonix, on Windows 10, or on a clean machine.
 8. The packaged desktop binary has no network-isolation evidence, on
    Linux or Windows.
 9. No way for a tester to say which build and state they have, or to
-   reach a security contact.
+   reach a security contact. The private vulnerability reporting of the
+   host is off (D17); no build goes to anyone outside while it is.
 10. A lock or version change selects every mutation fault under the rules
     of `mutation/affected.py`; without an exception approved in advance,
     P9-B0 alone would ask for a full campaign (section 8).
@@ -267,13 +268,28 @@ changes no protocol, Tor semantics, storage format or transfer rule.
 
 ### P9-S Early clean-machine smoke
 
-- Scope: before any product change, run the existing archives once on a
-  clean Windows 10, Windows 11 and Debian 12 (the archive of Debian 12
-  built in the container) with a real Tor Browser or `tor`: unpack,
-  start, create a profile, Tor found, a message between two machines.
-  Problems found here (glibc, OpenGL, SmartScreen, antivirus, Tor paths)
-  may change P9-D and P9-E.
-- Effort: 0.5 to 1, with machines or VMs the owner provides.
+- Scope: before any product change, run the existing client once on clean
+  machines over the public Tor network, and collect the first network
+  evidence of the packaged desktop binary. Problems found here (glibc,
+  OpenGL, the C runtime, SmartScreen, antivirus, Tor paths) may change
+  P9-D and P9-E.
+- Plan: `docs/CLEAN_MACHINE_TEST.md`, revised on 2026-11-11 with the
+  platform priorities the owner set that day: Windows 11 26H2 (25H2 if
+  26H2 cannot be used), Debian 12 and Ubuntu 24.04 LTS primary, Windows 10
+  22H2 with ESU optional; two sessions that cross platforms; graphics,
+  Windows runtime, glibc and Tor prerequisites; archive provenance; the
+  network evidence of the process and of the machine, against a baseline;
+  twenty scenarios (T-CLEAN-1 to 20); blocking criteria; decisions S1 to
+  S6 before any run.
+- Found while planning, before any run: the Windows executable imports
+  `VCRUNTIME140.dll`, which Windows does not include, the zip does not
+  ship and the README does not name; Smart App Control, if on, may block
+  the unsigned program; the `tor` of Debian 12 and of Ubuntu 24.04 is
+  0.4.9.11, above the baseline of Monolith and below the 0.4.9.13 that
+  `TOR_INTEGRATION.md` recommends; a Windows VM without a GPU is not
+  expected to give OpenGL 2.1.
+- Effort: about 2.5 days, with the owner at the machines for about 1.5.
+  Planning approved; running it needs the owner's approval.
 
 ### P9-F Trust model, versions and updates (a design document)
 
@@ -511,7 +527,10 @@ contrast.
   (proposed), with quoted paths accepted and "Copy as path" documented.
 - D11. Tails and Whonix: out of the beta (proposed) or tried by hand now.
 - D12. Platforms of the beta: Windows 10 and 11, Debian 12 and an Ubuntu
-  LTS (proposed).
+  LTS (proposed). On 2026-11-11 the owner set the priorities of P9-S:
+  Windows 11 26H2 or 25H2, Debian 12 and Ubuntu 24.04 LTS primary;
+  Windows 10 22H2 only with ESU, and optional. The platforms of the beta
+  follow from P9-S.
 - D13. The order of the workstreams (section 10).
 - D14. A message when the window cannot start on Windows: a new
   dependency that wraps the system message box (a dependency decision
@@ -527,7 +546,11 @@ contrast.
 - D17. A private channel for vulnerability reports: turn on the private
   vulnerability reporting of the repository host, which `SECURITY.md`
   already names (proposed), or publish an address and a key now (section
-  14.3).
+  14.3). On 2026-11-11 the owner approved a private channel before the
+  beta. Turning the function on is an action of the owner in the
+  repository's settings; it was still off when checked that day. Until it
+  is on, D17 stays open and blocks any distribution to testers (section
+  5, blocker 9).
 - D18. An exception to the selector for updating `fuzz/Cargo.lock` to
   `rustix` 1.1.6 and `tokio` 1.53.3 and raising the minimum of `rustix`
   in `Cargo.toml` to 1.1.6: no mutation run. Granted on 2026-11-11 with
@@ -550,7 +573,7 @@ because what it finds may change them.
 | P9-A | Readiness audit, threat assessment, this plan, independent review | done; D1 decided, D15 granted for P9-B0 |
 | P9-B0 | CI repair | done; published as `a278e7e` (CI run 43069041967, green); its lockfile on `main` as `88359d4` (CI run 43080006592, green) |
 | Maintenance | `fuzz/Cargo.lock` to `rustix` 1.1.6 and `tokio` 1.53.3; `rustix` 1.1.6 required by `Cargo.toml` | done (section 15); D18 granted; to be published only with the owner's approval |
-| P9-S | Early clean-machine smoke | proposed; not started |
+| P9-S | Early clean-machine smoke | plan revised (`docs/CLEAN_MACHINE_TEST.md`), waiting for the owner's approval; not started |
 | P9-F | Trust model, versions and updates | proposed |
 | P9-D | First run and identity lifecycle | proposed |
 | P9-G | Operational privacy and network evidence | proposed |
