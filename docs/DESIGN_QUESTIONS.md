@@ -3424,8 +3424,11 @@ production code, a manifest or the lockfile. The stages ran on
 11, Rust 1.95.0 and 1.85.1, in a worktree at the commit), the Windows
 mutation lists, and WSL (Debian; deny, audit, fuzzing, the Linux
 package). What `f7f8d81..9851c24` changes ran again on the commit that
-changed it. The final report is section 4 of the status file of Phase 8
-(`STATUS.md`). Results:
+changed it. The outputs are on the branch `verification-9851c24`, not
+on `main`; the two packages are not, and their sizes and SHA-256 are in
+the report. The final report is section 4 of the status file of Phase 8
+(`STATUS.md`, removed when Phase 8 was merged), kept in the history at
+`c0e8a6d`. Results:
 
 | Check | Result |
 | --- | --- |
