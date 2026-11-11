@@ -1,0 +1,29 @@
+   Compiling monolith-ui-model v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-ui-model)
+   Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-storage)
+   Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-tor)
+   Compiling monolith-ui v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-ui)
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+   Compiling monolith-runtime v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-runtime)
+   Compiling monolith-desktop v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.21s
+     Running unittests src/lib.rs (target/debug/deps/monolith_desktop-a7f5b9f21fb54980)
+     Running unittests src/main.rs (target/debug/deps/monolith_desktop-cb6455959533930e)
+     Running tests/boundary.rs (target/debug/deps/boundary-82d7011d22e240ac)
+     Running tests/bridge.rs (target/debug/deps/bridge-d9a2df7b887cd4a2)
+     Running unittests src/lib.rs (target/debug/deps/monolith_ui-8e5b6d6321ee1008)
+     Running tests/idle.rs (target/debug/deps/idle-95145d13e6093673)
+     Running tests/keyboard.rs (target/debug/deps/keyboard-d799ac0d60d10022)
+     Running tests/layout.rs (target/debug/deps/layout-797c9ac41c7d02b2)
+     Running tests/screens.rs (target/debug/deps/screens-97321a64224bb202)
+     Running tests/views.rs (target/debug/deps/views-750ce387c06629d6)
+     Running unittests src/lib.rs (target/debug/deps/monolith_ui_model-ce86b513eeec0899)
+error: test failed, to rerun pass `-p monolith-ui-model --lib`
+     Running tests/fuzz_seeds.rs (target/debug/deps/fuzz_seeds-180d602e726ca61d)
+     Running tests/model.rs (target/debug/deps/model-0cac9ebe0a2e2284)
+     Running tests/properties.rs (target/debug/deps/properties-df90340e30bd1eab)
+     Running tests/transfers.rs (target/debug/deps/transfers-fd92a0ae18da3e1a)
+   Doc-tests monolith_desktop
+   Doc-tests monolith_ui
+   Doc-tests monolith_ui_model
+error: 1 target failed:
+    `-p monolith-ui-model --lib`

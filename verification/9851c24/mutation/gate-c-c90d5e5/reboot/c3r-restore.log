@@ -1,0 +1,15 @@
+== the lock of the runner
+mutation/work/lock holds 47127; that process: none
+== the evidence of the 96
+runner log kept; 200 log files hashed in <home>/evidence-c3-reboot
+== what each copy holds
+tree0: holds exactly HR77
+tree1: holds exactly FT29
+== every other tracked file of the copies
+tree0: every tracked file but crates/monolith-core/src/runtime.rs same as c90d5e5
+tree1: every tracked file but crates/monolith-core/src/runtime.rs same as c90d5e5
+== restore
+tree0: every one of 570 tracked files same as c90d5e5
+tree1: every one of 570 tracked files same as c90d5e5
+/dev/sdd       1007G   74G  883G   8% /
+restore done 2026-11-11T07:56:02+01:00

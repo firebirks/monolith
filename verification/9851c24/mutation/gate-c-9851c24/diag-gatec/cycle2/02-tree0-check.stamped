@@ -1,0 +1,38 @@
+23:06:37.042 E     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+23:06:37.047 E      Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+23:06:37.068 O 
+23:06:37.068 O running 0 tests
+23:06:37.068 O 
+23:06:37.068 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 139 filtered out; finished in 0.00s
+23:06:37.068 O 
+23:06:37.068 E      Running unittests src/lib.rs (target/debug/deps/monolith_identity-088774467f5f1508)
+23:06:37.086 O 
+23:06:37.086 O running 0 tests
+23:06:37.086 O 
+23:06:37.086 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.00s
+23:06:37.086 O 
+23:06:37.086 E      Running unittests src/lib.rs (target/debug/deps/monolith_protocol-cf87e149541a10f2)
+23:06:37.100 O 
+23:06:37.100 O running 1 test
+23:06:37.101 O test text::tests::chat_text_length_bounds ... ok
+23:06:37.101 O 
+23:06:37.101 O test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 199 filtered out; finished in 0.00s
+23:06:37.101 O 
+23:06:37.101 E      Running unittests src/lib.rs (target/debug/deps/monolith_session-fc3fb02706a443be)
+23:06:37.137 O 
+23:06:37.137 O running 0 tests
+23:06:37.137 O 
+23:06:37.137 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 129 filtered out; finished in 0.00s
+23:06:37.137 O 
+23:06:37.137 E      Running unittests src/lib.rs (target/debug/deps/monolith_storage-3e76f47a006ac86c)
+23:06:37.182 O 
+23:06:37.182 O running 0 tests
+23:06:37.182 O 
+23:06:37.182 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 71 filtered out; finished in 0.00s
+23:06:37.182 O 
+23:06:37.182 E      Running unittests src/lib.rs (target/debug/deps/monolith_tor-6ed496a6fa794857)
+23:06:37.208 O 
+23:06:37.208 O running 0 tests
+23:06:37.208 O 
+23:06:37.208 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+23:06:37.208 O 

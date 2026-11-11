@@ -1,0 +1,57 @@
+== 2026-11-09T22:26:13+01:00 cycle 1; WSL started again by: wsl --shutdown
+uptime 3.19s; kernel 6.18.33.2-microsoft-standard-WSL2; nproc 4
+MemTotal:       10185328 kB
+MemAvailable:    9726628 kB
+Cached:           259292 kB
+Dirty:              5376 kB
+Writeback:             0 kB
+pressure stall: cpu io memory 
+== environment (CARGO*, RUST*, PATH)
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files/PowerShell/7:/mnt/c/Program Files/ImageMagick-7.1.2-Q16-HDRI:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program Files/dotnet/:/mnt/c/Program Files/Java/latest/jdk-21/bin:/mnt/c/ProgramData/chocolatey/bin:/mnt/c/Windows/System32:/mnt/c/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/:/mnt/c/Program Files (x86)/cloudflared/:/mnt/c/Program Files/nodejs/:/mnt/c/Program Files/GitHub CLI/:/mnt/c/Program Files/PowerToys/DSCModules/:/mnt/c/Program Files/CMake/bin:/mnt/c/Program Files/Git/cmd:/mnt/c/Program Files/PowerShell/7/:/mnt/c/Program Files/Docker/Docker/resources/bin:<winhome>/AppData/Local/Android/Sdk/platform-tools:<winhome>/AppData/Local/Programs/Eclipse Adoptium/jdk-25.0.5.8-hotspot/bin:<winhome>/AppData/Local/agy/bin:<winhome>/.grok/bin:<winhome>/.kimi-code/bin:<winhome>/AppData/Local/Programs/Python/Python312/Scripts/:<winhome>/AppData/Local/Programs/Python/Python312/:/mnt/c/Program Files/LLVM/bin:/mnt/c/vcpkg/installed/x64-windows/bin:<winhome>/AppData/Local/Programs/Python/Launcher/:<winhome>/.cargo/bin:<winhome>/AppData/Local/Microsoft/WindowsApps:<winhome>/AppData/Local/Programs/Microsoft VS Code/bin:/mnt/c/Program Files/JetBrains/RustRover 2025.1.1/bin:<winhome>/AppData/Local/Programs/Ollama:<winhome>/vcpkg/installed/x64-windows/tools:<winhome>/AppData/Local/Microsoft/WindowsApps:<winhome>/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe:<winhome>/.dotnet/tools:<winhome>/AppData/Local/Muse Hub/lib:<winhome>/.local/bin:<winhome>/AppData/Local/Programs/Zed/bin:<winhome>/AppData/Roaming/npm:<winhome>/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.1-full_build/bin:<winhome>/AppData/Local/Unity/bin:<winhome>/AppData/Local/Programs/Microsoft VS Code/bin/copilot-shim:<winhome>/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe
+no target-dir, rustc-wrapper, jobs or incremental set
+tree0 target: inode 419201 symlink no
+tree1 target: inode 445992 symlink no
+== processes
+    PID     ELAPSED COMMAND
+      1       00:02 /sbin/init
+      2       00:02 /init
+      6       00:01 plan9 --control-socket 7 --log-level 4 --server-fd 8 --pipe-fd 10 --log-truncate
+     36       00:01 /usr/lib/systemd/systemd-journald
+     74       00:01 /usr/lib/systemd/systemd-udevd
+     98       00:00 (udev-worker)
+     99       00:00 (udev-worker)
+    100       00:00 (udev-worker)
+    101       00:00 (udev-worker)
+    102       00:00 (udev-worker)
+    103       00:00 (udev-worker)
+    104       00:00 (udev-worker)
+    105       00:00 (udev-worker)
+    106       00:00 (udev-worker)
+    107       00:00 (udev-worker)
+    108       00:00 (udev-worker)
+    109       00:00 (udev-worker)
+    110       00:00 (udev-worker)
+    111       00:00 (udev-worker)
+    112       00:00 (udev-worker)
+    113       00:00 (udev-worker)
+    114       00:00 (udev-worker)
+    115       00:00 (udev-worker)
+    116       00:00 (udev-worker)
+    117       00:00 (udev-worker)
+    118       00:00 (udev-worker)
+    119       00:00 (udev-worker)
+    120       00:00 (udev-worker)
+    121       00:00 (udev-worker)
+    147       00:00 /usr/sbin/cron -f
+    148       00:00 /usr/bin/dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+    150       00:00 /usr/lib/systemd/systemd-logind
+    160       00:00 /sbin/agetty -o -- \u --noreset --noclear - linux
+    169       00:00 /init
+    170       00:00 /init
+    171       00:00 bash <work>/veri
+    172       00:00 login -- <user>
+    183       00:00 /usr/lib/systemd/systemd --user
+    185       00:00 (sd-pam)
+    214       00:00 -bash
+    245       00:00 ps -eo pid,etime,args --sort=start_time
+    246       00:00 cut -c1-160

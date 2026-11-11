@@ -1,0 +1,40 @@
+22:39:34.107 E    Compiling monolith-protocol v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-protocol)
+22:39:34.311 E    Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-tor)
+22:39:34.311 E    Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-storage)
+22:39:34.581 E    Compiling monolith-session v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-session)
+22:39:35.562 E    Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+22:39:37.641 E     Finished `test` profile [unoptimized + debuginfo] target(s) in 3.64s
+22:39:37.649 E      Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+22:39:37.652 O 
+22:39:37.652 O running 0 tests
+22:39:37.652 O 
+22:39:37.652 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 139 filtered out; finished in 0.00s
+22:39:37.652 O 
+22:39:37.652 E      Running unittests src/lib.rs (target/debug/deps/monolith_identity-088774467f5f1508)
+22:39:37.654 O 
+22:39:37.654 O running 0 tests
+22:39:37.654 O 
+22:39:37.654 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.00s
+22:39:37.654 O 
+22:39:37.654 E      Running unittests src/lib.rs (target/debug/deps/monolith_protocol-cf87e149541a10f2)
+22:39:37.655 O 
+22:39:37.655 O running 1 test
+22:39:37.657 O test text::tests::chat_text_length_bounds ... FAILED
+22:39:37.657 O 
+22:39:37.657 O failures:
+22:39:37.657 O 
+22:39:37.657 O ---- text::tests::chat_text_length_bounds stdout ----
+22:39:37.657 O 
+22:39:37.657 O thread 'text::tests::chat_text_length_bounds' (13077) panicked at crates/monolith-protocol/src/text.rs:353:9:
+22:39:37.657 O assertion `left == right` failed
+22:39:37.657 O   left: Ok(ChatText([redacted]))
+22:39:37.657 O  right: Err(FieldTooLong)
+22:39:37.657 O note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+22:39:37.657 O 
+22:39:37.657 O 
+22:39:37.657 O failures:
+22:39:37.657 O     text::tests::chat_text_length_bounds
+22:39:37.657 O 
+22:39:37.657 O test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 199 filtered out; finished in 0.00s
+22:39:37.657 O 
+22:39:37.658 E error: test failed, to rerun pass `-p monolith-protocol --lib`

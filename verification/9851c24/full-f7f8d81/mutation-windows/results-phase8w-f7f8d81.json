@@ -1,0 +1,20 @@
+{
+ "commit": "f7f8d81d3f21c594e9d801a174beeeffaf39328c",
+ "unmodified_seconds": 617,
+ "timeout": 1234,
+ "results": [
+  {
+   "id": "FT80",
+   "path": "crates/monolith-storage/src/export.rs",
+   "what": "a name Windows refuses is written whole before the save fails",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_name_windows_refuses_is_refused_before_anything_is_written"
+   ],
+   "seconds": 529
+  }
+ ]
+}

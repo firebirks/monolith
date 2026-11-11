@@ -1,0 +1,14 @@
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.05s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.04s
+     Running `target/x86_64-unknown-linux-gnu/release/ui_present -artifact_prefix=<home>/p8fix/fuzz/artifacts/ui_present/ <home>/p8fix-inputs/controls.bin`
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2287562757
+INFO: Loaded 1 modules   (2490 inline 8-bit counters): 2490 [0x5a97213f2af0, 0x5a97213f34aa), 
+INFO: Loaded 1 PC tables (2490 PCs): 2490 [0x5a97213f34b0,0x5a97213fd050), 
+target/x86_64-unknown-linux-gnu/release/ui_present: Running 1 inputs 1 time(s) each.
+Running: <home>/p8fix-inputs/controls.bin
+Executed <home>/p8fix-inputs/controls.bin in 1 ms
+***
+*** NOTE: fuzzing was not performed, you have only
+***       executed the target code on a fixed set of inputs.
+***

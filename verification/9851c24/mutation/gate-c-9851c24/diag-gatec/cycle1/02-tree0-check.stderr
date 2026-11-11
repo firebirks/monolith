@@ -1,0 +1,7 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.68s
+     Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+     Running unittests src/lib.rs (target/debug/deps/monolith_identity-088774467f5f1508)
+     Running unittests src/lib.rs (target/debug/deps/monolith_protocol-cf87e149541a10f2)
+     Running unittests src/lib.rs (target/debug/deps/monolith_session-fc3fb02706a443be)
+     Running unittests src/lib.rs (target/debug/deps/monolith_storage-3e76f47a006ac86c)
+     Running unittests src/lib.rs (target/debug/deps/monolith_tor-6ed496a6fa794857)

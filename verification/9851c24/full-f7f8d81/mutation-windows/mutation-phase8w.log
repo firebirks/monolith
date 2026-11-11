@@ -1,0 +1,3 @@
+commit f7f8d81d3f21c594e9d801a174beeeffaf39328c, 1 faults, 1 workers, unmodified run 617s, timeout 1234s
+FT80  caught    529s  a name Windows refuses is written whole before the save fails
+done: {'caught': 1}; written to <repo>\mutation\results-phase8w-f7f8d81.json

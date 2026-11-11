@@ -1,0 +1,13 @@
+--- <home>/evidence-c3-reboot/runtime.rs.c90d5e5	2026-11-11 07:55:59.105251800 +0100
++++ mutation/work/tree0/crates/monolith-core/src/runtime.rs	2026-11-11 00:33:40.559990654 +0100
+@@ -2338,9 +2338,7 @@
+             // No further card once the runtime shuts down or the identity
+             // closes, as for the scheduler.
+             let go_on = || {
+-                !inner.stopping()
+-                    && !held.identity.is_closed()
+-                    && !held.manager.has_session(&contact)
++                !held.manager.has_session(&contact)
+                     && held.identity.is_current(&contact, &peer)
+             };
+             if let Ok(established) = dial_plan(

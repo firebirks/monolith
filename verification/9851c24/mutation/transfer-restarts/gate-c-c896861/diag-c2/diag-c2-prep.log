@@ -1,0 +1,33 @@
+== files changed 9851c24b9814092c2a50efdc6da51d99e0633460..c896861b66b0296db4ab1598589d69a88954d877
+mutation/README.md
+mutation/affected.py
+mutation/run.py
+mutation/test_run.py
+same Cargo.toml 9e211fc71d95
+same Cargo.lock df845fa39e05
+same crates a904f322a99b
+same fuzz 8888491f955a
+same tests 7d1239aa7c2b
+same docs a7c17c9129b8
+same rust-toolchain.toml 3417ee590341
+same .cargo 6c2c1a10b327
+same mutation/faults.py 8623bf15e959
+== results kept in ~/results-backup-20261110
+3ee47d92a02de11e  results-all-9851c24-B.json
+3ee47d92a02de11e  results-B-9851c24.json
+21971d0e38179c19  results-phase8-9851c24.json
+21971d0e38179c19  results-phase8-9851c24-part2.json
+== binaries of the gate C that failed kept in ~/evidence-9851c24
+509fc8a79394e541  tree0-binaries-9851c24.json
+c2bba963fb6774f8  tree0-transfer_restarts-9a2146a26bc681d6
+ace06f10c1dec12e  tree0-transfer_restarts-f21ed7640ff421a5
+11335c0ea8e80e7e  tree1-binaries-9851c24.json
+4f80612a0854f680  tree1-transfer_restarts-9a2146a26bc681d6
+8296201700233367  tree1-transfer_restarts-f21ed7640ff421a5
+== ~/p8 at c896861 Keep the output of every mutation run on disk and name what failed in an unmodified run
+== manifest
+96 ids, 96 unique; by list {'PHASE1': 8, 'PHASE2': 7, 'PHASE3': 1, 'PHASE4': 20, 'PHASE5': 12, 'PHASE6': 33, 'PHASE7': 15}; gate B had 84, none of them here
+MR25, K4, CS30, Q1 once each; every one expected caught
+== disk
+/dev/sdd       1007G   78G  879G   9% /
+prep done 2026-11-10T12:51:46+01:00

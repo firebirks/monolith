@@ -1,0 +1,29 @@
+smoke base32 exit=0 Done 11742182 runs in 26 second(s) crash_lines=0
+smoke contact_card exit=0 Done 673945 runs in 26 second(s) crash_lines=0
+smoke contact_card_text exit=0 Done 1526558 runs in 26 second(s) crash_lines=0
+smoke message_body exit=0 Done 949370 runs in 26 second(s) crash_lines=0
+smoke frame_plaintext exit=0 Done 819297 runs in 26 second(s) crash_lines=0
+smoke frame_stream exit=0 Done 78341 runs in 26 second(s) crash_lines=0
+smoke text_fields exit=0 Done 2100610 runs in 26 second(s) crash_lines=0
+smoke session_sequence exit=0 Done 573207 runs in 26 second(s) crash_lines=0
+smoke credential_sequence exit=0 Done 145295 runs in 26 second(s) crash_lines=0
+smoke handshake_responder exit=0 Done 12565 runs in 26 second(s) crash_lines=0
+smoke handshake_initiator exit=0 Done 9309 runs in 26 second(s) crash_lines=0
+smoke session_frames exit=0 Done 3994 runs in 26 second(s) crash_lines=0
+smoke tor_control_reply exit=0 Done 730293 runs in 26 second(s) crash_lines=0
+smoke socks_reply exit=0 Done 14626655 runs in 26 second(s) crash_lines=0
+smoke vault_payload exit=0 Done 262292 runs in 26 second(s) crash_lines=0
+smoke contact_store exit=0 Done 19625 runs in 26 second(s) crash_lines=0
+smoke message_store exit=0 Done 714776 runs in 26 second(s) crash_lines=0
+smoke transfer_sequence exit=0 Done 260402 runs in 26 second(s) crash_lines=0
+smoke transfer_store exit=0 Done 5128851 runs in 26 second(s) crash_lines=0
+smoke message_sequence exit=0 Done 9999 runs in 26 second(s) crash_lines=0
+smoke ui_present exit=1  crash_lines=3
+smoke ui_model_sequence exit=0 Done 321843 runs in 26 second(s) crash_lines=0
+long transfer_sequence exit=0 Done 1060009 runs in 601 second(s) crash_lines=0
+long transfer_store exit=0 Done 77456210 runs in 601 second(s) crash_lines=0
+long message_body exit=0 Done 10488161 runs in 601 second(s) crash_lines=0
+long text_fields exit=0 Done 30904166 runs in 601 second(s) crash_lines=0
+long ui_model_sequence exit=0 Done 2194847 runs in 601 second(s) crash_lines=0
+long ui_present exit=1  crash_lines=3
+done

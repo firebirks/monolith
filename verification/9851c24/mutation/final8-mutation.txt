@@ -1,0 +1,16 @@
+commit 9851c24b9814092c2a50efdc6da51d99e0633460, 2 workers, 2026-11-05T14:39:34+01:00
+resumed 2026-11-07T00:04:40+01:00: phase8 done before: 25, to run: 54
+phase8 (part 2) exit 2 (0 s) 2026-11-07T00:04:40+01:00
+resumed 2026-11-07T00:08:09+01:00: phase8 done before: 25, to run: 54
+phase8 (part 2) exit 0 (20764 s) 2026-11-07T05:54:13+01:00
+stopped 2026-11-07T08:35:52+01:00 on the owner request: phase7 at 24/71 caught (HR1-HR11, HR17-HR28), kept as ~/final8-mutation-phase7-part1.log; copies cleaned
+gate B started 2026-11-08T23:12:42+01:00: 84 faults, 2 workers, commit 9851c24b9814092c2a50efdc6da51d99e0633460
+gate B exit 0 (24529 s) 2026-11-09T06:01:31+01:00
+done B
+gate C started 2026-11-09T13:58:34+01:00: 96 faults, 2 workers, commit 9851c24b9814092c2a50efdc6da51d99e0633460
+gate C exit 3 (1572 s) 2026-11-09T14:24:46+01:00
+done C
+gate C3 started 2026-11-10T15:17:11+01:00: 98 faults, 2 workers, commit c90d5e54735542764fe46855ad68cbfd342273dc
+gate C3r started 2026-11-11T08:24:54+01:00: FT29 HR77, 2 workers, commit c90d5e54735542764fe46855ad68cbfd342273dc
+gate C3r exit 0 (4450 s) 2026-11-11T09:39:04+01:00
+done C3r

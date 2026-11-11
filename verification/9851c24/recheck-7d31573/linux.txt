@@ -1,0 +1,22 @@
+7d31573
+fmt-ok
+== 
+error: invalid toolchain name ''
+== 
+error: invalid toolchain name ''
+== 
+error: invalid toolchain name ''
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 23s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.80s
+7d31573
+== 1.95.0
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+== 1.85.1
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+== 1.99.1
+error: toolchain '1.99.1-x86_64-unknown-linux-gnu' is not installed
+bash: line 1: <home>/.cargo/env: No such file or directory
+rustc 1.92.0 (ded5c06cf 2025-12-08)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

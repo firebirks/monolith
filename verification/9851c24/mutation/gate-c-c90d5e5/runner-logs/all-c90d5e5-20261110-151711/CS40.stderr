@@ -1,0 +1,43 @@
+   Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-storage)
+warning: constant `OTHERS` is never used
+   --> crates/monolith-storage/src/disk_unix.rs:104:7
+    |
+104 | const OTHERS: u32 = 0o077;
+    |       ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+warning: `monolith-storage` (lib) generated 1 warning
+warning: `monolith-storage` (lib test) generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.73s
+     Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+     Running tests/credentials.rs (target/debug/deps/credentials-4c265cd955e2ea60)
+     Running tests/front_end.rs (target/debug/deps/front_end-ae2161664ea25cbf)
+     Running tests/fuzz_seeds.rs (target/debug/deps/fuzz_seeds-3b299d8009e89040)
+     Running tests/identities.rs (target/debug/deps/identities-2906198f62901f73)
+     Running tests/invitations.rs (target/debug/deps/invitations-7b4d73c18634af16)
+     Running tests/link.rs (target/debug/deps/link-aac1dbf34f1cbf29)
+     Running tests/message_model.rs (target/debug/deps/message_model-69c792094f943ef4)
+     Running tests/messages.rs (target/debug/deps/messages-967c5ec6106d5e58)
+     Running tests/observability.rs (target/debug/deps/observability-51ea98b705ba23a6)
+     Running tests/runtime.rs (target/debug/deps/runtime-c78205a2aefdcbd0)
+     Running tests/runtime_model.rs (target/debug/deps/runtime_model-0e16eb7059194e92)
+     Running tests/store.rs (target/debug/deps/store-8f59717003cb99e7)
+     Running tests/structure.rs (target/debug/deps/structure-a364fb8dfed2217b)
+     Running tests/supervisor.rs (target/debug/deps/supervisor-681d5cd5a8c6d60f)
+     Running tests/tor_network.rs (target/debug/deps/tor_network-6908e9c338c35454)
+     Running tests/transfer_model.rs (target/debug/deps/transfer_model-0892031663fe4249)
+     Running tests/transfer_restarts.rs (target/debug/deps/transfer_restarts-f21ed7640ff421a5)
+     Running tests/transfers.rs (target/debug/deps/transfers-3a5eca8e91d186bb)
+     Running unittests src/lib.rs (target/debug/deps/monolith_storage-3e76f47a006ac86c)
+error: test failed, to rerun pass `-p monolith-storage --lib`
+     Running tests/export.rs (target/debug/deps/export-4cc09c9ae0da1ee1)
+     Running tests/fuzz_seeds.rs (target/debug/deps/fuzz_seeds-dc62778d4a9e379e)
+     Running tests/kdf_benchmark.rs (target/debug/deps/kdf_benchmark-244047a3f06aaf15)
+     Running tests/transfer_format.rs (target/debug/deps/transfer_format-7e4055b1f92df7ac)
+     Running tests/vault_format.rs (target/debug/deps/vault_format-53a27bbf983ee89d)
+   Doc-tests monolith_core
+   Doc-tests monolith_storage
+error: 1 target failed:
+    `-p monolith-storage --lib`

@@ -1,0 +1,15 @@
+== files changed 9851c24..c90d5e5
+crates/monolith-core/tests/transfer_restarts.rs
+docs/DESIGN_QUESTIONS.md
+mutation/README.md
+mutation/affected.py
+mutation/run.py
+mutation/test_run.py
+same as 9851c24: Cargo.toml, Cargo.lock, fuzz, tests, toolchain, .cargo, faults.py, and 59 paths of the 13 crates (every one but transfer_restarts.rs)
+== ~/p8 at c90d5e5 Hold a progress sync while the chat becomes durable in the hostile sender test, and record that the lock of the disk has no order
+== manifest
+98 ids, 98 unique: the 96 and MR26, FT29; by list {'PHASE1': 8, 'PHASE2': 7, 'PHASE3': 1, 'PHASE4': 20, 'PHASE5': 13, 'PHASE6': 33, 'PHASE7': 15, 'PHASE8': 1}
+MR26 the only one from gate B, FT29 the only one from the Phase 8 list; every one expected caught
+== disk
+/dev/sdd       1007G   41G  916G   5% /
+prep done 2026-11-10T14:46:11+01:00

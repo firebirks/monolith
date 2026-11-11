@@ -1,0 +1,43 @@
+23:33:35.162 E    Compiling monolith-protocol v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-protocol)
+23:33:35.275 E    Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-tor)
+23:33:35.275 E    Compiling monolith-session v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-session)
+23:33:35.412 E    Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-storage)
+23:33:35.787 E    Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+23:33:37.137 E     Finished `test` profile [unoptimized + debuginfo] target(s) in 2.06s
+23:33:37.144 E      Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+23:33:37.146 O 
+23:33:37.146 O running 0 tests
+23:33:37.146 O 
+23:33:37.146 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 139 filtered out; finished in 0.00s
+23:33:37.146 O 
+23:33:37.146 E      Running unittests src/lib.rs (target/debug/deps/monolith_identity-088774467f5f1508)
+23:33:37.147 O 
+23:33:37.147 O running 0 tests
+23:33:37.147 O 
+23:33:37.147 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.00s
+23:33:37.147 O 
+23:33:37.147 E      Running unittests src/lib.rs (target/debug/deps/monolith_protocol-cf87e149541a10f2)
+23:33:37.148 O 
+23:33:37.148 O running 1 test
+23:33:37.149 O test text::tests::chat_text_length_bounds ... ok
+23:33:37.149 O 
+23:33:37.149 O test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 199 filtered out; finished in 0.00s
+23:33:37.149 O 
+23:33:37.149 E      Running unittests src/lib.rs (target/debug/deps/monolith_session-fc3fb02706a443be)
+23:33:37.150 O 
+23:33:37.150 O running 0 tests
+23:33:37.150 O 
+23:33:37.150 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 129 filtered out; finished in 0.00s
+23:33:37.150 O 
+23:33:37.151 E      Running unittests src/lib.rs (target/debug/deps/monolith_storage-3e76f47a006ac86c)
+23:33:37.152 O 
+23:33:37.152 O running 0 tests
+23:33:37.152 O 
+23:33:37.152 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 71 filtered out; finished in 0.00s
+23:33:37.152 O 
+23:33:37.152 E      Running unittests src/lib.rs (target/debug/deps/monolith_tor-6ed496a6fa794857)
+23:33:37.153 O 
+23:33:37.153 O running 0 tests
+23:33:37.153 O 
+23:33:37.153 O test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.00s
+23:33:37.153 O 

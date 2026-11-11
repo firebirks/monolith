@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 155146d7609372a1a2a30db74b6b9a8202bf25f0e64b6529c6a1a4380355201c # shrinks to steps = [Accept, Abort, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Chunk { off: 0, flip: false }, Offer { size_ok: false, resume: false }], size = 1, other = false

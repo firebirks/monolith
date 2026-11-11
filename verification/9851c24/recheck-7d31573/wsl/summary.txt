@@ -1,0 +1,9 @@
+commit 7d31573834d07cd7b09adbae08f1a1a25f869c19 2026-11-05T11:34:18+01:00
+rustc 1.101.0-nightly (6f5da406b 2026-10-10)
+fuzz-check exit 0 (18 s)
+fuzz-build exit 0 (1 s)
+input-controls.bin exit 0 (1 s)
+input-crash-6fa7b23b exit 0 (0 s)
+smoke ui_present exit=0 Done 42849 runs in 26 second(s) crash_lines=0
+long ui_present exit=0 Done 942468 runs in 601 second(s) crash_lines=0
+done 2026-11-05T11:45:07+01:00

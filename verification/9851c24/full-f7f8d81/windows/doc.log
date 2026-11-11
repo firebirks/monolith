@@ -1,0 +1,27 @@
+   Compiling getrandom v0.3.4
+    Checking monolith-identity v0.0.0 (<repo>\target\final8-src\crates\monolith-identity)
+    Checking tokio v1.53.3
+    Checking monolith-ui-kit v0.0.0 (<repo>\target\final8-src\crates\monolith-ui-kit)
+    Checking monolith-ui-model v0.0.0 (<repo>\target\final8-src\crates\monolith-ui-model)
+ Documenting monolith-ui-kit v0.0.0 (<repo>\target\final8-src\crates\monolith-ui-kit)
+ Documenting monolith-ui-snapshot v0.0.0 (<repo>\target\final8-src\crates\monolith-ui-snapshot)
+ Documenting monolith-identity v0.0.0 (<repo>\target\final8-src\crates\monolith-identity)
+ Documenting monolith-ui-model v0.0.0 (<repo>\target\final8-src\crates\monolith-ui-model)
+    Checking monolith-protocol v0.0.0 (<repo>\target\final8-src\crates\monolith-protocol)
+ Documenting monolith-protocol v0.0.0 (<repo>\target\final8-src\crates\monolith-protocol)
+    Checking monolith-session v0.0.0 (<repo>\target\final8-src\crates\monolith-session)
+    Checking monolith-storage v0.0.0 (<repo>\target\final8-src\crates\monolith-storage)
+ Documenting monolith-session v0.0.0 (<repo>\target\final8-src\crates\monolith-session)
+ Documenting monolith-storage v0.0.0 (<repo>\target\final8-src\crates\monolith-storage)
+    Checking monolith-ui v0.0.0 (<repo>\target\final8-src\crates\monolith-ui)
+ Documenting monolith-ui v0.0.0 (<repo>\target\final8-src\crates\monolith-ui)
+    Checking monolith-tor v0.0.0 (<repo>\target\final8-src\crates\monolith-tor)
+ Documenting monolith-tor v0.0.0 (<repo>\target\final8-src\crates\monolith-tor)
+    Checking monolith-core v0.0.0 (<repo>\target\final8-src\crates\monolith-core)
+ Documenting monolith-core v0.0.0 (<repo>\target\final8-src\crates\monolith-core)
+    Checking monolith-runtime v0.0.0 (<repo>\target\final8-src\crates\monolith-runtime)
+ Documenting monolith-runtime v0.0.0 (<repo>\target\final8-src\crates\monolith-runtime)
+ Documenting monolith-cli v0.0.0 (<repo>\target\final8-src\crates\monolith-cli)
+ Documenting monolith-desktop v0.0.0 (<repo>\target\final8-src\crates\monolith-desktop)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.02s
+   Generated <repo>\target\final8-win\doc\monolith\index.html and 12 other files

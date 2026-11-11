@@ -1,0 +1,39 @@
+2026-11-10T14:09:09 fixcheck started
+14:09:11 fixcheck started
+14:09:12 base changes: Files crates/monolith-core/tests/transfer_restarts.rs and crates/monolith-core/tests/transfer_restarts.rs differ;Files docs/DESIGN_QUESTIONS.md and docs/DESIGN_QUESTIONS.md differ;
+14:09:12 v1 changes: Files crates/monolith-core/src/runtime.rs and crates/monolith-core/src/runtime.rs differ;Files crates/monolith-core/tests/transfer_restarts.rs and crates/monolith-core/tests/transfer_restarts.rs differ;Files docs/DESIGN_QUESTIONS.md and docs/DESIGN_QUESTIONS.md differ;
+14:09:12 v2 changes: Files crates/monolith-core/src/runtime.rs and crates/monolith-core/src/runtime.rs differ;Files crates/monolith-core/tests/transfer_restarts.rs and crates/monolith-core/tests/transfer_restarts.rs differ;Files docs/DESIGN_QUESTIONS.md and docs/DESIGN_QUESTIONS.md differ;
+14:09:12 oldv2 changes: Files crates/monolith-core/src/runtime.rs and crates/monolith-core/src/runtime.rs differ;
+14:09:33 base built in 21 s: transfer_restarts-f21ed7640ff421a5 sha256 f284449fc0bb3c07
+14:09:54 v1 built in 21 s: transfer_restarts-f21ed7640ff421a5 sha256 c3bf148b117bea53
+14:10:14 v2 built in 20 s: transfer_restarts-f21ed7640ff421a5 sha256 a59b6290eabd07c0
+14:10:34 oldv2 built in 20 s: transfer_restarts-f21ed7640ff421a5 sha256 432db39e8b555694
+14:10:34 == base: the corrected test alone, 20 times
+14:12:07 base alone: 0 of 20 failed
+14:12:07 == base: the whole binary once
+14:14:40 base whole: exit/seconds 0 153; test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 152.90s
+14:14:40 == base: the whole binary as 4 processes at once, 2 rounds
+14:22:44 round 1: p1 0 480 1ok; test result: ok. 36 passed; 0 failed; 0 ; p2 0 482 1ok; test result: ok. 36 passed; 0 failed; 0 ; p3 0 470 1ok; test result: ok. 36 passed; 0 failed; 0 ; p4 0 484 1ok; test result: ok. 36 passed; 0 failed; 0 ;
+14:30:46 round 2: p1 0 482 1ok; test result: ok. 36 passed; 0 failed; 0 ; p2 0 471 1ok; test result: ok. 36 passed; 0 failed; 0 ; p3 0 476 1ok; test result: ok. 36 passed; 0 failed; 0 ; p4 0 479 1ok; test result: ok. 36 passed; 0 failed; 0 ;
+14:30:46 == base: the corrected test as 8 processes at once, 5 rounds
+14:30:59 round 1: 0 13 0 12 0 12 0 13 0 12 0 12 0 13 0 13 
+14:31:11 round 2: 0 12 0 12 0 12 0 12 0 12 0 12 0 12 0 12 
+14:31:23 round 3: 0 12 0 12 0 12 0 12 0 12 0 12 0 12 0 12 
+14:31:36 round 4: 0 13 0 13 0 13 0 13 0 13 0 13 0 13 0 13 
+14:31:48 round 5: 0 12 0 12 0 12 0 12 0 12 0 12 0 12 0 12 
+14:31:48 == base: fmt and clippy
+14:31:50 fmt exit 0
+14:32:01 clippy exit 0; 0 warning/error lines
+14:32:01 == v1: the corrected test (must fail)
+14:32:03 v1 run 1: exit/seconds 101 2; crates/monolith-core/tests/transfer_restarts.rs:535:18:
+14:32:04 v1 run 2: exit/seconds 101 1; crates/monolith-core/tests/transfer_restarts.rs:535:18:
+14:32:05 v1 run 3: exit/seconds 101 1; crates/monolith-core/tests/transfer_restarts.rs:535:18:
+14:32:05 == v2: the corrected test (must fail)
+14:32:10 v2 run 1: exit/seconds 0 5; 
+14:32:15 v2 run 2: exit/seconds 0 5; 
+14:32:20 v2 run 3: exit/seconds 0 5; 
+14:32:20 == oldv2: the test before the correction, 10 times
+14:32:43 oldv2: 0 of 10 failed
+14:32:43 fixcheck ended
+2026-11-10T14:32:43 fixcheck exit 0
+2026-11-10T14:32:43 fixcheck ended

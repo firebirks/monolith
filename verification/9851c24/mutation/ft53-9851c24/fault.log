@@ -1,0 +1,5 @@
+at 9851c24b9814092c2a50efdc6da51d99e0633460 2026-11-05T14:14:24+01:00
+commit 9851c24b9814092c2a50efdc6da51d99e0633460, 1 faults, 1 workers, unmodified run 822s, timeout 1644s
+FT53  caught    657s  a cancellation is told before it is durable
+done: {'caught': 1}; written to <home>/p8fix/mutation/results-phase8-9851c24.json
+exit 0 2026-11-05T14:39:09+01:00

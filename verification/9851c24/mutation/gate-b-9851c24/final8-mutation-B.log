@@ -1,0 +1,86 @@
+commit 9851c24b9814092c2a50efdc6da51d99e0633460, 84 faults, 2 workers, unmodified run 792s, timeout 3168s
+X9    caught    981s  '..' allowed as a file name
+X8    caught   1023s  backslash allowed in file names
+X10   caught    968s  display names may exceed the scalar limit
+B1    caught    958s  trailing bytes after a body accepted
+B2    caught    952s  file offer size not bounded on receive
+B5    caught    972s  an empty file chunk accepted
+CS46  caught    816s  a deleted identity is not closed
+CS100 caught    806s  a deletion takes whatever identity has the keys it names
+CS110 caught    780s  a confirmation counts for whatever contact holds the identity
+CS113 caught    818s  a caller can make what a link received, or change it
+CS116 caught    720s  an acceptance that arrived on a session counts for a contact made again
+CS117 caught    788s  a new card that arrived on a session counts for a contact made again
+MR8   caught    777s  the scheduler of a record takes no notice of the record ending
+MR23  caught    728s  a vault of version 1 is not written with the identifiers it got
+MR9   caught   3168s  a failed attempt is followed by the next at once (timeout)
+MR27  caught    994s  a probe that was answered leaves the newer session open
+MR26  caught   3168s  a message whose acknowledgement does not come keeps its session waiting (timeout)
+MR28  caught    828s  a session sends its message in flight again and waits for it from the last send
+MR30  caught    803s  a message in flight when its session ends is reported delivered
+MR32  caught    811s  a session sends a queued message before it is durable
+MR33  caught    798s  a session goes on after the message store failed
+MR34  caught    825s  a scheduler goes on after the message store failed
+MR35  caught    793s  a dial in progress goes on after its record ended
+MR38  caught    791s  a session task that is aborted stays registered
+MR39  caught    791s  a session that ended for want of an acknowledgement starts the delays again
+MR40  caught    844s  a missing message store beside a vault with identities is made again without saying so
+MR41  caught    818s  a vault of version 1 beside a store with messages is taken
+MR44  caught    782s  a scheduler goes on after the vault failed
+MR53  caught    777s  a failed store is reported only by whatever runs into it
+MR54  caught    811s  an inbound session that ended for want of an acknowledgement starts the delays again
+UI1   caught     33s  a late answer of one identity is taken for the identity shown
+UI2   caught     65s  a snapshot keeps the contacts of another identity
+UI4   caught     76s  a confirmation blocks the contact selected instead of the one it captured
+UI5   caught     48s  missed events are not followed by reading everything again
+MR57  caught    826s  ending a session that was not registered wakes every scheduler
+UI9   caught     56s  a dialog of one identity stays open when another is shown
+UI13  caught     44s  an answer to no command in flight is taken for one that is
+UI15  caught     50s  Debug prints the passphrase
+UI21  caught     27s  sessions coming and going reach the window
+UI18  caught     40s  forgetting the references of one identity forgets those of the others
+UI25  caught     25s  the size limit of a card file is moved
+UI26  caught     27s  a device is read as a card file
+UI27  caught     37s  the card of a closed dialog stays in memory
+UI44  caught     51s  a character that changes the direction of text is drawn as it is
+UI52  caught     19s  the bridge says every contact holds an invitation
+UI47  caught     41s  undo brings back a draft that was sent
+UI54  caught     49s  the plain card of an accepted contact keeps Add contact open
+UI53  caught     61s  a plain card closes Add contact as an invitation does
+UI55  caught     45s  the card typed stays in Add contact once the contact is added
+UI58  caught     38s  the button of the waiting notice opens no card
+UI71  caught     43s  the question before closing is not asked over an open dialog
+UI73  caught     50s  the next try counts from no time instead of when the attempt failed
+UI74  caught     43s  the next try stays once nothing is queued
+UI81  caught     52s  a snapshot keeps the blocked people of another identity
+UI82  caught     53s  an unblock answered late re-reads the identity shown
+UI83  caught     58s  a refused unblock is told as done
+UI84  caught     31s  the number of someone unblocked is kept and names a later block
+UI92  caught     49s  the window keeps the state of a conversation whose messages were deleted
+UI93  caught     62s  the rows of the sidebar are not made again when the identity is read
+UI104 caught     38s  a shortcut of the window acts behind the question before blocking a sender
+UI109 caught     26s  a file put in place of the one looked at is read
+UI110 caught     46s  a link put in place of the card file is followed
+UI116 caught     57s  accepting through an invitation offers no revoke
+UI118 caught     55s  a read asked before a message was queued is taken to count it
+UI141 caught     41s  the scroll area of the composer has stops of the Tab key
+UI158 caught     52s  a card leaves its lines half empty
+HR29  caught    841s  a probe sends a second Ping while one is outstanding
+HR30  caught    832s  a probed session whose key was retired meanwhile wins
+HR32  caught    735s  a dial that failed once no attempt follows announces a retry
+HR33  caught    666s  a block or a deletion names its contact before its work runs
+HR35  caught    676s  chat messages are not paced
+HR36  caught    642s  control messages are not paced
+HR31  caught   3168s  a session that ended with its record announces a retry (timeout)
+HR37  caught    777s  file offers are not paced
+HR38  caught    808s  profiles are not paced
+HR39  caught    788s  a bucket holds twice its burst
+HR53  caught     69s  tag characters are drawn as they are
+HR60  caught     45s  a contact of another identity accepting raises a notice over the one shown
+HR40  caught    797s  a new session of a contact gives back what the last one took
+HR65  caught     57s  an Enter while an input method composes sends the draft
+HR68  caught     58s  a drive on a share is looked at folder by folder before it is refused
+HR63  caught    787s  a changed message store is told as the vault's authentication
+HR76  caught    817s  a session the scheduler waited on ends without announcing the retry
+HR85  caught    753s  a chunk for an offer this side rejected is discarded
+done: {'caught': 84}; written to <repo>/mutation/results-all-9851c24.json

@@ -1,0 +1,44 @@
+-rw-r--r-- 1 <user> <user> 1818 Nov  7 08:35 <home>/final8-mutation-phase7-part1.log
+-rw-r--r-- 1 <user> <user> 2005 Nov  5 18:21 <home>/final8-mutation-phase8.log
+lists at c90d5e5: PHASE1 45, PHASE2 99, PHASE3 71, PHASE4 123, PHASE5 57, PHASE6 160, PHASE7 71, PHASE8 79, PHASE7_WINDOWS 14, PHASE8_WINDOWS 1
+
+== every run: verdicts against faults.py
+gate B (9851c24, 2026-11-09): 84 faults, {'caught': 84}; timeouts: ['MR9 +4 named', 'MR26 alone', 'HR31 +1 named']; off: none
+Phase 7 part 1 (9851c24, 2026-11-07): 23 faults, {'caught': 23}; timeouts: none; off: none
+gate C3 (c90d5e5, 2026-11-10/11): 98 faults, {'caught': 98}; timeouts: ['Q1 +4 named', 'CS30 +3 named', 'MR25 alone', 'MR26 alone', 'FT29 alone']; off: none
+Phase 8 part 1 (9851c24, 2026-11-05): 25 faults, {'caught': 25}; timeouts: none; off: none
+Phase 8 part 2 (9851c24, 2026-11-07): 54 faults, {'caught': 54}; timeouts: ['FT29 alone']; off: none
+phase7w (f7f8d81): 14 faults, {'caught': 14}; timeouts: none; off: none
+phase8w (f7f8d81): 1 faults, {'caught': 1}; timeouts: none; off: none
+
+== PHASE1..PHASE7 (626 Linux)
+overlaps: B & part 1 [], B & C3 ['MR26'], part 1 & C3 []; C3 outside PHASE1..7: ['FT29']
+run on the candidate at least once: 203 (B 84, part 1 23, C3 new 96; MR26 in B and C3)
+not run: 423 = 9 expected survivors ['B3', 'B4', 'CAP2', 'CAP3', 'S15', 'S24', 'Q14', 'Q18', 'Q29'] + 414 expected caught
+expected survivors in the lists: ['B3', 'B4', 'CAP2', 'CAP3', 'Q14', 'Q18', 'Q29', 'S15', 'S24']; any of them run: []
+
+== PHASE8 (Linux)
+79 in the list; run on 9851c24: 79; missing []; again in C3: ['FT29']
+
+== Windows lists
+PHASE7_WINDOWS: 14 in the list, 14 run on f7f8d81, missing []
+PHASE8_WINDOWS: 1 in the list, 1 run on f7f8d81, missing []
+
+== no problem
+
+== f7f8d81..9851c24 (the Windows lists ran on f7f8d81)
+ crates/monolith-ui-model/tests/fuzz_seeds.rs |   9 +++++++++
+ fuzz/README.md                               |  10 ++++++++--
+ fuzz/fuzz_targets/ui_present.rs              |  21 ++++++++++++++-------
+ fuzz/seeds/ui_present/controls.bin           | Bin 0 -> 20 bytes
+ mutation/faults.py                           |  10 +++++-----
+ 5 files changed, 36 insertions(+), 14 deletions(-)
+
+== 9851c24..c90d5e5
+ crates/monolith-core/tests/transfer_restarts.rs | 183 ++++++++++++++---------
+ docs/DESIGN_QUESTIONS.md                        |  45 ++++++
+ mutation/README.md                              |  15 +-
+ mutation/affected.py                            |   3 +-
+ mutation/run.py                                 | 184 +++++++++++++++++++----
+ mutation/test_run.py                            | 191 ++++++++++++++++++++++++
+ 6 files changed, 522 insertions(+), 99 deletions(-)

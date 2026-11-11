@@ -1,0 +1,20 @@
+{
+ "commit": "9851c24b9814092c2a50efdc6da51d99e0633460",
+ "unmodified_seconds": 822,
+ "timeout": 1644,
+ "results": [
+  {
+   "id": "FT53",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a cancellation is told before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step"
+   ],
+   "seconds": 657
+  }
+ ]
+}

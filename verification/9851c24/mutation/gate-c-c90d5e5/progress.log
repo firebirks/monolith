@@ -1,0 +1,31 @@
+== files changed 9851c24..c90d5e5
+crates/monolith-core/tests/transfer_restarts.rs
+docs/DESIGN_QUESTIONS.md
+mutation/README.md
+mutation/affected.py
+mutation/run.py
+mutation/test_run.py
+same as 9851c24: Cargo.toml, Cargo.lock, fuzz, tests, toolchain, .cargo, faults.py, and 59 paths of the 13 crates (every one but transfer_restarts.rs)
+== ~/p8 at c90d5e5 Hold a progress sync while the chat becomes durable in the hostile sender test, and record that the lock of the disk has no order
+== manifest
+98 ids, 98 unique: the 96 and MR26, FT29; by list {'PHASE1': 8, 'PHASE2': 7, 'PHASE3': 1, 'PHASE4': 20, 'PHASE5': 13, 'PHASE6': 33, 'PHASE7': 15, 'PHASE8': 1}
+MR26 the only one from gate B, FT29 the only one from the Phase 8 list; every one expected caught
+== disk
+/dev/sdd       1007G   41G  916G   5% /
+prep done 2026-11-10T14:46:11+01:00
+14:46:11 commit c90d5e54735542764fe46855ad68cbfd342273dc: preparing the copies
+14:46:13 precheck: every pattern found once
+14:46:13 unmodified run of: monolith-core monolith-desktop monolith-identity monolith-protocol monolith-runtime monolith-session monolith-storage monolith-tor monolith-ui monolith-ui-model
+14:46:13 runner logs in <repo>/mutation/work/logs/unmodified-c90d5e5-20261110-144613
+14:46:13 tree0: unmodified run
+15:01:16 tree0: passed in 902s; logs {'stdout_bytes': 101834, 'stderr_bytes': 14225, 'binaries_run': 51, 'doc_tests': 10, 'result_lines': 61, 'passed': 1296, 'failed': 0, 'ignored': 3, 'not_ok': [], 'finished': True}
+15:01:16 tree0: 51 test binaries; against the build before: 50 identical, 1 different ['transfer_restarts-9a2146a26bc681d6'], 0 not there before, 0 gone []
+15:01:16 tree0: logs checked
+15:01:36 tree0: check_copy passed
+15:01:36 tree1: unmodified run
+15:16:51 tree1: passed in 912s; logs {'stdout_bytes': 101835, 'stderr_bytes': 14225, 'binaries_run': 51, 'doc_tests': 10, 'result_lines': 61, 'passed': 1296, 'failed': 0, 'ignored': 3, 'not_ok': [], 'finished': True}
+15:16:51 tree1: 51 test binaries; against the build before: 39 identical, 1 different ['transfer_restarts-9a2146a26bc681d6'], 11 not there before, 0 gone []
+15:16:51 tree1: logs checked
+15:17:11 tree1: check_copy passed
+15:17:11 both unmodified checks passed
+unmodified step exit 0 2026-11-10T15:17:11+01:00

@@ -1,0 +1,181 @@
+first run: commit c90d5e54735542764fe46855ad68cbfd342273dc, 98 faults, 2 workers, unmodified run 803s, timeout 3212s; 96 records rebuilt
+resumed run: commit c90d5e54735542764fe46855ad68cbfd342273dc, unmodified 744s, timeout 2976s, 2 results
+98 records in <home>/diag-c3/final
+
+commit c90d5e54735542764fe46855ad68cbfd342273dc, unmodified 803 (2026-11-10), 744 (2026-11-11)s, timeout 3212 (2026-11-10), 2976 (2026-11-11)s, 98 results
+verdicts {'caught': 98}; kinds {'named tests': 92, 'no test named': 1, 'timeout and tests': 2, 'timeout only': 3}
+seed tests only: []
+
+== every fault: kind, seconds, the binaries with failing tests (count), earlier evidence
+X1     named tests             1086s  monolith_protocol (unit) 4, runtime 1 | before (bbf1279 caught): 5 tests, 5 of them fail now
+X2     named tests             1082s  monolith_protocol (unit) 2, properties 2, runtime 1 | before (bbf1279 caught): 5 tests, 5 of them fail now
+X3     named tests             1056s  monolith_protocol (unit) 1, properties 1, runtime 1 | before (bbf1279 caught): 3 tests, 3 of them fail now
+X5     named tests             1029s  monolith_protocol (unit) 1, properties 2 | before (740b671 caught): 3 tests, 3 of them fail now
+X6     named tests             1027s  monolith_protocol (unit) 1, properties 3 | before (740b671 caught): 4 tests, 4 of them fail now
+X7     named tests             1027s  monolith_protocol (unit) 3, properties 2 | before (740b671 caught): 4 tests, 4 of them fail now
+X11    named tests              975s  monolith_protocol (unit) 2, monolith_storage (unit) 1, properties 1 | before (740b671 caught): 3 tests, 3 of them fail now
+L1     named tests             1005s  monolith_protocol (unit) 2, properties 1 | before (740b671 caught): 3 tests, 3 of them fail now
+K4     no test named            863s  doc-tests monolith_session 1 | before (bbf1279 caught): 0 tests, 0 of them fail now
+P4     named tests              986s  monolith_protocol (unit) 1, properties 1 | before (740b671 caught): 2 tests, 2 of them fail now
+P5     named tests              986s  monolith_protocol (unit) 1, properties 1 | before (740b671 caught): 2 tests, 2 of them fail now
+P6     named tests              978s  monolith_protocol (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+P10    named tests              994s  monolith_protocol (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+P11    named tests              973s  monolith_protocol (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+P14    named tests              972s  monolith_protocol (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+Q1     timeout and tests       3212s  system 4 | before (bbf1279 caught): 4 tests, 4 of them fail now
+CS30   timeout and tests       3212s  front_end 1, supervisor 2 | before (bbf1279 caught): 3 tests, 3 of them fail now
+CS38   named tests              722s  monolith_storage (unit) 2 | before (bbf1279 caught): 2 tests, 2 of them fail now
+CS40   named tests              908s  monolith_storage (unit) 1 | before (bbf1279 caught): 1 tests, 1 of them fail now
+CS62   named tests              879s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS66   named tests              850s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS88   named tests              866s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS89   named tests              880s  monolith_core (unit) 2 | before (740b671 caught): 2 tests, 2 of them fail now
+CS90   named tests              962s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS92   named tests              875s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS93   named tests              901s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS94   named tests              839s  monolith_core (unit) 2 | before (740b671 caught): 2 tests, 2 of them fail now
+CS103  named tests              898s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS104  named tests              909s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS105  named tests              886s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS107  named tests              940s  structure 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS120  named tests              858s  structure 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS121  named tests              847s  monolith_core (unit) 2 | before (740b671 caught): 2 tests, 2 of them fail now
+CS114  named tests              878s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS115  named tests              889s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+CS123  named tests              868s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+MR10   named tests              870s  monolith_core (unit) 2, transfer_restarts 1 | before (740b671 caught): 2 tests, 2 of them fail now
+MR11   named tests              826s  monolith_core (unit) 4, runtime 5 | before (ba12472 caught): 8 tests, 8 of them fail now
+MR25   timeout only            3212s   | before (bbf1279 caught): 0 tests, 0 of them fail now
+MR36   named tests              885s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+MR43   named tests              845s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+MR48   named tests              785s  monolith_core (unit) 2, runtime 1 | before (bbf1279 caught): 3 tests, 3 of them fail now
+MR49   named tests              978s  runtime 3 | before (ba12472 caught): 3 tests, 3 of them fail now
+MR50   named tests              929s  monolith_core (unit) 2 | before (740b671 caught): 1 tests, 1 of them fail now
+MR51   named tests              878s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+MR52   named tests              831s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+MR55   named tests              955s  runtime 2 | before (ba12472 caught): 2 tests, 2 of them fail now
+MR56   named tests              859s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+UI3    named tests               98s  monolith_ui (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI6    named tests               82s  model 2, properties 1 | before (740b671 caught): 3 tests, 3 of them fail now
+UI7    named tests               40s  model 1, properties 1 | before (740b671 caught): 2 tests, 2 of them fail now
+UI8    named tests               42s  model 1, properties 1 | before (740b671 caught): 2 tests, 2 of them fail now
+UI10   named tests               64s  model 1, properties 1 | before (740b671 caught): 2 tests, 2 of them fail now
+UI11   named tests               79s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI12   named tests               48s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI14   named tests               51s  model 3, transfers 1 | before (740b671 caught): 3 tests, 3 of them fail now
+UI16   named tests               55s  monolith_desktop (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI17   named tests               67s  bridge 2, monolith_desktop (unit) 1 | before (740b671 caught): 3 tests, 3 of them fail now
+UI19   named tests               31s  bridge 1, monolith_desktop (unit) 1 | before (740b671 caught): 2 tests, 2 of them fail now
+UI20   named tests               10s  bridge 7, monolith_desktop (unit) 1 | before (740b671 caught): 7 tests, 7 of them fail now
+UI24   named tests               29s  monolith_desktop (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI45   named tests               83s  monolith_ui_model (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI46   named tests               68s  model 1, monolith_ui_model (unit) 3 | before (740b671 caught): 4 tests, 4 of them fail now
+UI61   named tests               64s  monolith_ui (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI64   named tests               51s  model 2, monolith_ui (unit) 2 | before (740b671 caught): 4 tests, 4 of them fail now
+UI68   named tests               30s  monolith_desktop (unit) 2 | before (740b671 caught): 2 tests, 2 of them fail now
+UI69   named tests               31s  monolith_desktop (unit) 2 | before (740b671 caught): 2 tests, 2 of them fail now
+UI76   named tests               41s  idle 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI80   named tests               59s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI85   named tests               19s  bridge 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI88   named tests               59s  model 1, monolith_ui_model (unit) 1 | before (740b671 caught): 2 tests, 2 of them fail now
+UI89   named tests               59s  model 1, monolith_ui_model (unit) 1 | before (740b671 caught): 2 tests, 2 of them fail now
+UI90   named tests               72s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI91   named tests               61s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI94   named tests               49s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI95   named tests               60s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI105  named tests               51s  model 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI106  named tests               33s  bridge 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI107  named tests               19s  monolith_desktop (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+UI108  named tests               27s  monolith_desktop (unit) 2 | before (740b671 caught): 2 tests, 2 of them fail now
+UI117  named tests               55s  model 1, monolith_ui (unit) 1 | before (740b671 caught): 2 tests, 2 of them fail now
+HR34   named tests              951s  monolith_core (unit) 1, runtime 1 | before (ba12472 caught): 2 tests, 2 of them fail now
+HR41   named tests              956s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+HR42   named tests              882s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+HR47   named tests              939s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+HR49   named tests              889s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+HR50   named tests              917s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+HR51   named tests              810s  monolith_core (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+HR52   named tests               28s  monolith_desktop (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+HR43   named tests              862s  monolith_core (unit) 2 | before (740b671 caught): 2 tests, 2 of them fail now
+HR57   named tests              892s  monolith_core (unit) 1 | before (bbf1279 caught): 1 tests, 1 of them fail now
+HR58   named tests               27s  monolith_desktop (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+HR59   named tests               25s  monolith_desktop (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+HR61   named tests               28s  monolith_desktop (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+HR64   named tests               56s  monolith_runtime (unit) 1 | before (740b671 caught): 1 tests, 1 of them fail now
+HR77   named tests              771s  runtime 1 | before (ba12472 caught): 1 tests, 1 of them fail now
+MR26   timeout only            3212s   | before (9851c24 caught): 0 tests, 0 of them fail now
+FT29   timeout only            2976s   | before (9851c24 caught): 0 tests, 0 of them fail now
+
+== reached the timeout
+Q1: timeout and tests; running when ended: system; over 60 s: ['store: creating_and_revoking_an_invitation_are_atomic', 'transfer_model: transfers_between_two_runtimes_follow_the_model', 'transfer_restarts: a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable', 'transfer_restarts: a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole', 'transfer_restarts: a_receiver_stays_bounded_through_lost_sessions_repeated_offers_and_a_full_disk', 'transfer_restarts: whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified', 'system: an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes', 'system: with_the_check_on_a_dial_waits_until_tor_lists_the_socks_endpoint']; named: ['a_failure_of_tor_ends_the_proof', 'a_proof_lets_dials_through_for_its_lifetime_only', 'with_the_check_off_a_dial_asks_the_control_endpoint_nothing', 'without_a_socks_endpoint_there_is_no_connection_at_all']
+CS30: timeout and tests; running when ended: supervisor; over 60 s: ['supervisor: while_tor_cannot_publish_the_attempts_slow_down']; named: ['a_lost_service_is_published_again_under_the_same_name', 'the_service_state_answers_as_the_last_event_said', 'the_supervisors_of_two_identities_do_not_touch_each_other']
+MR25: timeout only; running when ended: runtime; over 60 s: ['monolith_core (unit): contacts::tests::a_snapshot_is_one_cut_through_the_store', 'messages: a_crash_while_the_message_store_is_made_leaves_an_installation_that_opens', 'runtime: a_connect_for_a_record_made_again_between_its_cards_dials_no_further', 'runtime: a_connect_once_the_runtime_shuts_down_dials_no_further', 'runtime: a_contact_above_a_rate_is_slowed_and_no_other_contact_is', 'runtime: a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing']; named: []
+MR26: timeout only; running when ended: runtime; over 60 s: ['monolith_core (unit): contacts::tests::a_snapshot_is_one_cut_through_the_store', 'messages: a_crash_while_the_message_store_is_made_leaves_an_installation_that_opens', 'runtime: a_message_in_flight_is_sent_once_and_waited_for_from_then', 'runtime: a_peer_that_dials_in_and_never_acknowledges_does_not_reset_the_delays', 'runtime: a_peer_that_never_acknowledges_is_dialed_with_growing_delays', 'runtime: a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends']; named: []
+FT29: timeout only; running when ended: transfer_model; over 60 s: ['monolith_core (unit): contacts::tests::a_snapshot_is_one_cut_through_the_store', 'store: beginning_a_rotation_is_atomic', 'store: blocking_is_atomic', 'store: concurrent_operations_on_one_contact_are_one_of_their_serial_orders', 'store: creating_a_contact_is_atomic', 'store: creating_and_revoking_an_invitation_are_atomic', 'transfer_model: transfers_between_two_runtimes_follow_the_model']; named: []
+
+== no failing test named
+K4: ['(non-zero exit, no failing test named)']; targets failed ['`-p monolith-session --doc`']
+
+== transfer_restarts failed (only target first)
+-- MR10 [named tests] crates/monolith-core/src/sessions.rs: a newer session of the same side keeps the older one open
+   transfer_restarts failing: ['a_transfer_goes_on_over_the_session_that_replaces_its_own']
+   other binaries failing: {'monolith_core (unit)': ['sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order', 'sessions::tests::the_first_session_is_preferred_and_a_later_one_of_the_same_side_replaces_it']}; other targets failed: ['`-p monolith-core --lib`']
+   before (740b671): ['sessions::tests::simultaneous_sessions_converge_on_both_sides_in_every_order', 'sessions::tests::the_first_session_is_preferred_and_a_later_one_of_the_same_side_replaces_it']
+   a_transfer_goes_on_over_the_session_that_replaces_its_own: thread 'a_transfer_goes_on_over_the_session_that_replaces_its_own' (330294) panicked at crates/monolith-core/tests/transfer_restarts.rs:2712:9: | assertion failed: drain(&mut first, QUIET).await.1 | note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+== no problem in the checks above (the faults caught by transfer_restarts alone are still looked at by hand)
+
+== 1. the faults caught by the timeout
+Q1 (2026-11-10 (rebuilt), 3212s, tree0): 22 binaries started, 21 finished; running when ended: system; that binary unmodified: [0.67, 0.68, 0.66, 0.69] s
+    tests over 60 s in the binary running at the end: ['whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified', 'an_onion_connection_carries_the_literal_hostname_and_then_the_peer_bytes', 'with_the_check_on_a_dial_waits_until_tor_lists_the_socks_endpoint']; named failures: ['a_failure_of_tor_ends_the_proof', 'a_proof_lets_dials_through_for_its_lifetime_only', 'with_the_check_off_a_dial_asks_the_control_endpoint_nothing', 'without_a_socks_endpoint_there_is_no_connection_at_all']
+CS30 (2026-11-10 (rebuilt), 3212s, tree1): 15 binaries started, 14 finished; running when ended: supervisor; that binary unmodified: [0.2, 0.22, 0.19, 0.18] s
+    tests over 60 s in the binary running at the end: ['while_tor_cannot_publish_the_attempts_slow_down']; named failures: ['a_lost_service_is_published_again_under_the_same_name', 'the_service_state_answers_as_the_last_event_said', 'the_supervisors_of_two_identities_do_not_touch_each_other']
+MR25 (2026-11-10 (rebuilt), 3212s, tree0): 11 binaries started, 10 finished; running when ended: runtime; that binary unmodified: [5.73, 5.76, 5.69, 5.49] s
+    tests over 60 s in the binary running at the end: ['a_connect_once_the_runtime_shuts_down_dials_no_further', 'a_contact_above_a_rate_is_slowed_and_no_other_contact_is', 'a_contact_keeps_no_idle_session_open_with_messages_that_carry_nothing']; named failures: []
+MR26 (2026-11-10 (rebuilt), 3212s, tree1): 11 binaries started, 10 finished; running when ended: runtime; that binary unmodified: [5.73, 5.76, 5.69, 5.49] s
+    tests over 60 s in the binary running at the end: ['a_peer_that_dials_in_and_never_acknowledges_does_not_reset_the_delays', 'a_peer_that_never_acknowledges_is_dialed_with_growing_delays', 'a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends']; named failures: []
+FT29 (2026-11-11 (results file), 2976s, tree0): 17 binaries started, 16 finished; running when ended: transfer_model; that binary unmodified: [101.39, 92.62, 108.82, 85.23] s
+    tests over 60 s in the binary running at the end: ['creating_a_contact_is_atomic', 'creating_and_revoking_an_invitation_are_atomic', 'transfers_between_two_runtimes_follow_the_model']; named failures: []
+
+== 2. the proptest regression files in the copies
+tree0: written 2026-11-10 17:08:14, 6 seeds
+    cc 09d031716c959a8ff13aaada7d56db31fc8ef7dd287847aa13d29611d0e75c4a # shrinks to text = "", separator = None
+    cc bdc09c900611b3ccf2a304746859d0bd4abd474c0900210ba55be07c23f01c07 # shrinks to text = ""
+    cc b0c217c7d8f4482797c28b1cbbe029f56882222badf378cb296c4092e1f5b712 # shrinks to text = "\r"
+    cc 98b0578cd96df5d5498342a1f3919ebe32cc6c6d91d53c45cbf5089a27aae360 # shrinks to text = "\u{202e}"
+    cc b3a58d482c53692a5b732e099377a9a13b41c67739e5e14215136f8660d36984 # shrinks to text = "\u{202e}a", separator = None
+    cc 0d6162792e198155443f2c94fe2208445ee02ca11cfa1255d48577cb6b50a0d7 # shrinks to steps = 2, outbound = false, claim = 2, standing = None
+  running in tree0 when it was written: ['P4', 'Q1']
+  faults started in tree0 after: 41
+    P6: ran properties; not by properties; failing {'monolith_protocol (unit)': ['session::tests::an_inbound_card_with_an_invitation_is_refused']}
+    P11: ran properties; not by properties; failing {'monolith_protocol (unit)': ['session::tests::a_second_request_before_confirmation_is_a_violation']}
+    UI45: ran properties; not by properties; failing {'monolith_ui_model (unit)': ['present::tests::an_over_long_cluster_is_replaced']}
+    UI80: ran properties; not by properties; failing {'model': ['an_unblock_names_someone_listed_once_and_says_what_it_did']}
+    UI89: ran properties; not by properties; failing {'monolith_ui_model (unit)': ['present::tests::a_preview_reads_only_the_start_of_a_long_message'], 'model': ['the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes']}
+    UI91: ran properties; not by properties; failing {'model': ['an_expanded_message_is_prepared_again_whole']}
+    UI94: ran properties; not by properties; failing {'model': ['the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes']}
+    UI105: ran properties; not by properties; failing {'model': ['missed_events_make_the_model_read_everything_again']}
+    UI117: ran properties; not by properties; failing {'monolith_ui (unit)': ['app::tests::closing_counts_a_message_being_queued_and_one_queued_before_it_is_read_again'], 'model': ['a_message_being_queued_or_queued_before_a_read_counts_as_undelivered']}
+tree1: written 2026-11-10 17:21:45, 6 seeds
+    cc 8ea80f2385c39aa570944be48c77a2b7183d3b3d1737bad04c6afb3aa6735e12 # shrinks to text = " "
+    cc d18f16222708c8bb3ad468e3878de4a5c909a18c1142840378413ddf6218690b # shrinks to text = " ", separator = None
+    cc d23d73916a741098ad23c4d1d333924fe22bd73b7a0aedf25d6a272d99a12a62 # shrinks to text = "\u{fffe}"
+    cc 37a39759be2e2e5cac0549410dfa0599cf18ca4270fad2d6c4416cab64d623d6 # shrinks to text = "\u{fffe}a", separator = None
+    cc 6537f56e5cee00e09d9f59a835f1335de58208fd9e65e01358e153605e6c41cd # shrinks to text = "\u{fffe}"
+    cc 2385ac79d157b9c97ba873ab175f9340ce70c3f82347398d8cfe73475f252988 # shrinks to steps = 2, outbound = true, claim = 1, standing = None
+  running in tree1 when it was written: ['P5', 'CS30']
+  faults started in tree1 after: 44
+    P10: ran properties; not by properties; failing {'monolith_protocol (unit)': ['session::tests::a_request_from_the_responder_states_the_authenticated_transport_key']}
+    P14: ran properties; not by properties; failing {'monolith_protocol (unit)': ['session::tests::may_send_in_every_state']}
+    UI6: ran properties; properties and others; failing {'model': ['a_draft_goes_only_once_the_runtime_queued_it', 'a_refused_send_keeps_the_text_sent_and_what_was_typed_after_it'], 'properties': ['the_model_shows_what_the_runtime_said_and_acts_on_what_was_named']}
+    UI7: ran properties; properties and others; failing {'model': ['a_queued_answer_for_another_conversation_clears_nothing'], 'properties': ['the_model_shows_what_the_runtime_said_and_acts_on_what_was_named']}
+    UI8: ran properties; properties and others; failing {'model': ['a_deleted_identity_takes_its_state_and_its_selection_with_it'], 'properties': ['the_model_shows_what_the_runtime_said_and_acts_on_what_was_named']}
+    UI10: ran properties; properties and others; failing {'model': ['a_burst_of_events_makes_one_read'], 'properties': ['the_model_shows_what_the_runtime_said_and_acts_on_what_was_named']}
+    UI11: ran properties; not by properties; failing {'model': ['an_ended_conversation_shows_but_takes_no_message']}
+    UI12: ran properties; not by properties; failing {'model': ['an_answer_to_a_replaced_request_never_reaches_the_new_one']}
+    UI14: ran properties; not by properties; failing {'model': ['a_failure_is_told_in_its_sentence_never_in_its_debug_form', 'a_failed_store_met_by_a_command_raises_no_notice_of_its_own', 'an_unblock_names_someone_listed_once_and_says_what_it_did'], 'transfers': ['a_decision_names_its_transfer_and_one_no_longer_listed_asks_for_nothing']}
+    UI46: ran properties; not by properties; failing {'monolith_ui_model (unit)': ['present::tests::a_carriage_return_and_line_feed_count_as_one_line_break', 'present::tests::a_preview_has_an_ellipsis_only_where_it_cuts', 'present::tests::more_lines_than_the_limit_collapse_unless_expanded'], 'model': ['an_expanded_message_is_prepared_again_whole']}
+    UI64: ran properties; not by properties; failing {'monolith_ui (unit)': ['app::tests::closing_costs_nothing_without_an_open_profile_or_anything_to_lose', 'app::tests::closing_warns_of_a_session_that_saves_nothing_and_of_messages_not_delivered'], 'model': ['a_message_being_queued_or_queued_before_a_read_counts_as_undelivered', 'undelivered_messages_are_counted_over_every_identity_but_not_ended_ones']}
+    UI88: ran properties; not by properties; failing {'monolith_ui_model (unit)': ['present::tests::a_preview_reads_only_the_start_of_a_long_message'], 'model': ['the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes']}
+    UI90: ran properties; not by properties; failing {'model': ['a_message_is_prepared_once_and_kept_while_it_reads_the_same']}
+    UI95: ran properties; not by properties; failing {'model': ['the_rows_of_the_sidebar_are_made_again_only_when_what_they_show_changes']}

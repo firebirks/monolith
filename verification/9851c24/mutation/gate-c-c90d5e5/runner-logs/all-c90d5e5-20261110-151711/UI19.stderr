@@ -1,0 +1,12 @@
+   Compiling monolith-desktop v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.21s
+     Running unittests src/lib.rs (target/debug/deps/monolith_desktop-5df8477a0252eda3)
+error: test failed, to rerun pass `-p monolith-desktop --lib`
+     Running unittests src/main.rs (target/debug/deps/monolith_desktop-6479d06317db133f)
+     Running tests/boundary.rs (target/debug/deps/boundary-612f4b06a34192ac)
+     Running tests/bridge.rs (target/debug/deps/bridge-3dff31a27c88e718)
+error: test failed, to rerun pass `-p monolith-desktop --test bridge`
+   Doc-tests monolith_desktop
+error: 2 targets failed:
+    `-p monolith-desktop --lib`
+    `-p monolith-desktop --test bridge`

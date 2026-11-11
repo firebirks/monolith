@@ -1,0 +1,16 @@
+crates/monolith-protocol/src/text.rs
+crates/monolith-protocol/src/body.rs
+crates/monolith-core/src/link.rs
+crates/monolith-core/src/contacts.rs
+crates/monolith-core/src/sessions.rs
+crates/monolith-core/src/identity.rs
+crates/monolith-ui-model/src/protocol.rs
+crates/monolith-desktop/src/convert.rs
+crates/monolith-ui/src/dialogs.rs
+crates/monolith-desktop/src/bridge.rs
+crates/monolith-desktop/src/files.rs
+crates/monolith-ui-model/src/model.rs
+crates/monolith-core/src/rates.rs
+crates/monolith-ui-kit/src/composer.rs
+crates/monolith-storage/src/local.rs
+crates/monolith-core/src/runtime.rs

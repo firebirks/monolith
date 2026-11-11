@@ -1,0 +1,38 @@
+{
+ "command": [
+  "cargo",
+  "test",
+  "--locked",
+  "--no-fail-fast",
+  "-p",
+  "monolith-core",
+  "-p",
+  "monolith-desktop",
+  "-p",
+  "monolith-identity",
+  "-p",
+  "monolith-protocol",
+  "-p",
+  "monolith-runtime",
+  "-p",
+  "monolith-session",
+  "-p",
+  "monolith-storage",
+  "-p",
+  "monolith-tor",
+  "-p",
+  "monolith-ui",
+  "-p",
+  "monolith-ui-model",
+  "--features",
+  "monolith-ui/fixtures"
+ ],
+ "cwd": "<repo>/mutation/work/tree0",
+ "started": "22:53:11.509",
+ "new session": true,
+ "env": {
+  "HOME": "<home>",
+  "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/mnt/c/Program Files/PowerShell/7:/mnt/c/Program Files/ImageMagick-7.1.2-Q16-HDRI:/mnt/c/WINDOWS/system32:/mnt/c/WINDOWS:/mnt/c/WINDOWS/System32/Wbem:/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/:/mnt/c/WINDOWS/System32/OpenSSH/:/mnt/c/Program Files/dotnet/:/mnt/c/Program Files/Java/latest/jdk-21/bin:/mnt/c/ProgramData/chocolatey/bin:/mnt/c/Windows/System32:/mnt/c/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/:/mnt/c/Program Files (x86)/cloudflared/:/mnt/c/Program Files/nodejs/:/mnt/c/Program Files/GitHub CLI/:/mnt/c/Program Files/PowerToys/DSCModules/:/mnt/c/Program Files/CMake/bin:/mnt/c/Program Files/Git/cmd:/mnt/c/Program Files/PowerShell/7/:/mnt/c/Program Files/Docker/Docker/resources/bin:<winhome>/AppData/Local/Android/Sdk/platform-tools:<winhome>/AppData/Local/Programs/Eclipse Adoptium/jdk-25.0.5.8-hotspot/bin:<winhome>/AppData/Local/agy/bin:<winhome>/.grok/bin:<winhome>/.kimi-code/bin:<winhome>/AppData/Local/Programs/Python/Python312/Scripts/:<winhome>/AppData/Local/Programs/Python/Python312/:/mnt/c/Program Files/LLVM/bin:/mnt/c/vcpkg/installed/x64-windows/bin:<winhome>/AppData/Local/Programs/Python/Launcher/:<winhome>/.cargo/bin:<winhome>/AppData/Local/Microsoft/WindowsApps:<winhome>/AppData/Local/Programs/Microsoft VS Code/bin:/mnt/c/Program Files/JetBrains/RustRover 2025.1.1/bin:<winhome>/AppData/Local/Programs/Ollama:<winhome>/vcpkg/installed/x64-windows/tools:<winhome>/AppData/Local/Microsoft/WindowsApps:<winhome>/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe:<winhome>/.dotnet/tools:<winhome>/AppData/Local/Muse Hub/lib:<winhome>/.local/bin:<winhome>/AppData/Local/Programs/Zed/bin:<winhome>/AppData/Roaming/npm:<winhome>/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0.1-full_build/bin:<winhome>/AppData/Local/Unity/bin:<winhome>/AppData/Local/Programs/Microsoft VS Code/bin/copilot-shim:<winhome>/AppData/Local/Microsoft/WinGet/Packages/jqlang.jq_Microsoft.Winget.Source_8wekyb3d8bbwe",
+  "CARGO_TERM_COLOR": "never"
+ }
+}

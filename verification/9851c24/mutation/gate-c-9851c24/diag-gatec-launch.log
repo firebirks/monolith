@@ -1,0 +1,8 @@
+2026-11-09T22:26:08 replay of the start of gate C started: up to 3 cycles
+2026-11-09T22:26:09 cycle 1: wsl --shutdown (running before: Debian); Debian stopped after 0s
+2026-11-09T22:53:05 cycle 1 exit 0
+2026-11-09T22:53:08 cycle 2: wsl --shutdown (running before: Debian); Debian stopped after 0s
+2026-11-09T23:20:13 cycle 2 exit 0
+2026-11-09T23:20:16 cycle 3: wsl --shutdown (running before: Debian); Debian stopped after 0s
+2026-11-09T23:46:24 cycle 3 exit 0
+2026-11-09T23:46:24 replay ended

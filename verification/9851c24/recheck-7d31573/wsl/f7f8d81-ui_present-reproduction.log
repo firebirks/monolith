@@ -1,0 +1,12 @@
+at f7f8d81d3f21c594e9d801a174beeeffaf39328c
+   Compiling monolith-core v0.0.0 (<home>/p8fix/crates/monolith-core)
+   Compiling monolith-fuzz v0.0.0 (<home>/p8fix/fuzz)
+    Finished `release` profile [optimized + debuginfo] target(s) in 46.04s
+build exit 0
+--- <home>/p8fix-inputs/crash-6fa7b23bc39549e8bb9f25d0126835c5f368cbf3
+thread '<unnamed>' (18167) panicked at fuzz_targets/ui_present.rs:152:9:
+  left: "<U+0000><U+0000>\nde \n  "
+ right: "\0\0\nde \n  "
+Error: Fuzz target exited with exit status: 77
+run exit 1
+finished

@@ -1,0 +1,16 @@
+07:58:13 commit c90d5e54735542764fe46855ad68cbfd342273dc: preparing the copies
+07:58:13 precheck: every pattern found once
+07:58:13 unmodified run of: monolith-core monolith-desktop monolith-identity monolith-protocol monolith-runtime monolith-session monolith-storage monolith-tor monolith-ui monolith-ui-model
+07:58:13 runner logs in <repo>/mutation/work/logs/unmodified-c90d5e5-20261111-075813
+07:58:13 tree0: unmodified run
+08:11:36 tree0: passed in 801s; logs {'stdout_bytes': 101922, 'stderr_bytes': 5355, 'binaries_run': 51, 'doc_tests': 10, 'result_lines': 61, 'passed': 1296, 'failed': 0, 'ignored': 3, 'not_ok': [], 'finished': True}
+08:11:36 tree0: 51 test binaries; against the build before: 51 identical, 0 different [], 0 not there before, 0 gone []
+08:11:36 tree0: logs checked
+08:11:43 tree0: check_copy passed
+08:11:43 tree1: unmodified run
+08:24:46 tree1: passed in 781s; logs {'stdout_bytes': 101833, 'stderr_bytes': 5355, 'binaries_run': 51, 'doc_tests': 10, 'result_lines': 61, 'passed': 1296, 'failed': 0, 'ignored': 3, 'not_ok': [], 'finished': True}
+08:24:46 tree1: 51 test binaries; against the build before: 51 identical, 0 different [], 0 not there before, 0 gone []
+08:24:46 tree1: logs checked
+08:24:54 tree1: check_copy passed
+08:24:54 both unmodified checks passed
+unmodified step exit 0 2026-11-11T08:24:54+01:00

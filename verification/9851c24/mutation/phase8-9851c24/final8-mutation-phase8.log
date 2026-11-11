@@ -1,0 +1,26 @@
+commit 9851c24b9814092c2a50efdc6da51d99e0633460, 79 faults, 2 workers, unmodified run 987s, timeout 3948s
+FT1   caught    962s  the sender writes four times the window beyond the last acknowledgement
+FT2   caught   1001s  an acknowledgement that goes down is taken
+FT3   caught    840s  an acknowledgement of more than was sent is taken
+FT4   caught    882s  an acknowledgement that is not a whole number of chunks is taken
+FT5   caught    844s  a chunk of any length is taken
+FT6   caught    837s  a chunk before an acceptance on the session is taken
+FT7   caught    856s  a completion with bytes missing is verified
+FT8   caught    857s  every byte left may still come after this side ended a transfer
+FT9   caught    836s  a completion that crossed a cancellation of this side is dropped
+FT10  caught    868s  a completion with any digest delivers
+FT11  caught    828s  an offer above the size limit is recorded
+FT12  caught    865s  an offer of an identifier of zero bytes is recorded and the store can no longer be written
+FT13  caught    839s  the pending offers of a contact pass their limit
+FT14  caught    864s  the active transfers of a contact pass their limit
+FT15  caught    842s  room is made from a record whose answer the peer may still need
+FT16  caught    901s  an outgoing transfer without progress never fails
+FT17  caught    884s  the stall deadline is written with every progress
+FT18  caught    899s  a cancellation of an offer never seen is told
+FT19  caught    944s  that the peer read an answer clears the flag of a later one
+FT20  caught    864s  an accepted transfer the sender no longer offers never fails
+FT21  caught    867s  a record of a contact of another local identity is kept at open
+FT22  caught    891s  progress is acknowledged before the blob is synced
+FT24  caught    797s  a full disk fails the transfer instead of holding it
+FT23  caught   1669s  a completion is acknowledged without being recorded
+FT25  caught    796s  a held transfer leaves its session open

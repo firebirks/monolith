@@ -1,0 +1,98 @@
+the output of each run goes to <repo>/mutation/work/logs/all-c90d5e5-20261110-151711
+commit c90d5e54735542764fe46855ad68cbfd342273dc, 98 faults, 2 workers, unmodified run 803s, timeout 3212s
+X2    caught   1082s  text below the minimum passes
+X1    caught   1086s  text one byte over the maximum passes
+X5    caught   1029s  names may start or end with a space
+X3    caught   1056s  carriage return allowed in free text
+X6    caught   1027s  noncharacters allowed
+X7    caught   1027s  bidirectional overrides allowed in names
+X11   caught    975s  reserved device names are saved as they are
+L1    caught   1005s  a message not permitted in the state is processed
+K4    caught    863s  a card from outside can be adopted as the local card
+P4    caught    986s  the local identity is accepted as the peer
+P5    caught    986s  an outbound session accepts an identity that was not dialed
+P6    caught    978s  an inbound handshake card may carry an invitation
+P10   caught    994s  an outbound request may state another transport key
+P11   caught    973s  a second request on a session is taken
+P14   caught    972s  ContactAccept may be sent to a non-contact
+Q1    caught   3212s  the stream to the SOCKS endpoint is used without SOCKS (timeout)
+CS38  caught    722s  KDF parameters outside the bounds are accepted
+CS30  caught   3212s  attempts follow each other without a delay (timeout)
+CS40  caught    908s  a directory others can reach is accepted
+CS62  caught    879s  a deleted identity keeps the bytes of its secrets
+CS66  caught    850s  a request is considered against a record read before the queue is locked
+CS88  caught    866s  a job stops at its bound with nobody waiting for the rest
+CS89  caught    880s  a failed write hides what an earlier write made durable
+CS90  caught    962s  a request is queued for an identity deleted as it is considered
+CS92  caught    875s  changes a job left for its waiter wait for another change
+CS93  caught    901s  waiters learn of a failure before the sessions are withdrawn
+CS94  caught    839s  a wait starts a write after a write failed
+CS103 caught    898s  a block takes out a request queued after it
+CS104 caught    909s  an import takes out a request queued after it
+CS105 caught    886s  a card is made for a capability revoked as it is created
+CS107 caught    940s  the party that answers leaves the core
+CS120 caught    858s  an announcement counts without being sent
+CS121 caught    847s  a snapshot lets go of the keys between its reads
+CS114 caught    878s  a wait reads what is durable before the failure
+CS115 caught    889s  a wait whose write cannot start fails without looking again
+CS123 caught    868s  a wait starts a write when the job before it is about to publish what is left
+MR10  caught    870s  a newer session of the same side keeps the older one open
+MR11  caught    826s  the session of the side with the larger key is preferred
+MR25  caught   3212s  an idle session never ends (timeout)
+MR26  caught   3212s  a message whose acknowledgement does not come keeps its session waiting (timeout)
+MR36  caught    885s  closing the sessions of a record wakes no scheduler
+MR43  caught    845s  a runtime dropped without a shutdown runs on
+MR48  caught    785s  a message queued as its identity is deleted is added after the deletion
+MR49  caught    978s  a send its caller stops waiting for is left half done
+MR50  caught    929s  a wait marks the outcome seen after it looked at the state and sleeps through it
+MR51  caught    878s  a send to an installation whose vault failed is refused as an identity that is gone
+MR52  caught    831s  an identity deleted while a send waits for the vault is reported as a failed store
+MR55  caught    955s  a command runs outside the tasks a shutdown waits for
+UI3   caught     98s  a queued message is marked delivered
+UI6   caught     82s  a send the runtime refused clears the draft
+UI7   caught     40s  a send queued in another conversation clears this draft
+UI8   caught     42s  a deleted identity keeps its state
+UI10  caught     64s  every event of a burst makes a read of its own
+UI11  caught     79s  an ended conversation takes a message
+UI12  caught     48s  a request no longer listed is answered
+UI14  caught     51s  a failure is told in its debug form
+MR56  caught    859s  a session is reported available or unavailable again without a change
+UI16  caught     55s  a request to open a URL reaches the system
+UI17  caught     67s  a request or invitation number is taken for another identity
+UI19  caught     31s  a number is given to two references
+UI20  caught     10s  the answer of a command names another command
+UI24  caught     29s  a saved card replaces a file
+UI45  caught     83s  an over-long grapheme cluster is drawn whole
+UI46  caught     68s  a collapsed message draws every line
+UI64  caught     51s  messages of an ended conversation are counted as waiting
+UI61  caught     64s  a card file read lands in Add contact after the contact was added
+UI68  caught     30s  a close that asks first is not cancelled
+UI69  caught     31s  the window is hidden while it asks
+UI76  caught     41s  the time to the next try is not said again as it passes
+UI85  caught     19s  an unblock the runtime refuses is told as unexpected
+UI80  caught     59s  someone not listed is unblocked
+UI88  caught     59s  a preview reads the whole of a long message
+UI89  caught     59s  a preview cut where the reading stopped has no ellipsis
+UI91  caught     61s  an expanded message keeps the text prepared collapsed
+UI90  caught     72s  a prepared text is kept for a message that reads otherwise
+UI94  caught     49s  a sidebar row keeps the preview of a message that changed
+UI95  caught     60s  an unread count does not reach its sidebar row
+UI105 caught     51s  Tor is not checked again after missed events
+UI106 caught     33s  the window is not woken when the runtime thread ends
+UI107 caught     19s  dropping the window waits for the runtime
+UI108 caught     27s  the threads of the window are not waited for
+UI117 caught     55s  a message being queued is not counted before closing
+HR34  caught    951s  a send queues for a record that ended while it waited for the vault
+HR41  caught    956s  the sessions a contact opens are not counted
+HR42  caught    882s  a session that waits for a token does not end when it is closed
+HR47  caught    939s  an identity without a key is reported stopped
+HR49  caught    889s  a send once the runtime shuts down is said to have no identity
+HR50  caught    917s  a send a shutdown cuts short is said to be a failed store
+HR52  caught     28s  a send at shutdown is said nowhere
+HR51  caught    810s  a failed random source is said to be a failed store
+HR43  caught    862s  what an ended record took is not forgotten
+HR58  caught     27s  the saved size of the window is divided by the zoom
+HR59  caught     25s  a card is saved in the home folder though it has a downloads folder
+HR61  caught     28s  a place named and refused at the start is not said refused
+HR64  caught     56s  a changed message store is told as a wrong passphrase
+HR57  caught    892s  a control endpoint that does not answer is said to be Tor not running

@@ -1,0 +1,31 @@
+11:51:29 dropped the WSL cache after the wait was reaped for low memory
+2026-11-05T15:00:48 disk alert at 48.4 GB: removed target\debug (31.2 GB) and mutation\work\tree0\target (Windows lists done)
+2026-11-05T15:01:19 removed unused WSL builds (~/p8/target, ~/p8/fuzz/target, ~/p8fix targets, 5.5 GB) so the baseline reuses that space
+15:14:28 dropped the WSL cache after the second wait was reaped for low memory
+23:19:03 dropped the WSL cache at 3.8 GB free
+23:19:03 dropped the WSL cache at 3.9 GB free
+2026-11-07T07:59:30 removed ~/monolith-verify/monolith/mutation/work and fuzz/target (29.7 GB, clone at 03ef045, trials of 2026-11-05) so the growing baseline copies can reuse ext4 blocks; Windows C: 61.9 GB free, ext4.vhdx 109.8 GB not sparse
+2026-11-07T09:01:04 disk 49.3 GB during the 1.99.1 Windows test build (target\final8-stable 11.6 GB, the only build on C:; nothing old to delete); it goes once the test ends
+22:27:19 dropped the WSL cache at 3.5 GB free
+18:41:09 dropped the WSL cache at 3.5 GB free
+18:50:29 dropped the WSL cache at 3.7 GB free
+19:04:55 dropped the WSL cache at 3.8 GB free
+19:04:55 dropped the WSL cache at 3.8 GB free
+19:26:29 dropped the WSL cache by hand after the background waiters were reaped for low memory (3.4 GB free)
+19:26:29 dropped the WSL cache at 3.2 GB free
+19:35:52 dropped the WSL cache at 3.4 GB free
+19:35:52 dropped the WSL cache at 3.5 GB free
+19:50:23 dropped the WSL cache at 3.6 GB free
+19:50:23 dropped the WSL cache at 3.6 GB free
+20:05:54 dropped the WSL cache at 3.9 GB free
+20:05:54 dropped the WSL cache at 3.9 GB free
+20:20:27 dropped the WSL cache at 3.9 GB free
+20:20:27 dropped the WSL cache at 3.9 GB free
+20:46:16 dropped the WSL cache at 3.2 GB free
+20:46:16 dropped the WSL cache at 3.2 GB free
+21:35:45 dropped the WSL cache at 3.5 GB free
+21:35:45 dropped the WSL cache at 3.6 GB free
+22:10:54 dropped the WSL cache at 3.9 GB free
+22:10:54 dropped the WSL cache at 3.9 GB free
+22:36:44 dropped the WSL cache at 3.5 GB free
+22:36:44 dropped the WSL cache at 3.4 GB free

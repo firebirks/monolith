@@ -1,0 +1,5 @@
+the output of each run goes to <repo>/mutation/work/logs/all-c90d5e5-20261111-082454
+commit c90d5e54735542764fe46855ad68cbfd342273dc, 2 faults, 2 workers, unmodified run 744s, timeout 2976s
+HR77  caught    771s  a connect dials its next card once the runtime shuts down
+FT29  caught   2976s  a dial for transfers alone is followed by the next at once (timeout)
+done: {'caught': 2}; written to <repo>/mutation/results-all-c90d5e5.json

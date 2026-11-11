@@ -1,0 +1,37 @@
+   Compiling getrandom v0.3.4
+   Compiling monolith-protocol v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-protocol)
+   Compiling tokio v1.53.3
+   Compiling ahash v0.8.12
+   Compiling monolith-session v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-session)
+   Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-storage)
+   Compiling epaint v0.32.3
+   Compiling winit v0.30.13
+   Compiling egui v0.32.3
+   Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-tor)
+   Compiling accesskit_winit v0.27.0
+   Compiling glutin-winit v0.5.0
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-core)
+   Compiling monolith-ui-kit v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-ui-kit)
+   Compiling monolith-ui-snapshot v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-ui-snapshot)
+   Compiling egui_glow v0.32.3
+   Compiling egui-winit v0.32.3
+   Compiling monolith-ui v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-ui)
+   Compiling eframe v0.32.3
+   Compiling monolith-runtime v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-runtime)
+   Compiling monolith-desktop v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 03s
+     Running unittests src/lib.rs (target/debug/deps/monolith_desktop-43195997d8e41b87)
+     Running unittests src/main.rs (target/debug/deps/monolith_desktop-5fc72ab17c3926f3)
+     Running tests/boundary.rs (target/debug/deps/boundary-40e232e4cab756cb)
+     Running tests/bridge.rs (target/debug/deps/bridge-49c8eb14125246d6)
+     Running unittests src/lib.rs (target/debug/deps/monolith_ui-3381d68368cf72c1)
+error: test failed, to rerun pass `-p monolith-ui --lib`
+     Running tests/idle.rs (target/debug/deps/idle-8cc1cd8cc77fe844)
+     Running tests/keyboard.rs (target/debug/deps/keyboard-c496fd46f33fca42)
+     Running tests/layout.rs (target/debug/deps/layout-d96b90df4f8a1045)
+     Running tests/screens.rs (target/debug/deps/screens-f2532da473a271b8)
+     Running tests/views.rs (target/debug/deps/views-8709b07d8c5da1bb)
+   Doc-tests monolith_desktop
+   Doc-tests monolith_ui
+error: 1 target failed:
+    `-p monolith-ui --lib`

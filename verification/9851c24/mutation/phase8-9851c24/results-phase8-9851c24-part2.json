@@ -1,0 +1,783 @@
+{
+ "commit": "9851c24b9814092c2a50efdc6da51d99e0633460",
+ "unmodified_seconds": 1022,
+ "timeout": 4088,
+ "results": [
+  {
+   "id": "FT26",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a blob no record names is kept",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_sender_that_crashes_after_its_offer_offers_it_again_and_resumes"
+   ],
+   "seconds": 1100
+  },
+  {
+   "id": "FT27",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "what a Pong shows the peer read is never recorded",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_of_the_sender_is_told_once_and_stops_its_chunks",
+    "a_cancellation_the_receiver_could_not_be_told_is_told_with_the_next_offer",
+    "a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it",
+    "a_pong_that_answers_no_ping_of_its_session_ends_it_and_confirms_nothing"
+   ],
+   "seconds": 1071
+  },
+  {
+   "id": "FT28",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "blocking or deleting a contact leaves its transfers",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_deleted_while_its_file_is_saved_cancels_the_save_and_leaves_no_file_or_part_of_one",
+    "a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable",
+    "a_deleted_contact_loses_its_transfers_and_a_contact_made_again_inherits_none",
+    "an_acceptance_as_the_contact_is_blocked_ends_in_one_order_or_the_other",
+    "blocking_the_receiver_stops_the_chunks",
+    "blocking_the_sender_stops_the_transfer_and_nothing_revives_it"
+   ],
+   "seconds": 994
+  },
+  {
+   "id": "FT29",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a dial for transfers alone is followed by the next at once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)"
+   ],
+   "seconds": 4088
+  },
+  {
+   "id": "FT30",
+   "path": "crates/monolith-core/src/blobs.rs",
+   "what": "a blob no record names stays when the installation opens",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable",
+    "a_deleted_identity_leaves_no_transfer_and_no_blob",
+    "a_save_cut_short_by_a_crash_is_reported_and_the_file_kept",
+    "a_staging_cut_short_by_a_crash_leaves_no_offer_and_no_blob"
+   ],
+   "seconds": 824
+  },
+  {
+   "id": "FT31",
+   "path": "crates/monolith-storage/src/blob.rs",
+   "what": "a save reader ends without checking the digest",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "blob::tests::the_reader_fails_at_the_end_when_the_digest_differs"
+   ],
+   "seconds": 839
+  },
+  {
+   "id": "FT32",
+   "path": "crates/monolith-storage/src/blob.rs",
+   "what": "a scan counts a segment that does not authenticate",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole",
+    "a_full_disk_holds_the_transfer_until_it_is_resumed_or_the_hold_ends",
+    "a_receiver_stays_bounded_through_lost_sessions_repeated_offers_and_a_full_disk",
+    "a_receiver_that_crashes_resumes_from_what_it_holds_durably",
+    "blob::tests::a_blob_is_read_only_under_the_size_identifier_and_key_of_its_record",
+    "blob::tests::a_segment_changed_moved_or_taken_from_another_blob_does_not_authenticate",
+    "blob::tests::after_a_crash_the_scan_stops_at_the_first_segment_that_does_not_authenticate"
+   ],
+   "seconds": 704
+  },
+  {
+   "id": "FT33",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "a local name is offered with the folders above it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_of_the_sender_is_told_once_and_stops_its_chunks",
+    "a_cancellation_the_receiver_could_not_be_told_is_removed_when_the_user_asks",
+    "a_cancellation_the_receiver_could_not_be_told_is_told_with_the_next_offer",
+    "a_chat_message_of_the_sender_is_not_held_behind_its_chunks",
+    "a_chat_message_waiting_while_chunks_go_out_is_written_after_at_most_one_chunk",
+    "a_contact_deleted_while_its_file_is_saved_cancels_the_save_and_leaves_no_file_or_part_of_one",
+    "a_file_is_offered_accepted_sent_verified_and_saved_whole",
+    "a_peer_of_phase_7_rejects_the_offer_and_chat_goes_on",
+    "a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it",
+    "a_pong_that_answers_no_ping_of_its_session_ends_it_and_confirms_nothing",
+    "a_receiver_that_completed_before_it_read_a_cancellation_holds_the_file",
+    "a_rejected_offer_ends_on_both_sides_and_is_never_offered_again",
+    "a_sender_of_phase_8_sends_a_peer_of_phase_7_nothing_that_ends_its_session",
+    "a_session_that_carries_a_transfer_lingers_from_its_last_progress",
+    "a_transfer_goes_on_over_a_session_of_the_new_key_of_its_contact",
+    "an_acknowledgement_that_is_misaligned_beyond_what_was_sent_or_of_another_transfer_ends_the_session",
+    "an_empty_file_is_sent_and_completed",
+    "an_offer_accepted_when_no_session_is_left_makes_the_receiver_dial",
+    "an_offer_not_decided_in_time_expires_and_the_sender_learns_it",
+    "blocking_the_receiver_stops_the_chunks",
+    "chat_goes_both_ways_while_a_large_file_is_sent",
+    "text::tests::a_local_name_is_offered_as_its_last_component_made_valid",
+    "text::tests::every_local_name_gives_a_valid_filename",
+    "the_sender_never_has_more_than_the_window_beyond_what_the_receiver_acknowledged",
+    "two_files_to_one_contact_go_one_at_a_time_in_the_order_accepted_and_never_mixed"
+   ],
+   "seconds": 904
+  },
+  {
+   "id": "FT34",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a Pong confirms what was written after its Ping",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it"
+   ],
+   "seconds": 858
+  },
+  {
+   "id": "FT35",
+   "path": "crates/monolith-storage/src/export.rs",
+   "what": "a save whose file could not be written leaves its temporary file",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_deleted_while_its_file_is_saved_cancels_the_save_and_leaves_no_file_or_part_of_one",
+    "a_source_that_fails_midway_or_at_its_end_leaves_nothing"
+   ],
+   "seconds": 885
+  },
+  {
+   "id": "FT36",
+   "path": "crates/monolith-storage/src/export.rs",
+   "what": "a save whose source fails is completed with what it gave",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_deleted_while_its_file_is_saved_cancels_the_save_and_leaves_no_file_or_part_of_one",
+    "a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat",
+    "a_source_that_fails_midway_or_at_its_end_leaves_nothing"
+   ],
+   "seconds": 892
+  },
+  {
+   "id": "FT37",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a transfer whose bytes are not known is shown at 0",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_bar_of_bytes_not_known_moves_only_while_motion_is_allowed",
+    "bytes_the_runtime_no_longer_knows_or_has_passed_are_not_shown_from_an_event",
+    "each_card_says_where_its_transfer_stands_from_the_runtime_alone",
+    "progress_is_kept_from_events_until_a_later_read_and_never_shown_as_zero",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 69
+  },
+  {
+   "id": "FT38",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a file being prepared is shown as offered",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_bar_of_bytes_not_known_moves_only_while_motion_is_allowed",
+    "a_file_being_prepared_is_never_shown_as_offered_or_sent"
+   ],
+   "seconds": 54
+  },
+  {
+   "id": "FT39",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "an offer to another identity is told on the one shown",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "late_events_and_answers_of_one_identity_change_nothing_shown_of_another",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 36
+  },
+  {
+   "id": "FT40",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "progress a later read answered is kept over it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_read_asked_after_an_event_is_believed_also_when_it_says_fewer_bytes"
+   ],
+   "seconds": 60
+  },
+  {
+   "id": "FT41",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a file can be offered to a contact that has not accepted",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_contact_that_has_not_accepted_gets_no_file_and_the_dialog_says_why",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 55
+  },
+  {
+   "id": "FT42",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a decision on a transfer is sent again while one runs",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_decision_names_its_transfer_and_one_no_longer_listed_asks_for_nothing",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 49
+  },
+  {
+   "id": "FT43",
+   "path": "crates/monolith-ui-kit/src/composer.rs",
+   "what": "an attach button that takes no input says it takes some",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_attach_button_that_takes_no_input_says_why_and_asks_for_nothing"
+   ],
+   "seconds": 88
+  },
+  {
+   "id": "FT44",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "a transfer number under another record of its identity names it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_goes_from_one_identity_to_another_through_the_bridge_and_is_saved"
+   ],
+   "seconds": 47
+  },
+  {
+   "id": "FT45",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a transfer is shown in a state a crash can still take back",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_of_the_sender_that_meets_the_completion_ends_completed_in_every_order",
+    "a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole",
+    "transfers_between_two_runtimes_follow_the_model",
+    "what_is_shown_of_a_transfer_is_durable_and_no_crash_takes_it_back"
+   ],
+   "seconds": 790
+  },
+  {
+   "id": "FT46",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a stopped transfer its receiver was not told cannot be removed",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_the_receiver_could_not_be_told_is_removed_when_the_user_asks",
+    "a_transfer_cancelled_and_removed_at_once_while_it_goes_is_ended_on_its_session",
+    "transfers::tests::an_ended_outgoing_record_goes_when_the_user_removes_it"
+   ],
+   "seconds": 851
+  },
+  {
+   "id": "FT47",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "bytes the runtime says it no longer knows are shown from an earlier event",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "bytes_the_runtime_no_longer_knows_or_has_passed_are_not_shown_from_an_event",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 47
+  },
+  {
+   "id": "FT48",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a transfer is removed where its card offers no removal",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_action_is_taken_only_where_its_card_offers_it",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 60
+  },
+  {
+   "id": "FT49",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "a control character of a remote name reaches the screen as itself",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_name_is_drawn_with_its_control_characters_shown",
+    "the_model_shows_what_the_runtime_said_and_acts_on_what_was_named"
+   ],
+   "seconds": 74
+  },
+  {
+   "id": "FT50",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "an event's bytes are shown over a later read that says more",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "bytes_the_runtime_no_longer_knows_or_has_passed_are_not_shown_from_an_event"
+   ],
+   "seconds": 67
+  },
+  {
+   "id": "FT51",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "an offer is written before its record is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered",
+    "an_offer_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step"
+   ],
+   "seconds": 867
+  },
+  {
+   "id": "FT52",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "an answer to an offer is written before the decision is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_decision_the_sender_read_is_held_by_the_receiver_after_a_crash_at_any_step",
+    "an_answer_that_changed_while_it_was_made_durable_is_not_written"
+   ],
+   "seconds": 895
+  },
+  {
+   "id": "FT53",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a cancellation is told before it is durable",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step"
+   ],
+   "seconds": 882
+  },
+  {
+   "id": "FT54",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "the receiver completes a file whatever digest the sender declares",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_that_does_not_match_its_digest_fails_and_is_never_offered_as_received",
+    "a_sender_that_resumes_from_another_offset_than_the_receiver_never_completes"
+   ],
+   "seconds": 855
+  },
+  {
+   "id": "FT55",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a transfer of one contact record is found under another",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "transfers::tests::a_contact_made_again_inherits_nothing",
+    "transfers::tests::an_offer_above_the_limits_is_refused_without_a_record"
+   ],
+   "seconds": 898
+  },
+  {
+   "id": "FT56",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a transfer of one local identity is found under another",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "transfers::tests::a_contact_made_again_inherits_nothing"
+   ],
+   "seconds": 888
+  },
+  {
+   "id": "FT57",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "a cancelled transfer is offered again as one that goes on",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_the_receiver_could_not_be_told_is_told_with_the_next_offer",
+    "a_pong_confirms_what_its_ping_followed_and_nothing_written_after_it",
+    "a_pong_that_answers_no_ping_of_its_session_ends_it_and_confirms_nothing",
+    "transfers::tests::a_cancellation_is_told_only_if_the_offer_may_have_been_seen"
+   ],
+   "seconds": 866
+  },
+  {
+   "id": "FT58",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "an acceptance is taken with no room left to stage",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "transfers::tests::accepting_needs_a_free_place_and_room_to_stage"
+   ],
+   "seconds": 873
+  },
+  {
+   "id": "FT59",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a chat message waits until no chunk is left to send",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_chat_message_waiting_while_chunks_go_out_is_written_after_at_most_one_chunk"
+   ],
+   "seconds": 924
+  },
+  {
+   "id": "FT60",
+   "path": "crates/monolith-storage/src/blob.rs",
+   "what": "every segment of a blob is sealed under the same nonce",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "every_segment_the_code_writes_has_a_nonce_of_its_own_and_no_plaintext_shows"
+   ],
+   "seconds": 902
+  },
+  {
+   "id": "FT61",
+   "path": "crates/monolith-storage/src/export.rs",
+   "what": "a received file is saved over a file of the same name (Unix)",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_file_is_saved_whole_under_its_name_and_nothing_else_is_left",
+    "a_file_of_a_unicode_name_deep_in_folders_is_offered_and_saved_under_that_name",
+    "a_file_offered_by_its_path_is_sent_as_staged_and_saved_where_the_user_chooses",
+    "a_name_a_peer_suggests_saves_in_the_folder_chosen_and_nowhere_else",
+    "a_name_taken_while_the_file_is_written_is_not_replaced"
+   ],
+   "seconds": 994
+  },
+  {
+   "id": "FT62",
+   "path": "crates/monolith-core/src/exchange.rs",
+   "what": "the offerer writes chunks before an acceptance on the session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "exchange::tests::the_offerer_writes_at_most_the_window_beyond_the_acknowledged_offset",
+    "transfers_between_two_runtimes_follow_the_model"
+   ],
+   "seconds": 881
+  },
+  {
+   "id": "FT63",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a transfer cancelled while its file is verified is answered with FileComplete",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_while_the_file_is_verified_is_never_answered_with_a_completion"
+   ],
+   "seconds": 864
+  },
+  {
+   "id": "FT64",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a transfer cancelled and removed at once is never ended on its session",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_transfer_cancelled_and_removed_at_once_while_it_goes_is_ended_on_its_session"
+   ],
+   "seconds": 886
+  },
+  {
+   "id": "FT65",
+   "path": "crates/monolith-core/src/sessions.rs",
+   "what": "the preferred session is not woken when a probe closes the one that waited",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "sessions::tests::the_preferred_session_is_woken_when_the_one_that_waited_goes"
+   ],
+   "seconds": 881
+  },
+  {
+   "id": "FT66",
+   "path": "crates/monolith-core/src/sessions.rs",
+   "what": "the preferred session is not woken when the one that waited ends",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "sessions::tests::the_preferred_session_is_woken_when_the_one_that_waited_goes"
+   ],
+   "seconds": 884
+  },
+  {
+   "id": "FT67",
+   "path": "crates/monolith-core/src/transfers.rs",
+   "what": "an offer of the peer under an identifier of this side is recorded",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_offer_of_the_peer_under_the_identifier_of_a_transfer_of_this_side_ends_the_session",
+    "transfers::tests::an_offer_of_the_peer_under_an_identifier_of_this_side_is_a_violation"
+   ],
+   "seconds": 875
+  },
+  {
+   "id": "FT68",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a new offer is not counted as made on the session that brought it",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "the_session_of_the_first_offer_counts_as_one_that_offered_it"
+   ],
+   "seconds": 880
+  },
+  {
+   "id": "FT69",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "an offer is written from a list read before the waits",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered"
+   ],
+   "seconds": 882
+  },
+  {
+   "id": "FT70",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "a staged file made again for a transfer that ended meanwhile is kept",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_staged_file_made_again_for_a_transfer_cancelled_meanwhile_is_removed"
+   ],
+   "seconds": 898
+  },
+  {
+   "id": "FT71",
+   "path": "crates/monolith-core/src/blobs.rs",
+   "what": "a staged file whose removal failed after its staging failed is never tried again",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_staging_that_failed_and_could_not_remove_its_file_removes_it_later"
+   ],
+   "seconds": 839
+  },
+  {
+   "id": "FT72",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "an answer that changed while it was made durable is written as it was read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "an_answer_that_changed_while_it_was_made_durable_is_not_written"
+   ],
+   "seconds": 907
+  },
+  {
+   "id": "FT73",
+   "path": "crates/monolith-core/src/runtime/transfer.rs",
+   "what": "progress is acknowledged for a transfer cancelled while its file was synced",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_cancellation_while_the_progress_is_synced_is_never_answered_with_an_acceptance"
+   ],
+   "seconds": 919
+  },
+  {
+   "id": "FT74",
+   "path": "crates/monolith-protocol/src/text.rs",
+   "what": "a suggested name may name a device the save refuses",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "local::tests::a_suggested_name_never_names_a_device",
+    "text::tests::save_name_defuses_reserved_device_names"
+   ],
+   "seconds": 1089
+  },
+  {
+   "id": "FT75",
+   "path": "crates/monolith-desktop/src/bridge.rs",
+   "what": "a suggested place is longer than a name may be",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "bridge::tests::a_suggested_place_keeps_to_the_length_of_a_name"
+   ],
+   "seconds": 89
+  },
+  {
+   "id": "FT76",
+   "path": "crates/monolith-ui-model/src/present.rs",
+   "what": "a long filename is cut at its end, its extension out of view",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "present::tests::a_long_filename_is_cut_in_its_middle_and_keeps_its_end"
+   ],
+   "seconds": 80
+  },
+  {
+   "id": "FT77",
+   "path": "crates/monolith-ui-kit/src/rows.rs",
+   "what": "a filename cut to its card keeps its start only",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_filename_cut_to_its_line_keeps_its_end"
+   ],
+   "seconds": 83
+  },
+  {
+   "id": "FT78",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a file the runtime said it saved is shown received until the next read",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_save_starts_from_the_suggested_place_and_keeps_what_the_user_typed"
+   ],
+   "seconds": 73
+  },
+  {
+   "id": "FT79",
+   "path": "crates/monolith-ui-model/src/model.rs",
+   "what": "a dialog of a transfer that ended stays open",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_dialog_of_a_transfer_that_ended_meanwhile_closes"
+   ],
+   "seconds": 61
+  }
+ ]
+}

@@ -1,0 +1,15 @@
+14:46:11 commit c90d5e54735542764fe46855ad68cbfd342273dc: preparing the copies
+14:46:13 precheck: every pattern found once
+14:46:13 unmodified run of: monolith-core monolith-desktop monolith-identity monolith-protocol monolith-runtime monolith-session monolith-storage monolith-tor monolith-ui monolith-ui-model
+14:46:13 runner logs in <repo>/mutation/work/logs/unmodified-c90d5e5-20261110-144613
+14:46:13 tree0: unmodified run
+15:01:16 tree0: passed in 902s; logs {'stdout_bytes': 101834, 'stderr_bytes': 14225, 'binaries_run': 51, 'doc_tests': 10, 'result_lines': 61, 'passed': 1296, 'failed': 0, 'ignored': 3, 'not_ok': [], 'finished': True}
+15:01:16 tree0: 51 test binaries; against the build before: 50 identical, 1 different ['transfer_restarts-9a2146a26bc681d6'], 0 not there before, 0 gone []
+15:01:16 tree0: logs checked
+15:01:36 tree0: check_copy passed
+15:01:36 tree1: unmodified run
+15:16:51 tree1: passed in 912s; logs {'stdout_bytes': 101835, 'stderr_bytes': 14225, 'binaries_run': 51, 'doc_tests': 10, 'result_lines': 61, 'passed': 1296, 'failed': 0, 'ignored': 3, 'not_ok': [], 'finished': True}
+15:16:51 tree1: 51 test binaries; against the build before: 39 identical, 1 different ['transfer_restarts-9a2146a26bc681d6'], 11 not there before, 0 gone []
+15:16:51 tree1: logs checked
+15:17:11 tree1: check_copy passed
+15:17:11 both unmodified checks passed

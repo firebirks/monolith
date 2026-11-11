@@ -1,0 +1,82 @@
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+     Running `target/x86_64-unknown-linux-gnu/release/ui_present -artifact_prefix=<repo>/fuzz/artifacts/ui_present/ -max_total_time=25 -malloc_limit_mb=64 -rss_limit_mb=2048 -timeout=5 <home>/final8-corpus/ui_present seeds/ui_present`
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2571822195
+INFO: Loaded 1 modules   (2515 inline 8-bit counters): 2515 [0x56768696c330, 0x56768696cd03), 
+INFO: Loaded 1 PC tables (2515 PCs): 2515 [0x56768696cd08,0x567686976a38), 
+INFO:        0 files found in <home>/final8-corpus/ui_present
+INFO:        7 files found in seeds/ui_present
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 7 min: 10b max: 1151b total: 1320b rss: 34Mb
+#8	INITED cov: 656 ft: 1088 corp: 7/1320b exec/s: 0 rss: 34Mb
+
+thread '<unnamed>' (17127) panicked at fuzz_targets/ui_present.rs:152:9:
+assertion `left == right` failed
+  left: "<U+0000><U+0000>\nde \n  "
+ right: "\0\0\nde \n  "
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+==17127== ERROR: libFuzzer: deadly signal
+    #0 0x567686889e11  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x119e11) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #1 0x5676869179ea  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1a79ea) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #2 0x5676868d2b25  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x162b25) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #3 0x7c0852b5bd6f  (/lib/x86_64-linux-gnu/libc.so.6+0x3fd6f) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #4 0x7c0852bb069b  (/lib/x86_64-linux-gnu/libc.so.6+0x9469b) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #5 0x7c0852b5bc41  (/lib/x86_64-linux-gnu/libc.so.6+0x3fc41) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #6 0x7c0852b444ab  (/lib/x86_64-linux-gnu/libc.so.6+0x284ab) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #7 0x567686946cc9  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1d6cc9) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #8 0x567686945998  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1d5998) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #9 0x5676868cb544  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15b544) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #10 0x567686945c21  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1d5c21) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #11 0x567686933af1  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1c3af1) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #12 0x56768692e0d8  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1be0d8) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #13 0x5676869341dc  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1c41dc) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #14 0x567686958bcb  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1e8bcb) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #15 0x567686958ae2  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1e8ae2) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #16 0x5676868b2d1c  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x142d1c) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #17 0x5676868b54ed  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1454ed) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #18 0x5676868b6263  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x146263) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #19 0x5676868bdfe5  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x14dfe5) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #20 0x5676868cb0d4  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15b0d4) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #21 0x5676868cbd18  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15bd18) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #22 0x5676868ca7cd  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15a7cd) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #23 0x5676868d3094  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x163094) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #24 0x5676868d9cef  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x169cef) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #25 0x5676868daeda  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x16aeda) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #26 0x5676868dbc77  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x16bc77) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #27 0x5676868ed51e  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x17d51e) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #28 0x56768691e712  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1ae712) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #29 0x7c0852b45ca7  (/lib/x86_64-linux-gnu/libc.so.6+0x29ca7) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #30 0x7c0852b45d64  (/lib/x86_64-linux-gnu/libc.so.6+0x29d64) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #31 0x5676867ebba0  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x7bba0) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+
+NOTE: libFuzzer has rudimentary signal handlers.
+      Combine libFuzzer with AddressSanitizer or similar for better crash reports.
+SUMMARY: libFuzzer: deadly signal
+MS: 1 ChangeBinInt-; base unit: 46e703a74e97420b27fefecf7ce64e4438c0a18c
+0x0,0x0,0x0,0xa,0x64,0x65,0x20,0xa,0x20,0x20,
+\000\000\000\012de \012  
+artifact_prefix='<repo>/fuzz/artifacts/ui_present/'; Test unit written to <repo>/fuzz/artifacts/ui_present/crash-6fa7b23bc39549e8bb9f25d0126835c5f368cbf3
+Base64: AAAACmRlIAogIA==
+
+--------------------------------------------------------------------------------
+
+Failing input:
+
+	artifacts/ui_present/crash-6fa7b23bc39549e8bb9f25d0126835c5f368cbf3
+
+Output of `std::fmt::Debug`:
+
+	[0, 0, 0, 10, 100, 101, 32, 10, 32, 32]
+
+Reproduce with:
+
+	cargo fuzz run ui_present artifacts/ui_present/crash-6fa7b23bc39549e8bb9f25d0126835c5f368cbf3
+
+Minimize test case with:
+
+	cargo fuzz tmin ui_present artifacts/ui_present/crash-6fa7b23bc39549e8bb9f25d0126835c5f368cbf3
+
+--------------------------------------------------------------------------------
+
+Error: Fuzz target exited with exit status: 77

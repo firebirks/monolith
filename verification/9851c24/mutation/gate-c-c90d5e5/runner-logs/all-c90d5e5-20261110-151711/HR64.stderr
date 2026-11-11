@@ -1,0 +1,17 @@
+   Compiling tokio v1.53.3
+   Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-tor)
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+   Compiling monolith-runtime v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-runtime)
+   Compiling monolith-desktop v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 38.37s
+     Running unittests src/lib.rs (target/debug/deps/monolith_desktop-4c791660e806049b)
+     Running unittests src/main.rs (target/debug/deps/monolith_desktop-20cec312be9ddd7f)
+     Running tests/boundary.rs (target/debug/deps/boundary-2b0fd388100f3737)
+     Running tests/bridge.rs (target/debug/deps/bridge-b88c5a74ed94c3ea)
+     Running unittests src/lib.rs (target/debug/deps/monolith_runtime-52e96714afc67385)
+error: test failed, to rerun pass `-p monolith-runtime --lib`
+     Running tests/transfers.rs (target/debug/deps/transfers-94314a1b35f44a0d)
+   Doc-tests monolith_desktop
+   Doc-tests monolith_runtime
+error: 1 target failed:
+    `-p monolith-runtime --lib`

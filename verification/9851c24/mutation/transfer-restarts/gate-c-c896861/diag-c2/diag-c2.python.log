@@ -1,0 +1,38 @@
+12:51:46 commit c896861b66b0296db4ab1598589d69a88954d877: preparing the copies
+12:51:51 precheck: every pattern found once
+12:51:51 unmodified run of: monolith-core monolith-desktop monolith-identity monolith-protocol monolith-runtime monolith-session monolith-storage monolith-tor monolith-ui monolith-ui-model
+12:51:51 runner logs in <repo>/mutation/work/logs/unmodified-c896861-20261110-125151
+12:51:51 tree0: unmodified run
+13:06:49 tree0: passed in 896s; logs {'stdout_bytes': 101954, 'stderr_bytes': 14225, 'binaries_run': 51, 'doc_tests': 10, 'result_lines': 61, 'passed': 1296, 'failed': 0, 'ignored': 3, 'not_ok': [], 'finished': True}
+13:06:49 tree0: 51 test binaries; against 9851c24: 40 identical, 0 different [], 11 not there before ['monolith_core-7178663a9285de34', 'monolith_desktop-32bda8c17f21f876', 'monolith_desktop-dc011324d752799b', 'monolith_identity-799a47e8d241c810', 'monolith_protocol-257b8524736c4008', 'monolith_runtime-eed94d1b11aa64a0', 'monolith_session-9a7c4df3a536944d', 'monolith_storage-ce3d06d4652afff7', 'monolith_tor-dbabd306965bb2e0', 'monolith_ui-8e5b6d6321ee1008', 'monolith_ui_model-ce86b513eeec0899'], 0 gone []
+13:07:10 tree0: check_copy passed
+13:07:10 tree1: unmodified run
+exit code 101
+tests that failed: 1
+    a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat
+tests that ran for over 60 seconds:
+    creating_and_revoking_an_invitation_are_atomic
+    transfers_between_two_runtimes_follow_the_model
+    a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable
+    a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole
+    a_receiver_stays_bounded_through_lost_sessions_repeated_offers_and_a_full_disk
+    whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified
+errors of cargo:
+    error: test failed, to rerun pass `-p monolith-core --test transfer_restarts`
+    error: 1 target failed:
+        `-p monolith-core --test transfer_restarts`
+failures:
+
+---- a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat stdout ----
+
+thread 'a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat' (39806) panicked at crates/monolith-core/tests/transfer_restarts.rs:501:9:
+the chat waited behind the file: [Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(ChatMessage), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat
+
+test result: FAILED. 35 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 164.22s
+the whole output: <repo>/mutation/work/logs/unmodified-c896861-20261110-125151/tree1-unmodified.stdout and <repo>/mutation/work/logs/unmodified-c896861-20261110-125151/tree1-unmodified.stderr
+the unmodified tree does not pass its tests

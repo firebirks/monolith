@@ -1,0 +1,20 @@
+v3 applied to <home>/p8t/v3/crates/monolith-core/src/runtime.rs
+v3 applied to <home>/p8t/oldv3/crates/monolith-core/src/runtime.rs
+14:33:43 v3 built: sha256 eb5d1aa26a79e3eb
+14:34:03 oldv3 built: sha256 99b12f139fa9cdf8
+14:34:05 v3 run 1: exit/seconds 101 2; crates/monolith-core/tests/transfer_restarts.rs:538:13:
+assertion `left == right` failed: the chat waited behind the file: [Message(FileAccept), Message(FileAccept), Message(ChatMessage), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept)]
+  left: Some(257960)
+ right: Some(128980)
+14:34:06 v3 run 2: exit/seconds 101 1; crates/monolith-core/tests/transfer_restarts.rs:538:13:
+assertion `left == right` failed: the chat waited behind the file: [Message(FileAccept), Message(FileAccept), Message(ChatMessage), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept)]
+  left: Some(257960)
+ right: Some(128980)
+14:34:08 v3 run 3: exit/seconds 101 2; crates/monolith-core/tests/transfer_restarts.rs:538:13:
+assertion `left == right` failed: the chat waited behind the file: [Message(FileAccept), Message(FileAccept), Message(ChatMessage), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept), Message(FileAccept)]
+  left: Some(257960)
+ right: Some(128980)
+14:34:31 oldv3: 0 of 10 failed
+14:34:31 clippy in base:     Checking monolith-core v0.0.0 (<home>/p8t/base/crates/monolith-core)     Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.46s 
+14:34:31 v2 run 1 messages order: 3 lines, test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 4.75s
+14:34:31 fixcheck2 ended

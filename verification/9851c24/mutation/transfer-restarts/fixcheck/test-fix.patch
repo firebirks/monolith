@@ -1,0 +1,251 @@
+diff --git a/crates/monolith-core/tests/transfer_restarts.rs b/crates/monolith-core/tests/transfer_restarts.rs
+index 0000f77..0120bff 100644
+--- a/crates/monolith-core/tests/transfer_restarts.rs
++++ b/crates/monolith-core/tests/transfer_restarts.rs
+@@ -445,78 +445,125 @@ fn a_receiver_that_crashes_resumes_from_what_it_holds_durably() {
+ /// acknowledgements the sender read. A sender that ignores it gets no more
+ /// staged than the size it offered, holds up no chat of the receiver, and
+ /// a chunk beyond the size ends its session.
++///
++/// The chat is queued, and made durable, while the receiver waits at the
++/// sync of a progress (the first, and one past `10 * L`): once that
++/// progress is acknowledged the chat is the next thing the receiver
++/// writes, ahead of every later acknowledgement. This is the priority of a
++/// chat that is durable. How long a chat takes to become durable while a
++/// file pours in is not bounded here: its write and those of the transfer
++/// take the lock of the disk in no set order (`docs/DESIGN_QUESTIONS.md`
++/// section 15.4).
+ #[test]
+ fn a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat() {
+-    run_paused(async {
+-        let network = MockNetwork::new();
+-        let (mut b, a, at_b, _) = contacts(&network).await;
+-        let data = file(24 * L + 9);
+-        let mut link = hand_link(&network, &b, &a).await;
+-        let received = offered_and_accepted(&b, &mut link, &data).await;
+-        let blobs = b.blobs();
+-        assert_eq!(blobs.len(), 1);
+-        let reserved = b.dir().content(&blobs[0]).unwrap().len();
+-        let mut events = b.runtime().subscribe();
+-        // The whole file at once, never waiting for an acknowledgement, and
+-        // then one chunk more than the file.
+-        let sent = data.clone();
+-        let flood = tokio::spawn(async move {
+-            let mut offset = 0;
+-            while offset < sent.len() as u64 {
+-                link.send(&chunk(TRANSFER, &sent, offset)).await.unwrap();
+-                offset = (offset + L).min(sent.len() as u64);
++    for after in [0, 10 * L] {
++        run_paused(async {
++            let network = MockNetwork::new();
++            let (mut b, a, at_b, _) = contacts(&network).await;
++            let dir = b.dir().clone();
++            let _released = SyncsReleased(&dir);
++            let data = file(24 * L + 9);
++            let mut link = hand_link(&network, &b, &a).await;
++            let received = offered_and_accepted(&b, &mut link, &data).await;
++            let blobs = b.blobs();
++            assert_eq!(blobs.len(), 1);
++            let reserved = b.dir().content(&blobs[0]).unwrap().len();
++            let mut events = b.runtime().subscribe();
++            if after == 0 {
++                dir.hold_blob_syncs();
+             }
+-            let more = Message::FileChunk(FileChunk::new(TRANSFER, vec![7; L as usize]).unwrap());
+-            let refused = link.send(&more).await.is_err();
+-            let (messages, ended) = drain(&mut link, QUIET).await;
+-            (messages, ended || refused)
++            // The whole file at once, never waiting for an acknowledgement,
++            // and then one chunk more than the file.
++            let sent = data.clone();
++            let flood = tokio::spawn(async move {
++                let mut offset = 0;
++                while offset < sent.len() as u64 {
++                    link.send(&chunk(TRANSFER, &sent, offset)).await.unwrap();
++                    offset = (offset + L).min(sent.len() as u64);
++                }
++                let more =
++                    Message::FileChunk(FileChunk::new(TRANSFER, vec![7; L as usize]).unwrap());
++                let refused = link.send(&more).await.is_err();
++                let (messages, ended) = drain(&mut link, QUIET).await;
++                (messages, ended || refused)
++            });
++            // What the receiver acknowledged before the sync it waits at.
++            let mut acknowledged = 0;
++            if after > 0 {
++                let Event::TransferProgressed { bytes, .. } = event(&mut events, |event| {
++                    matches!(
++                        event,
++                        Event::TransferProgressed { reference, bytes }
++                            if *reference == received && *bytes >= after
++                    )
++                })
++                .await
++                else {
++                    panic!("not a progress");
++                };
++                acknowledged = bytes;
++                dir.hold_blob_syncs();
++            }
++            spin_until(|| dir.blob_sync_held()).await;
++            loop {
++                match events.try_recv() {
++                    Ok(Event::TransferProgressed { reference, bytes }) if reference == received => {
++                        acknowledged = acknowledged.max(bytes);
++                    }
++                    Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) => {}
++                    Err(_) => break,
++                }
++            }
++            // Queued and durable while the chunks pour in and the receiver
++            // waits at the sync.
++            b.runtime()
++                .send_message(&b.id(), &at_b, "while the file pours in")
++                .await
++                .unwrap();
++            dir.release_blob_syncs();
++            let (messages, ended) = flood.await.unwrap();
++            assert!(ended, "a chunk beyond the size ends the session");
++            let offsets = acceptances(&messages, TRANSFER);
++            assert!(
++                offsets.windows(2).all(|pair| pair[0] < pair[1]),
++                "{offsets:?}"
++            );
++            assert!(offsets.iter().all(|offset| *offset <= data.len() as u64));
++            let chat = messages
++                .iter()
++                .position(|message| matches!(message, Message::ChatMessage { .. }))
++                .expect("the chat message");
++            // The progress it waited at is acknowledged, then the chat goes
++            // out, and the file goes on after it.
++            assert_eq!(
++                acceptances(&messages[..chat], TRANSFER).last(),
++                Some(&(acknowledged + 2 * L)),
++                "the chat waited behind the file: {messages:?}"
++            );
++            assert!(
++                !acceptances(&messages[chat..], TRANSFER).is_empty(),
++                "{messages:?}"
++            );
++            // Nothing beyond the reservation, and nothing staged beyond the
++            // size.
++            assert_eq!(b.blobs(), blobs);
++            assert_eq!(b.dir().content(&blobs[0]).unwrap().len(), reserved);
++            let view = b.view(&received).unwrap();
++            assert_eq!(view.status, TransferStatus::Receiving);
++            assert!(view.bytes.is_some_and(|bytes| bytes <= data.len() as u64));
++            // A sender that keeps to the rules then completes it.
++            let mut link = hand_link(&network, &b, &a).await;
++            let from = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
++            assert_eq!(from.len(), 1);
++            let answer = send_rest(&mut link, &data, from[0]).await;
++            assert!(answer.contains(&Message::FileComplete {
++                transfer: TRANSFER,
++                digest: sha(&data),
++            }));
++            assert_eq!(saved(&b, &received).await, data);
++            b.stop().await;
+         });
+-        // Chat queued while the chunks pour in goes out between them.
+-        event(&mut events, |event| {
+-            matches!(event, Event::TransferProgressed { reference, .. } if *reference == received)
+-        })
+-        .await;
+-        b.runtime()
+-            .send_message(&b.id(), &at_b, "while the file pours in")
+-            .await
+-            .unwrap();
+-        let (messages, ended) = flood.await.unwrap();
+-        assert!(ended, "a chunk beyond the size ends the session");
+-        let chat = messages
+-            .iter()
+-            .position(|message| matches!(message, Message::ChatMessage { .. }))
+-            .expect("the chat message");
+-        let offsets = acceptances(&messages, TRANSFER);
+-        assert!(
+-            offsets.windows(2).all(|pair| pair[0] < pair[1]),
+-            "{offsets:?}"
+-        );
+-        assert!(offsets.iter().all(|offset| *offset <= data.len() as u64));
+-        let late = messages
+-            .iter()
+-            .position(|message| {
+-                matches!(message, Message::FileAccept { offset, .. } if *offset >= 10 * L)
+-            })
+-            .expect("acknowledgements up to the end");
+-        assert!(chat < late, "the chat waited behind the file: {messages:?}");
+-        // Nothing beyond the reservation, and nothing staged beyond the size.
+-        assert_eq!(b.blobs(), blobs);
+-        assert_eq!(b.dir().content(&blobs[0]).unwrap().len(), reserved);
+-        let view = b.view(&received).unwrap();
+-        assert_eq!(view.status, TransferStatus::Receiving);
+-        assert!(view.bytes.is_some_and(|bytes| bytes <= data.len() as u64));
+-        // A sender that keeps to the rules then completes it.
+-        let mut link = hand_link(&network, &b, &a).await;
+-        let from = acceptances(&offer_again(&mut link, &data).await, TRANSFER);
+-        assert_eq!(from.len(), 1);
+-        let answer = send_rest(&mut link, &data, from[0]).await;
+-        assert!(answer.contains(&Message::FileComplete {
+-            transfer: TRANSFER,
+-            digest: sha(&data),
+-        }));
+-        assert_eq!(saved(&b, &received).await, data);
+-        b.stop().await;
+-    });
++    }
+ }
+ 
+ #[test]
+diff --git a/docs/DESIGN_QUESTIONS.md b/docs/DESIGN_QUESTIONS.md
+index 15e3297..a0e091f 100644
+--- a/docs/DESIGN_QUESTIONS.md
++++ b/docs/DESIGN_QUESTIONS.md
+@@ -3361,3 +3361,48 @@ transfer state had not been brought up to date when a transfer stopped
+ before its receiver was told became removable (`8763156`): a seed found
+ on Linux showed it (`ea4d2f0`). Rust 1.85.1, the minimum version, had
+ stopped building the core with four let chains (`0b4b098`).
++
++### 15.4 The priority of a chat, and the lock of the disk
++
++In the final verification of Phase 8 (gate C, 2026-11-09 and
++2026-11-10) the unmodified run of a copy of the mutation runner failed
++twice in one test,
++`a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat`,
++which passed in more than seventy other runs of the same build. It queued
++a chat after the first progress of a sender that ignores the window, and
++expected it before the acknowledgement of `10 * L`; it came after that of
++`12 * L`, with the file still pouring in. The first failure left no name:
++the runner kept the last 3000 characters of the output; since `c896861` it
++keeps the whole output of every run and names the tests that failed.
++
++The test measured two things at once:
++
++- How long the chat takes to be in the queue. `send_message` waits for the
++  vault to be durable, then the message store writes the chat. Those
++  writes, the writes of the transfer store at every progress and the
++  reservations of blobs take the one lock of the disk of the installation
++  (`persist::Serialized`, `blobs::DiskLock`, a `std::sync::Mutex`), on
++  threads of the blocking pool, which paused time does not order.
++- What a session does with a chat in the queue. It sends it at the top of
++  its loop, before it reads another frame; `next_to_send` waits for the
++  write of the chat to complete.
++
++The test now looks at the second alone. It holds the sync of a progress
++(`MemoryDir::hold_blob_syncs`), queues the chat and waits until it is
++durable, lets the sync go, and expects the chat right after that progress
++is acknowledged, ahead of every later acknowledgement, at the first
++progress and at one past `10 * L`. Only that sync is held: the chunks keep
++arriving, and the writes of the chat go through the vault, the message
++store and the lock of the disk on threads of their own. The test is more
++precise about the priority of a chat on the session, with another
++precondition: it no longer bounds the time from the queueing of a chat to
++its leaving.
++
++Kept, and not bounded in this phase: the lock of the disk has no order, so
++a write of the message store can wait behind any number of writes of the
++transfer store and reservations of blobs. Nothing shows starvation, but no
++bound on that latency is guaranteed. The priority of messages on the
++transport and the priority of writes to storage are separate; P8-3 ("holds
++up no chat") is the first. A lock that serves writes in order, or a
++priority for the writes of the message store, would bound the second; no
++scheduler of the disk is added before a delay is measured on a real disk.

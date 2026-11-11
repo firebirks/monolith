@@ -1,0 +1,18 @@
+universe 626 = 98 selected, run on the candidate + 92 selected, not run + 9 not selected, run on the candidate + 427 not selected, not run
+run on the candidate 107 = gate B 84 + Phase 7 part 1 23 (overlap 0)
+selected 190; not selected 436 = 427 not run + 9 run: HR2 HR21 HR22 HR23 HR3 HR5 HR6 HR7 HR8
+not run 519 = 92 selected + 427 not selected
+expected survivors: 9 {'not selected, not run': ['B3', 'B4', 'CAP2', 'CAP3', 'Q14', 'Q18', 'Q29', 'S15', 'S24']}
+expected caught, last evidence not attributable to named tests alone: 6
+  CS30  not selected, not run                 3608s ['(timeout)', 'a_lost_service_is_published_again_under_the_same_name', 'the_service_state_answers_as_the_last_event_said', 'the_supervisors_of_two_identities_do_not_touch_each_other']
+  K4    not selected, not run                  593s ['(non-zero exit, no failing test named)']
+  MR25  not selected, not run                 3616s ['(timeout)']
+  MR26  selected, run on the candidate        3616s ['(timeout)']
+  MR9   selected, run on the candidate        3616s ['(timeout)', 'a_failed_attempt_is_not_repeated_at_once', 'a_failure_of_tor_is_not_followed_by_the_active_key', 'a_plan_whose_cards_both_fail_is_reported_once', 'a_session_the_scheduler_waited_on_announces_the_retry_when_it_ends']
+  Q1    not selected, not run                 3528s ['(timeout)', 'a_failure_of_tor_ends_the_proof', 'a_proof_lets_dials_through_for_its_lifetime_only', 'with_the_check_off_a_dial_asks_the_control_endpoint_nothing', 'without_a_socks_endpoint_there_is_no_connection_at_all']
+to run: 92 selected + 4 not attributable = 96 unique, none already run, none an expected survivor
+precheck at the candidate: every pattern found once
+crates tested: monolith-core monolith-desktop monolith-protocol monolith-runtime monolith-session monolith-storage monolith-tor monolith-ui monolith-ui-model
+evidence seconds 42437 (about 9.9 h with two workers at the gate B rate, the timeouts bounded by the runner's own)
+after the run: run 203, not run 423 (9 expected survivors, 414 with a named killing test in an unchanged file and the function not edited)
+ids in faults.py order written to run96.txt

@@ -1,0 +1,12 @@
+deny exit 0 (3 s)
+audit exit 0 (3 s)
+identity exit 0 (0 s)
+trailers exit 0 (0 s)
+doc exit 0 (47 s)
+fuzz-check exit 0 (15 s)
+fuzz-build exit 0 (42 s)
+gui-build exit 0 (154 s)
+gui-light exit 0 (2 s)
+gui-dark exit 0 (3 s)
+package exit 0 (166 s)
+done

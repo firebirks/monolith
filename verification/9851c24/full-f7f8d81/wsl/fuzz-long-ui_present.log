@@ -1,0 +1,127 @@
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.08s
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.03s
+     Running `target/x86_64-unknown-linux-gnu/release/ui_present -artifact_prefix=<repo>/fuzz/artifacts/ui_present/ -max_total_time=600 -malloc_limit_mb=64 -rss_limit_mb=2048 -timeout=5 <home>/final8-corpus/ui_present seeds/ui_present`
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3178947854
+INFO: Loaded 1 modules   (2515 inline 8-bit counters): 2515 [0x58fb5cadc330, 0x58fb5cadcd03), 
+INFO: Loaded 1 PC tables (2515 PCs): 2515 [0x58fb5cadcd08,0x58fb5cae6a38), 
+INFO:        0 files found in <home>/final8-corpus/ui_present
+INFO:        7 files found in seeds/ui_present
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 7 min: 10b max: 1151b total: 1320b rss: 33Mb
+#8	INITED cov: 656 ft: 1088 corp: 7/1320b exec/s: 0 rss: 33Mb
+#9	NEW    cov: 660 ft: 1141 corp: 8/1371b lim: 1151 exec/s: 0 rss: 34Mb L: 51/1151 MS: 1 CrossOver-
+#10	NEW    cov: 666 ft: 1165 corp: 9/1382b lim: 1151 exec/s: 0 rss: 34Mb L: 11/1151 MS: 1 ChangeByte-
+#11	NEW    cov: 666 ft: 1202 corp: 10/1509b lim: 1151 exec/s: 0 rss: 34Mb L: 127/1151 MS: 1 InsertRepeatedBytes-
+#12	NEW    cov: 666 ft: 1208 corp: 11/2660b lim: 1151 exec/s: 0 rss: 34Mb L: 1151/1151 MS: 1 ChangeByte-
+#13	NEW    cov: 666 ft: 1289 corp: 12/3723b lim: 1151 exec/s: 0 rss: 34Mb L: 1063/1151 MS: 1 EraseBytes-
+#14	NEW    cov: 666 ft: 1302 corp: 13/3775b lim: 1151 exec/s: 0 rss: 34Mb L: 52/1151 MS: 1 CrossOver-
+#16	NEW    cov: 668 ft: 1313 corp: 14/4926b lim: 1151 exec/s: 0 rss: 34Mb L: 1151/1151 MS: 2 CopyPart-CMP- DE: "\005\000\000\000\000\000\000\000"-
+#17	NEW    cov: 668 ft: 1314 corp: 15/4978b lim: 1151 exec/s: 0 rss: 34Mb L: 52/1151 MS: 1 InsertByte-
+#18	NEW    cov: 668 ft: 1318 corp: 16/5043b lim: 1151 exec/s: 0 rss: 35Mb L: 65/1151 MS: 1 CopyPart-
+#22	NEW    cov: 668 ft: 1334 corp: 17/5810b lim: 1151 exec/s: 0 rss: 35Mb L: 767/1151 MS: 4 CopyPart-ChangeByte-ChangeByte-EraseBytes-
+#23	NEW    cov: 668 ft: 1339 corp: 18/6920b lim: 1151 exec/s: 0 rss: 35Mb L: 1110/1151 MS: 1 EraseBytes-
+#24	NEW    cov: 668 ft: 1343 corp: 19/8071b lim: 1151 exec/s: 0 rss: 35Mb L: 1151/1151 MS: 1 CopyPart-
+#26	NEW    cov: 668 ft: 1354 corp: 20/8131b lim: 1151 exec/s: 0 rss: 35Mb L: 60/1151 MS: 2 ShuffleBytes-PersAutoDict- DE: "\005\000\000\000\000\000\000\000"-
+#28	NEW    cov: 668 ft: 1357 corp: 21/9282b lim: 1151 exec/s: 0 rss: 35Mb L: 1151/1151 MS: 2 ShuffleBytes-CrossOver-
+#29	NEW    cov: 668 ft: 1359 corp: 22/10433b lim: 1151 exec/s: 0 rss: 35Mb L: 1151/1151 MS: 1 ChangeBit-
+#30	NEW    cov: 668 ft: 1369 corp: 23/11497b lim: 1151 exec/s: 0 rss: 35Mb L: 1064/1151 MS: 1 InsertByte-
+#32	NEW    cov: 668 ft: 1371 corp: 24/12264b lim: 1151 exec/s: 0 rss: 35Mb L: 767/1151 MS: 2 ShuffleBytes-CopyPart-
+#37	NEW    cov: 668 ft: 1378 corp: 25/13316b lim: 1151 exec/s: 0 rss: 36Mb L: 1052/1151 MS: 5 ChangeByte-ChangeByte-CMP-CopyPart-EraseBytes- DE: "\001\000\000\000\000\000\000\000"-
+#38	NEW    cov: 668 ft: 1379 corp: 26/14329b lim: 1151 exec/s: 0 rss: 36Mb L: 1013/1151 MS: 1 EraseBytes-
+#39	NEW    cov: 668 ft: 1382 corp: 27/14433b lim: 1151 exec/s: 0 rss: 36Mb L: 104/1151 MS: 1 CopyPart-
+#40	NEW    cov: 668 ft: 1386 corp: 28/15318b lim: 1151 exec/s: 0 rss: 36Mb L: 885/1151 MS: 1 EraseBytes-
+#41	NEW    cov: 668 ft: 1393 corp: 29/16012b lim: 1151 exec/s: 0 rss: 36Mb L: 694/1151 MS: 1 EraseBytes-
+#42	NEW    cov: 669 ft: 1404 corp: 30/16139b lim: 1151 exec/s: 0 rss: 36Mb L: 127/1151 MS: 1 CMP- DE: "\000\000\000\012"-
+#43	NEW    cov: 669 ft: 1411 corp: 31/16206b lim: 1151 exec/s: 0 rss: 36Mb L: 67/1151 MS: 1 ShuffleBytes-
+#45	NEW    cov: 669 ft: 1414 corp: 32/16Kb lim: 1151 exec/s: 0 rss: 36Mb L: 767/1151 MS: 2 ShuffleBytes-CMP- DE: "\002\000\000\000\000\000\000\000"-
+#46	NEW    cov: 669 ft: 1418 corp: 33/17Kb lim: 1151 exec/s: 0 rss: 36Mb L: 1063/1151 MS: 1 CrossOver-
+#48	NEW    cov: 669 ft: 1419 corp: 34/18Kb lim: 1151 exec/s: 0 rss: 37Mb L: 1131/1151 MS: 2 EraseBytes-PersAutoDict- DE: "\000\000\000\012"-
+#54	NEW    cov: 669 ft: 1420 corp: 35/19Kb lim: 1151 exec/s: 0 rss: 37Mb L: 1118/1151 MS: 1 PersAutoDict- DE: "\002\000\000\000\000\000\000\000"-
+#56	NEW    cov: 670 ft: 1431 corp: 36/19Kb lim: 1151 exec/s: 0 rss: 37Mb L: 60/1151 MS: 2 EraseBytes-ChangeBinInt-
+#57	NEW    cov: 670 ft: 1446 corp: 37/20Kb lim: 1151 exec/s: 0 rss: 37Mb L: 283/1151 MS: 1 CrossOver-
+#59	NEW    cov: 670 ft: 1447 corp: 38/20Kb lim: 1151 exec/s: 0 rss: 37Mb L: 61/1151 MS: 2 InsertByte-PersAutoDict- DE: "\002\000\000\000\000\000\000\000"-
+#60	NEW    cov: 671 ft: 1461 corp: 39/20Kb lim: 1151 exec/s: 0 rss: 37Mb L: 8/1151 MS: 1 EraseBytes-
+#61	NEW    cov: 671 ft: 1466 corp: 40/20Kb lim: 1151 exec/s: 0 rss: 37Mb L: 25/1151 MS: 1 EraseBytes-
+#63	NEW    cov: 671 ft: 1472 corp: 41/21Kb lim: 1151 exec/s: 0 rss: 37Mb L: 1151/1151 MS: 2 ChangeBinInt-ChangeBinInt-
+#65	NEW    cov: 672 ft: 1473 corp: 42/21Kb lim: 1151 exec/s: 0 rss: 37Mb L: 290/1151 MS: 2 InsertByte-CrossOver-
+#69	NEW    cov: 672 ft: 1481 corp: 43/22Kb lim: 1151 exec/s: 0 rss: 38Mb L: 1151/1151 MS: 4 PersAutoDict-InsertRepeatedBytes-CopyPart-CrossOver- DE: "\000\000\000\012"-
+#70	NEW    cov: 672 ft: 1508 corp: 44/23Kb lim: 1151 exec/s: 0 rss: 38Mb L: 1151/1151 MS: 1 CrossOver-
+#71	NEW    cov: 674 ft: 1516 corp: 45/23Kb lim: 1151 exec/s: 0 rss: 38Mb L: 52/1151 MS: 1 ChangeBinInt-
+#72	NEW    cov: 674 ft: 1517 corp: 46/24Kb lim: 1151 exec/s: 0 rss: 38Mb L: 833/1151 MS: 1 CrossOver-
+#74	NEW    cov: 676 ft: 1574 corp: 47/24Kb lim: 1151 exec/s: 0 rss: 38Mb L: 238/1151 MS: 2 ShuffleBytes-CrossOver-
+#80	NEW    cov: 679 ft: 1583 corp: 48/25Kb lim: 1151 exec/s: 0 rss: 38Mb L: 68/1151 MS: 1 CopyPart-
+#81	NEW    cov: 679 ft: 1585 corp: 49/26Kb lim: 1151 exec/s: 0 rss: 39Mb L: 1121/1151 MS: 1 InsertRepeatedBytes-
+#82	NEW    cov: 679 ft: 1588 corp: 50/26Kb lim: 1151 exec/s: 0 rss: 39Mb L: 759/1151 MS: 1 InsertRepeatedBytes-
+#84	NEW    cov: 679 ft: 1599 corp: 51/27Kb lim: 1151 exec/s: 0 rss: 39Mb L: 238/1151 MS: 2 ChangeBinInt-ChangeBit-
+#86	NEW    cov: 679 ft: 1601 corp: 52/27Kb lim: 1151 exec/s: 0 rss: 39Mb L: 266/1151 MS: 2 ShuffleBytes-CrossOver-
+
+thread '<unnamed>' (24024) panicked at fuzz_targets/ui_present.rs:152:9:
+assertion `left == right` failed
+  left: "<U+0000><U+0000><U+0000><U+0000><U+0000><U+0000><U+FFFD>"
+ right: "\0\0\0\0\0\0<U+FFFD>"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+==24024== ERROR: libFuzzer: deadly signal
+    #0 0x58fb5c9f9e11  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x119e11) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #1 0x58fb5ca879ea  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1a79ea) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #2 0x58fb5ca42b25  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x162b25) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #3 0x789af364bd6f  (/lib/x86_64-linux-gnu/libc.so.6+0x3fd6f) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #4 0x789af36a069b  (/lib/x86_64-linux-gnu/libc.so.6+0x9469b) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #5 0x789af364bc41  (/lib/x86_64-linux-gnu/libc.so.6+0x3fc41) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #6 0x789af36344ab  (/lib/x86_64-linux-gnu/libc.so.6+0x284ab) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #7 0x58fb5cab6cc9  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1d6cc9) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #8 0x58fb5cab5998  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1d5998) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #9 0x58fb5ca3b544  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15b544) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #10 0x58fb5cab5c21  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1d5c21) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #11 0x58fb5caa3af1  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1c3af1) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #12 0x58fb5ca9e0d8  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1be0d8) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #13 0x58fb5caa41dc  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1c41dc) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #14 0x58fb5cac8bcb  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1e8bcb) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #15 0x58fb5cac8ae2  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1e8ae2) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #16 0x58fb5ca22d1c  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x142d1c) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #17 0x58fb5ca254ed  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1454ed) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #18 0x58fb5ca26263  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x146263) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #19 0x58fb5ca2dfe5  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x14dfe5) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #20 0x58fb5ca3b0d4  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15b0d4) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #21 0x58fb5ca3bd18  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15bd18) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #22 0x58fb5ca3a7cd  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x15a7cd) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #23 0x58fb5ca43094  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x163094) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #24 0x58fb5ca49cef  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x169cef) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #25 0x58fb5ca4aeda  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x16aeda) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #26 0x58fb5ca4bc77  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x16bc77) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #27 0x58fb5ca5d51e  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x17d51e) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #28 0x58fb5ca8e712  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x1ae712) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+    #29 0x789af3635ca7  (/lib/x86_64-linux-gnu/libc.so.6+0x29ca7) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #30 0x789af3635d64  (/lib/x86_64-linux-gnu/libc.so.6+0x29d64) (BuildId: 5e5b51f4c39af9ac589408c1dc432ba390a273cc)
+    #31 0x58fb5c95bba0  (<repo>/fuzz/target/x86_64-unknown-linux-gnu/release/ui_present+0x7bba0) (BuildId: c1fa8a938799f9d8fb5d4ed78a12ee411a007aea)
+
+NOTE: libFuzzer has rudimentary signal handlers.
+      Combine libFuzzer with AddressSanitizer or similar for better crash reports.
+SUMMARY: libFuzzer: deadly signal
+MS: 1 CMP- DE: "\001\000\000\000\000\000\000\206"-; base unit: ba3268927a8b50c57b9315d5deb3335937e6f8d8
+0x1,0x0,0x0,0x0,0x0,0x0,0x0,0x86,
+\001\000\000\000\000\000\000\206
+artifact_prefix='<repo>/fuzz/artifacts/ui_present/'; Test unit written to <repo>/fuzz/artifacts/ui_present/crash-5e7ca67dd2c284c03cd90807717b7737062d6da6
+Base64: AQAAAAAAAIY=
+
+--------------------------------------------------------------------------------
+
+Failing input:
+
+	artifacts/ui_present/crash-5e7ca67dd2c284c03cd90807717b7737062d6da6
+
+Output of `std::fmt::Debug`:
+
+	[1, 0, 0, 0, 0, 0, 0, 134]
+
+Reproduce with:
+
+	cargo fuzz run ui_present artifacts/ui_present/crash-5e7ca67dd2c284c03cd90807717b7737062d6da6
+
+Minimize test case with:
+
+	cargo fuzz tmin ui_present artifacts/ui_present/crash-5e7ca67dd2c284c03cd90807717b7737062d6da6
+
+--------------------------------------------------------------------------------
+
+Error: Fuzz target exited with exit status: 77

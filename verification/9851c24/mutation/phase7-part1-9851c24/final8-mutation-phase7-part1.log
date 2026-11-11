@@ -1,0 +1,24 @@
+commit 9851c24b9814092c2a50efdc6da51d99e0633460, 71 faults, 2 workers, unmodified run 899s, timeout 3596s
+HR2   caught    939s  the next card is dialed after a card that answered
+HR1   caught    948s  only the first card of a dial plan is dialed
+HR3   caught    926s  a failure of Tor is followed by the next card
+HR4   caught    923s  an attempt that is over dials the next card
+HR5   caught     40s  the name a sender chose is put in the caption of the card
+HR6   caught     53s  a name in a sentence of the client is drawn as its words
+HR7   caught     39s  the Accept dialog puts the name a sender chose in its sentence
+HR8   caught     58s  a name in a sentence of the model becomes words of the client
+HR9   caught     77s  a file offline or in the cloud only counts as held on the disk
+HR10  caught     74s  a name of a device with an extension or spaces is a file name
+HR11  caught     49s  a path resolved on a share counts as one on a drive
+HR18  caught    888s  a file message for a transfer never offered is ignored
+HR17  caught    941s  a file offer is ignored, not rejected
+HR20  caught    842s  the ended transfers of a session are remembered without bound
+HR19  caught   1028s  a rejected offer is not remembered
+HR21  caught    804s  the queue of a contact ignores a lowered limit
+HR22  caught    870s  the store takes messages in past a lowered limit
+HR23  caught    861s  a lowered window of forgotten messages is not applied
+HR24  caught    914s  an acknowledgement of nothing keeps a session open
+HR25  caught    891s  a message held already keeps a session open
+HR26  caught    880s  the time a message is handled counts against the probe
+HR27  caught    888s  the Ping of a probe decided is forgotten: its Pong is a violation
+HR28  caught    906s  a Ping never answered does not end the session

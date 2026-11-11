@@ -1,0 +1,46 @@
+
+running 36 tests
+test a_cancellation_while_the_progress_is_synced_is_never_answered_with_an_acceptance ... ok
+test a_cancellation_while_the_file_is_verified_is_never_answered_with_a_completion ... ok
+test a_chunk_that_could_not_be_written_is_never_acknowledged_while_this_side_also_sends ... ok
+test a_cancellation_of_the_sender_that_meets_the_completion_ends_completed_in_every_order ... ok
+test a_cancellation_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step ... ok
+test a_contact_flooding_its_chunks_holds_up_neither_the_chat_nor_the_file_of_another ... ok
+test a_deleted_identity_leaves_no_transfer_and_no_blob ... ok
+test a_full_disk_holds_the_transfer_until_it_is_resumed_or_the_hold_ends ... ok
+test a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable has been running for over 60 seconds
+test a_received_file_whose_staged_copy_is_damaged_or_missing_fails_when_it_is_saved ... ok
+test a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole has been running for over 60 seconds
+test a_decision_the_sender_read_is_held_by_the_receiver_after_a_crash_at_any_step has been running for over 60 seconds
+test a_receiver_stays_bounded_through_lost_sessions_repeated_offers_and_a_full_disk has been running for over 60 seconds
+test a_decision_the_sender_read_is_held_by_the_receiver_after_a_crash_at_any_step ... ok
+test a_receiver_that_crashes_after_its_completion_acknowledges_it_again_with_one_file ... ok
+test a_receiver_that_crashes_before_verifying_verifies_again ... ok
+test a_crash_at_any_step_of_a_block_leaves_nothing_of_the_contact_live_or_saveable ... ok
+test a_receiver_stays_bounded_through_lost_sessions_repeated_offers_and_a_full_disk ... ok
+test a_receiver_that_crashes_resumes_from_what_it_holds_durably ... ok
+test a_save_cut_short_by_a_crash_is_reported_and_the_file_kept ... ok
+test a_save_under_way_as_its_identity_is_deleted_is_cancelled_and_the_blob_then_goes ... ok
+test a_sender_that_ignores_the_window_stages_no_more_than_the_file_and_holds_up_no_chat ... ok
+test a_source_that_gives_fewer_or_more_bytes_than_its_size_offers_nothing ... ok
+test a_sender_that_crashes_before_recording_the_completion_is_completed_again ... ok
+test a_staged_file_made_again_for_a_transfer_cancelled_meanwhile_is_removed ... ok
+test a_staging_that_failed_and_could_not_remove_its_file_removes_it_later ... ok
+test a_sender_that_crashes_after_its_offer_offers_it_again_and_resumes ... ok
+test a_transfer_cancelled_while_the_offers_wait_to_be_durable_is_not_offered ... ok
+test a_transfer_cancelled_and_removed_at_once_while_it_goes_is_ended_on_its_session ... ok
+test a_transfer_goes_on_over_the_session_that_replaces_its_own ... ok
+test a_crash_at_any_step_of_receiving_shows_nothing_it_takes_back_and_the_file_completes_whole ... ok
+test a_transfer_store_that_cannot_be_written_stops_everything_until_a_restart ... ok
+test an_acceptance_as_the_contact_is_blocked_ends_in_one_order_or_the_other ... ok
+test a_staging_cut_short_by_a_crash_leaves_no_offer_and_no_blob ... ok
+test an_identity_deleted_while_its_file_is_staged_gets_no_offer_and_keeps_no_blob ... ok
+test an_answer_that_changed_while_it_was_made_durable_is_not_written ... ok
+test an_offer_of_the_peer_under_the_identifier_of_a_transfer_of_this_side_ends_the_session ... ok
+test what_is_shown_of_a_transfer_is_durable_and_no_crash_takes_it_back ... ok
+test an_offer_the_receiver_read_is_held_by_the_sender_after_a_crash_at_any_step ... ok
+test whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified has been running for over 60 seconds
+test whatever_a_sender_sends_a_file_is_shown_received_only_whole_and_verified ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 475.75s
+

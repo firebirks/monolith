@@ -1,0 +1,33 @@
+{
+ "commit": "c90d5e54735542764fe46855ad68cbfd342273dc",
+ "unmodified_seconds": 744,
+ "timeout": 2976,
+ "results": [
+  {
+   "id": "HR77",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a connect dials its next card once the runtime shuts down",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "a_connect_once_the_runtime_shuts_down_dials_no_further"
+   ],
+   "seconds": 771
+  },
+  {
+   "id": "FT29",
+   "path": "crates/monolith-core/src/runtime.rs",
+   "what": "a dial for transfers alone is followed by the next at once",
+   "group": "",
+   "expect": "caught",
+   "verdict": "caught",
+   "seeds_only": false,
+   "failed": [
+    "(timeout)"
+   ],
+   "seconds": 2976
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree1/crates/monolith-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.63s
+     Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+     Running tests/credentials.rs (target/debug/deps/credentials-4c265cd955e2ea60)
+     Running tests/front_end.rs (target/debug/deps/front_end-ae2161664ea25cbf)
+     Running tests/fuzz_seeds.rs (target/debug/deps/fuzz_seeds-3b299d8009e89040)
+     Running tests/identities.rs (target/debug/deps/identities-2906198f62901f73)
+     Running tests/invitations.rs (target/debug/deps/invitations-7b4d73c18634af16)

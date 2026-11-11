@@ -1,0 +1,12 @@
+   Compiling monolith-protocol v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-protocol)
+   Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-tor)
+   Compiling monolith-session v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-session)
+   Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-storage)
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.06s
+     Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+     Running unittests src/lib.rs (target/debug/deps/monolith_identity-088774467f5f1508)
+     Running unittests src/lib.rs (target/debug/deps/monolith_protocol-cf87e149541a10f2)
+     Running unittests src/lib.rs (target/debug/deps/monolith_session-fc3fb02706a443be)
+     Running unittests src/lib.rs (target/debug/deps/monolith_storage-3e76f47a006ac86c)
+     Running unittests src/lib.rs (target/debug/deps/monolith_tor-6ed496a6fa794857)

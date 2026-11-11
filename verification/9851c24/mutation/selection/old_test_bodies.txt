@@ -1,0 +1,480 @@
+old tests still present with a changed body: 16
+  a_front_end_reaches_no_authority (crates/monolith-core/tests/structure.rs): checks 6 -> 15
+     --- 
+     +++ 
+     @@ -53,5 +53,12 @@
+      fn a_store_key_made_for_tests_is_used_by_no_production_code() {
+     +    // Each key of the storage crate that tests make from fixed bytes is
+     +    // defined once, in its module, and used nowhere else.
+     +    let defining = [
+     +        "monolith-storage/src/blob.rs",
+     +        "monolith-storage/src/messages.rs",
+     +        "monolith-storage/src/transfers.rs",
+     +    ];
+          for (name, text) in production_sources() {
+     -        if name == "monolith-storage/src/messages.rs" {
+     -            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+     +        if defining.contains(&name.as_str()) {
+     +            assert_eq!(text.matches("from_bytes_for_testing").count(), 1, "{name}");
+              } else {
+     @@ -61 +68,37 @@
+      }
+     +
+     +#[test]
+     +fn a_chunk_waits_for_the_chat_and_an_answer_for_what_is_durable() {
+     +    // ADR 0013: a session writes the head of the chat queue before the
+     +    // transfers, and at most one chunk each time round, after it took what
+     +    // had arrived.
+     +    let runtime = source("monolith-core/src/runtime.rs");
+     +    let drive = function(&runtime, "async fn drive<S>(");
+     +    let chat = drive.find("&Message::ChatMessage {").unwrap();
+     +    let pump = drive.find("self.files_pump(").unwrap();
+     +    assert!(chat < pump);
+     +    let transfer = source("monolith-core/src/runtime/transfer.rs");
+     +    assert_eq!(transfer.matches("send(&Message::FileChunk(").count(), 1);
+     +    let pumping = function(&transfer, "pub(super) async fn files_pump<S>(");
+     +    let drained = pumping.find("let ready = {").unwrap();
+     +    let written = pumping.find("send(&Message::FileChunk(").unwrap();
+     +    assert!(drained < written);
+     +    assert_eq!(pumping.matches("send(&Message::FileChunk(").count(), 1);
+     +    // A FileAccept that counts progress follows a sync of the blob; the
+     +    // other answers what the state holds, which only a sync or a scan sets.
+     +    assert_eq!(transfer.matches("send(&Message::FileAccept {").count(), 2);
+     +    let progress = function(&transfer, "async fn confirm_progress<S>(");
+     +    let synced = progress.find(".sync(blob, size)").unwrap();
+     +    let accepted = progress.find("send(&Message::FileAccept {").unwrap();
+     +    assert!(synced < accepted);
+     +    let answering = function(&transfer, "async fn answer<S>(");
+     +    assert!(answering.contains("state.answer(&key, now)"));
+     +    // The receiver acknowledges a completion only once it is recorded.
+     +    let verifying = function(&transfer, "async fn on_verify<S>(");
+     +    let recorded = verifying.find("state.complete(&key, held, now)").unwrap();
+     +    let acknowledged = verifying.find("send(&Message::FileComplete {").unwrap();
+     +    assert!(recorded < acknowledged);
+     +    let transfers = source("monolith-core/src/transfers.rs");
+     +    let staged = function(&transfers, "pub(crate) fn staged(");
+     +    assert!(staged.contains("entry.advance(bytes, now)"));
+     +}
+  a_message_is_acknowledged_only_once_take_in_returned (crates/monolith-core/tests/structure.rs): checks 18 -> 27
+     --- 
+     +++ 
+     @@ -111,5 +111,12 @@
+      fn a_store_key_made_for_tests_is_used_by_no_production_code() {
+     +    // Each key of the storage crate that tests make from fixed bytes is
+     +    // defined once, in its module, and used nowhere else.
+     +    let defining = [
+     +        "monolith-storage/src/blob.rs",
+     +        "monolith-storage/src/messages.rs",
+     +        "monolith-storage/src/transfers.rs",
+     +    ];
+          for (name, text) in production_sources() {
+     -        if name == "monolith-storage/src/messages.rs" {
+     -            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+     +        if defining.contains(&name.as_str()) {
+     +            assert_eq!(text.matches("from_bytes_for_testing").count(), 1, "{name}");
+              } else {
+     @@ -119 +126,37 @@
+      }
+     +
+     +#[test]
+     +fn a_chunk_waits_for_the_chat_and_an_answer_for_what_is_durable() {
+     +    // ADR 0013: a session writes the head of the chat queue before the
+     +    // transfers, and at most one chunk each time round, after it took what
+     +    // had arrived.
+     +    let runtime = source("monolith-core/src/runtime.rs");
+     +    let drive = function(&runtime, "async fn drive<S>(");
+     +    let chat = drive.find("&Message::ChatMessage {").unwrap();
+     +    let pump = drive.find("self.files_pump(").unwrap();
+     +    assert!(chat < pump);
+     +    let transfer = source("monolith-core/src/runtime/transfer.rs");
+     +    assert_eq!(transfer.matches("send(&Message::FileChunk(").count(), 1);
+     +    let pumping = function(&transfer, "pub(super) async fn files_pump<S>(");
+     +    let drained = pumping.find("let ready = {").unwrap();
+     +    let written = pumping.find("send(&Message::FileChunk(").unwrap();
+     +    assert!(drained < written);
+     +    assert_eq!(pumping.matches("send(&Message::FileChunk(").count(), 1);
+     +    // A FileAccept that counts progress follows a sync of the blob; the
+     +    // other answers what the state holds, which only a sync or a scan sets.
+     +    assert_eq!(transfer.matches("send(&Message::FileAccept {").count(), 2);
+     +    let progress = function(&transfer, "async fn confirm_progress<S>(");
+     +    let synced = progress.find(".sync(blob, size)").unwrap();
+     +    let accepted = progress.find("send(&Message::FileAccept {").unwrap();
+     +    assert!(synced < accepted);
+     +    let answering = function(&transfer, "async fn answer<S>(");
+     +    assert!(answering.contains("state.answer(&key, now)"));
+     +    // The receiver acknowledges a completion only once it is recorded.
+     +    let verifying = function(&transfer, "async fn on_verify<S>(");
+     +    let recorded = verifying.find("state.complete(&key, held, now)").unwrap();
+     +    let acknowledged = verifying.find("send(&Message::FileComplete {").unwrap();
+     +    assert!(recorded < acknowledged);
+     +    let transfers = source("monolith-core/src/transfers.rs");
+     +    let staged = function(&transfers, "pub(crate) fn staged(");
+     +    assert!(staged.contains("entry.advance(bytes, now)"));
+     +}
+  a_message_leaves_only_once_it_is_durable (crates/monolith-core/tests/structure.rs): checks 12 -> 21
+     --- 
+     +++ 
+     @@ -79,5 +79,12 @@
+      fn a_store_key_made_for_tests_is_used_by_no_production_code() {
+     +    // Each key of the storage crate that tests make from fixed bytes is
+     +    // defined once, in its module, and used nowhere else.
+     +    let defining = [
+     +        "monolith-storage/src/blob.rs",
+     +        "monolith-storage/src/messages.rs",
+     +        "monolith-storage/src/transfers.rs",
+     +    ];
+          for (name, text) in production_sources() {
+     -        if name == "monolith-storage/src/messages.rs" {
+     -            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+     +        if defining.contains(&name.as_str()) {
+     +            assert_eq!(text.matches("from_bytes_for_testing").count(), 1, "{name}");
+              } else {
+     @@ -87 +94,37 @@
+      }
+     +
+     +#[test]
+     +fn a_chunk_waits_for_the_chat_and_an_answer_for_what_is_durable() {
+     +    // ADR 0013: a session writes the head of the chat queue before the
+     +    // transfers, and at most one chunk each time round, after it took what
+     +    // had arrived.
+     +    let runtime = source("monolith-core/src/runtime.rs");
+     +    let drive = function(&runtime, "async fn drive<S>(");
+     +    let chat = drive.find("&Message::ChatMessage {").unwrap();
+     +    let pump = drive.find("self.files_pump(").unwrap();
+     +    assert!(chat < pump);
+     +    let transfer = source("monolith-core/src/runtime/transfer.rs");
+     +    assert_eq!(transfer.matches("send(&Message::FileChunk(").count(), 1);
+     +    let pumping = function(&transfer, "pub(super) async fn files_pump<S>(");
+     +    let drained = pumping.find("let ready = {").unwrap();
+     +    let written = pumping.find("send(&Message::FileChunk(").unwrap();
+     +    assert!(drained < written);
+     +    assert_eq!(pumping.matches("send(&Message::FileChunk(").count(), 1);
+     +    // A FileAccept that counts progress follows a sync of the blob; the
+     +    // other answers what the state holds, which only a sync or a scan sets.
+     +    assert_eq!(transfer.matches("send(&Message::FileAccept {").count(), 2);
+     +    let progress = function(&transfer, "async fn confirm_progress<S>(");
+     +    let synced = progress.find(".sync(blob, size)").unwrap();
+     +    let accepted = progress.find("send(&Message::FileAccept {").unwrap();
+     +    assert!(synced < accepted);
+     +    let answering = function(&transfer, "async fn answer<S>(");
+     +    assert!(answering.contains("state.answer(&key, now)"));
+     +    // The receiver acknowledges a completion only once it is recorded.
+     +    let verifying = function(&transfer, "async fn on_verify<S>(");
+     +    let recorded = verifying.find("state.complete(&key, held, now)").unwrap();
+     +    let acknowledged = verifying.find("send(&Message::FileComplete {").unwrap();
+     +    assert!(recorded < acknowledged);
+     +    let transfers = source("monolith-core/src/transfers.rs");
+     +    let staged = function(&transfers, "pub(crate) fn staged(");
+     +    assert!(staged.contains("entry.advance(bytes, now)"));
+     +}
+  a_preview_is_one_line_and_cut_with_an_ellipsis (crates/monolith-ui-model/src/present.rs): checks 3 -> 1  FEWER CHECKS
+     --- 
+     +++ 
+     @@ -2,4 +2,2 @@
+              assert_eq!(preview("hello\n\n  world", 40), "hello world");
+     -        assert_eq!(preview("abcdefghij", 4), "abcd\u{2026}");
+     -        assert_eq!(preview("abcd", 4), "abcd");
+          
+  a_settled_window_asks_for_no_frame (crates/monolith-ui/tests/idle.rs): checks 1 -> 1
+     --- 
+     +++ 
+     @@ -2,8 +2,13 @@
+          // A spinner turns while a profile opens, the Tor state pulses while
+     -    // Tor connects, and the time to the next delivery attempt is said again
+     -    // when it changes.
+     -    for name in NAMES
+     -        .iter()
+     -        .filter(|name| !["opening", "tor-connecting", "conversation-deferred"].contains(*name))
+     -    {
+     +    // Tor connects, the time to the next delivery attempt is said again
+     +    // when it changes, and a file being prepared, or restored after a
+     +    // restart, has a bar that moves.
+     +    let moving = [
+     +        "opening",
+     +        "tor-connecting",
+     +        "conversation-deferred",
+     +        "transfer-preparing",
+     +        "transfer-restoring",
+     +    ];
+     +    for name in NAMES.iter().filter(|name| !moving.contains(*name)) {
+              for (theme, reduced) in [(Theme::light(), false), (Theme::dark(), true)] {
+  a_store_key_made_for_tests_is_used_by_no_production_code (crates/monolith-core/tests/structure.rs): checks 2 -> 2
+     --- 
+     +++ 
+     @@ -1,5 +1,12 @@
+      
+     +    // Each key of the storage crate that tests make from fixed bytes is
+     +    // defined once, in its module, and used nowhere else.
+     +    let defining = [
+     +        "monolith-storage/src/blob.rs",
+     +        "monolith-storage/src/messages.rs",
+     +        "monolith-storage/src/transfers.rs",
+     +    ];
+          for (name, text) in production_sources() {
+     -        if name == "monolith-storage/src/messages.rs" {
+     -            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+     +        if defining.contains(&name.as_str()) {
+     +            assert_eq!(text.matches("from_bytes_for_testing").count(), 1, "{name}");
+              } else {
+  body_sizes_match_the_specification (crates/monolith-protocol/src/body.rs): checks 10 -> 11
+     --- 
+     +++ 
+     @@ -8,3 +8,10 @@
+              assert_eq!(size(&Message::EndpointUpdate(Box::new(card(false)))), 171);
+     -        assert_eq!(size(&Message::FileAccept(transfer())), 16);
+     +        assert_eq!(
+     +            size(&Message::FileAccept {
+     +                transfer: transfer(),
+     +                offset: 0
+     +            }),
+     +            24
+     +        );
+     +        assert_eq!(size(&Message::FileReject(transfer())), 16);
+              assert_eq!(
+  committed_seeds_are_current (crates/monolith-core/tests/fuzz_seeds.rs): checks 3 -> 3
+     --- 
+     +++ 
+     @@ -6,2 +6,3 @@
+              ("message_sequence", message_seeds()),
+     +        ("transfer_sequence", transfer_seeds()),
+          ] {
+  committed_seeds_are_current (crates/monolith-storage/tests/fuzz_seeds.rs -> crates/monolith-core/tests/fuzz_seeds.rs): checks 4 -> 3  FEWER CHECKS
+     --- 
+     +++ 
+     @@ -3,22 +3,23 @@
+          let write = std::env::var_os("MONOLITH_WRITE_FUZZ_SEEDS").is_some();
+     -    let mut expected = seeds();
+     -    let vault_seeds = expected.len();
+     -    expected.extend(message_seeds());
+     -    for (path, content) in &expected {
+     -        let file = root.join(path);
+     -        if write {
+     -            fs::create_dir_all(file.parent().unwrap()).unwrap();
+     -            fs::write(&file, content).unwrap();
+     +    for (directory, expected) in [
+     +        ("contact_store", seeds()),
+     +        ("message_sequence", message_seeds()),
+     +        ("transfer_sequence", transfer_seeds()),
+     +    ] {
+     +        for (path, content) in &expected {
+     +            let file = root.join(path);
+     +            if write {
+     +                fs::create_dir_all(file.parent().unwrap()).unwrap();
+     +                fs::write(&file, content).unwrap();
+     +            }
+     +            let on_disk = fs::read(&file)
+     +                .unwrap_or_else(|error| panic!("seed {path} cannot be read: {error}"));
+     +            assert!(on_disk == *content, "seed {path} is out of date");
+              }
+     -        let on_disk =
+     -            fs::read(&file).unwrap_or_else(|error| panic!("seed {path} cannot be read: {error}"));
+     -        assert!(on_disk == *content, "seed {path} is out of date");
+     +        let on_disk = fs::read_dir(root.join(directory)).unwrap().count();
+     +        assert_eq!(
+     +            on_disk,
+     +            expected.len(),
+     +            "stray or missing files in fuzz/seeds/{directory}"
+     +        );
+          }
+     -    let on_disk = fs::read_dir(root.join("vault_payload")).unwrap().count();
+     -    assert_eq!(on_disk, vault_seeds, "stray or missing files in fuzz/seeds");
+     -    let on_disk = fs::read_dir(root.join("message_store")).unwrap().count();
+     -    assert_eq!(
+     -        on_disk,
+     -        expected.len() - vault_seeds,
+     -        "stray or missing files in fuzz/seeds"
+     -    );
+  only_a_sent_announcement_counts (crates/monolith-core/tests/structure.rs): checks 30 -> 39
+     --- 
+     +++ 
+     @@ -201,5 +201,12 @@
+      fn a_store_key_made_for_tests_is_used_by_no_production_code() {
+     +    // Each key of the storage crate that tests make from fixed bytes is
+     +    // defined once, in its module, and used nowhere else.
+     +    let defining = [
+     +        "monolith-storage/src/blob.rs",
+     +        "monolith-storage/src/messages.rs",
+     +        "monolith-storage/src/transfers.rs",
+     +    ];
+          for (name, text) in production_sources() {
+     -        if name == "monolith-storage/src/messages.rs" {
+     -            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+     +        if defining.contains(&name.as_str()) {
+     +            assert_eq!(text.matches("from_bytes_for_testing").count(), 1, "{name}");
+              } else {
+     @@ -209 +216,37 @@
+      }
+     +
+     +#[test]
+     +fn a_chunk_waits_for_the_chat_and_an_answer_for_what_is_durable() {
+     +    // ADR 0013: a session writes the head of the chat queue before the
+     +    // transfers, and at most one chunk each time round, after it took what
+     +    // had arrived.
+     +    let runtime = source("monolith-core/src/runtime.rs");
+     +    let drive = function(&runtime, "async fn drive<S>(");
+     +    let chat = drive.find("&Message::ChatMessage {").unwrap();
+     +    let pump = drive.find("self.files_pump(").unwrap();
+     +    assert!(chat < pump);
+     +    let transfer = source("monolith-core/src/runtime/transfer.rs");
+     +    assert_eq!(transfer.matches("send(&Message::FileChunk(").count(), 1);
+     +    let pumping = function(&transfer, "pub(super) async fn files_pump<S>(");
+     +    let drained = pumping.find("let ready = {").unwrap();
+     +    let written = pumping.find("send(&Message::FileChunk(").unwrap();
+     +    assert!(drained < written);
+     +    assert_eq!(pumping.matches("send(&Message::FileChunk(").count(), 1);
+     +    // A FileAccept that counts progress follows a sync of the blob; the
+     +    // other answers what the state holds, which only a sync or a scan sets.
+     +    assert_eq!(transfer.matches("send(&Message::FileAccept {").count(), 2);
+     +    let progress = function(&transfer, "async fn confirm_progress<S>(");
+     +    let synced = progress.find(".sync(blob, size)").unwrap();
+     +    let accepted = progress.find("send(&Message::FileAccept {").unwrap();
+     +    assert!(synced < accepted);
+     +    let answering = function(&transfer, "async fn answer<S>(");
+     +    assert!(answering.contains("state.answer(&key, now)"));
+     +    // The receiver acknowledges a completion only once it is recorded.
+     +    let verifying = function(&transfer, "async fn on_verify<S>(");
+     +    let recorded = verifying.find("state.complete(&key, held, now)").unwrap();
+     +    let acknowledged = verifying.find("send(&Message::FileComplete {").unwrap();
+     +    assert!(recorded < acknowledged);
+     +    let transfers = source("monolith-core/src/transfers.rs");
+     +    let staged = function(&transfers, "pub(crate) fn staged(");
+     +    assert!(staged.contains("entry.advance(bytes, now)"));
+     +}
+  only_the_last_ended_transfers_are_remembered (crates/monolith-core/src/transfers.rs -> crates/monolith-core/src/exchange/tests/mod.rs): checks 4 -> 3  FEWER CHECKS
+     --- 
+     +++ 
+     @@ -1,23 +1,20 @@
+      
+     -        let mut transfers = Transfers::default();
+     -        let count = u8::try_from(MAX_ENDED_TRANSFER_IDS).unwrap();
+     -        for byte in 0..=count {
+     -            assert_eq!(
+     -                transfers.receive(&offer(byte)),
+     -                Some(Answer::Reject(id(byte)))
+     -            );
+     -        }
+     -        // The first one fell out; the last ones are still known.
+     -        assert_eq!(
+     -            transfers.receive(&Message::FileAbort(id(0))),
+     -            Some(Answer::Violation)
+     -        );
+     -        assert_eq!(
+     -            transfers.receive(&Message::FileAbort(id(count))),
+     -            Some(Answer::Discard)
+     -        );
+     -        assert_eq!(
+     -            transfers.receive(&Message::FileAbort(id(1))),
+     -            Some(Answer::Discard)
+     -        );
+     -    
+     +    let mut exchange = Exchange::default();
+     +    let count = u8::try_from(MAX_ENDED_TRANSFER_IDS).unwrap();
+     +    for byte in 0..=count {
+     +        received(&mut exchange, &offer(byte, 10));
+     +        exchange.end(&[byte; 16], true);
+     +    }
+     +    // The first fell out; the last ones are still known.
+     +    assert_eq!(
+     +        received(&mut exchange, &Message::FileAbort(id(0))),
+     +        Received::Violation
+     +    );
+     +    assert_eq!(
+     +        received(&mut exchange, &Message::FileAbort(id(count))),
+     +        Received::Discard
+     +    );
+     +    assert_eq!(
+     +        received(&mut exchange, &Message::FileAbort(id(1))),
+     +        Received::Discard
+     +    );
+  only_what_a_link_received_is_applied (crates/monolith-core/tests/structure.rs): checks 36 -> 45
+     --- 
+     +++ 
+     @@ -249,5 +249,12 @@
+      fn a_store_key_made_for_tests_is_used_by_no_production_code() {
+     +    // Each key of the storage crate that tests make from fixed bytes is
+     +    // defined once, in its module, and used nowhere else.
+     +    let defining = [
+     +        "monolith-storage/src/blob.rs",
+     +        "monolith-storage/src/messages.rs",
+     +        "monolith-storage/src/transfers.rs",
+     +    ];
+          for (name, text) in production_sources() {
+     -        if name == "monolith-storage/src/messages.rs" {
+     -            assert_eq!(text.matches("from_bytes_for_testing").count(), 1);
+     +        if defining.contains(&name.as_str()) {
+     +            assert_eq!(text.matches("from_bytes_for_testing").count(), 1, "{name}");
+              } else {
+     @@ -257 +264,37 @@
+      }
+     +
+     +#[test]
+     +fn a_chunk_waits_for_the_chat_and_an_answer_for_what_is_durable() {
+     +    // ADR 0013: a session writes the head of the chat queue before the
+     +    // transfers, and at most one chunk each time round, after it took what
+     +    // had arrived.
+     +    let runtime = source("monolith-core/src/runtime.rs");
+     +    let drive = function(&runtime, "async fn drive<S>(");
+     +    let chat = drive.find("&Message::ChatMessage {").unwrap();
+     +    let pump = drive.find("self.files_pump(").unwrap();
+     +    assert!(chat < pump);
+     +    let transfer = source("monolith-core/src/runtime/transfer.rs");
+     +    assert_eq!(transfer.matches("send(&Message::FileChunk(").count(), 1);
+     +    let pumping = function(&transfer, "pub(super) async fn files_pump<S>(");
+     +    let drained = pumping.find("let ready = {").unwrap();
+     +    let written = pumping.find("send(&Message::FileChunk(").unwrap();
+     +    assert!(drained < written);
+     +    assert_eq!(pumping.matches("send(&Message::FileChunk(").count(), 1);
+     +    // A FileAccept that counts progress follows a sync of the blob; the
+     +    // other answers what the state holds, which only a sync or a scan sets.
+     +    assert_eq!(transfer.matches("send(&Message::FileAccept {").count(), 2);
+     +    let progress = function(&transfer, "async fn confirm_progress<S>(");
+     +    let synced = progress.find(".sync(blob, size)").unwrap();
+     +    let accepted = progress.find("send(&Message::FileAccept {").unwrap();
+     +    assert!(synced < accepted);
+     +    let answering = function(&transfer, "async fn answer<S>(");
+     +    assert!(answering.contains("state.answer(&key, now)"));
+     +    // The receiver acknowledges a completion only once it is recorded.
+     +    let verifying = function(&transfer, "async fn on_verify<S>(");
+     +    let recorded = verifying.find("state.complete(&key, held, now)").unwrap();
+     +    let acknowledged = verifying.find("send(&Message::FileComplete {").unwrap();
+     +    assert!(recorded < acknowledged);
+     +    let transfers = source("monolith-core/src/transfers.rs");
+     +    let staged = function(&transfers, "pub(crate) fn staged(");
+     +    assert!(staged.contains("entry.advance(bytes, now)"));
+     +}
+  other_messages_are_not_file_messages (crates/monolith-core/src/transfers.rs -> crates/monolith-core/src/exchange/tests/mod.rs): checks 2 -> 2
+     --- 
+     +++ 
+     @@ -1,5 +1,4 @@
+      
+     -        let mut transfers = Transfers::default();
+     -        assert_eq!(transfers.receive(&Message::Ping([0; 8])), None);
+     -        assert_eq!(transfers.receive(&Message::Close), None);
+     -    
+     +    let mut exchange = Exchange::default();
+     +    assert_eq!(exchange.receive(&Message::Ping([0; 8])), None);
+     +    assert_eq!(exchange.receive(&Message::Close), None);
+  save_name_defuses_reserved_device_names (crates/monolith-protocol/src/text.rs): checks 6 -> 6
+     --- 
+     +++ 
+     @@ -19,2 +19,4 @@
+                  ("conout$.txt", "_conout$.txt"),
+     +            ("CLOCK$", "_CLOCK$"),
+     +            ("keybd$.txt", "_keybd$.txt"),
+                  // A reserved character is replaced first; what is left is not a
+  the_seeds_decode (crates/monolith-storage/tests/fuzz_seeds.rs): checks 2 -> 3
+     --- 
+     +++ 
+     @@ -7 +7,4 @@
+          }
+     +    for (path, content) in transfer_seeds() {
+     +        assert!(TransferRecords::decode(&content).is_ok(), "{path}");
+     +    }
+  the_title_counts_what_waits_over_all_identities (crates/monolith-desktop/src/window.rs): checks 6 -> 6
+     --- 
+     +++ 
+     @@ -51,2 +51,4 @@
+                              request_mode: RequestMode::Invitation,
+     +                        transfers: Vec::new(),
+     +                        interrupted: Vec::new(),
+                          })),

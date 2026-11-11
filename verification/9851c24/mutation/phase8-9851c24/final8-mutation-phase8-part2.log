@@ -1,0 +1,56 @@
+commit 9851c24b9814092c2a50efdc6da51d99e0633460, 54 faults, 2 workers, unmodified run 1022s, timeout 4088s
+FT27  caught   1071s  what a Pong shows the peer read is never recorded
+FT26  caught   1100s  a blob no record names is kept
+FT28  caught    994s  blocking or deleting a contact leaves its transfers
+FT30  caught    824s  a blob no record names stays when the installation opens
+FT31  caught    839s  a save reader ends without checking the digest
+FT32  caught    704s  a scan counts a segment that does not authenticate
+FT29  caught   4088s  a dial for transfers alone is followed by the next at once (timeout)
+FT33  caught    904s  a local name is offered with the folders above it
+FT34  caught    858s  a Pong confirms what was written after its Ping
+FT35  caught    885s  a save whose file could not be written leaves its temporary file
+FT37  caught     69s  a transfer whose bytes are not known is shown at 0
+FT38  caught     54s  a file being prepared is shown as offered
+FT39  caught     36s  an offer to another identity is told on the one shown
+FT40  caught     60s  progress a later read answered is kept over it
+FT41  caught     55s  a file can be offered to a contact that has not accepted
+FT42  caught     49s  a decision on a transfer is sent again while one runs
+FT43  caught     88s  an attach button that takes no input says it takes some
+FT44  caught     47s  a transfer number under another record of its identity names it
+FT36  caught    892s  a save whose source fails is completed with what it gave
+FT45  caught    790s  a transfer is shown in a state a crash can still take back
+FT47  caught     47s  bytes the runtime says it no longer knows are shown from an earlier event
+FT48  caught     60s  a transfer is removed where its card offers no removal
+FT49  caught     74s  a control character of a remote name reaches the screen as itself
+FT50  caught     67s  an event's bytes are shown over a later read that says more
+FT46  caught    851s  a stopped transfer its receiver was not told cannot be removed
+FT51  caught    867s  an offer is written before its record is durable
+FT52  caught    895s  an answer to an offer is written before the decision is durable
+FT53  caught    882s  a cancellation is told before it is durable
+FT54  caught    855s  the receiver completes a file whatever digest the sender declares
+FT55  caught    898s  a transfer of one contact record is found under another
+FT56  caught    888s  a transfer of one local identity is found under another
+FT57  caught    866s  a cancelled transfer is offered again as one that goes on
+FT58  caught    873s  an acceptance is taken with no room left to stage
+FT59  caught    924s  a chat message waits until no chunk is left to send
+FT60  caught    902s  every segment of a blob is sealed under the same nonce
+FT62  caught    881s  the offerer writes chunks before an acceptance on the session
+FT61  caught    994s  a received file is saved over a file of the same name (Unix)
+FT63  caught    864s  a transfer cancelled while its file is verified is answered with FileComplete
+FT64  caught    886s  a transfer cancelled and removed at once is never ended on its session
+FT65  caught    881s  the preferred session is not woken when a probe closes the one that waited
+FT66  caught    884s  the preferred session is not woken when the one that waited ends
+FT67  caught    875s  an offer of the peer under an identifier of this side is recorded
+FT68  caught    880s  a new offer is not counted as made on the session that brought it
+FT69  caught    882s  an offer is written from a list read before the waits
+FT70  caught    898s  a staged file made again for a transfer that ended meanwhile is kept
+FT71  caught    839s  a staged file whose removal failed after its staging failed is never tried again
+FT72  caught    907s  an answer that changed while it was made durable is written as it was read
+FT73  caught    919s  progress is acknowledged for a transfer cancelled while its file was synced
+FT75  caught     89s  a suggested place is longer than a name may be
+FT76  caught     80s  a long filename is cut at its end, its extension out of view
+FT77  caught     83s  a filename cut to its card keeps its start only
+FT78  caught     73s  a file the runtime said it saved is shown received until the next read
+FT74  caught   1089s  a suggested name may name a device the save refuses
+FT79  caught     61s  a dialog of a transfer that ended stays open
+done: {'caught': 54}; written to <repo>/mutation/results-phase8-9851c24.json

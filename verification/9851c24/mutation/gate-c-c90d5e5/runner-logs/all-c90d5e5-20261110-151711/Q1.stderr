@@ -1,0 +1,155 @@
+   Compiling monolith-protocol v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-protocol)
+   Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-tor)
+   Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-storage)
+   Compiling monolith-session v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-session)
+warning: variable does not need to be mutable
+   --> crates/monolith-tor/src/system.rs:136:13
+    |
+136 |         let mut stream =
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `service`
+   --> crates/monolith-tor/src/system.rs:133:9
+    |
+133 |         service: ServiceId,
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_service`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `isolation`
+   --> crates/monolith-tor/src/system.rs:134:9
+    |
+134 |         isolation: &IsolationGroup,
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_isolation`
+
+warning: method `password` is never used
+   --> crates/monolith-tor/src/secret.rs:165:19
+    |
+154 | impl IsolationGroup {
+    | ------------------- method in this implementation
+...
+165 |     pub(crate) fn password(&self) -> Zeroizing<Vec<u8>> {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `AUTH_VERSION` is never used
+  --> crates/monolith-tor/src/socks.rs:28:7
+   |
+28 | const AUTH_VERSION: u8 = 0x01;
+   |       ^^^^^^^^^^^^
+
+warning: constant `COMMAND_CONNECT` is never used
+  --> crates/monolith-tor/src/socks.rs:29:7
+   |
+29 | const COMMAND_CONNECT: u8 = 0x01;
+   |       ^^^^^^^^^^^^^^^
+
+warning: constant `ADDRESS_IPV4` is never used
+  --> crates/monolith-tor/src/socks.rs:30:7
+   |
+30 | const ADDRESS_IPV4: u8 = 0x01;
+   |       ^^^^^^^^^^^^
+
+warning: constant `ADDRESS_DOMAIN` is never used
+  --> crates/monolith-tor/src/socks.rs:31:7
+   |
+31 | const ADDRESS_DOMAIN: u8 = 0x03;
+   |       ^^^^^^^^^^^^^^
+
+warning: constant `ADDRESS_IPV6` is never used
+  --> crates/monolith-tor/src/socks.rs:32:7
+   |
+32 | const ADDRESS_IPV6: u8 = 0x04;
+   |       ^^^^^^^^^^^^
+
+warning: constant `USERNAME` is never used
+  --> crates/monolith-tor/src/socks.rs:36:7
+   |
+36 | const USERNAME: &[u8] = b"<torS0X>0";
+   |       ^^^^^^^^
+
+warning: function `auth_request` is never used
+  --> crates/monolith-tor/src/socks.rs:42:15
+   |
+42 | pub(crate) fn auth_request(isolation: &IsolationGroup) -> Zeroizing<Vec<u8>> {
+   |               ^^^^^^^^^^^^
+
+warning: function `connect_request` is never used
+  --> crates/monolith-tor/src/socks.rs:55:15
+   |
+55 | pub(crate) fn connect_request(target: &ServiceId) -> Vec<u8> {
+   |               ^^^^^^^^^^^^^^^
+
+warning: function `check_auth_reply` is never used
+  --> crates/monolith-tor/src/socks.rs:77:15
+   |
+77 | pub(crate) fn check_auth_reply(reply: [u8; 2]) -> Result<(), TorError> {
+   |               ^^^^^^^^^^^^^^^^
+
+warning: enum `ConnectReply` is never used
+  --> crates/monolith-tor/src/socks.rs:87:10
+   |
+87 | pub enum ConnectReply {
+   |          ^^^^^^^^^^^^
+
+warning: function `decode_connect_reply` is never used
+   --> crates/monolith-tor/src/socks.rs:102:8
+    |
+102 | pub fn decode_connect_reply(input: &[u8]) -> Result<Option<(ConnectReply, usize)>, TorError> {
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `check_prefix` is never used
+   --> crates/monolith-tor/src/socks.rs:137:4
+    |
+137 | fn check_prefix(input: &[u8]) -> Result<(), TorError> {
+    |    ^^^^^^^^^^^^
+
+warning: function `failure` is never used
+   --> crates/monolith-tor/src/socks.rs:147:21
+    |
+147 | pub(crate) const fn failure(code: u8) -> TorError {
+    |                     ^^^^^^^
+
+warning: function `negotiate` is never used
+   --> crates/monolith-tor/src/socks.rs:163:21
+    |
+163 | pub(crate) async fn negotiate<S>(
+    |                     ^^^^^^^^^
+
+warning: function `read_two` is never used
+   --> crates/monolith-tor/src/socks.rs:216:10
+    |
+216 | async fn read_two<S: AsyncRead + Unpin>(stream: &mut S) -> Result<[u8; 2], TorError> {
+    |          ^^^^^^^^
+
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+warning: `monolith-tor` (lib) generated 19 warnings (run `cargo fix --lib -p monolith-tor` to apply 3 suggestions)
+warning: `monolith-tor` (lib test) generated 3 warnings (3 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.62s
+     Running unittests src/lib.rs (target/debug/deps/monolith_core-c058ac1c0fbde936)
+     Running tests/credentials.rs (target/debug/deps/credentials-4c265cd955e2ea60)
+     Running tests/front_end.rs (target/debug/deps/front_end-ae2161664ea25cbf)
+     Running tests/fuzz_seeds.rs (target/debug/deps/fuzz_seeds-3b299d8009e89040)
+     Running tests/identities.rs (target/debug/deps/identities-2906198f62901f73)
+     Running tests/invitations.rs (target/debug/deps/invitations-7b4d73c18634af16)
+     Running tests/link.rs (target/debug/deps/link-aac1dbf34f1cbf29)
+     Running tests/message_model.rs (target/debug/deps/message_model-69c792094f943ef4)
+     Running tests/messages.rs (target/debug/deps/messages-967c5ec6106d5e58)
+     Running tests/observability.rs (target/debug/deps/observability-51ea98b705ba23a6)
+     Running tests/runtime.rs (target/debug/deps/runtime-c78205a2aefdcbd0)
+     Running tests/runtime_model.rs (target/debug/deps/runtime_model-0e16eb7059194e92)
+     Running tests/store.rs (target/debug/deps/store-8f59717003cb99e7)
+     Running tests/structure.rs (target/debug/deps/structure-a364fb8dfed2217b)
+     Running tests/supervisor.rs (target/debug/deps/supervisor-681d5cd5a8c6d60f)
+     Running tests/tor_network.rs (target/debug/deps/tor_network-6908e9c338c35454)
+     Running tests/transfer_model.rs (target/debug/deps/transfer_model-0892031663fe4249)
+     Running tests/transfer_restarts.rs (target/debug/deps/transfer_restarts-f21ed7640ff421a5)
+     Running tests/transfers.rs (target/debug/deps/transfers-3a5eca8e91d186bb)
+     Running unittests src/lib.rs (target/debug/deps/monolith_tor-6ed496a6fa794857)
+     Running tests/fuzz_seeds.rs (target/debug/deps/fuzz_seeds-6c40417930824d78)
+     Running tests/system.rs (target/debug/deps/system-bc50d2e19d692620)

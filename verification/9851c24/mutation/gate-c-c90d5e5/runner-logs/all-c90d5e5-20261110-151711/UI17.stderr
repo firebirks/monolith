@@ -1,0 +1,32 @@
+   Compiling getrandom v0.3.4
+   Compiling monolith-protocol v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-protocol)
+   Compiling tokio v1.53.3
+   Compiling ahash v0.8.12
+   Compiling monolith-storage v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-storage)
+   Compiling monolith-session v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-session)
+   Compiling epaint v0.32.3
+   Compiling winit v0.30.13
+   Compiling egui v0.32.3
+   Compiling monolith-tor v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-tor)
+   Compiling monolith-core v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-core)
+   Compiling accesskit_winit v0.27.0
+   Compiling glutin-winit v0.5.0
+   Compiling monolith-ui-kit v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-ui-kit)
+   Compiling egui-winit v0.32.3
+   Compiling egui_glow v0.32.3
+   Compiling eframe v0.32.3
+   Compiling monolith-ui v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-ui)
+   Compiling monolith-runtime v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-runtime)
+   Compiling monolith-ui-snapshot v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-ui-snapshot)
+   Compiling monolith-desktop v0.0.0 (<repo>/mutation/work/tree0/crates/monolith-desktop)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 57.33s
+     Running unittests src/lib.rs (target/debug/deps/monolith_desktop-5df8477a0252eda3)
+error: test failed, to rerun pass `-p monolith-desktop --lib`
+     Running unittests src/main.rs (target/debug/deps/monolith_desktop-6479d06317db133f)
+     Running tests/boundary.rs (target/debug/deps/boundary-612f4b06a34192ac)
+     Running tests/bridge.rs (target/debug/deps/bridge-3dff31a27c88e718)
+error: test failed, to rerun pass `-p monolith-desktop --test bridge`
+   Doc-tests monolith_desktop
+error: 2 targets failed:
+    `-p monolith-desktop --lib`
+    `-p monolith-desktop --test bridge`

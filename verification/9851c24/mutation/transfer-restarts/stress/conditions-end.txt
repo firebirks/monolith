@@ -1,0 +1,26 @@
+== uptime
+ 12:32:52 up  1:21,  1 user,  load average: 9.18, 20.45, 22.75
+== kernel
+6.18.33.2-microsoft-standard-WSL2
+== meminfo
+MemTotal:       10185324 kB
+MemFree:         9024532 kB
+MemAvailable:    9482624 kB
+Buffers:           63952 kB
+Cached:           537088 kB
+== processes at the end
+    PID STAT     ELAPSED %CPU   RSS COMMAND
+      1 Ss      01:20:25  0.0 14228 /sbin/init
+     74 Ss      01:20:24  0.0 10080 /usr/lib/systemd/systemd-udevd
+     36 Ss      01:20:24  0.0 16184 /usr/lib/systemd/systemd-journald
+    183 Ss      01:20:24  0.0 12472 /usr/lib/systemd/systemd --user
+    150 Ss      01:20:24  0.0  8984 /usr/lib/systemd/systemd-logind
+    211 Ss+     01:20:24  0.0  6012 -bash
+    148 Ss      01:20:24  0.0  4444 /usr/bin/dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+    147 Ss      01:20:24  0.0  2952 /usr/sbin/cron -f
+      2 Sl+     01:20:25  0.0  2212 /init
+      6 Sl+     01:20:25  0.0  2048 plan9 --control-socket 7 --log-level 4 --server-fd 8 --pipe-fd 10 --log-truncate
+    160 Ss+     01:20:24  0.0  2744 /sbin/agetty -o -- \u --noreset --noclear - linux
+    173 Ss      01:20:24  0.0  4296 login -- <user>
+    185 S       01:20:24  0.0  3700 (sd-pam)
+    229 Ss      01:20:15  0.0  1128 /init
