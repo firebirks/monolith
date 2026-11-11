@@ -11,9 +11,10 @@ Branch: `phase-9-beta-readiness`, created from `main` at `9882291`
 documents. The outputs are on `verification-9851c24`.
 
 This file is the result of P9-A, the readiness audit, after an
-independent review of its first draft (section 12). It is a proposal: no
-workstream after P9-A is approved. Section 9 lists the decisions asked
-of the owner.
+independent review of its first draft (section 12), and the record of
+the workstreams approved since (section 13). Of the workstreams after
+P9-A only P9-B0 is approved. Section 9 lists the decisions asked of the
+owner and those taken.
 
 ## 1. What Phase 9 is
 
@@ -76,7 +77,8 @@ crates that depend on `rustix` 1.1.5 calls them in its sources.
 `cargo audit` passes because it reports unsound advisories as warnings.
 fmt, clippy, doc, the tests, MSRV, stable and the fuzz build pass. The
 earlier failures of CI after Phases 6 and 7 were other advisories (tokio,
-ctutils, clipboard-win), handled in Phase 8 (`3b6d63d`).
+ctutils, clipboard-win), handled in Phase 8 (`3b6d63d`). P9-B0 updates
+`rustix` to 1.1.6 on this branch (section 13).
 
 Approved deferrals that bear on a beta: BL14 to BL17 (tests with screen
 readers, shaping and bidi, a message list reachable by keyboard, unread
@@ -249,6 +251,8 @@ changes no protocol, Tor semantics, storage format or transfer rule.
 - Gates: deny, audit, `cargo check --locked` on 1.95.0 and 1.85.1, the
   tests of `monolith-storage` and the CI run on the branch.
 - Effort: 0.5. Exclusions: no other update.
+- Approved on 2026-11-11 with D1 and D15, limited to `Cargo.lock` and
+  this file; done on this branch (section 13).
 
 ### P9-S Early clean-machine smoke
 
@@ -447,7 +451,9 @@ contrast.
   `mutation/affected.py` a change to `Cargo.lock` or `Cargo.toml` (P9-B0,
   the version, the desktop's `rustix` dependency) selects every fault; the
   plan asks now for an exception like those of Phase 8 (D15), so that
-  those changes run only the faults their code can reach. At the final
+  those changes run only the faults their code can reach. The owner
+  granted it for P9-B0 only (section 13.4), which also says why every
+  later selection in this phase selects every fault. At the final
   gate, one bounded run with an exact manifest and its cost, for the owner
   to approve. Documents and test tooling trigger no run.
 - Not repeated: the private Tor network test runs once at the final gate
@@ -465,6 +471,7 @@ contrast.
 ## 9. Decisions asked of the owner
 
 - D1. CI: update `rustix` to 1.1.6 (proposed) or ignore the advisory.
+  Decided on 2026-11-11: the update (section 13).
 - D2. Beta artifacts: portable archives with a signed manifest
   (proposed), or an installer now; a deterministic Windows zip and an
   SBOM now or later (later proposed).
@@ -497,7 +504,9 @@ contrast.
   (proposed for the beta); on Linux a line on stderr.
 - D15. An exception to the selector for P9-B0, the version and the
   desktop's `rustix` dependency: only the faults their code can reach run
-  again (proposed), instead of every fault.
+  again (proposed), instead of every fault. Granted on 2026-11-11 for
+  P9-B0 only, with no mutation run (section 13.4); still asked for the
+  version and the desktop's `rustix` dependency.
 - D16. P3: left open, with no restore offered in the beta (proposed), or
   a design review of the epoch after a restore now.
 
@@ -515,8 +524,8 @@ because what it finds may change them.
 
 | ID | Item | Status |
 | --- | --- | --- |
-| P9-A | Readiness audit, threat assessment, this plan, independent review | done, waiting for the owner |
-| P9-B0 | CI repair | proposed |
+| P9-A | Readiness audit, threat assessment, this plan, independent review | done; D1 decided, D15 granted for P9-B0 |
+| P9-B0 | CI repair | done on this branch, not pushed; the CI run waits for the owner's authorization to push |
 | P9-S | Early clean-machine smoke | proposed |
 | P9-F | Trust model, versions and updates | proposed |
 | P9-D | First run and identity lifecycle | proposed |
@@ -566,3 +575,164 @@ Where they disagree, with each other or with the plan:
   three are taken in section 10.
 - Platforms. The product and engineering reviews: Debian 13 duplicates
   the build host; drop it from the smoke list. Taken (D12).
+
+## 13. P9-B0: rustix 1.1.6
+
+Approved by the owner on 2026-11-11: D1, the update, and D15 for this
+update only. The commit changes `Cargo.lock` and this file, nothing else.
+
+### 13.1 The change
+
+RUSTSEC-2026-0486 (GHSA-jh2m-fhpj-3vr7, unsound): `getxattr`,
+`lgetxattr`, `fgetxattr`, `listxattr`, `llistxattr` and `flistxattr` of
+`rustix::fs`, from 1.0.0 to 1.1.5, mark as initialized bytes the system
+call never wrote when they are given a zero-length buffer. 1.1.6 fixes
+them; the 0.38 series is not affected.
+
+`cargo update -p rustix@1.1.5 --precise 1.1.6`; cargo 1.95.0 and cargo
+1.85.1 write the same file. The difference in `Cargo.lock`:
+
+| Entry | Before | After |
+| --- | --- | --- |
+| `rustix` 1 | 1.1.5, checksum `891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d` | 1.1.6, checksum `e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa` |
+| The 16 packages that depend on it | name `rustix 1.1.5` | name `rustix 1.1.6` |
+| `windows-sys` of `rustix`, `errno` 0.3.14, `tempfile` 3.27.0 and `winapi-util` 0.1.11 | 0.52.0 | 0.59.0 |
+
+- 445 packages before and after; none added or removed; no other version
+  or checksum changed. `Cargo.toml`, the toolchain and the Cargo
+  configuration are unchanged.
+- The checksum of 1.1.6 is the one of the crates.io index and of the
+  downloaded crate. 1.1.6 is not yanked, is the newest release of
+  `rustix`, and declares `rust-version` 1.65.
+- The 16 packages: `async-io`, `async-process`, `async-signal`,
+  `calloop` 0.14, `calloop-wayland-source` 0.4, `gethostname`,
+  `monolith-desktop` (a development dependency, on Unix),
+  `monolith-storage` (on Unix), `polling`, `smithay-client-toolkit` 0.20,
+  `tempfile`, `wayland-backend`, `wayland-client`, `wayland-cursor`,
+  `x11rb`, `zbus`.
+- `windows-sys`: the four packages keep their requirements (`>=0.52,
+  <0.62`; `winapi-util` `>=0.48, <=0.61`), and 0.59.0 was already in the
+  file; cargo resolves them to it when `rustix` moves. None of the four
+  is built for Windows: the dependency tree for `x86_64-pc-windows-msvc`,
+  with every feature and normal, build and development edges, is the same
+  before and after. `windows-sys` 0.52.0 stays, for `glutin`,
+  `glutin_egl_sys` and `winit`, as `deny.toml` says.
+- The tree for `x86_64-unknown-linux-gnu` differs only in the version of
+  `rustix`, with the same features (`alloc`, `default`, `event`, `fs`,
+  `net`, `pipe`, `process`, `shm`, `std`, `system`, `time`). `use-libc` is
+  not among them, so Linux on x86_64 uses the raw system-call back end of
+  `rustix`.
+
+### 13.2 What 1.1.6 changes
+
+The sources of the two releases differ in 26 files of `src`, one of them
+new (about 1700 lines of diff). Read against what this tree builds:
+
+- The fix: the six functions above. Monolith calls none of them, and none
+  of the 14 crates.io packages that depend on `rustix` 1 has one of their
+  names in its sources.
+- The raw back end, built on Linux: the padding fields of `Stat`,
+  `StatFs` and `Statx` become a `repr(transparent)` wrapper of
+  `MaybeUninit`, with the same layout; the `StatVfsMountFlags` constants
+  take the `ST_*` values instead of the `MS_*` ones (`ST_RELATIME`
+  differs), and Monolith reads only `f_bavail` and `f_frsize` of
+  `fstatvfs`; `chown`, `fchown`, `getgroups`, `setuid`, `setgid` and
+  `setgroups` change only on 32-bit x86, arm and sparc; the level of the
+  IPv6 multicast-hops option is corrected.
+- The ancillary data of `recvmsg`, with which the Wayland back end
+  receives descriptors: a message length is clamped to the buffer, and
+  descriptors are rounded down to whole ones. Linux already reports the
+  truncated length, so a well-formed message reads the same.
+- `TIOCSCTTY` passes a null argument; `sendfile` is offered on every Linux
+  kernel target; documentation.
+- Not built here: the libc back end (`rustix` is not built on Windows,
+  and Linux uses the raw back end), and the `termios`, `thread` and
+  `runtime` modules (their features are off).
+- The functions Monolith calls (`open`, `openat`, `mkdir`, `fsync`,
+  `flock`, `fstat`, `fstatvfs`, `statat`, `getuid`, `renameat`,
+  `renameat_with`, `linkat`, `unlinkat`, `fallocate`, `ftruncate`, `Dir`;
+  `mkfifoat` and `inotify` in the desktop's tests) have no change in the
+  raw back end other than the padding type.
+
+### 13.3 Checks
+
+Linux: WSL Debian 13 (kernel 6.18, glibc 2.41, 4 CPUs), a fresh clone of
+`02d5bde` with the new `Cargo.lock` (SHA-256
+`a7580372190016ee274f8de2c2efd8dcd878b8942cb72c75f84d434ba4bdffac`) and a
+fresh target directory. The jobs of `.github/workflows/ci.yml`, with its
+flags:
+
+| Job | Toolchain | Result |
+| --- | --- | --- |
+| fmt | 1.95.0 | pass |
+| clippy, `-D warnings` | 1.95.0 | pass |
+| test | 1.95.0 | 1345 passed, 0 failed, 3 ignored |
+| doc, `-D warnings` | 1.95.0 | pass |
+| msrv: check `--all-targets` | 1.85.1 | pass |
+| msrv: test | 1.85.1 | 1345 passed, 0 failed, 3 ignored |
+| stable: test | 1.92.0, the stable of the distro | 1345 passed, 0 failed, 3 ignored |
+| stable: test | 1.99.1, on an export of the same tree in the Debian 12 image of the Phase 8 verification (glibc 2.36) | 1345 passed, 0 failed, 3 ignored |
+| fuzz-build | nightly 1.101.0 (2026-10-10) | pass; its own lockfile, unchanged |
+| deny | cargo-deny 0.20.2 | advisories, bans, licenses, sources ok |
+| audit | cargo-audit 0.22.2 | no advisory, no warning |
+
+Beyond `ci.yml`, on the same clone: clippy and the tests with
+`monolith-ui/fixtures` (the configuration of the Phase 8 verification:
+pass; 1444 passed, 0 failed, 3 ignored, as in Phase 8), `cargo tree -d`,
+and T-NET-1 (`tests/network/fail-closed.sh`, pass), whose CLI keeps its
+profile through `rustix`. In every Linux run `monolith-storage` passed
+its 71 tests (among them the private directory, its lock, refused links
+and blobs on disk) and `monolith-desktop` its 45 (among them a pipe or a
+device offered as a card, refused without waiting).
+
+Before the update, `cargo deny check` failed on RUSTSEC-2026-0486 and
+`cargo audit` reported it as an allowed warning; after it, neither
+reports anything.
+
+Windows 11, in this checkout with the new `Cargo.lock`, with 1.95.0:
+clippy with `-D warnings` passes and the tests give 1359 passed,
+0 failed, 3 ignored. `rustix` is not built there (13.1); this run shows
+only that the Windows build still passes. There is no Windows CI.
+
+Not run: CI on GitHub (nothing is pushed); the private Tor network test
+(neither the runtime nor the Tor crate changed, and `rustix` is not on
+the path of Tor traffic); the packages; mutation (13.4).
+
+### 13.4 D15: no mutation run
+
+Under `mutation/affected.py` a change of `Cargo.lock` selects every fault
+(720 in `mutation/README.md`). The owner granted an exception for this
+update only, and no mutation run: one patch release of one dependency;
+the affected functions are not used; no source of Monolith changes; the
+ordinary suite ran (13.3). The exception holds only because the lockfile
+changed as 13.1 says.
+
+It is a risk-based exception. It does not show that the binaries are the
+same (the Linux builds link `rustix` 1.1.6, whose code differs as 13.2
+says) or that the change has no effect on behaviour. `mutation/affected.py`,
+`mutation/faults.py`, the results of earlier runs and the verification
+outputs are unchanged.
+
+The selector compares each fault's evidence commit with the candidate.
+This change stays in that comparison for every fault whose evidence is
+older, so every later selection in Phase 9 selects every fault, whatever
+else changed. The manifest of the final gate has to name this exception
+again, or the owner decides otherwise then.
+
+### 13.5 Left
+
+- CI on GitHub: not run. The deny job should pass with this lockfile
+  (cargo-deny 0.20.2 and the advisory database of 2026-11-11 here), but
+  CI is green only once the workflow passes on the pushed branch, and the
+  database can change in between.
+- `fuzz/Cargo.lock`, the lockfile of the separate fuzz project, still
+  has `rustix` 1.1.5 (RUSTSEC-2026-0486) and `tokio` 1.53.1
+  (RUSTSEC-2026-0386, unsound; the workspace took 1.53.3 in Phase 8).
+  `ci.yml` builds it with `--locked`, but neither deny nor audit reads it;
+  it is in no product. Updating it is a separate change for the owner.
+- `docs/DEPENDENCIES.md` still names `rustix` 1.1.5 in sections 3 and 4;
+  this commit was limited to the lockfile and this file. A
+  documentation-only correction is proposed.
+- `Cargo.toml` keeps `rustix = "1.1.5"`, a minimum that 1.1.6 meets.
+  Raising it to 1.1.6 would keep a resolve without the lockfile from
+  choosing the unsound release; it is a manifest change, not made.
