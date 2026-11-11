@@ -69,7 +69,7 @@ hmac = { version = "0.13.0", default-features = false }
 # version cannot do without unsafe code. See docs/adr/0005-storage-encryption.md.
 argon2 = { version = "=0.6.0", default-features = false, features = ["alloc", "zeroize"] }
 hkdf = { version = "=0.13.0", default-features = false }
-rustix = { version = "1.1.5", default-features = false, features = ["std", "fs", "process"] }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "process"] }
 # NFC for the vault passphrase only; the protocol never normalizes
 # (docs/PROTOCOL.md section 9).
 unicode-normalization = { version = "=0.1.25", default-features = false }

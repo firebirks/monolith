@@ -12,8 +12,9 @@ documents. The outputs are on `verification-9851c24`.
 
 This file is the result of P9-A, the readiness audit, after an
 independent review of its first draft (section 12), and the record of
-the work approved since: P9-B0 (section 13) and the maintenance of
-`main` (section 14). Of the workstreams after P9-A only P9-B0 was
+the work approved since: P9-B0 (section 13), the maintenance of `main`
+(section 14), and the update of the fuzz lockfile with the new minimum of
+`rustix` (section 15). Of the workstreams after P9-A only P9-B0 was
 approved; it is done and published. P9-S and the later workstreams have
 not started. Section 9 lists the decisions asked of the owner and those
 taken.
@@ -463,9 +464,12 @@ contrast.
   plan asks now for an exception like those of Phase 8 (D15), so that
   those changes run only the faults their code can reach. The owner
   granted it for P9-B0 only (section 13.4), which also says why every
-  later selection in this phase selects every fault. At the final
-  gate, one bounded run with an exact manifest and its cost, for the owner
-  to approve. Documents and test tooling trigger no run.
+  later selection in this phase selects every fault. A second exception,
+  D18, covers the fuzz lockfile and the minimum of `rustix` (section
+  15.4). At the final gate, one bounded run with an exact manifest and
+  its cost, for the owner to approve; the manifest names D15 and D18 apart
+  from the production changes of the phase. Documents and test tooling
+  trigger no run.
 - Not repeated: the private Tor network test runs once at the final gate
   if the runtime or the Tor crate changed, else not; the fuzz targets run
   only for a new untrusted input (none is planned).
@@ -524,6 +528,10 @@ contrast.
   vulnerability reporting of the repository host, which `SECURITY.md`
   already names (proposed), or publish an address and a key now (section
   14.3).
+- D18. An exception to the selector for updating `fuzz/Cargo.lock` to
+  `rustix` 1.1.6 and `tokio` 1.53.3 and raising the minimum of `rustix`
+  in `Cargo.toml` to 1.1.6: no mutation run. Granted on 2026-11-11 with
+  the change, apart from D15 (section 15.4).
 
 ## 10. Proposed order
 
@@ -541,6 +549,7 @@ because what it finds may change them.
 | --- | --- | --- |
 | P9-A | Readiness audit, threat assessment, this plan, independent review | done; D1 decided, D15 granted for P9-B0 |
 | P9-B0 | CI repair | done; published as `a278e7e` (CI run 43069041967, green); its lockfile on `main` as `88359d4` (CI run 43080006592, green) |
+| Maintenance | `fuzz/Cargo.lock` to `rustix` 1.1.6 and `tokio` 1.53.3; `rustix` 1.1.6 required by `Cargo.toml` | done (section 15); D18 granted; to be published only with the owner's approval |
 | P9-S | Early clean-machine smoke | proposed; not started |
 | P9-F | Trust model, versions and updates | proposed |
 | P9-D | First run and identity lifecycle | proposed |
@@ -737,27 +746,29 @@ again, or the owner decides otherwise then.
 ### 13.5 Left
 
 - `fuzz/Cargo.lock`, the lockfile of the separate fuzz project, still
-  has `rustix` 1.1.5 (RUSTSEC-2026-0486) and `tokio` 1.53.1
+  had `rustix` 1.1.5 (RUSTSEC-2026-0486) and `tokio` 1.53.1
   (RUSTSEC-2026-0386, unsound; the workspace took 1.53.3 in Phase 8).
   `ci.yml` builds it with `--locked`, but neither deny nor audit reads it;
-  it is in no product. Assessed on 2026-11-11 and proposed to the owner,
-  not made: `cargo update -p rustix@1.1.5 --precise 1.1.6` and
+  it is in no product. Assessed on 2026-11-11 and proposed to the owner:
+  `cargo update -p rustix@1.1.5 --precise 1.1.6` and
   `cargo update -p tokio@1.53.1 --precise 1.53.3` in `fuzz/` change four
   lines each (version and checksum, as in `Cargo.lock`) and nothing else;
   `fuzz/Cargo.toml` already allows both. In a scratch copy the fuzz build
   of `ci.yml` passes with them. Only the `contact_store` target builds a
   runtime (current thread, without the I/O and time drivers). Under
-  `mutation/affected.py` a change in `fuzz/` selects no fault.
+  `mutation/affected.py` a change in `fuzz/` selects no fault. Approved
+  and done the same day (section 15).
 - `docs/DEPENDENCIES.md` named `rustix` 1.1.5 in sections 3 and 4;
   corrected on 2026-11-11, keeping 1.1.5 as the version of the verified
   build of Phase 8.
-- `Cargo.toml` keeps `rustix = "1.1.5"`, a minimum that 1.1.6 meets.
+- `Cargo.toml` kept `rustix = "1.1.5"`, a minimum that 1.1.6 meets.
   Raising it to 1.1.6 would keep a resolve without the lockfile from
   choosing the unsound release; it is a manifest change, not made. The
   crates of the fuzz project inherit this requirement through the
   workspace, so raising it makes the present `fuzz/Cargo.lock` fail
   `--locked`: the two would have to change in one commit. Proposed to the
-  owner together with the fuzz update.
+  owner together with the fuzz update; approved and done with it
+  (section 15).
 
 ### 13.6 Publication
 
@@ -777,6 +788,12 @@ pass.
 
 `ci.yml` has no network-isolation job; T-NET-1 ran only here (13.3). A
 green run on a development branch is not a release.
+
+The owner then authorized publishing `627f9a7`, the record of this
+publication and of the maintenance of `main`: an ordinary fast-forward
+push of this branch from `a278e7e`, checked with `git ls-remote`; `main`
+and every other reference stayed where they were. CI run 43100233404
+(`627f9a7`): the nine jobs pass, with the results of the table above.
 
 ## 14. Maintenance of `main`
 
@@ -841,3 +858,143 @@ P9-C) or at the latest before the final gate, so that the gate verifies
 the tree `main` will receive. `Cargo.lock` is the same on both sides, so
 the merge brings only `README.md`, which selects no fault under
 `mutation/affected.py`. Not done: it needs the owner.
+
+## 15. The fuzz lockfile and the minimum of `rustix`
+
+Approved by the owner on 2026-11-11, with an exception of its own to the
+mutation selector (D18, 15.4). The commit changes `Cargo.toml`,
+`fuzz/Cargo.lock`, `docs/DEPENDENCIES.md` (the two advisory paragraphs
+that named the fuzz lockfile) and this file. No source of Monolith
+changes.
+
+### 15.1 The change
+
+Checked first against the advisory database of 2026-11-11 (commit
+`fd6f3981`, 1458 advisories): `cargo audit --file fuzz/Cargo.lock`
+reported RUSTSEC-2026-0486 for `rustix` 1.1.5 (patched in 1.1.6 and later)
+and RUSTSEC-2026-0386 for `tokio` 1.53.1 (patched from 1.51.6 below 1.52.0
+and from 1.53.3), both unsound, as allowed warnings.
+
+    cargo update --manifest-path fuzz/Cargo.toml -p rustix@1.1.5 --precise 1.1.6
+    cargo update --manifest-path fuzz/Cargo.toml -p tokio@1.53.1 --precise 1.53.3
+
+and, in `[workspace.dependencies]` of `Cargo.toml`, the requirement of
+`rustix` from `"1.1.5"` to `"1.1.6"`, nothing else on the line.
+
+| File | Before | After |
+| --- | --- | --- |
+| `fuzz/Cargo.lock`, `rustix` | 1.1.5, checksum `891efababe41...` | 1.1.6, checksum `e5e76742e529...` |
+| `fuzz/Cargo.lock`, `tokio` | 1.53.1, checksum `202caea871b6...` | 1.53.3, checksum `ce3335fa7184...` |
+| `Cargo.toml`, `rustix` | `version = "1.1.5"` | `version = "1.1.6"` |
+
+- Eight lines of `fuzz/Cargo.lock` and one of `Cargo.toml`, as 13.5
+  predicted. No other version, checksum, package or dependency list of the
+  fuzz lockfile changed (79 packages before and after); the two new
+  checksums are those of `Cargo.lock`. `fuzz/Cargo.toml` allowed both
+  versions and is unchanged. Cargo 1.95.0 made the change; nightly gives
+  the same file (13.5).
+- `Cargo.lock` is unchanged (SHA-256 `a7580372...`): it held `rustix`
+  1.1.6 already. Both workspaces resolve with `--locked` after the change.
+  The minimum goes with the fuzz lockfile because the crates of the fuzz
+  project inherit it from the workspace, and with the old fuzz lockfile
+  `--locked` fails (13.5).
+- In the fuzz project `rustix` 1.1.6 comes through `monolith-storage`, and
+  `tokio` 1.53.3 through `monolith-core`, `monolith-tor` and the targets
+  themselves; no crate is there in two versions.
+- The requirement of `tokio`, in `Cargo.toml` and in `fuzz/Cargo.toml`,
+  stays 1.53.1, which RUSTSEC-2026-0386 covers; the lockfiles hold 1.53.3.
+  Raising it is not part of this change; it would be the same kind of
+  change as the one for `rustix`.
+
+### 15.2 Checks
+
+Linux: WSL Debian 13 (kernel 6.18, glibc 2.41, 4 CPUs), a fresh clone of
+`627f9a7` with the change applied, the target directory of the checks of
+14.1 (the same sources and `Cargo.lock`; cargo rebuilt what the change
+asked), the flags of `ci.yml`.
+
+| Check | Toolchain | Result |
+| --- | --- | --- |
+| `cargo deny check` | cargo-deny 0.20.2 | advisories, bans, licenses, sources ok |
+| `cargo audit` | cargo-audit 0.22.2 | 1458 advisories, 445 crates, nothing reported |
+| `cargo audit --file fuzz/Cargo.lock` | cargo-audit 0.22.2 | 79 crates, nothing reported (before: the two warnings) |
+| `cargo metadata --locked`, both workspaces | 1.95.0, nightly | ok |
+| fmt | 1.95.0 | pass |
+| clippy, `-D warnings` | 1.95.0 | pass |
+| test | 1.95.0 | 1345 passed, 0 failed, 3 ignored |
+| doc, `-D warnings` | 1.95.0 | pass |
+| msrv: check `--all-targets` | 1.85.1 | pass |
+| msrv: test | 1.85.1 | 1345 passed, 0 failed, 3 ignored |
+| fuzz-build of `ci.yml` (`--cfg fuzzing`, `--bins --locked`) | nightly 1.101.0 (2026-10-10) | pass, no warning |
+| every target built with `cargo fuzz build` (release, AddressSanitizer) | nightly 1.101.0 | 22 of 22, with the old lockfile and with the new |
+
+`monolith-storage` passed its 71 tests and `monolith-desktop` its 45, as
+in 13.3. The new minimum does not raise the MSRV: `rustix` 1.1.6
+declares 1.65.
+
+Windows 11, in this checkout with the change, 1.95.0: clippy with
+`-D warnings` passes; the tests give 1359 passed, 0 failed, 3 ignored, as
+in 13.3. Neither the fuzz project nor `rustix` is built there.
+
+The fuzz targets, with the two builds (old and new lockfile) side by side:
+
+- Replay: each of the 22 targets ran its committed seeds, and for the
+  eleven that have one the local working corpus (copied, read only),
+  through both builds with `-runs=0`. All ended without a failure. The
+  edges covered are equal for 17 targets. For the others the counts move
+  between runs of the same binary as well: the hash maps of the standard
+  library take a random seed in each process, and so does
+  `IdentityId::generate`.
+- `contact_store`, the only target with a runtime (current thread,
+  without the I/O and time drivers), is where `tokio` 1.53.2 and 1.53.3
+  could show: its fixes are in the semaphore, `mpsc`, the blocking pool,
+  the timer and `JoinSet`. 262 inputs, made by a 60-second run of the old
+  build with a fixed seed, ran through both builds with the functions they
+  cover listed (`-print_coverage`, symbolized). The functions of the
+  Monolith crates and the edges they cover are the same in both builds,
+  apart from the random generation of identity ids. The differences are in
+  `tokio`: `Semaphore::acquire` is a function of its own in 1.53.3 (it
+  now checks `MAX_PERMITS`, a fix of 1.53.2) and `Acquire::poll` covers
+  one more edge, and the target's closure, into which that code is
+  inlined, differs by one edge.
+- Smoke: each target ran from its seeds for 10 seconds (`contact_store`
+  60) with a fixed seed and the limits of `fuzz/README.md`, on a
+  scratch corpus thrown away afterwards. No failure, no crash.
+- No target source, seed or committed corpus changed. The fuzz evidence of
+  Phase 8 stays what it was: runs with `rustix` 1.1.5 and `tokio` 1.53.1.
+
+Not run: the CI of this commit (it is not pushed); `stable` 1.99.1; the
+private Tor network test (no runtime or Tor code changed); the packages;
+a fuzzing campaign; mutation (15.4).
+
+### 15.3 What the minimum does
+
+A resolve without a lockfile, or `cargo update`, already chose the newest
+`rustix`, so the old minimum mattered only to an explicit
+`--precise 1.1.5`, `-Z minimal-versions`, or a lockfile written before
+1.1.6. The new minimum makes the unsound release unreachable for the
+workspace and its fuzz project, and records which release is safe. No
+crate of the workspace is published.
+
+### 15.4 D18: no mutation run
+
+Under `mutation/affected.py` a change of `fuzz/Cargo.lock` selects no
+fault (`fuzz/` apart from `fuzz/seeds/`), and a change of `Cargo.toml`
+selects every fault. The owner granted an exception for this change only,
+separate from D15, and no mutation run: no source of Monolith changes;
+the application already resolved `rustix` 1.1.6 and `tokio` 1.53.3, so
+its lockfile and its builds are the same; the fuzz lockfile serves
+development only; the ordinary tests, the security checks and the fuzz
+builds ran (15.2). A full run of the historical faults would not give
+evidence in proportion to this change.
+
+It is a risk-based exception. It does not show that the binaries are the
+same (the fuzz binaries now link `tokio` 1.53.3 and `rustix` 1.1.6,
+whose code differs) or that the change has no effect on behaviour. It
+holds only for the diff of 15.1; a larger diff would need the owner
+again. `mutation/affected.py`, `mutation/faults.py`, the results of
+earlier runs and the verification outputs are unchanged.
+
+At the final gate the manifest names D15 and D18 as exceptions for
+dependency maintenance, apart from the production changes of the phase,
+whose faults are chosen by the code they reach (section 8).

@@ -293,9 +293,10 @@ the core or of the `monolith` binary.
   descriptor they do not own, which unsound code can turn into a use after
   free. Monolith constructs no `AsyncFd`. Fixed in 1.53.3, which
   `Cargo.lock` holds since Phase 8 (from 1.53.1; a patch release, with
-  `AsyncFd::new` deprecated). Unsafe: much, in the I/O driver and the
-  scheduler; it is the runtime every networked Rust program of this kind
-  relies on, and the alternative is writing one.
+  `AsyncFd::new` deprecated) and `fuzz/Cargo.lock` since 2026-11-11. The
+  requirement in `Cargo.toml` is still 1.53.1. Unsafe: much, in the I/O
+  driver and the scheduler; it is the runtime every networked Rust
+  program of this kind relies on, and the alternative is writing one.
 - Pulls in `mio`, `socket2` and `libc` for the system calls, and `bytes`
   and `pin-project-lite`.
 
@@ -356,10 +357,11 @@ the core or of the `monolith` binary.
   functions (`getxattr`, `listxattr` and their variants) mark bytes the
   system call never wrote as initialized when given a zero-length buffer.
   Monolith calls none of them. Fixed in 1.1.6, which `Cargo.lock` holds
-  since Phase 9 (P9-B0); the verified build of Phase 8 used 1.1.5. The
-  lock file of the separate fuzz project, `fuzz/Cargo.lock`, still has
-  1.1.5. Unsafe: about 1650 lines, as the crate exists to wrap system
-  calls; the raw back end is its largest part.
+  since Phase 9 (P9-B0) and the lock file of the separate fuzz project,
+  `fuzz/Cargo.lock`, since 2026-11-11; the verified build of Phase 8 used
+  1.1.5. Since 2026-11-11 `Cargo.toml` requires 1.1.6 or later. Unsafe:
+  about 1650 lines, as the crate exists to wrap system calls; the raw back
+  end is its largest part.
 
 `unicode-normalization`
 
