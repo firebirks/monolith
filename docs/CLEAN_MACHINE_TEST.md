@@ -336,7 +336,7 @@ Observation windows, each start and end written in the session log:
 | Window | Monolith | Length |
 | --- | --- | --- |
 | W0 baseline | not started; Tor running and connected; nothing else open | 15 minutes |
-| W1 start | from launch to "Tor connected" | as long as it takes |
+| W1 start | from launch to the welcome screen (T-CLEAN-4), then through the new profile to "Tor connected" (T-CLEAN-5) | as long as it takes |
 | W2 contacts and messages | T-CLEAN-8 to T-CLEAN-12 | as long as they take |
 | W3 files | T-CLEAN-13 to T-CLEAN-15 | as long as they take |
 | W4 idle | running, nothing done | 15 minutes |
@@ -372,12 +372,14 @@ Linux, with `strace` and `tcpdump` installed after the "clean" snapshot
 and named in the record:
 
     strace -f -tt -s 0 -o p9s-strace.txt \
-        -e trace=socket,connect,bind,listen,accept,accept4,sendto,sendmsg,sendmmsg \
+        -e trace=socket,connect,bind,listen,accept,accept4,sendto,sendmsg,sendmmsg,open,openat \
         ./monolith-desktop
     sudo tcpdump -i <external interface> -s 128 -w p9s-host.pcap
 
 - The process: every `socket`, `connect`, `bind` and send with an address
-  in the strace output, and `ss -tunxp` every five seconds.
+  in the strace output, and `ss -tunxp` every five seconds. `open` and
+  `openat` give the names of the files it opens (never their contents),
+  which tell what a call to nscd was for.
 - The machine: the capture of the external interface, never of `lo`; for a
   VM also one on the host side. On U24, `resolvectl monitor` as root for
   the queries that systemd-resolved answers.
@@ -391,6 +393,14 @@ Rules for reading the evidence:
   socket, a netlink socket, port 53, or the resolver's socket under
   `/run/systemd/resolve/`. A connection to anything but loopback is a
   blocker.
+- glibc asks nscd first for any lookup in its databases and, with nscd
+  absent, reads the files itself. A failed call to nscd followed by a read
+  of the user or group database (`/etc/passwd`, `/etc/group`) is a local
+  lookup and is noted, not a finding: on D12 the graphics library does one
+  at start to find the home folder. A call to nscd followed by a name
+  lookup (`/etc/hosts`, `/etc/resolv.conf`, the dns, resolve or mdns NSS
+  modules, a UDP socket, port 53), a call nscd answered, and one whose
+  database cannot be told are findings.
 - For the machine, the DNS names and remote endpoints of W1 to W6 that are
   not in W0 are listed and each explained: Windows Update, Defender, the
   time service, the connectivity test, Tor's own connections to relays
@@ -471,31 +481,47 @@ human.
 - Start: Tor running; no profile; W0 done.
 - Do: start `monolith-desktop`. Windows: from PowerShell with the exit
   code (section 4). Linux: once from the menu entry, once from a terminal.
-- Expect: the welcome screen; the Tor indicator goes from "Checking Tor"
-  to a state that "Tor details" explains in plain words; on Windows no
-  console window; Tor found when the settings match the Tor set up.
-- Property: Tor only, fail closed; a start that fails is visible.
+- Expect: the welcome screen; on Windows no console window. Monolith asks
+  Tor nothing and uses no network before a profile or a session is open:
+  no socket to Tor, no inet socket, no DNS query; its other sockets are
+  those section 10 allows (the display server, the session and
+  accessibility buses). The window closes at once with exit code 0.
+- Property: a start that fails is visible; nothing leaves the machine
+  before the user opens a profile or a session.
 - Evidence: screenshot; exit code; time to the window; the OpenGL record;
-  the text of "Tor details".
+  the strace summary and the capture summary of W1.
 - Fails if: no window (the exit code and any loader message recorded); a
-  Tor set up as the README says is not found.
+  socket to Tor, an inet socket, a DNS query, or any other finding under
+  the rules of section 10.
 - Who: human; the exit code scripted.
+- Changed after the first run on D12 (2026-11-13): the welcome screen has
+  no Tor indicator and Monolith does not look for Tor before a session is
+  open, so the Tor checks moved to T-CLEAN-5. That run was made against
+  the earlier wording; its record stays as written.
 
 ### T-CLEAN-5 Create a profile and an identity
 
-- Start: the welcome screen.
+- Start: the welcome screen; Tor running; W0 done.
 - Do: create a profile with a long test passphrase, then an identity "P9S
-  <machine> A".
+  <machine> A". Open "Tor details" once the profile is open.
 - Expect: the warning that a lost passphrase cannot be recovered; the
   profile under the documented folder (`%LOCALAPPDATA%\Monolith\Profile`,
   `~/.local/share/monolith`), on Linux the folder 0700 and its files 0600;
-  the identity published: "Tor connected".
+  once the profile is open, the Tor indicator goes from "Checking Tor" to
+  a state that "Tor details" explains in plain words, and Tor is found
+  when the settings match the Tor set up as the README says; the identity
+  published: "Tor connected". The process reaches Tor only on the
+  configured ports or control socket; Tor's own connections to relays are
+  told apart by process (`ss -tnp` as root on Linux).
 - Property: data only where documented, with the documented permissions;
-  the onion service published through Tor.
+  Tor only, fail closed; the onion service published through Tor.
 - Evidence: the listing of the data folder; screenshots with the card and
-  address covered; the time to "Tor connected".
-- Fails if: the profile is elsewhere; Unix permissions are wider; the
-  identity is not published within 10 minutes while Tor is connected.
+  address covered; the text of "Tor details"; the time to "Tor
+  connected"; the strace and capture summaries.
+- Fails if: the profile is elsewhere; Unix permissions are wider; a Tor set
+  up as the README says is not found; the identity is not published within
+  10 minutes while Tor is connected; the strace summary of the process has
+  a finding under the rules of section 10.
 - Who: human.
 
 ### T-CLEAN-6 Close and reopen
