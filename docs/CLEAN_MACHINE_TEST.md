@@ -383,6 +383,12 @@ and named in the record:
 - The machine: the capture of the external interface, never of `lo`; for a
   VM also one on the host side. On U24, `resolvectl monitor` as root for
   the queries that systemd-resolved answers.
+- The capture started from a terminal ends with the graphical session: on
+  U24 on 2026-11-13 a logout killed it and seven minutes were seen only
+  on the host side. It is stopped before any logout, change of session or
+  shutdown, and the stop checks that every capture process ended and that
+  the file is whole. A window outside the time a capture covers is
+  reported as a gap, never as observed.
 
 Rules for reading the evidence:
 
