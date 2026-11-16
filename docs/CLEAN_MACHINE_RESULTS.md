@@ -257,3 +257,190 @@ each way instead of five, none in a non-Latin script.
 
 Private, on the owner's machine: the folder `D12-U24-TCLEAN8`, 228 files
 listed in its `SHA256SUMS.txt` (SHA-256 `c5497b12...`).
+
+## T-CLEAN-9: restart, persistence and an independent dial from Ubuntu
+
+Date: 2026-11-16, 12:03 to 13:19 UTC.
+
+The name comes from the owner's brief. This is not the plan's scenario
+T-CLEAN-9 (invitation cards), which has still not been run.
+
+Result: **PASS.** After a normal shutdown and restart of both VMs, both
+installations reopened their profiles with the same identities, contacts
+and messages, and Ubuntu opened its own connection to Debian's onion
+service. The first attempt of that connection timed out; Monolith's
+automatic retry delivered the message.
+
+| Check | Result |
+| --- | --- |
+| Both profiles reopened | PASS |
+| Identities preserved | PASS |
+| Contacts preserved | PASS |
+| T-CLEAN-8 messages preserved, no duplicate | PASS |
+| Reconnection to each Tor | PASS |
+| Independent SOCKS dial from Ubuntu to Debian | PASS |
+| Debian's onion service reached from Ubuntu | PASS |
+| Message B -> A | PASS |
+| Acknowledgement A -> B | PASS, on a new connection from Debian |
+| Network isolation of the Monolith process | PASS |
+| Snapshot images unchanged | PASS |
+
+The first connection from Ubuntu, classified on its own:
+
+| Property | Result |
+| --- | --- |
+| Eventual delivery | PASS |
+| Automatic recovery | OBSERVED |
+| First-attempt success | FAIL for this observation |
+| Root cause of the first timeout | UNKNOWN |
+| Reliability over repeated cold starts | NOT YET MEASURED |
+
+### Setup
+
+The same two VMs, executable, identities and contacts as in T-CLEAN-8.
+Both VMs had been shut down from inside at the end of T-CLEAN-8 and
+booted normally from their current disks; no snapshot was restored. This
+time the versions were read in the session: Debian's `tor` package
+0.4.9.11-0+deb12u1, Tor Browser 16.0.1 with tor 0.4.9.16, and the same
+versions in Monolith's Tor settings. The executable's SHA-256 was checked
+again in both guests.
+
+### Restart and persistence
+
+- Before Monolith started, the four files of each profile had the
+  modification times recorded at the end of T-CLEAN-8.
+- Both profiles opened with their lab passphrase: "P9S D12 A" and
+  "P9S U24 B", one contact each ("Lab B", "Lab A"), "Tor connected".
+- Ubuntu's identity page gave the same pixel hashes, for the region with
+  the name and the full fingerprint, as the record of T-CLEAN-6. Debian
+  had no such record; its avatar, name and first fingerprint group were
+  pixel-identical to the covered record of T-CLEAN-6. On both sides the
+  vault, which holds the identity keys and the contacts, was byte for
+  byte the same before and after the session. The authenticated sessions
+  between the two, each holding the other's identity key from the cards
+  of T-CLEAN-8, confirm both identities at protocol level.
+- Both T-CLEAN-8 messages were present once each, with unchanged text and
+  their delivery marks.
+- The Tor settings were unchanged on both sides.
+
+### No session before the test
+
+After the unlock each side opened its Tor control connection, made two
+SOCKS connections that carried only the 3-byte greeting (Monolith's Tor
+status check), and listened on 127.0.0.1 for its onion service. For the
+next ten minutes neither accepted a stream nor sent a CONNECT, and no
+stream existed between them: with nothing queued, nothing is dialed
+(`RESOURCE_LIMITS.md` section 7). Debian sent nothing before Ubuntu's
+message.
+
+### Message B -> A and the first timeout
+
+The message: "P9S-TCLEAN9-B2A-001", an em dash (U+2014), "Independent
+connection from Ubuntu.", sent once at 12:39:32 (host clock). The times
+below are guest clocks; both guests keep NTP time, and the offset between
+them was within about a second.
+
+1. 12:39:30.57: Ubuntu's process connected to its Tor's SOCKS port and
+   sent the greeting (3 bytes), its isolation credentials (44 bytes) and
+   a CONNECT request of 69 bytes, the length of a version 3 onion name and
+   a port. Debian's onion service had been created 11 minutes earlier.
+2. No SOCKS success came within `CONNECT_TIMEOUT` (120 s,
+   `RESOURCE_LIMITS.md` section 4), and no application data was written.
+3. 12:41:40.11, about 10 s after the timeout: Monolith started a second
+   attempt on its own, on a new SOCKS connection, with the same 3, 44 and
+   69 bytes.
+4. 12:41:40.47: Debian's process accepted the stream on its onion
+   service's local listener, 0.35 s after that CONNECT by the two guest
+   clocks. Ubuntu wrote its first application data 0.85 s after the
+   CONNECT, on its own clock, so the accept fell within that interval.
+5. The authenticated session carried the message. By 12:42:22, the first
+   screenshot afterwards, Ubuntu showed it as Delivered and Debian showed
+   it once, with the exact text, em dash included. Nobody retried,
+   restarted or touched anything between the two attempts.
+
+Debian's listener also accepted a stream at 12:41:27.16, about 117 s
+after the first CONNECT. That stream carried no data and was closed. It
+was probably the first attempt arriving at Debian at the edge of Ubuntu's
+timeout; the evidence cannot show which request it belonged to.
+
+What the evidence does not show: why the first attempt took so long. The
+descriptor fetch, the introduction and the rendezvous happen inside Tor
+and were not observed; the session read no Tor log. Neither descriptor
+propagation, circuit construction nor an application defect is claimed
+as the cause.
+
+Observed and inferred: the destination of both CONNECT requests is
+inferred, not read. The system call trace hides all buffers, so no onion
+address was recorded. The inference rests on the request length, on
+Debian accepting a stream right after the second request, and on the
+session that followed authenticating Debian's identity and carrying the
+message.
+
+### Acknowledgement A -> B
+
+"P9S-TCLEAN9-A2B-ACK", an em dash, "Received your independent
+connection.", sent once from Debian at 12:44:39 (host clock). By then the
+session Ubuntu had opened was gone: a confirmed session with nothing to
+deliver is closed after `SESSION_LINGER` (120 s, `RESOURCE_LIMITS.md`
+section 4), and Debian's last write on it came at 12:43:42, 120 s after
+the last message activity. So Debian dialed:
+12:44:37.95 its CONNECT of 69 bytes to Tor's SOCKS port, application data
+4.7 s later, and Ubuntu accepted the stream on its onion service's
+listener at 12:44:42.21. Debian showed Delivered, Ubuntu showed the text
+once. The reply of T-CLEAN-8 had been sent 109 s after the message,
+within `SESSION_LINGER`, which is why it used the existing stream then.
+
+### Observation and close
+
+For four minutes with no action, and at the close, each conversation held
+exactly the four messages, each once. Both applications exited with
+status 0. In each profile only the message store changed, and the lock
+was released.
+
+### Network observation
+
+As in T-CLEAN-8: each guest's external interface, each VM's NAT adapter
+from the host side, and the Monolith process under `strace` with buffers
+hidden, with `ss` samples every five seconds. All four captures covered
+all nine windows without a gap: the start, W0 (5 minutes), OPEN, VERIFY,
+B2A, A2B, OBS, CLOSE and W5.
+
+- The Monolith process connected only to Tor's SOCKS and control
+  endpoints on 127.0.0.1 (on Debian, Tor's control socket), listened only
+  on 127.0.0.1, and used the desktop's local sockets. The trace checker
+  reported no finding on either side.
+- It made no DNS query, and no sample showed it with a socket outside
+  loopback.
+- Outside loopback: Tor's relay traffic, and the systems' own traffic.
+  That was a package download by apt right after the Debian login, before
+  Monolith started; time synchronisation, mDNS and IPv6 multicast listener
+  reports; on Ubuntu, snapd, NetworkManager's connectivity checks and the
+  DNS queries for them. Host and guest captures agree window by window.
+
+### Host and integrity
+
+- The commit charge stayed at 62.6 to 62.8 % for the five minutes before
+  Monolith started, and at most 64.2 % in the session (at the VM boots).
+  The external disk stayed present and reported no error.
+- Both VMs were shut down from inside. Their configurations were as
+  before apart from the state time, and the frozen snapshot images had
+  the same hashes before and after.
+- Two operating slips, neither involving Monolith: Ubuntu's screen locked
+  during the observation, and was unlocked with no input reaching
+  Monolith; three read-only shell commands typed into the terminal tab
+  running Monolith's trace ran there after Monolith exited.
+
+### Not tested in this session
+
+- First-connection reliability over repeated cold starts.
+- Delivery to a peer that is offline; an interruption of Tor and the
+  recovery.
+- File transfers.
+- Windows, alone or as a peer.
+- Independent physical hosts or networks.
+- An external security audit.
+
+### Evidence
+
+Private, on the owner's machine: the folder `D12-U24-TCLEAN9`, 169 files
+listed in its `SHA256SUMS.txt` (SHA-256 `effaf513...`).
