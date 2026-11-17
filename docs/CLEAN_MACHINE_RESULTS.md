@@ -444,3 +444,156 @@ B2A, A2B, OBS, CLOSE and W5.
 
 Private, on the owner's machine: the folder `D12-U24-TCLEAN9`, 169 files
 listed in its `SHA256SUMS.txt` (SHA-256 `effaf513...`).
+
+## T-CLEAN-10: the first connection after a cold start
+
+Date: 2026-11-16, 14:05 to 17:04 UTC.
+
+The name comes from the owner's brief. This is not the plan's scenario
+T-CLEAN-10 (five messages each way), which has still not been run as the
+plan describes it.
+
+Purpose: after a normal shutdown and start of both VMs, both Tors and both
+applications, see whether the first connection from one installation to
+the other succeeds, and classify any failure. Three trials: a diagnostic
+sample, not a reliability benchmark.
+
+| Property | Result |
+| --- | --- |
+| Execution | COMPLETE, three trials within the approved bounds |
+| Eventual delivery | 3 of 3 PASS |
+| First-attempt success | 2 of 3 |
+| Automatic recovery | OBSERVED in R3 |
+| Network isolation of the Monolith process | PASS within the observed coverage |
+| Root cause of the failed first attempt | UNKNOWN |
+| Production reliability | NOT ESTABLISHED |
+
+Three trials do not give a failure rate.
+
+### Procedure
+
+The same VMs, identities, contacts and Tor versions as in T-CLEAN-9. The
+executable was last hashed in both guests in T-CLEAN-9, earlier the same
+day, and was not reinstalled since. For each trial:
+
+- Both VMs were powered on from off; no snapshot was restored. Debian's
+  tor ran as the system service; Tor Browser was started and connected.
+- The host's commit charge stayed below 90 % for five minutes with both VMs
+  and both Tors running (63.4 to 64.9 % in the three trials).
+- The guest captures, the host-side traces of the NAT adapters and the
+  trace of the Monolith process ran from before Monolith started until
+  after it exited, as in T-CLEAN-8 and T-CLEAN-9.
+- Both profiles were unlocked. The identity, the contact and every earlier
+  message were present, each message once. Neither side accepted a stream
+  or sent a CONNECT before the message: with nothing queued, nothing is
+  dialed.
+- About ten minutes after the unlocks, one message was submitted once,
+  followed by five minutes of observation. The only input in that time was
+  a key that keeps the screens from locking. Then both applications were
+  closed and both VMs shut down from inside.
+- Nothing was retried by hand; neither Monolith nor Tor was restarted
+  during a trial; no timeout or setting was changed.
+
+### Results
+
+| Trial | Direction | First attempt | Retries | Submit to durable delivery |
+| --- | --- | --- | --- | --- |
+| R1 | Ubuntu to Debian | PASS, SOCKS success after 20.8 s | none | 22.1 s |
+| R2 | Debian to Ubuntu | PASS, SOCKS success after 7.5 s | none | 9.1 s |
+| R3 | Ubuntu to Debian | FAIL, ended after 14.9 s | one, automatic | 27.4 s |
+
+"SOCKS success" is the time from the CONNECT request to the first
+application data the dialer wrote, which it writes only after a SOCKS
+success. In every trial the receiver showed the message once, with the
+exact identifier, in the right conversation, and the sender showed it as
+Delivered. No duplicate appeared.
+
+- Debian's tor reported its bootstrap complete 60 to 70 s after power-on;
+  Tor Browser was connected 2 to 7 s after "Connect".
+- Each side had asked its Tor for its onion service (`ADD_ONION`) 10 to
+  12 minutes before the first dial.
+- Whenever a dial succeeded, the receiver accepted the stream 0.2 to 0.3 s
+  before the dialer's SOCKS success, and the message was durable at the
+  receiver 1.1 to 1.9 s after that acceptance.
+
+### The failed first attempt of R3
+
+Guest clocks, both synchronized by NTP; the order of events across the two
+machines is good to about 0.1 s.
+
+1. Ubuntu's process opened a connection to its Tor's SOCKS port and sent
+   the greeting, the isolation credentials and a CONNECT request of 69
+   bytes.
+2. 14.7 s later Debian's process accepted a stream on its onion service's
+   local listener. Neither side wrote application data on that stream,
+   and Debian no longer held it 2.2 s after accepting it.
+3. 14.9 s after the CONNECT, about 0.2 s after that acceptance, Ubuntu's
+   process had closed the SOCKS connection without writing application
+   data: the application did not see a SOCKS success. 14.9 s matches no
+   timeout of Monolith (`CONNECT_TIMEOUT` is 120 s). Ubuntu then queried
+   its Tor's status and showed "Lab A cannot be reached right now ... Next
+   try in less than a minute."
+4. 11.2 s later Monolith retried on its own, with a new SOCKS connection
+   and CONNECT. Debian accepted the stream 0.23 s after that CONNECT, the
+   SOCKS success came 0.46 s after it, and the message was durable at
+   Debian 1.3 s after it.
+
+Nobody resent the message, and it appeared once.
+
+The first attempt of T-CLEAN-9, in the same direction, ended after 120 s;
+there too Debian's listener had accepted a stream without data shortly
+(about 3 s) before the dialer gave up, and the automatic retry, about 10 s
+later, reached Debian in 0.35 s. Both failures seen so far are from Ubuntu
+(Tor Browser) to Debian (system tor), and in both a stream reached the
+receiver's listener just before the dialer gave up, with no application
+data on it. They differ in length, 14.9 s and 120 s.
+
+Failure boundary: the dialing application did not see a SOCKS success.
+Whether Tor sent a failure reply, closed the connection without one, or
+sent a reply the application did not accept is not established: system
+call buffers were hidden, receive calls were not traced, Tor Browser keeps
+no log by default and Debian's tor logged no warning or error. Not
+supported by the evidence: an incomplete Tor bootstrap, a failure of the
+connection to the SOCKS port itself, a delay after the transport existed,
+host resource pressure. Neither a Tor defect nor a Monolith defect is
+claimed.
+
+### Network observation
+
+- All twelve captures (guest and host side, two machines, three trials)
+  covered every window of their trial without a gap.
+- The trace checker reported nothing in any of the six runs of Monolith.
+  The process connected only to Tor's SOCKS and control endpoints on
+  127.0.0.1 (on Debian, Tor's control socket), listened only on 127.0.0.1,
+  made no DNS query and never held a socket outside loopback.
+- One SOCKS CONNECT per attempt, four in all, each after the greeting and
+  the isolation credentials.
+- Outside loopback: Tor's relay connections, unbroken through the failed
+  attempt, and the systems' own traffic (time synchronization, mDNS, IPv6
+  multicast listener reports, Ubuntu's connectivity checks and snapd, and a
+  package download by apt after login on both systems).
+
+### Host and integrity
+
+- The commit charge was at most 65.8 % (at the VM boots). The external disk
+  stayed present and reported no error.
+- The frozen snapshot images had the same hashes before R1 and after each
+  trial. The VM configurations were unchanged apart from the state time.
+  In each profile the vault was unchanged and only the message store
+  changed; every exit had status 0 and released the lock.
+- The staging copies of the T-CLEAN-8 cards that remained in the guests'
+  home folders were deleted during R1, after their hashes were checked.
+  That is ordinary deletion, not secure erasure.
+
+### Not established
+
+- A failure rate, or the reliability of the first connection in general.
+- The SOCKS outcome of a failed attempt, and the reason for it.
+- Whether the failures depend on the direction or on the Tor
+  implementation of either side.
+- Behaviour on physically independent hosts and networks.
+
+### Evidence
+
+Private, on the owner's machine: the folder `D12-U24-TCLEAN10`, 321 files
+listed in its `SHA256SUMS.txt` (SHA-256 `415b9e36...`).
