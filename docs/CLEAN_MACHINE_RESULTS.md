@@ -601,3 +601,177 @@ claimed.
 
 Private, on the owner's machine: the folder `D12-U24-TCLEAN10`, 321 files
 listed in its `SHA256SUMS.txt` (SHA-256 `415b9e36...`).
+
+## T-CLEAN-11: a message queued while the recipient is offline
+
+Date: 2026-11-17, 13:38 to 14:42 UTC.
+
+The name comes from the owner's brief. This session is a reduced form of
+the plan's scenario T-CLEAN-11: one message instead of three, and about
+two and a half minutes with the recipient closed instead of ten.
+
+Purpose: send a message from Debian while Monolith is not running on
+Ubuntu, and see whether Debian keeps it queued, does not report it as
+delivered, and delivers it on its own once Ubuntu's Monolith is open
+again. There is no mailbox in between: the message waits on the sender.
+
+| Property | Result |
+| --- | --- |
+| Recipient application closed when the message was sent | PASS |
+| One message queued and shown as queued | PASS |
+| Never shown as Delivered while the recipient was closed | PASS |
+| Message store written before the first connection attempt | PASS (observed) |
+| Queue kept across a restart of the sender | NOT TESTED |
+| Automatic delivery after the recipient returned | PASS |
+| One copy, exact text, durable acknowledgement | PASS |
+| Network isolation of the Monolith process | PASS within the observed coverage |
+| Host memory gate (300 s below 90 % commit) | PASS on the recorded samples; see below |
+
+### Procedure
+
+- The same VMs, identities, contacts and Tor versions as in T-CLEAN-10.
+  The executable was hashed in both guests and matched the approved
+  build. Both VMs were powered on from off; no snapshot was restored.
+- The process trace was the diagnostic variant prepared in the targeted
+  Tor diagnostic of the same day: the earlier system call trace plus
+  receive and close calls, still without buffer contents, read by an
+  analyzer that reports only times, byte counts and outcomes. Its
+  self-test passed again in both guests. The guest captures and the
+  host-side traces of the NAT adapters ran as before.
+- Ubuntu's Monolith was not started until the recipient's return. Tor
+  Browser was started, connected, and stayed connected throughout.
+- Debian's profile was unlocked. Every earlier message was present, each
+  once, every outgoing one Delivered, and Debian made no CONNECT before
+  the message: nothing was queued.
+- The message: "P9S-TCLEAN11-A2B-OFFLINE-001", an em dash (U+2014),
+  "Queued while Ubuntu is offline.", sent once at 14:07:42.8 (host clock).
+  About 100 s later Ubuntu's Monolith was started and its profile
+  unlocked, followed by five minutes of observation.
+- Nothing was retried or resent by hand; neither Monolith on Debian nor
+  either Tor was restarted; no timeout or setting was changed. The only
+  other input was a key that keeps the screens from locking.
+
+### Clocks
+
+Both guests kept NTP time (offsets of 6 and 16 ms at the start). The host
+clock ran about 0.6 to 0.9 s ahead of the guests in this session: the key
+press was sent at 14:07:42.8 by the host clock, and Debian began writing
+its message store at 14:07:42.218 by its own clock. Times below are guest
+clocks. An interval between an event on Debian and one on Ubuntu crosses
+the two guest clocks and is good to a few tens of milliseconds.
+
+### While Ubuntu was closed
+
+1. 14:07:42.218: Debian created `messages.new` for exclusive writing, the
+   first step of the atomic replacement of its message store
+   (`STORAGE.md` sections 3.5 and 5), 33 ms before its first connection
+   to its Tor's SOCKS port. The store's modification time changed
+   accordingly. The interface showed the message with the queued mark.
+2. Four attempts followed. Each sent its CONNECT, received a complete
+   10-byte SOCKS reply, wrote no application data and closed: a failure
+   reply. They ended 19.1, 4.6, 2.6 and 1.7 s after their CONNECT. The
+   reply code is not recorded by the trace.
+3. The pauses between the end of one attempt and the next CONNECT were
+   7.2, 14.4, 32.4 and 68.8 s, each within the documented range (10, 20,
+   40 and 80 s, each times a factor between 0.5 and 1.5;
+   `RESOURCE_LIMITS.md` section 7).
+4. The interface showed "Lab B cannot be reached right now. Their
+   Monolith may be closed or offline. Monolith tries again from time to
+   time; your messages stay queued on this device. Messages can be
+   delivered only while Monolith is open on both sides." The message was
+   never shown as Delivered, and the failed attempts did not rewrite the
+   store.
+5. Ubuntu's onion service did not exist: its Monolith had not run since
+   the VM started. No process, listener or socket of Monolith existed 61 s
+   before and 70 s after the message, and its profile was untouched.
+
+### Ubuntu's return and the delivery
+
+1. 14:09:21: Ubuntu's Monolith was started and its profile unlocked. It
+   read Tor Browser's control cookie (the SAFECOOKIE preset), and at
+   14:10:05.071 its onion service's local listener was ready; the
+   interface showed "Tor connected" with the same identity and contact.
+   With nothing queued, Ubuntu dialed nothing.
+2. 14:10:13.04: Debian's fifth attempt, the retry that had come due 68.8 s
+   after the fourth, started 8.0 s after Ubuntu's listener was ready.
+   Ubuntu accepted the stream at 14:10:19.04, and Debian's SOCKS success
+   came at 14:10:19.36, 6.3 s after the CONNECT.
+3. 14:10:20.914: the message was durable in Ubuntu's store.
+   14:10:21.299: Debian recorded it as Delivered.
+4. Ubuntu showed the exact text once, in the conversation with Lab A;
+   Debian showed the same message Delivered. No contact was added on
+   either side.
+
+| Interval | Duration | Clocks |
+| --- | --- | --- |
+| Store write at Debian to durable storage at Ubuntu | 158.70 s | both guests |
+| Ubuntu's listener ready to Debian's next CONNECT | 7.97 s | both guests |
+| Ubuntu's listener ready to durable storage at Ubuntu | 15.84 s | Ubuntu |
+| Ubuntu's listener ready to Delivered recorded at Debian | 16.23 s | both guests |
+
+The time to deliver after the recipient returned depended on where the
+sender was in its retry schedule. A contact with nothing queued does not
+dial (`RESOURCE_LIMITS.md` section 7), so after a longer absence the wait
+could be as long as the sender's current delay, up to 30 minutes times
+0.5 to 1.5.
+
+### Persistence: what was observed
+
+- Observed: the message store was rewritten at the submission, through
+  the documented atomic replacement, before any connection attempt, and
+  not again until the message was Delivered. This agrees with
+  `adr/0007-delivery-semantics.md`: a message is stored as Queued before
+  the command that queued it returns.
+- Not observed: the write, sync and rename calls themselves, which were
+  not in the traced set, and the store's content, which is encrypted and
+  was not read.
+- Not tested: that a queued message survives a restart of the sender's
+  application or operating system.
+
+### Network observation
+
+- The four captures (guest and host side, two machines) covered all nine
+  windows of the session without a gap.
+- The trace checker reported no finding for either run of Monolith. The
+  process connected only to its Tor's SOCKS and control endpoints on
+  127.0.0.1 (on Debian, Tor's control socket), listened only on
+  127.0.0.1, made no DNS query and never held a socket outside loopback.
+  The analyzer found no buffer content in either trace.
+- Outside loopback: Tor's relay connections and the systems' own traffic
+  (time synchronization, mDNS, IPv6 multicast listener reports, Ubuntu's
+  connectivity checks and a firmware metadata refresh by fwupd).
+
+### Host and integrity
+
+- Memory gate. The window declared for it ran from 13:56:28 to 14:01:40
+  by the host clock, 312 s. The session log recorded 289 s: the span
+  from the first to the last of the 20 samples taken inside that window,
+  and the gate script accepted a span of 285 s or more, less than the
+  required 300 s. The host sampler took a sample every 15 or 16 s.
+  Every sample from 13:54:39, the first after Tor Browser was seen
+  connected with both VMs running, to 14:01:29, the last before the gate
+  was evaluated, showed a commit charge between 65.8 and 66.2 %: 410 s of
+  consecutive samples below 90 %. The requirement was met on these
+  samples; the gate as evaluated at the time did not itself check 300 s.
+- The commit charge was at most 66.9 % (at a VM boot). Paging and disk
+  latency peaked only during the boots and logins. The external disk
+  stayed present and reported no error.
+- The frozen snapshot images had the same hashes before and after. The VM
+  configurations were unchanged apart from the state time. In each
+  profile only the message store changed; every exit had status 0 and
+  released the lock.
+
+### Not established
+
+- That a queued message survives a restart of the sender's application
+  or operating system, a crash or a power loss.
+- The delay of delivery after a long absence of the recipient.
+- The reason for the failed first attempts of T-CLEAN-9 and T-CLEAN-10.
+  It did not recur here: the only attempt made while Ubuntu's Monolith
+  was open succeeded.
+- Behaviour on physically independent hosts and networks.
+
+### Evidence
+
+Private, on the owner's machine: the folder `D12-U24-TCLEAN11`, 157 files
+listed in its `SHA256SUMS.txt` (SHA-256 `d0cebf37...`).
