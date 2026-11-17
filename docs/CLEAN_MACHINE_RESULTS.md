@@ -344,9 +344,11 @@ them was within about a second.
    sent the greeting (3 bytes), its isolation credentials (44 bytes) and
    a CONNECT request of 69 bytes, the length of a version 3 onion name and
    a port. Debian's onion service had been created 11 minutes earlier.
-2. No SOCKS success came within `CONNECT_TIMEOUT` (120 s,
-   `RESOURCE_LIMITS.md` section 4), and no application data was written.
-3. 12:41:40.11, about 10 s after the timeout: Monolith started a second
+2. No SOCKS success came, and no application data was written. The first
+   attempt was observed to end between 114.5 and 120.0 s after the
+   CONNECT (`CONNECT_TIMEOUT` is 120 s, `RESOURCE_LIMITS.md` section 4);
+   its exact termination time was not captured.
+3. 12:41:40.11, after the retry delay: Monolith started a second
    attempt on its own, on a new SOCKS connection, with the same 3, 44 and
    69 bytes.
 4. 12:41:40.47: Debian's process accepted the stream on its onion
@@ -540,13 +542,15 @@ machines is good to about 0.1 s.
 
 Nobody resent the message, and it appeared once.
 
-The first attempt of T-CLEAN-9, in the same direction, ended after 120 s;
-there too Debian's listener had accepted a stream without data shortly
-(about 3 s) before the dialer gave up, and the automatic retry, about 10 s
-later, reached Debian in 0.35 s. Both failures seen so far are from Ubuntu
+The first attempt of T-CLEAN-9, in the same direction, was observed to end
+between 114.5 and 120.0 s after the CONNECT; its exact termination time
+was not captured. There too Debian's listener accepted a stream without
+data within a few seconds of the end of that attempt, and the automatic
+retry reached Debian in 0.35 s. Both failures seen so far are from Ubuntu
 (Tor Browser) to Debian (system tor), and in both a stream reached the
-receiver's listener just before the dialer gave up, with no application
-data on it. They differ in length, 14.9 s and 120 s.
+receiver's listener close to the time the dialer gave up, with no
+application data on it. They differ in length: 14.9 s, and 114.5 to
+120.0 s.
 
 Failure boundary: the dialing application did not see a SOCKS success.
 Whether Tor sent a failure reply, closed the connection without one, or
