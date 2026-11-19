@@ -981,3 +981,205 @@ The trial D1 belongs to a diagnostic session of 2026-11-17 that is not
 otherwise reported in this file. The outcomes and limitations of the
 trials themselves are unchanged. From T-CLEAN-12 on, the gate measures
 the span on the host's monotonic clock and requires 300 s.
+
+## T-CLEAN-13: Debian's Tor stopped and started while Monolith runs
+
+Date: 2026-11-19, 09:23 to 10:37 UTC.
+
+The name comes from the owner's brief. It covers the plan's scenario
+T-CLEAN-12 (Tor interrupted) on the receiving side: Tor was stopped on
+Debian, and the message was written on Ubuntu, whose Tor kept running.
+The plan's check of a message written on the machine without Tor was
+not part of this session.
+
+Purpose: stop Debian's system Tor once while Debian's Monolith stays
+open, send one message from Ubuntu during the outage, start Tor again,
+and see whether the running Monolith reconnects, publishes its service
+again and receives the message without being restarted.
+
+| Property | Result |
+| --- | --- |
+| Debian's Tor stopped by a normal service stop | PASS |
+| Monolith kept running and responding | PASS |
+| Loss of Tor noticed by Monolith | PASS |
+| No connection outside loopback during the outage | PASS |
+| Message queued at Ubuntu, stored before the first attempt | PASS |
+| Not shown as Delivered before delivery | PASS |
+| Debian's Tor started again normally | PASS |
+| The running Monolith reconnected and published its service again | PASS |
+| Automatic delivery after the restart | PASS, 238.4 s after bootstrap |
+| One copy, exact text, durable acknowledgement | PASS |
+| Network isolation of the Monolith processes | PASS within the observed coverage |
+| Profiles, VM snapshots and the external disk | PASS |
+| Host memory gate (300 s on a monotonic clock) | PASS, 336.0 s |
+
+### Procedure
+
+- The same VMs, identities, contacts, Tor versions and executable as in
+  T-CLEAN-12; the executable was hashed in both guests. Both VMs were
+  powered on from off; no snapshot was restored.
+- Observation as in T-CLEAN-12: the guest captures and the diagnostic
+  process trace of each Monolith from before its start, the host-side
+  traces of both NAT adapters from power-on, the host sampler with a
+  monotonic clock. Every trace and capture ended complete.
+- Debian's Tor daemon runs as the systemd unit `tor@default.service`;
+  `tor.service` is a wrapper with no process of its own. The unit, its
+  process and its listeners were identified, and Monolith was confirmed
+  as its only control client, before any operation.
+- The unit was stopped once and started once with systemctl. No
+  configuration, unit file, port, authentication setting or restart
+  policy was changed.
+- The message: "P9S-TCLEAN13-B2A-TOROUTAGE-001", an em dash (U+2014),
+  "Sent while Debian Tor is unavailable.", sent once from Ubuntu.
+- Nothing was retried or resent by hand, neither Monolith was
+  restarted and no setting was changed.
+
+### Clocks
+
+Both guests kept NTP time (offsets of 17 and 37 ms). The host clock ran
+about 1.5 to 3.0 s behind them on this day. Times below are guest
+clocks.
+
+### The interruption
+
+1. 10:02:25.619: the stop. Tor logged a clean exit at 10:02:25.635 and
+   systemd reported the unit stopped at 10:02:25.659. No tor process
+   remained, its SOCKS and control sockets were gone, and nothing
+   started the unit again before the planned start.
+2. 10:02:25.656: Debian's Monolith read the end of its control
+   connection, 37 ms after the stop began, and closed it and the local
+   listener of its onion service.
+3. The same process tried the control socket again 10.4, 21.4, 79.4,
+   168.2 and 294.6 s after the loss; each attempt failed because the
+   socket did not exist. The gaps follow the publication backoff of
+   `RESOURCE_LIMITS.md` section 7 (10 s, doubling, jitter x0.5 to 1.5).
+4. The window showed "Tor unavailable" when first looked at, 21 to 24 s
+   after the stop; the moment it changed was not observed. The
+   interface responded and the profile stayed open.
+
+### The message during the outage
+
+1. 10:07:30.955: Ubuntu wrote the message to its store before its first
+   connection attempt; the interface showed it queued, with the notice
+   that Lab A cannot be reached.
+2. Four attempts while Debian's Tor was stopped each received a
+   complete SOCKS failure reply (5.5, 0.4, 1.0 and 1.4 s after the
+   CONNECT) and wrote no application data. The pauses between them
+   (11.6, 20.0 and 57.3 s) follow the backoff.
+3. The message was never shown as Delivered, and Debian's store was not
+   written.
+
+### The restart and the reconnection
+
+1. 10:09:24.865: the start. The control socket was open at 10:09:26.194
+   and Tor reported "Bootstrapped 100%" at 10:09:27.042, 2.2 s after
+   the start.
+2. 10:10:32.317: Debian's Monolith connected to the new control socket
+   at its next scheduled attempt, 192.0 s after the previous one and
+   65.3 s after the bootstrap. It read the new authentication cookie,
+   opened a new local listener for its service 10 ms later and showed
+   "Tor connected" again. It had not been restarted.
+3. The service came back with the same identity: Ubuntu dialed the
+   address it holds for Lab A and reached this listener. The control
+   exchange itself is not recorded; authentication is inferred from the
+   published service and the accepted stream. When the new descriptor
+   reached the Tor network was not observed.
+
+### Delivery
+
+1. 10:10:29.903: an attempt by Ubuntu, begun 2.4 s before Debian
+   reconnected, ended with a SOCKS failure reply at 10:10:34.739.
+   Whether Ubuntu's Tor used the old descriptor, or the new one was not
+   yet available, is not known; Tor's own logs were not collected.
+2. 10:13:19.778: Ubuntu's next attempt, 165.0 s later by the backoff.
+   The SOCKS success came 5.1 s after the CONNECT; Debian accepted the
+   stream at 10:13:24.701.
+3. 10:13:25.404: the message was durable in Debian's store.
+   10:13:25.611: Ubuntu recorded it as Delivered.
+4. Debian showed the exact text once, in the conversation with Lab B;
+   Ubuntu showed its message Delivered. Six attempts in all, every one
+   automatic: four failed during the outage, one around the
+   reconnection, and the sixth succeeded.
+
+| Interval | Duration |
+| --- | --- |
+| Tor start to bootstrap complete | 2.2 s |
+| Bootstrap complete to Debian's reconnection | 65.3 s |
+| Debian's reconnection to its new service listener | 0.01 s |
+| Debian's reconnection to durable storage at Debian | 173.1 s |
+| Bootstrap complete to durable storage at Debian | 238.4 s |
+| Ubuntu's CONNECT to its SOCKS success | 5.1 s |
+| SOCKS success to durable storage at Debian | 0.6 s |
+| Durable storage at Debian to Delivered at Ubuntu | 0.2 s |
+| Submission at Ubuntu to durable storage at Debian | 354.4 s |
+
+None of these is a timeout. Of the 238.4 s after the bootstrap, 65.3 s
+were Debian's publication backoff and most of the rest Ubuntu's message
+backoff (the pause of 165.0 s after the failed attempt at 10:10:29);
+establishing the connection took 5.1 s and the application exchange up
+to durable storage 0.6 s.
+
+### Backoff after a long outage
+
+The reconnection waits for the next slot of the publication backoff,
+which doubles up to 30 minutes (`RESOURCE_LIMITS.md` section 7); with
+the jitter a slot can come up to 45 minutes after the previous one.
+Here the outage lasted 7 minutes and the slot fell 65.3 s after the
+bootstrap. After a longer outage the service may stay unpublished long
+after Tor is back; this was not measured. The same holds for the
+sender's message backoff.
+
+### Network observation
+
+- All four captures (both guests, both host-side traces) covered every
+  window; no Monolith process ran outside its trace.
+- The trace checker reported no finding for either process. Debian's
+  Monolith used only its Tor's control socket and SOCKS port and,
+  during the outage, only tried the missing control socket; Ubuntu's
+  used only Tor Browser's SOCKS and control ports. Neither made a DNS
+  query or held a socket outside loopback.
+- While Debian's Tor was stopped and the message was queued, Debian
+  sent no packet at all; the guest capture and the host-side trace
+  agree.
+- Outside loopback: Tor's relay connections (Debian's tor used the same
+  two guards before the stop and after the start) and the systems' own
+  traffic.
+
+### Observer self-test
+
+Before the session, the self-test of the diagnostic observer failed
+once on Debian, on a single synthetic outcome: a connection without
+data was classified as closed by the process instead of ended by the
+peer. Its synthetic trace shows a close in one thread still in progress
+when another thread received the same descriptor number, and the
+analyzer attributes events by descriptor number. The run that followed
+passed. This explanation is provisional; that the race cannot recur is
+not shown. The pattern was looked for in the real traces of the session
+and was not found.
+
+### Host and integrity
+
+- The memory gate passed with 336.0 s on the monotonic clock. The
+  commit charge stayed between 51.2 and 75.0 % with the VMs on; paging
+  peaked only in isolated samples (boots, logins). The external disk
+  reported no error.
+- The frozen snapshot images had the same hashes before and after. The
+  VM configurations were unchanged apart from the state time and the
+  settings of the host-side trace. In each profile only the message
+  store changed; every exit had status 0 and released the lock.
+
+### Not established
+
+- Interruption of Tor Browser on Ubuntu, and a message written on the
+  machine whose Tor is stopped (the plan's sender-side check).
+- The cause of the failed attempt at 10:10:29, near the reconnection.
+- The cause of the failed first attempts of T-CLEAN-9 and T-CLEAN-10;
+  the failures of this session follow from the deliberate outage and
+  are a different case.
+- Recovery after a long outage; a crash or a power loss; behaviour on
+  physically independent hosts and networks.
+
+### Evidence
+
+Private, on the owner's machine: the folder `D12-U24-TCLEAN13`, 218 files
+listed in its `SHA256SUMS.txt` (SHA-256 `f8d6ac57...`).
