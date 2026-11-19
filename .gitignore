@@ -9,3 +9,4 @@
 /mutation/work/
 /mutation/results-*.json
 __pycache__/
+/tools/p9s/host/p9s-local.json

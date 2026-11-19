@@ -1,0 +1,18 @@
+{
+  "schema": "p9s-host-config/1",
+  "vms": {
+    "debian": "P9S-D12",
+    "ubuntu": "P9S-U24"
+  },
+  "external_disk": {
+    "drive_letter": "X",
+    "model": "Example External Disk Model",
+    "probe_path": "X:\\P9S-Lab"
+  },
+  "secrets_dir": "X:\\P9S-Lab\\lab-secrets",
+  "evidence_dir": "X:\\P9S-Lab\\evidence",
+  "vm_config_reference": {
+    "debian": "X:\\P9S-Lab\\reference\\P9S-D12-config.txt",
+    "ubuntu": "X:\\P9S-Lab\\reference\\P9S-U24-config.txt"
+  }
+}

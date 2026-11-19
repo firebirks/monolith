@@ -1,0 +1,23 @@
+{
+  "schema": "p9s-hostmon-paging/1",
+  "approved": false,
+  "approved_by": null,
+  "approved_utc": null,
+  "source": "CANDIDATE VALUES, NOT APPROVED. Starting points from the P9-S post T-CLEAN-14 review of 2026-11-19, to be calibrated (idle baseline, then a separately authorized dual-VM run) and approved by the owner. While approved is false the monitor uses the suspect values for warnings only and never as a stop rule.",
+  "suspect": {
+    "page_out_per_s": 500,
+    "avail_mb_low": 4096,
+    "avail_decline_mb": 4096,
+    "pagefile_growth_mb": 128,
+    "pagefile_disk_read_ms": 20,
+    "page_in_per_s_with_low_memory": 2000
+  },
+  "confirm": {
+    "page_out_per_s": 2000,
+    "avail_mb_low": 2048,
+    "avail_decline_mb": 6144,
+    "pagefile_growth_mb": 300,
+    "pagefile_disk_read_ms": 50,
+    "page_in_per_s_with_low_memory": 5000
+  }
+}

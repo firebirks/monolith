@@ -89,6 +89,9 @@ The full list of limits is in `docs/THREAT_MODEL.md`, section 6.
 | `docs/DEPENDENCIES.md` | Third-party crates in use and what was checked |
 | `docs/DESKTOP.md` | The desktop client: boundary, screens, keyboard, accessibility, limits |
 | `packaging/README.md` | Building and packaging the desktop client |
+| `docs/CLEAN_MACHINE_TEST.md` | The clean-machine test plan |
+| `docs/CLEAN_MACHINE_RESULTS.md` | Results of the clean-machine runs |
+| `tools/p9s/host/README.md` | Windows host tools of the clean-machine laboratory |
 | `docs/adr/` | Decision records |
 
 ## Building
@@ -145,6 +148,8 @@ Checks run in CI:
                                state of the desktop client
     tests/network              fail-closed network test (Linux)
     tests/tor-network          two-node test over a private Tor network
+    tools/p9s/host             Windows host monitor and action coordinator
+                               of the clean-machine laboratory
     docs/                      specifications and decision records
 
 ## Security

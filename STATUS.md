@@ -13,11 +13,10 @@ documents. The outputs are on `verification-9851c24`.
 This file is the result of P9-A, the readiness audit, after an
 independent review of its first draft (section 12), and the record of
 the work approved since: P9-B0 (section 13), the maintenance of `main`
-(section 14), and the update of the fuzz lockfile with the new minimum of
-`rustix` (section 15). Of the workstreams after P9-A only P9-B0 was
-approved; it is done and published. P9-S and the later workstreams have
-not started. Section 9 lists the decisions asked of the owner and those
-taken.
+(section 14), the update of the fuzz lockfile with the new minimum of
+`rustix` (section 15), and P9-S (section 16). P9-B0 is done and
+published; P9-S is in progress; the later workstreams have not started.
+Section 9 lists the decisions asked of the owner and those taken.
 
 ## 1. What Phase 9 is
 
@@ -289,7 +288,8 @@ changes no protocol, Tor semantics, storage format or transfer rule.
   `TOR_INTEGRATION.md` recommends; a Windows VM without a GPU is not
   expected to give OpenGL 2.1.
 - Effort: about 2.5 days, with the owner at the machines for about 1.5.
-  Planning approved; running it needs the owner's approval.
+  Planning approved; running it needs the owner's approval. The owner
+  approved the runs one brief at a time; their state is in section 16.
 
 ### P9-F Trust model, versions and updates (a design document)
 
@@ -573,7 +573,7 @@ because what it finds may change them.
 | P9-A | Readiness audit, threat assessment, this plan, independent review | done; D1 decided, D15 granted for P9-B0 |
 | P9-B0 | CI repair | done; published as `a278e7e` (CI run 43069041967, green); its lockfile on `main` as `88359d4` (CI run 43080006592, green) |
 | Maintenance | `fuzz/Cargo.lock` to `rustix` 1.1.6 and `tokio` 1.53.3; `rustix` 1.1.6 required by `Cargo.toml` | done (section 15); D18 granted; to be published only with the owner's approval |
-| P9-S | Early clean-machine smoke | plan revised (`docs/CLEAN_MACHINE_TEST.md`), waiting for the owner's approval; not started |
+| P9-S | Early clean-machine smoke | in progress: T-CLEAN-8 to T-CLEAN-14 run and published (`docs/CLEAN_MACHINE_RESULTS.md`); laboratory host tools in `tools/p9s/host` (section 16) |
 | P9-F | Trust model, versions and updates | proposed |
 | P9-D | First run and identity lifecycle | proposed |
 | P9-G | Operational privacy and network evidence | proposed |
@@ -1021,3 +1021,45 @@ earlier runs and the verification outputs are unchanged.
 At the final gate the manifest names D15 and D18 as exceptions for
 dependency maintenance, apart from the production changes of the phase,
 whose faults are chosen by the code they reach (section 8).
+
+## 16. P9-S: the clean-machine laboratory
+
+The runs use two VirtualBox VMs, Debian 12 (`P9S-D12`) and Ubuntu 24.04
+(`P9S-U24`), on one Windows 11 host, over the public Tor network. The
+results of T-CLEAN-8 to T-CLEAN-14 are in `docs/CLEAN_MACHINE_RESULTS.md`;
+the evidence stays private, outside the repository. No production code
+changed for P9-S.
+
+### 16.1 Host tools
+
+T-CLEAN-14 showed that the host's paging was recorded but not watched
+while the test ran ("Host paging: procedural deviation" in the results).
+`tools/p9s/host` holds the answer, written for the laboratory and not
+used by Monolith:
+
+- a monitor that publishes one safety state of the host every 5 seconds,
+  with the limits the owner approved: 300 continuous seconds below 90 %
+  commit before a test, a stop after 30 seconds at 95 % or more, an abort
+  at 97 %;
+- a coordinator through which the laboratory automation changes the VMs,
+  only while that state allows it; its emergency path sends one ACPI
+  power-button request and reports success only once the VM is off;
+- a calibration of the paging values with both VMs running, prepared as a
+  simulated dry run only.
+
+State on 2026-11-19: the toolkit passes its 117 synthetic tests on the
+Windows host; they are not part of CI. The monitor ran once with both VMs
+off. Nothing has acted on a running VM: the real dispatchers, the guests'
+answer to the ACPI power button and a paging stop are not validated, and
+no paging value is approved. The coordinator is not a security boundary:
+the same Windows account can still drive VirtualBox directly.
+
+### 16.2 Open before T-CLEAN-15
+
+- A calibration with both VMs running, separately authorized, and the
+  owner's approval of the paging values that follow from it.
+- The ACPI shutdown verified on both guests.
+- The diagnostic SOCKS observer of the guests correlates by descriptor
+  number only; it can misclassify a connection when another thread reuses
+  the number. It is to be corrected before scenarios that rely on its
+  connection outcomes.

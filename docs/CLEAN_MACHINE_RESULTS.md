@@ -1359,10 +1359,10 @@ HOST PAGING MONITORING - PROCEDURAL DEVIATION.
   which counts read operations, reached 7,567, close to the page rate;
   the page file grew in two samples only.
 - In the same interval the commit charge peaked at 77.5 %, available
-  memory stayed between 9.3 and 10.4 GB, the page file grew by about
-  25 MB, the latency of the external disk that holds the VMs stayed
-  normal and it reported no storage or USB error, and both guests
-  responded. The latency of the system disk was not recorded.
+  memory stayed between 9,264 and 10,371 MB (9.0 to 10.1 GiB), the page
+  file grew by about 25 MB, the latency of the external disk that holds
+  the VMs stayed normal and it reported no storage or USB error, and both
+  guests responded. The latency of the system disk was not recorded.
 - The responsible process was not identified.
 - The commit charge was watched in real time, but sustained paging was
   not. The stop condition for sustained heavy paging, which the brief
