@@ -775,3 +775,209 @@ could be as long as the sender's current delay, up to 30 minutes times
 
 Private, on the owner's machine: the folder `D12-U24-TCLEAN11`, 157 files
 listed in its `SHA256SUMS.txt` (SHA-256 `d0cebf37...`).
+
+## T-CLEAN-12: a queued message across a restart of the sender
+
+Date: 2026-11-17, 15:20 to 16:49 UTC.
+
+The name comes from the owner's brief. The plan's scenario T-CLEAN-12
+(Tor interrupted) has not been run.
+
+Purpose: queue a message on Debian while Monolith is not running on
+Ubuntu, close Monolith on Debian, shut Debian down and start it again,
+and see whether the same message is still queued afterwards and is
+delivered on its own once Ubuntu's Monolith is open.
+
+| Property | Result |
+| --- | --- |
+| Recipient application closed until after the sender's restart | PASS |
+| One message queued, not shown as Delivered before delivery | PASS |
+| Message store written before the first connection attempt | PASS |
+| Message store unchanged across the shutdown and the restart | PASS |
+| The same message queued after the restart, once | PASS |
+| Automatic delivery after the recipient returned | PASS |
+| One copy, exact text, durable acknowledgement | PASS |
+| Network isolation of the Monolith process | PASS within the observed coverage |
+| Host memory gates (300 s on a monotonic clock) | PASS, 318.9 s and 320.4 s |
+| Crash, forced power-off, power loss or interrupted write | NOT TESTED |
+
+### Procedure
+
+- The same VMs, identities, contacts and Tor versions as in T-CLEAN-11.
+  The executable was hashed in both guests and matched the approved
+  build. Both VMs were powered on from off; no snapshot was restored.
+- The diagnostic process trace and the captures as in T-CLEAN-11.
+  Debian's observation came in two segments: its guest capture and
+  process trace were stopped cleanly before the shutdown and started
+  again after the restart, before Monolith. The host-side trace of
+  Debian's NAT adapter covered the boot in between.
+- The host memory gate used a new rule: samples at most 20 s apart and
+  at least 300 s between the first and the last on the host's monotonic
+  clock. It ran before the message and again after the restart.
+- Ubuntu's Monolith was not started until the recipient's return; Tor
+  Browser stayed connected throughout.
+- The message: "P9S-TCLEAN12-A2B-REBOOT-001", an em dash (U+2014),
+  "Queued before sender reboot.", sent once at 15:52:14.7 (host clock).
+- Nothing was retried or resent by hand and no setting was changed. The
+  only other input was the unlocks, the close confirmation described
+  below and a key that keeps the screens from locking.
+
+### Clocks
+
+Both guests kept NTP time (offsets of 50 and 13 ms). The host clock ran
+about 0.8 to 1.0 s ahead of the guests. Times below are guest clocks; an
+interval between the two guests is good to about 0.1 s.
+
+### Before the restart
+
+1. 15:52:13.856: Debian created `messages.new` for exclusive writing,
+   the atomic replacement of its message store, 183 ms before its first
+   connection to its Tor's SOCKS port. The interface showed the message
+   with the queued mark.
+2. Five attempts each received a complete 10-byte SOCKS failure reply,
+   11.6, 1.5, 3.4, 2.1 and 7.9 s after their CONNECT, and wrote no
+   application data. The pauses before the next CONNECT were 9.6, 22.4,
+   51.6 and 66.4 s, each within the documented backoff
+   (`RESOURCE_LIMITS.md` section 7). The message was never shown as
+   Delivered.
+3. Closing the window asked: "Close Monolith? 1 message has not been
+   delivered yet. Monolith tries to send it again the next time it is
+   open." After the confirmation the process exited with status 0 and
+   released the profile lock. The store had not changed since the
+   submission.
+4. Debian was shut down from inside, powered off and started again from
+   the same disk image. Its tor started as a system service and
+   bootstrapped. The boot identifier was new; the installation was the
+   same.
+5. Before Monolith was started again, the message store had the same
+   SHA-256 and modification time as before the shutdown.
+
+### After the restart
+
+1. Monolith was started under the trace and the profile unlocked. The
+   conversation showed the same message: same text, same time (15:52),
+   the queued mark, once. The store was read and not written.
+2. The retry schedule started again: the first attempt 30.6 s after the
+   store was read, within the startup spread of 60 s, then pauses of
+   9.0, 29.6, 31.2 and 72.8 s. Five attempts failed in the same way while
+   Ubuntu's Monolith was still closed. The schedule is not kept across a
+   restart, as `RESOURCE_LIMITS.md` section 7 describes.
+3. 16:18:04.281: Ubuntu's Monolith, started and unlocked, had its onion
+   service's local listener ready. It read Tor Browser's control cookie
+   (the SAFECOOKIE preset) and showed "Tor connected" with the same
+   identity and contact. With nothing queued, it dialed nothing.
+4. 16:19:51.6: Debian's next attempt, due 172.8 s after the previous
+   failure. Ubuntu accepted the stream at 16:20:06.50, and Debian's SOCKS
+   success came at 16:20:06.84, 15.2 s after the CONNECT.
+5. 16:20:08.717: the message was durable in Ubuntu's store.
+   16:20:09.126: Debian recorded it as Delivered.
+6. Ubuntu showed the exact text once, in the conversation with Lab A;
+   Debian showed the original message Delivered. No contact was added.
+
+Eleven attempts in all, every one automatic: ten failed while the
+recipient's application was closed, five before and five after the
+restart; the eleventh, the only one made while it was open, succeeded at
+its first try.
+
+| Interval | Duration | Clocks |
+| --- | --- | --- |
+| Store write at Debian to durable storage at Ubuntu | 1674.9 s | both guests |
+| Ubuntu's listener ready to Debian's next CONNECT | 107.4 s | both guests |
+| Debian's CONNECT to its SOCKS success | 15.2 s | Debian |
+| Ubuntu's listener ready to durable storage at Ubuntu | 124.4 s | Ubuntu |
+| Ubuntu's listener ready to Delivered at Debian | 124.9 s | both guests |
+
+The 1674.9 s include about 26 minutes during which Ubuntu's Monolith was
+deliberately closed and Debian was shut down and restarted. Of the
+124.4 s after the recipient's return, 107.4 s were the rest of a pause
+of Debian's retry backoff, not a timeout; establishing the connection
+took 15.2 s, and the message was durable at Ubuntu 1.9 s after the
+SOCKS success.
+
+### Persistence: what was shown
+
+- Shown: a queued message survives a graceful exit of the application
+  and a normal shutdown and start of the operating system. The store was
+  byte for byte the same after the restart, and the application brought
+  back the same message and delivered it once.
+- Not shown: survival of a sudden power loss, a forced power-off of the
+  VM, a crash of the application, damage to the file system or an
+  interrupted write.
+
+### Network observation
+
+- Ubuntu's capture ran without a break; Debian's two capture segments
+  and the host-side traces of both machines covered every window. No
+  Monolith process ran outside the traced intervals.
+- The trace checker reported no finding for any of the three runs of
+  Monolith. The processes connected only to their Tor's SOCKS and
+  control endpoints, listened only on 127.0.0.1, made no DNS query and
+  never held a socket outside loopback.
+- Outside loopback: Tor's relay connections (Debian's tor used the same
+  two guards before and after the restart) and the systems' own traffic
+  (time synchronization, mDNS, IPv6 multicast, DHCP and a package
+  metadata refresh around Debian's boot and login, Ubuntu's connectivity
+  checks).
+
+### Host and integrity
+
+- Both memory gates passed under the new rule: 318.9 s and 320.4 s,
+  samples at most 16.6 s apart. The commit charge was at most 67.5 %;
+  paging and disk latency peaked only at the boots, the logins and the
+  stop of a capture. The external disk reported no error.
+- The frozen snapshot images had the same hashes before and after. The
+  VM configurations were unchanged apart from the state time and the
+  settings of the host-side trace. In each profile only the message
+  store changed; every exit had status 0 and released the lock.
+
+### Not established
+
+- Survival of a crash, a forced power-off, a power loss, an interrupted
+  write or a damaged file system.
+- The delay of delivery after a long absence: the retry schedule starts
+  again at each start of the application, and a contact with nothing
+  queued does not dial.
+- The reason for the failed first attempts of T-CLEAN-9 and T-CLEAN-10.
+  It did not recur: the only attempt made while Ubuntu's Monolith was
+  open succeeded.
+- Behaviour on physically independent hosts and networks.
+
+### Evidence
+
+Private, on the owner's machine: the folder `D12-U24-TCLEAN12`, 212 files
+listed in its `SHA256SUMS.txt` (SHA-256 `b8439909...`).
+
+## Memory gates: retrospective review
+
+Added on 2026-11-19. Retrospective: no trial was repeated and no record
+was changed.
+
+Each two-machine session required the host's commit charge to stay
+below 90 % for 300 consecutive seconds with both VMs and both Tors
+running, before Monolith was started. Until T-CLEAN-11 the gate script
+counted only the samples inside the declared window and accepted a span
+of 285 s or more between the first and the last; the spans it reported
+were 288 to 290 s, which do not establish 300 s on their own.
+
+The review reads the original host samples. They were taken every 15 to
+17 s by the host's wall clock, written to the second, without a
+monotonic clock; a span is good to about 2 s. For each gate it takes
+every sample after both Tors were up (Tor Browser seen connected;
+Debian's tor had bootstrapped earlier) and up to the end of the declared
+window, when the gate was evaluated and Monolith was started. A gate is
+supported if no sample shows 90 % or more, a VM not running or the
+external disk absent, no two samples are more than 20 s apart, and the
+first and last samples are at least 300 s apart.
+
+| Gate | Span inside the declared window | Span from both Tors up | Largest gap | Commit | Result |
+| --- | --- | --- | --- | --- | --- |
+| T-CLEAN-10 R1 | 290 s | 336 s | 17 s | 63.4 to 63.7 % | PASS, supported by the original samples |
+| T-CLEAN-10 R2 | 289 s | 319 s | 16 s | 63.8 to 64.1 % | PASS, supported by the original samples |
+| T-CLEAN-10 R3 | 289 s | 304 s | 16 s | 64.5 to 64.9 % | PASS, supported by the original samples (smallest margin) |
+| Targeted Tor diagnostic, trial D1 | 288 s | 394 s | 16 s | 65.2 to 65.6 % | PASS, supported by the original samples |
+| T-CLEAN-11 | 289 s | 410 s | 16 s | 65.8 to 66.2 % | PASS, supported by the original samples |
+
+The trial D1 belongs to a diagnostic session of 2026-11-17 that is not
+otherwise reported in this file. The outcomes and limitations of the
+trials themselves are unchanged. From T-CLEAN-12 on, the gate measures
+the span on the host's monotonic clock and requires 300 s.
