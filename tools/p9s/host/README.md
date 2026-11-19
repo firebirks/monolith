@@ -52,6 +52,8 @@ does not touch Tor, Monolith or its profiles.
 | `tests/hostmon-tests.ps1` | Monitor tests |
 | `tests/coordinator-tests.ps1` | Coordinator tests |
 | `tests/stagec-tests.ps1` | Configuration, credentials, ACPI shutdown, calibration, publication checks |
+| `tests/run-all.ps1` | Runs and checks the three suites, and the mutants (local and CI) |
+| `tests/mutants.json` | The 23 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -238,15 +240,52 @@ determined local user.
 
 ## Tests
 
-    pwsh -NoProfile -File tests/hostmon-tests.ps1 -OutDir <new folder>
-    pwsh -NoProfile -File tests/coordinator-tests.ps1 -OutDir <new folder>
-    pwsh -NoProfile -File tests/stagec-tests.ps1 -OutDir <new folder>
+    pwsh -NoProfile -File tests/run-all.ps1 -OutDir <new folder>
+         [-Mutants]
 
-They need no VM: mock dispatchers, synthetic states, dry runs, read-only
-`VBoxManage showvminfo`, and in a few cases the monitor or the
-coordinator run as separate processes for a few seconds. They are not
-part of the repository's CI, which runs on Linux; run them on the
-Windows host.
+runs the three suites (`hostmon`, `coordinator`, `stagec`), each in a
+new `pwsh -File` process, and judges them by their `results.json`: every
+declared case must be reported once, as PASS, FAIL or NOT_RUN; the exit
+code of a suite must agree with its results; anything on the error stream
+fails the run; the coordinator files of the default state folder must not
+change. `-Mutants` then applies each fault of `tests/mutants.json` to its
+own copy of this folder and requires one of the tests named for it to
+fail. Exit 0 only when every check passed. A suite can also be run on its
+own:
+
+    pwsh -NoProfile -File tests/coordinator-tests.ps1 -OutDir <new folder>
+
+(exit 0 passed, 1 a case failed, 3 a case could not run here). Start
+the suites with `pwsh -File` as shown: started with `&` from a prompt,
+closures in the tests and in `coordinator-lib.ps1` cannot see the
+functions of the script, and cases fail.
+
+Requirements: Windows and PowerShell 7.4 or later; nothing else is
+installed. The tests start no VM, send no guest input and no ACPI
+request, and read no real secret: the coordinator cases use mock
+dispatchers that only record calls, synthetic monitor states, dry runs
+and the simulated calibration; secrets are fixture files written by the
+test; the monitor and the coordinator run as separate processes only in
+fixture mode or for dry runs and refusals. Where VirtualBox is installed
+some cases also read the VM states (`VBoxManage showvminfo`, read only)
+to show that they did not change.
+
+CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs
+
+    pwsh -NoProfile -File tools/p9s/host/tests/run-all.ps1
+         -OutDir <dir> -Mutants -CleanRunner
+
+on a GitHub-hosted Windows Server 2025 runner. `-CleanRunner` first
+requires that the runner has no VirtualBox (no `VBoxManage.exe`, no
+VirtualBox COM class), no `p9s-local.json`, no `P9S_HOST_CONFIG` and no
+default state folder, so that a fault in a test cannot reach a real VM
+or secret. The job also checks that Windows PowerShell 5.1 refuses the
+entry point. One case cannot run there: K37 starts the real coordinator,
+which reads the VM states with VBoxManage; it is reported as NOT_RUN and
+runs only on a host with VirtualBox (K28 covers the same rule in
+process). CI cannot show how a guest answers the ACPI power button, how
+the host behaves with both VMs running, or any paging value; see "Not
+validated".
 
 ## Unsupported on purpose
 

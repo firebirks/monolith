@@ -146,11 +146,15 @@ Checks run in CI:
                                session layer, the Tor replies, the vault,
                                the contact store, the messages and the
                                state of the desktop client
+    mutation/                  single faults in the security checks and
+                               the runner that applies them
     tests/network              fail-closed network test (Linux)
     tests/tor-network          two-node test over a private Tor network
     tools/p9s/host             Windows host monitor and action coordinator
                                of the clean-machine laboratory
     docs/                      specifications and decision records
+    verification/970316f       outputs of the final verification of
+                               Phase 4
 
 ## Security
 

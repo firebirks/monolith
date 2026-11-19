@@ -546,7 +546,8 @@ Case 'X1' 'every kit script parses (pwsh 7)' {
 
 $pass = @($results | Where-Object result -eq 'PASS').Count
 $fail = @($results | Where-Object result -eq 'FAIL').Count
-"== $pass passed, $fail failed, 0 skipped"
+$notRun = @($results | Where-Object result -ne 'PASS' | Where-Object result -ne 'FAIL').Count
+"== $pass passed, $fail failed, $notRun not run"
 $results | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $OutDir 'results.json') -Encoding utf8
 $results | ForEach-Object { '{0} {1} {2} ({3} ms){4}' -f $_.result, $_.id, $_.name, $_.ms, $(if ($_.detail) { ' :: ' + $_.detail } else { '' }) } | Set-Content -LiteralPath (Join-Path $OutDir 'results.txt') -Encoding utf8
-if ($fail) { exit 1 } else { exit 0 }
+if ($fail) { exit 1 } elseif ($notRun) { exit 3 } else { exit 0 }

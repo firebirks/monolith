@@ -1040,19 +1040,28 @@ used by Monolith:
 - a monitor that publishes one safety state of the host every 5 seconds,
   with the limits the owner approved: 300 continuous seconds below 90 %
   commit before a test, a stop after 30 seconds at 95 % or more, an abort
-  at 97 %;
-- a coordinator through which the laboratory automation changes the VMs,
-  only while that state allows it; its emergency path sends one ACPI
-  power-button request and reports success only once the VM is off;
+  at 97 %; it also records paging measurements, but the paging values are
+  candidates that can raise a warning and never a stop;
+- a coordinator through which the laboratory automation changes the VMs:
+  test actions only while that state allows them; emergency actions in
+  every state, which can only send one ACPI power-button request per VM
+  and report success once the VM is off;
 - a calibration of the paging values with both VMs running, prepared as a
   simulated dry run only.
 
-State on 2026-11-19: the toolkit passes its 117 synthetic tests on the
-Windows host; they are not part of CI. The monitor ran once with both VMs
-off. Nothing has acted on a running VM: the real dispatchers, the guests'
-answer to the ACPI power button and a paging stop are not validated, and
-no paging value is approved. The coordinator is not a security boundary:
-the same Windows account can still drive VirtualBox directly.
+State on 2026-11-19: the source was published as `fe6180f`. Its 117
+synthetic tests and 23 targeted faults (mutants) ran on the Windows host.
+The CI job `p9s-windows-toolkit` runs them on a GitHub-hosted Windows
+runner without VirtualBox, where one test (K37, which starts the real
+coordinator) is reported as not run. The monitor has run on the host only
+with both VMs off, and nothing has acted on a running VM: the ACPI
+shutdown is validated with mocks only, the real dispatchers and the
+guests' answer to the power button are not validated, no calibration with
+both VMs has run, no paging value is approved and no paging stop has been
+enforced. The coordinator is not a security boundary: the same Windows
+account can still drive VirtualBox directly. The earlier ad hoc scripts
+that typed account passwords read from local session logs are retired;
+the toolkit supports no account or sudo password.
 
 ### 16.2 Open before T-CLEAN-15
 

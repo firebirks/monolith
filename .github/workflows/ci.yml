@@ -117,3 +117,31 @@ jobs:
       - run: rustup toolchain install
       - run: cargo install --locked cargo-audit@0.22.2
       - run: cargo audit
+
+  # The Windows host tools of the P9-S laboratory (tools/p9s/host), which
+  # are not part of Monolith: their synthetic tests and targeted mutants on
+  # a runner with no VirtualBox, no laboratory configuration and no secret
+  # store, which run-all.ps1 -CleanRunner checks first. The tests use mock
+  # dispatchers, dry runs and simulations; they cannot show how a real VM
+  # or the host under load behaves.
+  p9s-windows-toolkit:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: $PSVersionTable | Format-Table -AutoSize | Out-String -Width 200
+      - run: pwsh -NoProfile -File tools/p9s/host/tests/run-all.ps1 -OutDir "$env:RUNNER_TEMP/p9s-tests" -Mutants -CleanRunner
+      # The toolkit needs PowerShell 7.4 or later; Windows PowerShell 5.1
+      # must refuse it before any test starts.
+      - run: |
+          $out = & powershell.exe -NoProfile -File tools/p9s/host/tests/run-all.ps1 -OutDir "$env:RUNNER_TEMP/p9s-ps51" 2>&1
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { "$_" }
+          if ($code -eq 0 -or (Test-Path "$env:RUNNER_TEMP/p9s-ps51") -or "$out" -notmatch 'ScriptRequiresUnmatchedPSVersion') { 'Windows PowerShell 5.1 was not refused'; exit 1 }
+          "Windows PowerShell $(& powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion.ToString()') refused the entry point (exit $code)"
+          exit 0

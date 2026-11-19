@@ -65,7 +65,8 @@ $secDir = Join-Path $fxDir 'secrets'
 New-Item -ItemType Directory -Path $secDir | Out-Null
 $fxText = 'fixture passphrase for unit tests only'
 Set-Content -LiteralPath (Join-Path $secDir 'P9S-D12-profile-passphrase.txt') -Value @('# test fixture', $fxText) -Encoding ascii
-Set-Content -LiteralPath (Join-Path $secDir 'P9S-U24-profile-passphrase.txt') -Value 'Bad-Format 123' -Encoding ascii
+# malformed on purpose; QXZW cannot occur by chance in timestamps or ids
+Set-Content -LiteralPath (Join-Path $secDir 'P9S-U24-profile-passphrase.txt') -Value 'Bad-Format QXZW' -Encoding ascii
 function New-Config([hashtable]$Override = @{}) {
     $o = [ordered]@{ schema = 'p9s-host-config/1'; vms = [ordered]@{ debian = 'P9S-D12'; ubuntu = 'P9S-U24' }
         external_disk = [ordered]@{ drive_letter = 'X'; model = 'Example Disk'; probe_path = (Join-Path $fxDir 'lab') }
@@ -169,7 +170,7 @@ Case 'H06' 'diagnostics of a malformed secret do not reveal it' {
     $null = Open $c; $r = Act $c @{ Action = 'guest.unlock'; Vm = 'P9S-U24' }
     Expect ($r.outcome -eq 'FAILED' -and ($r.lines -join ' ') -match 'SECRET_FORMAT' -and $c.Calls.Count -eq 0) "$($r.outcome) $($r.lines -join ' ')"
     $all = (Files $c) + ($r.lines -join ' ') + ($r.reasons -join ' ')
-    Expect ($all -notmatch 'Bad-Format' -and $all -notmatch '123') 'malformed secret echoed'
+    Expect ($all -notmatch 'Bad-Format' -and $all -cnotmatch 'QXZW') 'malformed secret echoed'
 }
 Case 'H07' 'retired actions and retired scripts cannot be reached through the coordinator' {
     $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
@@ -342,7 +343,8 @@ Case 'H36' 'qualification cap and unresolved ACPI shutdown in the dry run' {
 
 # ---- publication safety of this tree --------------------------------------------------------
 $dist = 'README.md', 'assert-host-safe.ps1', 'com-type.ps1', 'coordinator-lib.ps1', 'host-monitor.ps1', 'hostmon-lib.ps1', 'p9s-action.ps1', 'p9s-config.ps1',
-        'p9s-local.example.json', 'paging-thresholds.json', 'vm-action.ps1', 'tests\coordinator-tests.ps1', 'tests\hostmon-tests.ps1', 'tests\stagec-tests.ps1'
+        'p9s-local.example.json', 'paging-thresholds.json', 'vm-action.ps1', 'tests\coordinator-tests.ps1', 'tests\hostmon-tests.ps1', 'tests\stagec-tests.ps1',
+        'tests\run-all.ps1', 'tests\mutants.json'
 $localOnly = 'p9s-local.json', 'KIT-SHA256SUMS.txt'
 $distFiles = @($dist | ForEach-Object { Join-Path $kit $_ } | Where-Object { Test-Path -LiteralPath $_ })
 Case 'H40' 'the tree holds exactly the distribution files (plus known local-only files)' {
@@ -380,7 +382,17 @@ Case 'H44' 'example configuration is valid and holds only placeholders' {
 $cli = Join-Path $kit 'p9s-action.ps1'
 $pw = (Get-Process -Id $PID).Path
 $vb = Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe'
-function VmStates { if (Test-Path -LiteralPath $vb) { (('P9S-D12', 'P9S-U24') | ForEach-Object { ((& $vb showvminfo $_ --machinereadable 2>$null) | Where-Object { $_ -like 'VMState=*' }) }) -join ' ' } else { 'no VirtualBox' } }
+# VM states for the "nothing changed" check, read only. A read that returns
+# nothing (concurrent VBoxManage calls can) is retried, never taken for a
+# state.
+function VmStates {
+    if (-not (Test-Path -LiteralPath $vb)) { return 'no VirtualBox' }
+    @(foreach ($v in 'P9S-D12', 'P9S-U24') {
+        $l = $null
+        for ($i = 0; $i -lt 5 -and -not $l; $i++) { $l = @((& $vb showvminfo $v --machinereadable 2>$null) | Where-Object { $_ -like 'VMState=*' }) | Select-Object -First 1; if (-not $l) { Start-Sleep -Milliseconds 500 } }
+        if ($l) { $l } else { "$v unreadable" }
+    }) -join ' '
+}
 Case 'H50' 'command line with a configuration file: ACPI dry run, calibration simulation, retired shutdown typing' {
     $before = VmStates
     $d = Join-Path $OutDir 'cli'; New-Item -ItemType Directory -Path $d | Out-Null
@@ -395,7 +407,8 @@ Case 'H50' 'command line with a configuration file: ACPI dry run, calibration si
 
 $pass = @($results | Where-Object result -eq 'PASS').Count
 $fail = @($results | Where-Object result -eq 'FAIL').Count
-"== $pass passed, $fail failed, 0 skipped"
+$notRun = @($results | Where-Object result -ne 'PASS' | Where-Object result -ne 'FAIL').Count
+"== $pass passed, $fail failed, $notRun not run"
 $results | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $OutDir 'results.json') -Encoding utf8
 $results | ForEach-Object { '{0} {1} {2} ({3} ms){4}' -f $_.result, $_.id, $_.name, $_.ms, $(if ($_.detail) { ' :: ' + $_.detail } else { '' }) } | Set-Content -LiteralPath (Join-Path $OutDir 'results.txt') -Encoding utf8
-if ($fail) { exit 1 } else { exit 0 }
+if ($fail) { exit 1 } elseif ($notRun) { exit 3 } else { exit 0 }

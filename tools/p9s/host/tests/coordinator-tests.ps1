@@ -26,6 +26,12 @@ function Case([string]$id, [string]$name, [scriptblock]$body) {
     '{0} {1} {2}{3}' -f $(if ($ok) { 'PASS' } else { 'FAIL' }), $id, $name, $(if ($ok) { '' } else { ' :: ' + ($script:fails -join ' | ') })
 }
 function Expect([bool]$cond, [string]$what) { if (-not $cond) { $script:fails.Add($what) } }
+# A case that cannot run on this machine is recorded as NOT_RUN with the
+# reason, never left out; the suite then exits 3 instead of 0.
+function NotRun([string]$id, [string]$name, [string]$why) {
+    $results.Add([pscustomobject]@{ id = $id; name = $name; result = 'NOT_RUN'; ms = 0; detail = $why })
+    "NOT_RUN $id $name :: $why"
+}
 
 # ---- monitor states from the real policy ----------------------------------
 $GiB = [math]::Pow(2, 30)
@@ -438,7 +444,18 @@ Case 'K34' 'calibration preflight lists the bootstrap conditions, read only' {
 $cli = Join-Path $kit 'p9s-action.ps1'
 $pw = (Get-Process -Id $PID).Path
 $vb = Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe'
-function VmStates { foreach ($v in 'P9S-D12', 'P9S-U24') { ((& $vb showvminfo $v --machinereadable) | Where-Object { $_ -like 'VMState=*' }) } }
+# VM states for the "nothing changed" checks, read only. A read that returns
+# nothing (concurrent VBoxManage calls can) is retried, never taken for a
+# state.
+function VmStateLine([string]$v) {
+    $l = $null
+    for ($i = 0; $i -lt 5 -and -not $l; $i++) { $l = @((& $vb showvminfo $v --machinereadable 2>$null) | Where-Object { $_ -like 'VMState=*' }) | Select-Object -First 1; if (-not $l) { Start-Sleep -Milliseconds 500 } }
+    if ($l) { $l } else { "$v unreadable" }
+}
+function VmStates {
+    if (-not (Test-Path -LiteralPath $vb)) { return 'no VirtualBox' }
+    @(foreach ($v in 'P9S-D12', 'P9S-U24') { VmStateLine $v }) -join ' '
+}
 Case 'K35' 'command line: calibration dry run changes no VM; refusals exit 1' {
     $before = (VmStates) -join ' '
     $d = Join-Path $OutDir 'cli-1'; New-Item -ItemType Directory -Path $d | Out-Null
@@ -464,7 +481,13 @@ Case 'K36' 'shims route through the coordinator' {
     Expect ($msg -match 'scancodes') "unknown scancodes: $msg"
     Expect (@(Get-Content -LiteralPath (Join-Path $d 'coordinator-audit.jsonl')).Count -ge 2) 'shim calls not audited by the coordinator'
 }
-Case 'K37' 'real coordinator process killed mid-action: in-flight record blocks the next action' {
+# K37 starts the real coordinator, which reads the VM states with VBoxManage
+# (read only); without VirtualBox it cannot run. K28 covers the same rule
+# in process.
+$k37 = 'real coordinator process killed mid-action: in-flight record blocks the next action'
+if (-not (Test-Path -LiteralPath $vb)) { NotRun 'K37' $k37 'needs VirtualBox: the real coordinator reads the VM states with VBoxManage, not installed here' }
+else {
+Case 'K37' $k37 {
     $d = Join-Path $OutDir 'cli-3'; New-Item -ItemType Directory -Path $d | Out-Null
     $me = Get-Process -Id $PID
     $info = [ordered]@{ pid = $PID; process_start_utc = 'x'; process_start_ticks = $me.StartTime.ToUniversalTime().Ticks; mode = 'Monitor'; paging_stop = 'Required'; thresholds_sha256 = 'x'; thresholds_approved = $true; test = $false; kit = 'test' }
@@ -472,7 +495,7 @@ Case 'K37' 'real coordinator process killed mid-action: in-flight record blocks 
     $state = Join-Path $d 'state.json'
     Write-StateAtomic -Path $state -Text (ConvertTo-StateJson -Doc $doc -Monitor $info -WrittenQpc ([Diagnostics.Stopwatch]::GetTimestamp()) -QpcFrequency ([Diagnostics.Stopwatch]::Frequency) -WrittenUtc 'x')
     $vmNow = @{}
-    foreach ($v in 'P9S-D12', 'P9S-U24') { $vmNow[$v] = $(if (((& $vb showvminfo $v --machinereadable) | Where-Object { $_ -like 'VMState=*' }) -eq 'VMState="poweroff"') { 'off' } else { 'other' }) }
+    foreach ($v in 'P9S-D12', 'P9S-U24') { $vmNow[$v] = $(if ((VmStateLine $v) -eq 'VMState="poweroff"') { 'off' } else { 'other' }) }
     $sess = [ordered]@{ schema = 'p9s-coordinator-session/1'; session_id = 'ses-k37'; kind = 'Test'; opened_utc = 'x'; monitor_run_id = 'run-K'; lifecycle = 'ACTIVE'; halt = $null; previous_halt = $null; expected_vm = $vmNow; inflight = $null; last_marker = $null }
     Write-StateAtomic -Path (Join-Path $d 'coordinator-session.json') -Text ($sess | ConvertTo-Json -Depth 5)
     $p = Start-Process -FilePath $pw -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-File', $cli, '-Action', 'wait', '-Seconds', '60', '-StatePath', $state)
@@ -482,6 +505,7 @@ Case 'K37' 'real coordinator process killed mid-action: in-flight record blocks 
     Stop-Process -Id $p.Id -Force; $p.WaitForExit(10000) | Out-Null
     $o = & $pw -NoProfile -File $cli -Action scenario.begin -Name after-crash -StatePath $state 2>&1
     Expect ($LASTEXITCODE -eq 1 -and ($o -join ' ') -match 'INFLIGHT_UNRESOLVED') "after crash: $LASTEXITCODE $($o -join ' ')"
+}
 }
 Case 'K38' 'every coordinator script parses (pwsh 7)' {
     foreach ($f in Get-ChildItem -LiteralPath $kit -Recurse -Filter *.ps1) {
@@ -493,7 +517,8 @@ Case 'K38' 'every coordinator script parses (pwsh 7)' {
 
 $pass = @($results | Where-Object result -eq 'PASS').Count
 $fail = @($results | Where-Object result -eq 'FAIL').Count
-"== $pass passed, $fail failed, 0 skipped"
+$notRun = @($results | Where-Object result -eq 'NOT_RUN').Count
+"== $pass passed, $fail failed, $notRun not run"
 $results | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $OutDir 'results.json') -Encoding utf8
 $results | ForEach-Object { '{0} {1} {2} ({3} ms){4}' -f $_.result, $_.id, $_.name, $_.ms, $(if ($_.detail) { ' :: ' + $_.detail } else { '' }) } | Set-Content -LiteralPath (Join-Path $OutDir 'results.txt') -Encoding utf8
-if ($fail) { exit 1 } else { exit 0 }
+if ($fail) { exit 1 } elseif ($notRun) { exit 3 } else { exit 0 }

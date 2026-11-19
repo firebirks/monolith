@@ -1,0 +1,266 @@
+{
+  "schema": "p9s-mutants/1",
+  "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
+  "count": 23,
+  "mutants": [
+    {
+      "id": "SM1",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "ACPI timeout reported as DONE",
+      "killers": [
+        "H14"
+      ],
+      "find": "                $Res.outcome = 'TIMEOUT'; $Res.reasons.Add('EMERGENCY_UNRESOLVED')",
+      "replace": "                $Res.outcome = 'DONE'; $Res.reasons.Add('EMERGENCY_UNRESOLVED')"
+    },
+    {
+      "id": "SM2",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "keyboard shutdown fallback after a failed ACPI request",
+      "killers": [
+        "H13",
+        "H15"
+      ],
+      "find": "                    $Res.outcome = 'FAILED'; $Res.reasons.Add('ACPI_REQUEST_FAILED'); $Res.reasons.Add('EMERGENCY_UNRESOLVED')",
+      "replace": "                    & $Ctx.Dispatch['guest.text'] $vm 'systemctl poweroff'; $Res.outcome = 'FAILED'; $Res.reasons.Add('ACPI_REQUEST_FAILED'); $Res.reasons.Add('EMERGENCY_UNRESOLVED')"
+    },
+    {
+      "id": "SM3",
+      "suite": "stagec",
+      "file": "p9s-config.ps1",
+      "what": "secret-store permission check always passes",
+      "killers": [
+        "H04"
+      ],
+      "find": "    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons) }",
+      "replace": "    [pscustomobject]@{ ok = $true; reasons = @($reasons) }"
+    },
+    {
+      "id": "SM4",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "a second ACPI request for the same VM is allowed",
+      "killers": [
+        "H18"
+      ],
+      "find": "        if ($req.acpi.Contains($vm)) {",
+      "replace": "        if ($false) {"
+    },
+    {
+      "id": "SM5",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "memory check before the second VM removed",
+      "killers": [
+        "H31"
+      ],
+      "find": "            if ([double]$c.avail_mb -lt $SecondVmMinAvailableMb) { $halt = 'memory-check'; $why = @('MEMORY_BELOW_PROPOSED_MINIMUM'); & $add 'memory-check' 'memory-check' 'HALTED' \"available $([math]::Round([double]$c.avail_mb)) MB below $SecondVmMinAvailableMb MB (proposed condition)\"; break }",
+      "replace": "            if ($false) { $halt = 'memory-check'; $why = @('MEMORY_BELOW_PROPOSED_MINIMUM'); & $add 'memory-check' 'memory-check' 'HALTED' \"available $([math]::Round([double]$c.avail_mb)) MB below $SecondVmMinAvailableMb MB (proposed condition)\"; break }"
+    },
+    {
+      "id": "SM6",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "MEASUREMENTS_INCOMPLETE check removed",
+      "killers": [
+        "H32"
+      ],
+      "find": "        if (($doc.paging -and $doc.paging.inputs_complete -ne $true) -or -not $doc.memory -or -not (Test-Finite $doc.memory.avail_mb)) { $bad.Add('MEASUREMENTS_INCOMPLETE') }",
+      "replace": "        $null = 0"
+    },
+    {
+      "id": "SM7",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "session.close allowed while an unresolved VM still runs",
+      "killers": [
+        "H14"
+      ],
+      "find": "            if ($still.Count) {",
+      "replace": "            if ($false) {"
+    },
+    {
+      "id": "SM8",
+      "suite": "stagec",
+      "file": "p9s-config.ps1",
+      "what": "hidden-folder rule of the secret store removed",
+      "killers": [
+        "H02"
+      ],
+      "find": "    if (@($full.Split('\\') | Where-Object { $_.StartsWith('.') }).Count) { throw 'SECRET_STORE_FORBIDDEN_LOCATION' }",
+      "replace": "    $null = 0"
+    },
+    {
+      "id": "SM9",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "secret value included in the format error",
+      "killers": [
+        "H06"
+      ],
+      "find": "            if ($p -cnotmatch '^[a-z ]{20,}$') { throw 'SECRET_FORMAT' }",
+      "replace": "            if ($p -cnotmatch '^[a-z ]{20,}$') { throw \"SECRET_FORMAT $p\" }"
+    },
+    {
+      "id": "SM10",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "live calibration session allowed",
+      "killers": [
+        "H35"
+      ],
+      "find": "        if (-not $dry) { Set-P9SRefused $Res @('CALIBRATION_LIVE_DISABLED') $g; Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V; return $Res }",
+      "replace": "        if ($false) { Set-P9SRefused $Res @('CALIBRATION_LIVE_DISABLED') $g; Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V; return $Res }"
+    },
+    {
+      "id": "SM11",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "emergency shutdown without the coordinator lock",
+      "killers": [
+        "H17"
+      ],
+      "find": "        $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs",
+      "replace": "        $lock = [IO.MemoryStream]::new()"
+    },
+    {
+      "id": "SM12",
+      "suite": "stagec",
+      "file": "coordinator-lib.ps1",
+      "what": "WARNING accepted during calibration",
+      "killers": [
+        "H33"
+      ],
+      "find": "    foreach ($r in $t.reasons) { if ($r -notin 'STATUS_QUALIFYING', 'STATUS_UNCALIBRATED', 'STATUS_CALIBRATING', 'GATE_INCOMPLETE') { $bad.Add($r) } }",
+      "replace": "    foreach ($r in $t.reasons) { if ($r -notin 'STATUS_QUALIFYING', 'STATUS_UNCALIBRATED', 'STATUS_CALIBRATING', 'GATE_INCOMPLETE', 'STATUS_WARNING', 'COMMIT_INVALID') { $bad.Add($r) } }"
+    },
+    {
+      "id": "CM1",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "last check before dispatch skipped",
+      "killers": [
+        "K21"
+      ],
+      "find": "    $cp = Test-P9SCheckpoint $Ctx $Session $Res",
+      "replace": "    $cp = [pscustomobject]@{ ok = $true; reasons = @(); gate = $g }"
+    },
+    {
+      "id": "CM2",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "long action not rechecked between chunks",
+      "killers": [
+        "K19"
+      ],
+      "find": "                    if ($i -gt 0) {",
+      "replace": "                    if ($false) {"
+    },
+    {
+      "id": "CM3",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "plan continues after a refused step",
+      "killers": [
+        "K20"
+      ],
+      "find": "        $Res.outcome = 'STOPPED_AT_CHECKPOINT'\n        break",
+      "replace": "        $Res.outcome = 'STOPPED_AT_CHECKPOINT'\n        continue"
+    },
+    {
+      "id": "CM5",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "ABORT acknowledgement id not compared",
+      "killers": [
+        "K31"
+      ],
+      "find": "            if ([string]$Request.AcknowledgeAbort -cne [string]$sess.halt.abort_id) { $reasons.Add('ABORT_NOT_ACKNOWLEDGED') } else { $ackOk = $true }",
+      "replace": "            $ackOk = $true"
+    },
+    {
+      "id": "CM6",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "out-of-band VM state ignored",
+      "killers": [
+        "K22"
+      ],
+      "find": "            if ($actual[$n] -ne [string]$Session.expected_vm[$n]) { $reasons.Add(\"OUT_OF_BAND_VM_STATE:$n\") }",
+      "replace": "            $null = $n"
+    },
+    {
+      "id": "CM7",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "in-flight record ignored",
+      "killers": [
+        "K28"
+      ],
+      "find": "        if ($Session.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') }",
+      "replace": "        $null = 0"
+    },
+    {
+      "id": "CM8",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "typed text written to the audit",
+      "killers": [
+        "K27"
+      ],
+      "find": "        if ($k -eq 'Text') { $p.text_length = ([string]$Request.Text).Length; continue }",
+      "replace": "        if ($k -eq 'Text') { $p.text = [string]$Request.Text; continue }"
+    },
+    {
+      "id": "CM9",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "WARNING accepted during calibration",
+      "killers": [
+        "K25"
+      ],
+      "find": "    foreach ($r in $t.reasons) { if ($r -notin 'STATUS_QUALIFYING', 'STATUS_UNCALIBRATED', 'STATUS_CALIBRATING', 'GATE_INCOMPLETE') { $bad.Add($r) } }",
+      "replace": "    foreach ($r in $t.reasons) { if ($r -notin 'STATUS_QUALIFYING', 'STATUS_UNCALIBRATED', 'STATUS_CALIBRATING', 'GATE_INCOMPLETE', 'STATUS_WARNING', 'COMMIT_INVALID') { $bad.Add($r) } }"
+    },
+    {
+      "id": "CM10",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "VM name compared without case",
+      "killers": [
+        "K17"
+      ],
+      "find": "            'Vm' { [string]$v -cin (Get-P9SVmNames) }",
+      "replace": "            'Vm' { [string]$v -in (Get-P9SVmNames) }"
+    },
+    {
+      "id": "CM11",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "STOP or ABORT latch not applied",
+      "killers": [
+        "K05",
+        "K06",
+        "K19",
+        "K21",
+        "K31",
+        "K32"
+      ],
+      "find": "    if (-not $Gate.halt_status) { return $Session }",
+      "replace": "    return $Session"
+    },
+    {
+      "id": "CM12",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "normal action waits for the coordinator lock",
+      "killers": [
+        "K29"
+      ],
+      "find": "    $lock = Enter-P9SLock $Ctx 0",
+      "replace": "    $lock = Enter-P9SLock $Ctx 3000"
+    }
+  ]
+}
