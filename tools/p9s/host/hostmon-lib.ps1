@@ -157,7 +157,7 @@ function ConvertTo-DerivedSample {
         disks = $disks
         external_present = $Cur.external_present; external_identity_ok = $Cur.external_identity_ok
         eventlog_ok = $Cur.eventlog_ok; storage_events_new = [int]$Cur.storage_events_new; storage_event_ids = @($Cur.storage_event_ids)
-        cpu_pct = $cpu; vm = $Cur.vm
+        cpu_pct = $cpu; procs = $Cur.procs
     }
 }
 # Fixture samples (tests): JSON array of samples as built by the tests.

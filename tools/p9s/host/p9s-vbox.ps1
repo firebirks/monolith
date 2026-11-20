@@ -5,7 +5,7 @@
 #   Invoke-P9SVBoxOperation  VBoxManage as a child process: vm.state and
 #                            vm.config (showvminfo), vm.start, vm.acpi
 #   Invoke-P9SVBoxInProcess  VirtualBox COM calls made in this process: the
-#                            guest keyboard input, the monitor's VM states
+#                            guest keyboard input
 #   Invoke-P9SVBoxRecovery   the operator's explicit recovery of a
 #                            quarantine
 # Rules:
@@ -42,16 +42,18 @@ function Get-VBoxAcpiArgs([string]$Vm) { , @('controlvm', $Vm, 'acpipowerbutton'
 # once the VM process runs, which takes longer on this host; acpipowerbutton
 # only posts the event. The lock wait is longer than the longest command
 # plus its confirmation window, so that a healthy holder always finishes,
-# or quarantines, before a waiter gives up. The monitor only tries the lock
-# briefly and skips a sample's VM states when it is busy.
+# or quarantines, before a waiter gives up. The host resource monitor never
+# takes the lock: it makes no VirtualBox call (host-monitor.ps1).
 function Get-P9SVBoxLimits {
     [pscustomobject]@{
         exec_ms = [ordered]@{ 'vm.state' = 30000; 'vm.config' = 30000; 'vm.acpi' = 30000; 'vm.start' = 120000 }
-        confirm_ms = 10000; output_ms = 5000; lock_wait_ms = 150000; monitor_lock_wait_ms = 1000
+        confirm_ms = 10000; output_ms = 5000; lock_wait_ms = 150000
     }
 }
 function Get-P9SVBoxOperations { 'vm.state', 'vm.config', 'vm.start', 'vm.acpi' }
-function Get-P9SVBoxInProcessOperations { 'guest.keys', 'monitor.connect', 'monitor.vmstates' }
+# monitor.connect and monitor.vmstates (the monitor's COM reads up to toolkit
+# 83c9ef8) are retired: the monitor no longer calls VirtualBox.
+function Get-P9SVBoxInProcessOperations { 'guest.keys' }
 function Get-P9SVBoxIdPattern { '^vbox-[0-9]{8}T[0-9]{9}Z-[0-9]{1,10}-[0-9a-f]{8}$' }
 function Get-P9SVBoxArguments([string]$Operation, [string]$Vm) {
     switch -CaseSensitive ($Operation) {
@@ -364,25 +366,22 @@ function Invoke-P9SVBoxOperation {
     $res
 }
 # A VirtualBox COM call in this process, under the same mutex and records.
-# -Opportunistic (the monitor): a short lock wait, BUSY instead of a
-# quarantine when the lock is taken.
 function Invoke-P9SVBoxInProcess {
     param([Parameter(Mandatory)]$VBox, [Parameter(Mandatory)][string]$Operation, [string]$Vm, [Parameter(Mandatory)][scriptblock]$Body,
-          [object[]]$Arguments = @(), [switch]$Opportunistic, [int]$LockWaitMs = 0)
+          [object[]]$Arguments = @(), [int]$LockWaitMs = 0)
     $res = New-P9SVBoxResult $Operation $Vm
     if ($Operation -cnotin (Get-P9SVBoxInProcessOperations)) { $res.outcome = 'REJECTED'; $res.reason = 'VBOX_OPERATION_NOT_ALLOWED'; Add-P9SVBoxAudit $VBox $res; return $res }
     if ($Vm -and $Vm -cnotin $VBox.VmNames) { $res.outcome = 'REJECTED'; $res.reason = 'VBOX_TARGET_REJECTED'; $res.vm = '<rejected>'; Add-P9SVBoxAudit $VBox $res; return $res }
     if ($script:P9SVBoxRetained[$VBox.MutexName]) { $res.outcome = 'RETAINED'; $res.reason = 'VBOX_LOCK_RETAINED'; return $res }
     if ((Read-P9SVBoxLatch $VBox).present) { $res.outcome = 'QUARANTINED'; $res.reason = 'VBOX_API_QUARANTINED'; $res.latched = $true; return $res }
-    $wait = if ($LockWaitMs -gt 0) { $LockWaitMs } elseif ($Opportunistic) { [int](Get-P9SVBoxLimits).monitor_lock_wait_ms } else { $VBox.LockWaitMs }
+    $wait = if ($LockWaitMs -gt 0) { $LockWaitMs } else { $VBox.LockWaitMs }
     $h = Enter-P9SVBoxMutex $VBox.MutexName $wait
     $res.lock_wait_ms = $h.waited_ms
     if (-not $h.ok) {
         $res.reason = $h.reason
         if ($h.reason -ne 'VBOX_LOCK_TIMEOUT') { $res.outcome = 'LOCK_UNAVAILABLE' }
-        elseif ($Opportunistic) { $res.outcome = 'BUSY' }
         else { $res.outcome = 'LOCK_TIMEOUT'; $res.latched = Set-P9SVBoxLatch $VBox 'VBOX_LOCK_TIMEOUT' $null "lock not acquired within $wait ms" }
-        if ($res.outcome -ne 'BUSY') { Add-P9SVBoxAudit $VBox $res }
+        Add-P9SVBoxAudit $VBox $res
         return $res
     }
     $res.abandoned = $h.abandoned
@@ -421,7 +420,7 @@ function Invoke-P9SVBoxInProcess {
         }
         if (-not $release) { $res.retained = $true }
         Exit-P9SVBoxMutex $h $release $VBox.MutexName
-        if (-not ($Opportunistic -and $res.outcome -eq 'COMPLETED')) { Add-P9SVBoxAudit $VBox $res }
+        Add-P9SVBoxAudit $VBox $res
     }
     $res
 }

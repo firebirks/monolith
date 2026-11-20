@@ -1041,30 +1041,71 @@ used by Monolith:
   with the limits the owner approved: 300 continuous seconds below 90 %
   commit before a test, a stop after 30 seconds at 95 % or more, an abort
   at 97 %; it also records paging measurements, but the paging values are
-  candidates that can raise a warning and never a stop;
+  candidates that can raise a warning and never a stop; it makes no
+  VirtualBox call;
+- a VM-state observer: the coordinator reads the state of a VM only when
+  it needs one, through one serialized, time-bounded VirtualBox query,
+  and never takes an unreadable or stale state for a current one;
 - a coordinator through which the laboratory automation changes the VMs:
   test actions only while that state allows them; emergency actions in
   every state, which can only send one ACPI power-button request per VM
   and report success once the VM is off;
 - a calibration of the paging values with both VMs running, prepared as a
-  simulated dry run only.
+  simulated dry run only;
+- a restricted validation of the ACPI shutdown of `P9S-D12`, outside the
+  normal gate: one start and one request under an owner authorization,
+  prepared with its live path disabled.
 
-State on 2026-11-19: the source was published as `fe6180f`. Its 117
-synthetic tests and 23 targeted faults (mutants) ran on the Windows host.
-The CI job `p9s-windows-toolkit` runs them on a GitHub-hosted Windows
-runner without VirtualBox, where one test (K37, which starts the real
-coordinator) is reported as not run. The monitor has run on the host only
-with both VMs off, and nothing has acted on a running VM: the ACPI
-shutdown is validated with mocks only, the real dispatchers and the
-guests' answer to the power button are not validated, no calibration with
-both VMs has run, no paging value is approved and no paging stop has been
-enforced. The coordinator is not a security boundary: the same Windows
-account can still drive VirtualBox directly. The earlier ad hoc scripts
-that typed account passwords read from local session logs are retired;
-the toolkit supports no account or sudo password.
+State on 2026-11-20: the source was published as `fe6180f`; `7ef2df8`
+added the CI job `p9s-windows-toolkit`, and `83c9ef8` put every
+VirtualBox call of the toolkit under one host-wide lock with bounded
+waits and a quarantine (CI run 44793066502: 149 synthetic tests
+declared, 148 passed, and K37, which starts the real coordinator, not
+run on a runner without VirtualBox; 39 targeted faults detected).
 
+The same day the VirtualBox layer ran against the real VirtualBox for
+the first time, with the owner present: three read-only queries through
+the coordinator, the states of both VMs and the configuration of
+`P9S-D12`, one after the other with no overlap, answered in 1164 ms
+(while the VirtualBox service started), 101 ms and 459 ms. No VM was
+started and no ACPI request was sent: the coordinator's gate allows no
+start while the paging values are unapproved. Commit stayed below 90 % for
+the 300 s before the queries, measured by a separate read-only Windows
+sampler, not by the toolkit's monitor, whose VM-state reads would have
+added VirtualBox calls. How the toolkit recovers from a real API
+timeout is not verified.
+
+The monitor then lost its VirtualBox part. It had read both VM states
+through the VirtualBox API at every sample, so a hung management call
+could have stopped the component that detects host pressure. It now
+makes no VirtualBox call, and the coordinator observes a VM state only
+when it needs one; a stale or unreadable observation cannot authorize
+an action. The restricted ACPI validation answers the circle between
+calibration and the normal gate without changing that gate: it is
+limited to `P9S-D12`, one start and one request, a monitor that reports
+UNCALIBRATED with every other condition met, and at least 8192 MB
+available before the start (a provisional safeguard for the validation
+only, not approved); its budgets survive restarts, and an unresolved
+outcome blocks every new session until the VM is observed off. Its live
+path is disabled in the code: a live run needs the owner's separate
+authorization of one session and of the change that enables it. The
+toolkit's 201 declared tests and 55 targeted faults run in the CI job,
+where K37 is again reported as not run.
+
+What remains unverified: the monitor without VirtualBox has run only in
+the tests, about 24 s of real sampling per run; no VM has been started
+or shut down by the toolkit, and the guests' answer to the power button
+is not known; no calibration with both VMs has run, no paging value is
+approved and no paging stop has been enforced. The coordinator is not a
+security boundary: the same Windows account can still drive VirtualBox
+directly. The earlier ad hoc scripts that typed account passwords read
+from local session logs are retired; the toolkit supports no account or
+sudo password.
 ### 16.2 Open before T-CLEAN-15
 
+- A supervised live validation, separately authorized, of the monitor
+  without VirtualBox and of the ACPI shutdown of `P9S-D12`: one start,
+  one request, the power-off observed.
 - A calibration with both VMs running, separately authorized, and the
   owner's approval of the paging values that follow from it.
 - The ACPI shutdown verified on both guests.

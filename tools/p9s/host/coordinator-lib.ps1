@@ -18,9 +18,15 @@
 #                read only
 #   calibration  calib.preflight (read only), calib.dry-run (simulated): no
 #                live calibration exists in this version
+#   validation   acpi.*: the restricted single-VM ACPI validation of
+#                p9s-acpival.ps1 (one start and one ACPI request of
+#                P9S-D12 under an owner authorization); its live path is
+#                disabled in this version
 # STOP or ABORT seen in any monitor state halts the session for good; ABORT
 # must be acknowledged with its id, with every laboratory VM off, before a
-# new session opens. Every VirtualBox call goes through p9s-vbox.ps1 (one
+# new session opens. VM states are observations made on demand
+# (p9s-vmstate.ps1), never taken from the resource monitor, which makes no
+# VirtualBox call. Every VirtualBox call goes through p9s-vbox.ps1 (one
 # host-wide lock, bounded waits, quarantine); while a quarantine is in place
 # no test action, session or ACPI request is possible, and vbox.recover
 # clears it at the operator's request. The coordinator cannot stop anyone
@@ -29,6 +35,8 @@
 # p9s-config.ps1.
 . (Join-Path $PSScriptRoot 'p9s-config.ps1')
 . (Join-Path $PSScriptRoot 'p9s-vbox.ps1')
+. (Join-Path $PSScriptRoot 'p9s-vmstate.ps1')
+. (Join-Path $PSScriptRoot 'p9s-acpival.ps1')
 $script:P9SCoordinatorLibFile = $PSCommandPath
 
 # ------------------------------------------------------------ allowlists
@@ -88,6 +96,14 @@ function Get-P9SActionSpec {
         'audit.vmconfig'           = @{ class = 'observe'; vm = $true; required = @('Reference'); optional = @() }
         'vbox.status'              = @{ class = 'observe'; vm = $false; required = @(); optional = @() }
         'vbox.recover'             = @{ class = 'session'; vm = $false; required = @('Operation'); optional = @() }
+        'acpi.preflight'           = @{ class = 'validation'; vm = $false; required = @(); optional = @('Authorization') }
+        'acpi.open'                = @{ class = 'validation'; vm = $false; required = @('Authorization'); optional = @('AcknowledgeAbort') }
+        'acpi.start'               = @{ class = 'validation'; vm = $false; required = @(); optional = @() }
+        'acpi.observe'             = @{ class = 'validation'; vm = $false; required = @('Seconds'); optional = @() }
+        'acpi.shutdown'            = @{ class = 'validation'; vm = $false; required = @(); optional = @('Seconds') }
+        'acpi.confirm-off'         = @{ class = 'validation'; vm = $false; required = @('Seconds'); optional = @() }
+        'acpi.integrity'           = @{ class = 'validation'; vm = $false; required = @(); optional = @('Reference') }
+        'acpi.finalize'            = @{ class = 'validation'; vm = $false; required = @(); optional = @() }
     }
 }
 
@@ -122,7 +138,8 @@ function Test-P9SRequest {
             'Text' { $v -is [string] -and $v -cmatch '^[A-Za-z0-9 .~-]{1,120}$' }
             'Key' { $v -is [string] -and @((Get-P9SKeyMap).Keys) -ccontains $v }
             'Name' { $v -is [string] -and $v -cmatch '^[a-z0-9][a-z0-9-]{0,40}$' }
-            'Seconds' { $n = 0; ([int]::TryParse([string]$v, [ref]$n)) -and $n -ge 1 -and $n -le $(if ($a -like 'emergency.*') { 600 } else { 3600 }) }
+            'Seconds' { $n = 0; ([int]::TryParse([string]$v, [ref]$n)) -and $n -ge 1 -and $n -le $(if ($a -like 'emergency.*' -or $a -like 'acpi.*') { 600 } else { 3600 }) }
+            'Authorization' { $v -is [string] -and (Test-Path -LiteralPath $v -PathType Leaf) }
             'Kind' { [string]$v -cin 'Test', 'Calibration' }
             'Scenario' { [string]$v -cin (Get-P9SScenarios) }
             'AcknowledgeAbort' { [string]$v -cmatch '^abort-[0-9a-f]{12}$' }
@@ -134,7 +151,7 @@ function Test-P9SRequest {
         }
         if ($ok) { $valid[$k] = $true }
         else {
-            $code = switch ($k) { 'Vm' { 'VM_NOT_ALLOWED' } 'Text' { 'TEXT_NOT_ALLOWED' } 'Key' { 'KEY_NOT_ALLOWED' } 'Name' { 'NAME_NOT_ALLOWED' } 'Seconds' { 'SECONDS_NOT_ALLOWED' } 'Plan' { 'PATH_NOT_FOUND:Plan' } 'Reference' { 'PATH_NOT_FOUND:Reference' } 'MonitorRun' { 'PATH_NOT_FOUND:MonitorRun' } default { "PARAMETER_INVALID:$k" } }
+            $code = switch ($k) { 'Vm' { 'VM_NOT_ALLOWED' } 'Text' { 'TEXT_NOT_ALLOWED' } 'Key' { 'KEY_NOT_ALLOWED' } 'Name' { 'NAME_NOT_ALLOWED' } 'Seconds' { 'SECONDS_NOT_ALLOWED' } 'Plan' { 'PATH_NOT_FOUND:Plan' } 'Reference' { 'PATH_NOT_FOUND:Reference' } 'MonitorRun' { 'PATH_NOT_FOUND:MonitorRun' } 'Authorization' { 'PATH_NOT_FOUND:Authorization' } default { "PARAMETER_INVALID:$k" } }
             $reasons.Add($code)
         }
     }
@@ -186,6 +203,7 @@ function ConvertTo-P9SAuditParams([hashtable]$Request, $V) {
             'Plan' { $p.plan = [IO.Path]::GetFileName([string]$Request.Plan) }
             'Reference' { $p.reference = [IO.Path]::GetFileName([string]$Request.Reference) }
             'MonitorRun' { $p.monitor_run = [IO.Path]::GetFileName([string]$Request.MonitorRun) }
+            'Authorization' { $p.authorization = [IO.Path]::GetFileName([string]$Request.Authorization) }
             default { $p[$k] = [string]$Request[$k] }
         }
     }
@@ -363,7 +381,7 @@ function Invoke-P9SAction {
     }
     $class = $v.spec.class
     $cfgErr = Get-Prop $Ctx 'ConfigError'
-    if ($cfgErr -and $class -in 'normal', 'session', 'calibration') {
+    if ($cfgErr -and ($class -in 'normal', 'session', 'calibration' -or ($class -eq 'validation' -and [string]$Request.Action -cne 'acpi.confirm-off'))) {
         Set-P9SRefused $res @([string]$cfgErr) $null 'REJECTED'
         Add-P9SAudit -Ctx $Ctx -Res $res -Request $Request -V $v
         return $res
@@ -371,6 +389,7 @@ function Invoke-P9SAction {
     if ($class -eq 'emergency') { return (Invoke-P9SEmergency $Ctx $Request $v $res) }
     if ($class -eq 'observe') { return (Invoke-P9SObserve $Ctx $Request $v $res) }
     if ($class -eq 'calibration') { return (Invoke-P9SCalibration $Ctx $Request $v $res) }
+    if ($class -eq 'validation') { return (Invoke-P9SValidation $Ctx $Request $v $res) }
     $lock = Enter-P9SLock $Ctx 0
     if (-not $lock) {
         Set-P9SRefused $res @('COORDINATOR_BUSY') $null
@@ -421,7 +440,7 @@ function Invoke-P9SNormal {
     if ($active -and $vg.ok) {
         $actual = @{}
         foreach ($n in Get-P9SVmNames) {
-            $actual[$n] = [string](& $Ctx.ReadVmState $n)
+            $actual[$n] = (Get-P9SVmObservation $Ctx $n 'action').state
             if ($actual[$n] -ne [string]$Session.expected_vm[$n]) { $reasons.Add("OUT_OF_BAND_VM_STATE:$n") }
         }
         if ($a -eq 'vm.start' -and $actual[$vm] -ne 'off') { $reasons.Add('VM_NOT_OFF') }
@@ -552,10 +571,18 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
         return $Res
     }
     if ($a -eq 'session.close') {
+        # a restricted ACPI validation closes through acpi.finalize, which
+        # records its outcome in the ledger
+        if ($sess -and [string]$sess.kind -ceq 'AcpiValidation' -and [string]$sess.lifecycle -cne 'CLOSED') {
+            Set-P9SRefused $Res @('ACPI_VALIDATION_USE_FINALIZE') $null
+            $Res.lines.Add("session $($sess.session_id) is an ACPI validation: close it with acpi.finalize")
+            Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+            return $Res
+        }
         # an emergency whose VM did not power off cannot be closed away
         $stopReq = Read-P9SStopRequest $Ctx
         if ($stopReq -and $stopReq.unresolved) {
-            $still = @(foreach ($k in @($stopReq.unresolved.Keys)) { if ([string](& $Ctx.ReadVmState $k) -ne 'off') { $k } })
+            $still = @(foreach ($k in @($stopReq.unresolved.Keys)) { if ((Get-P9SVmObservation $Ctx $k 'session').state -ne 'off') { $k } })
             if ($still.Count) {
                 Set-P9SRefused $Res @('EMERGENCY_UNRESOLVED') $null
                 $Res.lines.Add("not closed: $($still -join ', ') did not power off after the ACPI request; the operator decides outside the coordinator, then closes the session")
@@ -593,6 +620,12 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
     if ($sess -and $sess.session_id -and $sess.lifecycle -eq 'ACTIVE') { $reasons.Add('SESSION_ALREADY_OPEN') }
     if ($sess -and $sess.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') }
     if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('STOP_REQUEST_PENDING') }
+    # a restricted ACPI validation must be finalized, and resolved, first
+    if ($sess -and [string]$sess.kind -ceq 'AcpiValidation' -and [string]$sess.lifecycle -cne 'CLOSED') { $reasons.Add('ACPI_VALIDATION_NOT_FINALIZED') }
+    if (Get-Prop $Ctx 'LedgerPath') {
+        $lg = Read-P9SAcpiLedger $Ctx
+        if (-not $lg.ok) { $reasons.Add($lg.reason) } elseif (@(Get-P9SAcpiUnresolved $lg.doc '').Count) { $reasons.Add('ACPI_VALIDATION_UNRESOLVED') }
+    }
     $ackOk = $false
     if ($sess -and $sess.halt) {
         if ($g.run_id -and $g.run_id -eq [string]$sess.halt.monitor_run_id) { $reasons.Add('STOP_REQUIRES_NEW_MONITOR_RUN') }
@@ -603,7 +636,7 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
     $actual = @{}
     if ($vg.ok) {
         foreach ($n in Get-P9SVmNames) {
-            $actual[$n] = [string](& $Ctx.ReadVmState $n)
+            $actual[$n] = (Get-P9SVmObservation $Ctx $n 'session').state
             if ($actual[$n] -notin 'off', 'running') { $reasons.Add("VM_STATE_UNEXPECTED:$n") }
         }
     }
@@ -636,8 +669,11 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
         $Res.lines.Add("session: $(if (-not $sr.ok) { 'UNREADABLE' } elseif ($sr.session) { "$($sr.session.session_id) $($sr.session.lifecycle)$(if ($sr.session.halt) { " halt $($sr.session.halt.status) $($sr.session.halt.abort_id)" })$(if ($sr.session.inflight) { ' IN-FLIGHT ' + $sr.session.inflight.action })" } else { 'none' })")
         $vg = Get-P9SVBoxGate $Ctx
         $Res.lines.Add("VirtualBox API: $($vg.text)")
-        if ($vg.ok) { foreach ($n in Get-P9SVmNames) { $Res.lines.Add("$n $(& $Ctx.ReadVmState $n)") } }
+        if ($vg.ok) { foreach ($n in Get-P9SVmNames) { $Res.lines.Add((Format-P9SVmObservation (Get-P9SVmObservation $Ctx $n 'status'))) } }
         else { foreach ($n in Get-P9SVmNames) { $Res.lines.Add("$n unknown (not read while VirtualBox is quarantined; see vbox.status)") } }
+        $lg = Read-P9SAcpiLedger $Ctx
+        if ($lg.ok -and @(Get-P9SAcpiUnresolved $lg.doc '').Count) { foreach ($u in @(Get-P9SAcpiUnresolved $lg.doc '')) { $Res.lines.Add("ACPI validation $($u.authorization_id) of $($u.target_vm): $($u.phase) (unresolved; acpi.confirm-off)") } }
+        elseif (-not $lg.ok -and (Get-Prop $Ctx 'LedgerPath')) { $Res.lines.Add("ACPI validation ledger: $($lg.reason)") }
         $Res.outcome = 'DONE'
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
@@ -662,6 +698,16 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
+        # an unresolved restricted ACPI validation of this VM that already
+        # sent its request: not repeated either (checked again under the
+        # lock below: the validation releases the lock while it watches)
+        $spent = Get-P9SAcpiSpentRequest $Ctx $vm
+        if ($spent) {
+            Set-P9SRefused $Res @('ACPI_ALREADY_REQUESTED') $null
+            $Res.lines.Add("the ACPI validation $($spent.authorization_id) already sent its request to $vm (phase $($spent.phase)); it is not repeated. Watch it with acpi.confirm-off or emergency.wait-off; if it stays on, the operator decides outside the coordinator.")
+            Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+            return $Res
+        }
         Save-P9SStopRequest $Ctx $req
         $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs
         if (-not $lock) {
@@ -679,7 +725,7 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
                 if ($s -and $s.session_id) { $Res.session = $s.session_id; if ($s.lifecycle -eq 'ACTIVE') { $s.lifecycle = 'SHUTDOWN'; Save-P9SSession $Ctx $s } }
             }
             $vg = Get-P9SVBoxGate $Ctx
-            $st = if ($vg.ok) { [string](& $Ctx.ReadVmState $vm) } else { $null }
+            $st = if ($vg.ok) { (Get-P9SVmObservation $Ctx $vm 'shutdown').state } else { $null }
             if (-not $vg.ok) {
                 # the management plane is in doubt: nothing can be sent,
                 # and nothing is known about the guest
@@ -690,9 +736,24 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             }
             elseif ($st -eq 'off') { $Res.outcome = 'DONE'; $Res.lines.Add("$vm is already off; no request sent") }
             elseif ($st -ne 'running') { Set-P9SRefused $Res @("VM_NOT_RUNNING:$st") $g; $Res.lines.Add("$vm is $st; an ACPI request is sent only to a running VM") }
+            elseif ($spent = Get-P9SAcpiSpentRequest $Ctx $vm) {
+                Set-P9SRefused $Res @('ACPI_ALREADY_REQUESTED') $g
+                $Res.lines.Add("the ACPI validation $($spent.authorization_id) sent its request to $vm while this emergency waited (phase $($spent.phase)); it is not repeated. Watch it with acpi.confirm-off or emergency.wait-off.")
+            }
             else {
                 $req.acpi[$vm] = [DateTime]::UtcNow.ToString('o')
                 Save-P9SStopRequest $Ctx $req
+                # a restricted ACPI validation of this VM spends its one
+                # request on this one (best effort: the stop request above
+                # already blocks every validation step)
+                $vlg = Read-P9SAcpiLedger $Ctx
+                $ventry = if ($vlg.ok) { @(Get-P9SAcpiUnresolved $vlg.doc $vm) | Select-Object -Last 1 } else { $null }
+                if ($ventry) {
+                    $ventry.acpi_used = [int]$ventry.acpi_used + 1; $ventry.acpi_source = 'emergency'; $ventry.phase = 'SHUTDOWN_REQUESTING'
+                    $ventry.deadline_utc = (Get-P9SUtcNow $Ctx).AddSeconds($limit).ToString('o')
+                    Add-P9SAcpiEvent $ventry 'emergency-acpi' 'emergency.acpi-shutdown sends the request'
+                    if (-not (Save-P9SAcpiLedger $Ctx $vlg.doc)) { $Res.lines.Add('the ACPI validation ledger could not be updated; the stop request records the request') }
+                }
                 try {
                     & $Ctx.Dispatch['vm.acpi'] $vm
                     $Res.dispatched = 1; $sent = $true
@@ -702,6 +763,7 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
                     $Res.lines.Add("*** ACPI request to $vm failed ($($_.Exception.Message)). EMERGENCY UNRESOLVED: nothing else is tried; the operator decides outside the coordinator. ***")
                     $req.unresolved[$vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $Ctx $req
                     if ($s -and $s.session_id) { $s.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $s }
+                    $null = Set-P9SAcpiAfterEmergency $Ctx $vm 'ACPI_VALIDATION_UNRESOLVED' -Locked
                 }
             }
         } finally { $lock.Dispose() }
@@ -710,10 +772,11 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             while ($true) {
                 $vq = Get-P9SVBoxGate $Ctx
                 if (-not $vq.ok) { $st = $null; break }
-                $st = [string](& $Ctx.ReadVmState $vm)
+                $st = (Get-P9SVmObservation $Ctx $vm 'confirm').state
                 if ($st -in 'off', 'aborted' -or $elapsed -ge $limit) { break }
                 & $Ctx.Sleep 2000; $elapsed += 2
             }
+            $null = Set-P9SAcpiAfterEmergency $Ctx $vm $(if ($vq.ok -and $st -eq 'off') { 'OFF_CONFIRMED' } elseif ($vq.ok -and $st -eq 'aborted') { 'OFF_ABNORMAL' } else { 'ACPI_VALIDATION_UNRESOLVED' })
             if (-not $vq.ok) {
                 $Res.outcome = 'FAILED'; foreach ($r in $vq.reasons) { $Res.reasons.Add($r) }; $Res.reasons.Add('EMERGENCY_UNRESOLVED')
                 $Res.lines.Add("*** VirtualBox became $($vq.text) while $vm was watched (about $elapsed s after the request). Its state is unknown. EMERGENCY UNRESOLVED: no further query, no second request; the operator decides outside the coordinator. ***")
@@ -746,7 +809,7 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
     }
     $limit = [int]$Request.Seconds; $elapsed = 0; $st = $null
     while ($true) {
-        $st = [string](& $Ctx.ReadVmState $vm)
+        $st = (Get-P9SVmObservation $Ctx $vm 'confirm').state
         if ($st -in 'off', 'aborted' -or $elapsed -ge $limit) { break }
         & $Ctx.Sleep 2000; $elapsed += 2
     }
@@ -766,28 +829,36 @@ function ConvertTo-P9SUtc($v) {
     if ($v -is [datetime]) { return $v.ToUniversalTime() }
     [DateTime]::Parse([string]$v, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
 }
-# VM state changes in monitor samples (samples.csv: utc, d12_state,
-# u24_state) that no dispatched coordinator action explains within the
-# window. Detection after the fact, not prevention.
+# VM state changes that no dispatched coordinator action explains within
+# the window. Detection after the fact, not prevention. Input: the
+# coordinator's observations (-Observations: utc, vm, state, observed, from
+# vm-observations.jsonl), or -Samples, the rows of a samples.csv of layout
+# 1 (toolkit 83c9ef8 and earlier, whose monitor read the VM states:
+# d12_state and u24_state are the first and second configured VM). On
+# demand observations see a change only at the next observation.
+function ConvertFrom-P9SLegacySamples([object[]]$Samples) {
+    $names = @(Get-P9SVmNames); $cols = @('d12_state', 'u24_state')
+    foreach ($s in @($Samples)) { for ($i = 0; $i -lt [math]::Min(2, $names.Count); $i++) { [pscustomobject]@{ utc = $s.utc; vm = $names[$i]; state = [string]$s.($cols[$i]); observed = $null } } }
+}
 function Find-OutOfBandVmChanges {
-    param([object[]]$Samples, [object[]]$Audit, [double]$WindowSeconds = 120)
-    $cols = @{ 'P9S-D12' = 'd12_state'; 'P9S-U24' = 'u24_state' }
+    param([object[]]$Samples, [object[]]$Observations, [object[]]$Audit, [double]$WindowSeconds = 120)
+    $obs = if ($PSBoundParameters.ContainsKey('Observations')) { @($Observations) } else { @(ConvertFrom-P9SLegacySamples $Samples) }
     $ev = [System.Collections.Generic.List[object]]::new()
     foreach ($vm in Get-P9SVmNames) {
         $prev = $null
-        foreach ($s in @($Samples)) {
-            $cur = [string]$s.($cols[$vm])
+        foreach ($s in @($obs | Where-Object { [string]$_.vm -ceq $vm })) {
+            $cur = [string]$s.state
             # no observation: the lock was busy, VirtualBox was quarantined, or the read failed
-            if (-not $cur -or $cur -in 'busy', 'quarantined', 'unreadable') { continue }
+            if (-not $cur -or $s.observed -eq $false -or $cur -in 'busy', 'quarantined', 'unreadable') { continue }
             if ($prev -and $cur -ne $prev) {
                 $t = ConvertTo-P9SUtc $s.utc
-                $want = if ($cur -in 'starting', 'running') { 'vm.start' } elseif ($cur -in 'stopping', 'off') { 'emergency.acpi-shutdown' } else { $null }
+                $want = if ($cur -in 'starting', 'running') { @('vm.start', 'acpi.start') } elseif ($cur -in 'stopping', 'off') { @('emergency.acpi-shutdown', 'acpi.shutdown') } else { @() }
                 $by = $null
-                if ($want) {
+                if ($want.Count) {
                     foreach ($x in @($Audit)) {
-                        if ($x.action -eq $want -and $x.vm -eq $vm -and ($x.outcome -eq 'DISPATCHED' -or [int]$x.dispatched -gt 0)) {
+                        if ($x.action -in $want -and $x.vm -eq $vm -and ($x.outcome -eq 'DISPATCHED' -or [int]$x.dispatched -gt 0)) {
                             $ta = ConvertTo-P9SUtc $x.utc
-                            if ($ta -le $t -and ($t - $ta).TotalSeconds -le $WindowSeconds) { $by = "$want at $($ta.ToString('HH:mm:ss'))Z"; break }
+                            if ($ta -le $t -and ($t - $ta).TotalSeconds -le $WindowSeconds) { $by = "$($x.action) at $($ta.ToString('HH:mm:ss'))Z"; break }
                         }
                     }
                 }
@@ -818,13 +889,30 @@ function Invoke-P9SObserve($Ctx, [hashtable]$Request, $V, $Res) {
             if (-not $sr.ok) { $Res.lines.Add('session: UNREADABLE') }
             elseif (-not $sr.session) { $Res.lines.Add('session: none') }
             else { $s = $sr.session; $Res.lines.Add("session: $($s.session_id) kind $($s.kind) lifecycle $($s.lifecycle) run $($s.monitor_run_id)$(if ($s.halt) { "; halt $($s.halt.status) $($s.halt.abort_id) acknowledged $($s.halt.acknowledged)" })$(if ($s.inflight) { "; IN-FLIGHT $($s.inflight.action)" })") }
+            if ($sr.ok -and $sr.session -and [string]$sr.session.kind -ceq 'AcpiValidation' -and $sr.session.validation) {
+                $va = $sr.session.validation; $lg = Read-P9SAcpiLedger $Ctx
+                $en = if ($lg.ok) { Get-P9SAcpiEntry $lg.doc ([string]$va.authorization_id) } else { $null }
+                $Res.lines.Add("ACPI validation: authorization $($va.authorization_id), target $($va.target_vm), until $((ConvertTo-P9SAuthTime $va.expires_utc).ToString('o')); $(if ($en) { "phase $($en.phase), starts $($en.startups_used) of $($va.max_startups), ACPI requests $($en.acpi_used) of $($va.max_acpi_requests)$(if ($en.outcome) { ", outcome $($en.outcome)" })" } else { "ledger $(if ($lg.ok) { 'entry missing' } else { $lg.reason })" })")
+                foreach ($n in @($sr.session.expected_vm.Keys)) { $Res.lines.Add("  $n expected $($sr.session.expected_vm[$n]) (an assumption; acpi.preflight or emergency.status observe it)") }
+            }
         }
         'audit.oob' {
-            $samples = @(Import-Csv -LiteralPath (Join-Path $Request.MonitorRun 'samples.csv'))
+            $csv = Join-Path $Request.MonitorRun 'samples.csv'
+            $samples = @(if (Test-Path -LiteralPath $csv) { Import-Csv -LiteralPath $csv })
             $aud = @(if (Test-Path -LiteralPath $Ctx.AuditPath) { Get-Content -LiteralPath $Ctx.AuditPath | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } })
-            $ev = @(Find-OutOfBandVmChanges -Samples $samples -Audit $aud)
+            if ($samples.Count -and @($samples[0].PSObject.Properties.Name) -contains 'd12_state') {
+                $ev = @(Find-OutOfBandVmChanges -Samples $samples -Audit $aud); $src = "$($samples.Count) samples"
+            } else {
+                # samples layout 2: the monitor holds no VM state; the
+                # coordinator's own observations made during the run
+                $from = $null; $to = [DateTime]::UtcNow
+                try { $from = ConvertTo-P9SUtc (Get-Content -Raw -LiteralPath (Join-Path $Request.MonitorRun 'run.json') | ConvertFrom-Json).start_utc } catch {}
+                try { $to = ConvertTo-P9SUtc (Get-Content -Raw -LiteralPath (Join-Path $Request.MonitorRun 'run-end.json') | ConvertFrom-Json).end_utc } catch {}
+                $obs = @(Read-P9SVmObservations (Get-Prop $Ctx 'ObservationPath') | Where-Object { $u = ConvertTo-P9SUtc $_.utc; (-not $from -or $u -ge $from) -and $u -le $to })
+                $ev = @(Find-OutOfBandVmChanges -Observations $obs -Audit $aud); $src = "$($obs.Count) VM observations of the coordinator during the run"
+            }
             $un = @($ev | Where-Object { -not $_.explained })
-            $Res.lines.Add("VM state changes in $($samples.Count) samples: $($ev.Count), not explained by a coordinator action: $($un.Count)")
+            $Res.lines.Add("VM state changes in $($src): $($ev.Count), not explained by a coordinator action: $($un.Count)")
             foreach ($e in $ev) { $Res.lines.Add("  $($e.utc) $($e.vm) $($e.from) -> $($e.to): $(if ($e.explained) { $e.by } else { 'POSSIBLE OUT-OF-BAND CHANGE' })") }
             if ($un.Count) { $Res.reasons.Add("OUT_OF_BAND_CHANGES:$($un.Count)") }
         }
@@ -1051,6 +1139,9 @@ function Get-P9SVmStateReal([string]$Vm, $VBox) {
     try { $r = Invoke-P9SVBoxOperation -VBox $(if ($VBox) { $VBox } else { Get-P9SVBoxDefault }) -Operation 'vm.state' -Vm $Vm } catch {}
     $script:P9SLastVBoxResult = $r
     if (-not $r -or $r.outcome -ne 'COMPLETED' -or $r.exit_code -ne 0) { return 'unreadable' }
+    # the answer must be about the VM asked for
+    $nm = @($r.lines | Where-Object { $_ -like 'name=*' }) | Select-Object -First 1
+    if ($nm -cne ('name="' + $Vm + '"')) { return 'unreadable' }
     $s = ConvertFrom-P9SVBoxState $r.lines
     if ($s) { $s } else { 'unreadable' }
 }
@@ -1172,6 +1263,8 @@ function New-P9SRealContext([string]$StatePath, [string]$AuditPath, [Parameter(M
         Dispatch = (Get-P9SRealDispatch $cfg)
         Sleep = { param($ms) Start-Sleep -Milliseconds $ms }; Pid = $PID; ProcessStartTicks = $me.StartTime.ToUniversalTime().Ticks
         EmergencyLockWaitMs = 30000; CalibrationHostChecks = { Get-P9SCalibrationHostChecks $cfg }.GetNewClosure()
+        ObservationPath = Join-Path $dir 'vm-observations.jsonl'; LedgerPath = Join-Path $dir 'acpi-validation-ledger.json'
+        UtcNow = { [DateTime]::UtcNow }; AcpiValidationLive = [bool](Get-P9SAcpiValidationCapability).live_enabled
         Config = $cfg; ConfigError = $(if ($cfg -and $cfg.present -and -not $cfg.ok) { 'CONFIG_INVALID' } else { $null })
     }
 }

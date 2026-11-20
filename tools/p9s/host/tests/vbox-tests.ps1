@@ -537,23 +537,28 @@ Case 'V24' 'vbox.status makes no VirtualBox call and reports the quarantine and 
     $t = $s.lines -join ' '
     Expect ($t -match 'QUARANTINED \(VBOX_CHILD_UNRESOLVED' -and $t -match "VBoxManage $PID alive" -and $c.Prov.vmreads -eq 0 -and (Mocks $n).Count -eq 0) "lines: $t"
 }
-Case 'V25' 'the monitor reads VM states only with a free lock and no quarantine; skipped samples are no observations' {
+# V25 replaces the case of toolkit 83c9ef8 ("the monitor reads VM states
+# only with a free lock and no quarantine"): the monitor no longer reads VM
+# states, and its two in-process operations and their short lock try are
+# gone; the samples of older runs (layout 1) are still analysed the same way.
+Case 'V25' 'the retired monitor operations are refused before any lock; skipped samples of old runs are no observations' {
     $n = New-Names
     $vb = New-TestVBox $n
     $calls = @{ n = 0 }
     $body = { $calls.n++; 'states' }.GetNewClosure()
-    $r1 = Invoke-P9SVBoxInProcess -VBox $vb -Operation 'monitor.vmstates' -Opportunistic -Body $body
-    Expect ($r1.outcome -eq 'COMPLETED' -and $calls.n -eq 1) "free: $($r1.outcome)"
+    # the lock is held by a blocked command: a refusal that waited for it would show
     $rel = New-Event "$($n.prefix)-rel" -Release; $sa = New-Event "$($n.prefix)-sa"
     $a = Start-Worker $n @{ mock = @{ P9S_MOCK_MODE = 'block'; P9S_MOCK_RELEASE = "$($n.prefix)-rel"; P9S_MOCK_STARTED = "$($n.prefix)-sa" } }
     Wait-Event $sa
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    $r2 = Invoke-P9SVBoxInProcess -VBox $vb -Operation 'monitor.vmstates' -Opportunistic -Body $body
-    Expect ($r2.outcome -eq 'BUSY' -and $calls.n -eq 1 -and $sw.ElapsedMilliseconds -lt 5000 -and -not $r2.latched -and -not (Latch $n)) "busy: $($r2.outcome) $($sw.ElapsedMilliseconds) ms"
+    foreach ($op in 'monitor.vmstates', 'monitor.connect') {
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $r = Invoke-P9SVBoxInProcess -VBox $vb -Operation $op -Body $body
+        Expect ($r.outcome -eq 'REJECTED' -and $r.reason -eq 'VBOX_OPERATION_NOT_ALLOWED' -and $sw.ElapsedMilliseconds -lt 1000 -and $r.lock_wait_ms -eq 0 -and -not $r.latched) "${op}: $($r.outcome) $($r.reason) $($sw.ElapsedMilliseconds) ms"
+    }
+    Expect ($calls.n -eq 0 -and -not (Latch $n)) 'a retired operation ran or quarantined'
+    Expect (@(Get-P9SVBoxInProcessOperations) -join ',' -eq 'guest.keys') "in-process operations: $(@(Get-P9SVBoxInProcessOperations) -join ',')"
+    Expect (-not (Get-Command Invoke-P9SVBoxInProcess).Parameters.ContainsKey('Opportunistic')) 'the opportunistic lock mode still exists'
     $null = $rel.Set(); $null = Wait-Worker $a
-    $null = Put-Latch $n
-    $r3 = Invoke-P9SVBoxInProcess -VBox $vb -Operation 'monitor.vmstates' -Opportunistic -Body $body
-    Expect ($r3.outcome -eq 'QUARANTINED' -and $calls.n -eq 1) "quarantined: $($r3.outcome)"
     $samples = @('off', 'busy', 'off', 'quarantined', 'off', 'unreadable', 'off') | ForEach-Object { [pscustomobject]@{ utc = '2026-11-20T00:00:00Z'; d12_state = $_; u24_state = 'off' } }
     Expect (@(Find-OutOfBandVmChanges -Samples $samples -Audit @()).Count -eq 0) 'skipped samples counted as VM state changes'
 }

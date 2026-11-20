@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 39,
+  "count": 55,
   "mutants": [
     {
       "id": "SM1",
@@ -360,17 +360,6 @@
       "replace": "if ($true) { try { $Handle.mutex.ReleaseMutex() } catch {}; $Handle.mutex.Dispose() }"
     },
     {
-      "id": "VB9",
-      "suite": "vbox",
-      "file": "p9s-vbox.ps1",
-      "what": "the monitor quarantines a busy lock instead of skipping",
-      "killers": [
-        "V25"
-      ],
-      "find": "elseif ($Opportunistic) { $res.outcome = 'BUSY' }",
-      "replace": "elseif ($false) { $res.outcome = 'BUSY' }"
-    },
-    {
       "id": "VB10",
       "suite": "vbox",
       "file": "p9s-vbox.ps1",
@@ -450,6 +439,205 @@
       ],
       "find": "if (-not $f -or -not $f.ScriptBlock.File -or -not ([string]$f.ScriptBlock.File).Equals([string]$need[$n], [StringComparison]::OrdinalIgnoreCase)) {",
       "replace": "if ($false) {"
+    },
+    {
+      "id": "MD1",
+      "suite": "decouple",
+      "file": "host-monitor.ps1",
+      "what": "the monitor loads the VirtualBox layer again",
+      "killers": [
+        "M01"
+      ],
+      "find": ". (Join-Path $PSScriptRoot 'p9s-config.ps1')",
+      "replace": ". (Join-Path $PSScriptRoot 'p9s-config.ps1'); . (Join-Path $PSScriptRoot 'p9s-vbox.ps1')"
+    },
+    {
+      "id": "MD2",
+      "suite": "decouple",
+      "file": "host-monitor.ps1",
+      "what": "every sample waits for the VirtualBox lock",
+      "killers": [
+        "M02",
+        "M01"
+      ],
+      "find": "    $vp = @(Get-Process -Name $vmProcessNames -ErrorAction SilentlyContinue)",
+      "replace": "    $null = [Threading.Mutex]::new($false, 'Global\\P9S-VirtualBox-Management-v1').WaitOne(1500); $vp = @(Get-Process -Name $vmProcessNames -ErrorAction SilentlyContinue)"
+    },
+    {
+      "id": "MD3",
+      "suite": "acpival",
+      "file": "hostmon-lib.ps1",
+      "what": "the monitor reports READY with uncalibrated paging",
+      "killers": [
+        "A09",
+        "A10"
+      ],
+      "find": "        elseif ($required -and $paging.stop_rule -ne 'enforced') { $info.Add('PAGING_STOP_UNCALIBRATED'); 'UNCALIBRATED' }",
+      "replace": "        elseif ($false) { $info.Add('PAGING_STOP_UNCALIBRATED'); 'UNCALIBRATED' }"
+    },
+    {
+      "id": "OB1",
+      "suite": "decouple",
+      "file": "p9s-vmstate.ps1",
+      "what": "an unreadable VM state is taken for off",
+      "killers": [
+        "O07",
+        "O04",
+        "O06"
+      ],
+      "find": "state = $(if ($ok) { [string]$raw } else { 'unreadable' }); observed = $ok",
+      "replace": "state = $(if ($ok) { [string]$raw } else { 'off' }); observed = $ok"
+    },
+    {
+      "id": "OB2",
+      "suite": "acpival",
+      "file": "p9s-vmstate.ps1",
+      "what": "a stale VM observation is accepted",
+      "killers": [
+        "Z05"
+      ],
+      "find": "            elseif ($age -gt $MaxAgeSeconds) { $reasons.Add(\"VM_STATE_STALE:$name\") }",
+      "replace": "            elseif ($false) { $reasons.Add(\"VM_STATE_STALE:$name\") }"
+    },
+    {
+      "id": "AV1",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the start budget is not checked",
+      "killers": [
+        "A05",
+        "Z08"
+      ],
+      "find": "    if ($b.entry -and $b.auth -and [int]$b.entry.startups_used -ge [int]$b.auth.max_startups) { $reasons.Add('ACPI_STARTUP_BUDGET_EXHAUSTED') }",
+      "replace": "    if ($false) { $reasons.Add('ACPI_STARTUP_BUDGET_EXHAUSTED') }"
+    },
+    {
+      "id": "AV2",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the ACPI budget is not checked",
+      "killers": [
+        "A06",
+        "R01",
+        "Z09"
+      ],
+      "find": "    if ($b.entry -and $b.auth -and [int]$b.entry.acpi_used -ge [int]$b.auth.max_acpi_requests) { $reasons.Add('ACPI_BUDGET_EXHAUSTED') }",
+      "replace": "    if ($false) { $reasons.Add('ACPI_BUDGET_EXHAUSTED') }"
+    },
+    {
+      "id": "AV3",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an expired authorization is accepted",
+      "killers": [
+        "A03",
+        "Z07"
+      ],
+      "find": "    if ($Now -ge $to) { return 'AUTHORIZATION_EXPIRED' }",
+      "replace": "    if ($false) { return 'AUTHORIZATION_EXPIRED' }"
+    },
+    {
+      "id": "AV4",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a STOP is tolerated by the validation conditions",
+      "killers": [
+        "A09"
+      ],
+      "find": "} else { @('STATUS_UNCALIBRATED') }",
+      "replace": "} else { @('STATUS_UNCALIBRATED', 'STATUS_STOP_REQUIRED', 'LATCHED') }"
+    },
+    {
+      "id": "AV5",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "the normal gate stops requiring an enforced paging stop",
+      "killers": [
+        "A10"
+      ],
+      "find": "-PagingStop Required -IsMonitorAlive $Ctx.IsMonitorAlive",
+      "replace": "-PagingStop NotRequired -IsMonitorAlive $Ctx.IsMonitorAlive"
+    },
+    {
+      "id": "AV6",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unresolved validation does not block a new one",
+      "killers": [
+        "A12"
+      ],
+      "find": "        if (@(Get-P9SAcpiUnresolved $lg.doc '').Count) { $reasons.Add('ACPI_VALIDATION_UNRESOLVED_PREVIOUS') }",
+      "replace": "        if ($false) { $reasons.Add('ACPI_VALIDATION_UNRESOLVED_PREVIOUS') }"
+    },
+    {
+      "id": "AV7",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the live path is enabled",
+      "killers": [
+        "A01"
+      ],
+      "find": "name = 'ACPI_VALIDATION'; live_enabled = $false;",
+      "replace": "name = 'ACPI_VALIDATION'; live_enabled = $true;"
+    },
+    {
+      "id": "AV8",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "another target VM is accepted",
+      "killers": [
+        "A04",
+        "A02"
+      ],
+      "find": "    if ($target -cne (Get-P9SAcpiValidationTarget) -or $target -cnotin (Get-P9SVmNames)) { $reasons.Add('AUTHORIZATION_TARGET_NOT_ALLOWED') }",
+      "replace": "    if ($false) { $reasons.Add('AUTHORIZATION_TARGET_NOT_ALLOWED') }"
+    },
+    {
+      "id": "AV9",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the emergency path repeats the request of a validation",
+      "killers": [
+        "A06",
+        "R01",
+        "R07",
+        "Z10"
+      ],
+      "find": "    if ($e -and [int]$e.acpi_used -ge 1) { return $e }",
+      "replace": "    if ($false) { return $e }"
+    },
+    {
+      "id": "AV10",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a failed write-ahead still leaves an in-flight record",
+      "killers": [
+        "R11"
+      ],
+      "find": "    if (-not $ok -and $BeforeDispatch) { return $false }",
+      "replace": "    if ($false) { return $false }"
+    },
+    {
+      "id": "AV11",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unconfirmed request is taken as a confirmed one",
+      "killers": [
+        "R07"
+      ],
+      "find": "            'SHUTDOWN_REQUESTING' { 'OFF_REQUEST_UNCONFIRMED' }",
+      "replace": "            'SHUTDOWN_REQUESTING' { 'OFF_CONFIRMED' }"
+    },
+    {
+      "id": "VB17",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "the retired monitor operations are accepted again",
+      "killers": [
+        "V25"
+      ],
+      "find": "function Get-P9SVBoxInProcessOperations { 'guest.keys' }",
+      "replace": "function Get-P9SVBoxInProcessOperations { 'guest.keys', 'monitor.vmstates', 'monitor.connect' }"
     }
   ]
 }

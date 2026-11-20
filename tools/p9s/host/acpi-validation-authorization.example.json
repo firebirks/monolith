@@ -1,0 +1,25 @@
+{
+  "schema": "p9s-acpi-validation-authorization/1",
+  "note": "EXAMPLE ONLY, never valid as it is: the id, the times and the approval are placeholders and the safeguard is not approved. The owner writes the real file outside this folder, for one supervised session, and passes it with -Authorization. The live path is also disabled in the code of this toolkit version.",
+  "authorization_id": "acpiauth-YYYYMMDD-xxxxxxxx",
+  "purpose": "ACPI_VALIDATION",
+  "target_vm": "P9S-D12",
+  "permitted_actions": ["acpi.open", "acpi.start", "acpi.observe", "acpi.shutdown", "acpi.integrity"],
+  "max_startups": 1,
+  "max_acpi_requests": 1,
+  "valid_from_utc": "YYYY-MM-DDTHH:MM:SSZ",
+  "expires_utc": "YYYY-MM-DDTHH:MM:SSZ",
+  "monitor_conditions": {
+    "mode": "Monitor",
+    "paging_stop": "Required",
+    "commit_gate_s": 300,
+    "commit_below_pct": 90,
+    "provisional_min_available_mb": 8192
+  },
+  "preflight_checks": ["monitor-eligible", "virtualbox-not-quarantined", "target-observed-off", "no-unresolved-validation", "config-reference-present"],
+  "supervision": "operator-present",
+  "on_stop_or_abort": "halt-then-emergency-acpi-shutdown-no-repeat",
+  "provisional_safeguard_approved": false,
+  "approved_by": "<owner>",
+  "approved_utc": "YYYY-MM-DDTHH:MM:SSZ"
+}

@@ -10,12 +10,18 @@
 # Ctrl+C; a clean end publishes status STOPPED. At STOP_REQUIRED or
 # ABORT_REQUIRED it alerts (console, events.log, a message box with -Popup)
 # and never acts on a VM: shutdown stays with the operator.
+# It makes no VirtualBox call of any kind: no COM object, no VBoxManage,
+# no VirtualBox lock, no quarantine check. A hung or missing VirtualBox
+# cannot delay a sample. The VM states belong to the coordinator, which
+# reads them on demand (p9s-vmstate.ps1); the monitor only counts the
+# VirtualBox VM processes of the whole host and their working set, from
+# the Windows process list.
 #   pwsh -NoProfile -File host-monitor.ps1 -OutDir <new folder> [-PagingStop Required|NotRequired] [-Popup]
-# The external disk (drive letter, model, a folder on it) and the two VM
-# names come from the local configuration (-ConfigPath, P9S_HOST_CONFIG or
-# p9s-local.json next to this script; see p9s-local.example.json) unless
-# given as parameters. Without them the external disk cannot be confirmed
-# and every sample is UNKNOWN (fail closed).
+# The external disk (drive letter, model, a folder on it) comes from the
+# local configuration (-ConfigPath, P9S_HOST_CONFIG or p9s-local.json next
+# to this script; see p9s-local.example.json) unless given as parameters.
+# Without it the external disk cannot be confirmed and every sample is
+# UNKNOWN (fail closed).
 # Exit codes: 0 ended normally, 1 error, 2 refused arguments, 3 another
 # monitor holds the state file.
 param(
@@ -38,14 +44,12 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'hostmon-lib.ps1')
 . (Join-Path $PSScriptRoot 'p9s-config.ps1')
-. (Join-Path $PSScriptRoot 'p9s-vbox.ps1')
 $localCfg = Read-P9SConfig -Path (Get-P9SConfigPath -ConfigPath $ConfigPath -ToolDir $PSScriptRoot)
 if ($localCfg.external_disk) {
     if (-not $ExternalDrive) { $ExternalDrive = $localCfg.external_disk.drive_letter }
     if (-not $ExpectedExternalModel) { $ExpectedExternalModel = $localCfg.external_disk.model }
     if (-not $ExternalProbePath) { $ExternalProbePath = $localCfg.external_disk.probe_path }
 }
-$vmNames = @($localCfg.vm_names)
 $inv = [Globalization.CultureInfo]::InvariantCulture
 if (-not $StatePath) { $StatePath = Get-DefaultStatePath }
 if (-not $StopFile) { $StopFile = Join-Path $OutDir 'STOP' }
@@ -90,10 +94,12 @@ function Resolve-HostLayout {
     }
 }
 $storageProviders = 'disk|Ntfs|partmgr|volmgr|storahci|stornvme|USBSTOR|UASPStor|USBHUB|Storport|StorPort|volsnap|Kernel-PnP|Kernel-Power|WHEA'
-$vmStates = @{ 1 = 'off'; 2 = 'saved'; 3 = 'teleported'; 4 = 'aborted'; 5 = 'aborted-saved'; 6 = 'running'; 7 = 'paused'; 8 = 'stuck'; 9 = 'teleporting'; 10 = 'live-snapshotting'; 11 = 'starting'; 12 = 'stopping'; 13 = 'saving'; 14 = 'restoring'; 15 = 'teleporting-paused' }
-function Read-HostRaw($Layout, $EventState, $Vbox, $VBoxCtx) {
+# Image names of VirtualBox VM processes (any VM of any project on this
+# host): counted from the Windows process list, never asked of VirtualBox.
+$vmProcessNames = 'VirtualBoxVM', 'VBoxHeadless'
+function Read-HostRaw($Layout, $EventState) {
     $r = [ordered]@{ ok = $true; error = $null; mono = (Now-Mono); utc = (Now-Utc); mem = $null; cpu = $null; pf_usage = @(); pf_perf = @(); disks = @()
-        external_present = $null; external_identity_ok = $Layout.external_identity_ok; eventlog_ok = $null; storage_events_new = 0; storage_event_ids = @(); vm = @{} }
+        external_present = $null; external_identity_ok = $Layout.external_identity_ok; eventlog_ok = $null; storage_events_new = 0; storage_event_ids = @(); procs = $null }
     try {
         $r.mem = Get-CimInstance Win32_PerfRawData_PerfOS_Memory -ErrorAction Stop
         $r.cpu = Get-CimInstance Win32_PerfRawData_PerfOS_Processor -Filter "Name='_Total'" -ErrorAction Stop
@@ -112,28 +118,12 @@ function Read-HostRaw($Layout, $EventState, $Vbox, $VBoxCtx) {
         $r.storage_events_new = $ids.Count; $r.storage_event_ids = $ids
         $EventState.since = (Get-Date).AddSeconds(-30)
     }
-    if ($Vbox) {
-        # COM reads under the toolkit's VirtualBox lock, tried briefly: a busy
-        # lock or a quarantine skips this sample's VM states (p9s-vbox.ps1)
-        $rd = Invoke-P9SVBoxInProcess -VBox $VBoxCtx -Operation 'monitor.vmstates' -Opportunistic -Arguments @(, $Vbox) -Body {
-            param($machines)
-            $o = @{}
-            foreach ($n in @($machines.Keys)) {
-                try { $st = [int]$machines[$n].State; $sp = $null; if ($st -eq 6) { $sp = [int]$machines[$n].SessionPID }; $o[$n] = @{ state = $st; spid = $sp } } catch { $o[$n] = $null }
-            }
-            $o
-        }
-        foreach ($n in @($Vbox.Keys)) {
-            if ($rd.outcome -ne 'COMPLETED') { $r.vm[$n] = [pscustomobject]@{ state = $(switch ($rd.outcome) { 'BUSY' { 'busy' } 'QUARANTINED' { 'quarantined' } default { 'unreadable' } }); ws_mb = $null }; continue }
-            $x = $rd.value[$n]
-            if (-not $x) { $r.vm[$n] = [pscustomobject]@{ state = 'unreadable'; ws_mb = $null }; continue }
-            $ws = $null
-            if ($x.spid) { $gp = Get-Process -Id ([int]$x.spid) -ErrorAction SilentlyContinue; if ($gp) { $ws = $gp.WorkingSet64 / 1MB } }
-            $r.vm[$n] = [pscustomobject]@{ state = $vmStates[[int]$x.state]; ws_mb = $ws }
-        }
-    }
+    $vp = @(Get-Process -Name $vmProcessNames -ErrorAction SilentlyContinue)
     $w = Get-Process vmmemWSL -ErrorAction SilentlyContinue | Select-Object -First 1
-    $r.vm['WSL'] = [pscustomobject]@{ state = $(if ($w) { 'running' } else { 'absent' }); ws_mb = $(if ($w) { $w.WorkingSet64 / 1MB } else { $null }) }
+    $r.procs = [pscustomobject]@{
+        vbox_vm_procs = $vp.Count; vbox_vm_ws_mb = $(if ($vp.Count) { [double](($vp | Measure-Object -Property WorkingSet64 -Sum).Sum) / 1MB } else { 0.0 })
+        wsl_ws_mb = $(if ($w) { $w.WorkingSet64 / 1MB } else { $null })
+    }
     [pscustomobject]$r
 }
 # Process names only (no command line, path, window title or user).
@@ -173,31 +163,23 @@ $info = [ordered]@{
     kit = [ordered]@{ lib_sha256 = (Get-FileSha256 (Join-Path $PSScriptRoot 'hostmon-lib.ps1')); monitor_sha256 = (Get-FileSha256 $PSCommandPath) }
 }
 $interval = if ($TestIntervalMs -gt 0) { $TestIntervalMs / 1000.0 } else { $cfg.interval_s }
-$layout = $null; $vbox = $null; $vbx = $null
-if (-not $TestFixture) {
-    $layout = Resolve-HostLayout
-    # the VirtualBox layer's records sit next to the state file, where
-    # the coordinator keeps them too
-    $vbx = New-P9SVBoxContext -Dir (Split-Path -Parent ([IO.Path]::GetFullPath($StatePath))) -VmNames $vmNames
-    $c = Invoke-P9SVBoxInProcess -VBox $vbx -Operation 'monitor.connect' -Opportunistic -LockWaitMs 10000 -Arguments @(, $vmNames) -Body {
-        param($names)
-        $client = New-Object -ComObject VirtualBox.VirtualBoxClient
-        $m = [ordered]@{}; foreach ($n in $names) { $m[$n] = $client.VirtualBox.FindMachine($n) }
-        $m
-    }
-    if ($c.outcome -eq 'COMPLETED' -and $c.value) { $vbox = $c.value }
-}
+$layout = $null
+if (-not $TestFixture) { $layout = Resolve-HostLayout }
 [ordered]@{
     run_id = $runId; start_utc = $startUtc.ToString('o'); pid = $PID; pwsh = [string]$PSVersionTable.PSVersion
     os_build = [string][Environment]::OSVersion.Version; mode = $Mode; paging_stop = $PagingStop
     interval_s = $interval; duration_s = $DurationSeconds; state_path = $StatePath; stop_file = $StopFile
     limits = Get-LimitsDoc $cfg
     thresholds = [ordered]@{ path = $ThresholdsPath; sha256 = $th.sha256; approved = $th.approved; valid = $th.valid; errors = @($th.errors); source = $th.source }
-    layout = $layout; vm_states_readable = [bool]$vbox; external_probe = $ExternalProbePath; expected_external_model = $ExpectedExternalModel
-    config = [ordered]@{ path = $localCfg.path; present = $localCfg.present; ok = $localCfg.ok; errors = @($localCfg.errors) }; vm_names = $vmNames
+    layout = $layout; external_probe = $ExternalProbePath; expected_external_model = $ExpectedExternalModel
+    config = [ordered]@{ path = $localCfg.path; present = $localCfg.present; ok = $localCfg.ok; errors = @($localCfg.errors) }
+    samples_schema = 'p9s-hostmon-samples/2'; virtualbox = 'none: the monitor makes no VirtualBox call and takes no VirtualBox lock; the coordinator observes VM states'
     process_snapshot_s = $ProcessSnapshotSeconds; popup = [bool]$Popup; test_fixture = $TestFixture; monitor = $info
 } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $OutDir 'run.json') -Encoding utf8
-Add-Line $csvPath 'utc,mono_s,seq,status,reasons,commit_pct,committed_mb,commit_limit_mb,gate_s,high95_s,gap_s,avail_mb,modified_mb,pages_per_s,pages_in_per_s,pages_out_per_s,page_reads_per_s,page_writes_per_s,page_faults_per_s,transition_faults_per_s,cache_faults_per_s,demand_zero_faults_per_s,pagefile_used_mb,pagefile_alloc_mb,pagefile_pct,sys_read_ms,sys_write_ms,sys_read_mbps,sys_write_mbps,sys_queue,sys_avg_queue,ext_read_ms,ext_write_ms,ext_read_mbps,ext_write_mbps,ext_queue,ext_avg_queue,cpu_pct,paging,p30_covered,p120_covered,ext_present,storage_events,d12_state,u24_state,d12_ws_mb,u24_ws_mb,wsl_ws_mb,rate_issues,sample_ms'
+# samples.csv layout p9s-hostmon-samples/2: version 1 (toolkit 83c9ef8 and
+# earlier) had the VM states d12_state, u24_state, d12_ws_mb, u24_ws_mb in
+# place of vbox_vm_procs, vbox_vm_ws_mb
+Add-Line $csvPath 'utc,mono_s,seq,status,reasons,commit_pct,committed_mb,commit_limit_mb,gate_s,high95_s,gap_s,avail_mb,modified_mb,pages_per_s,pages_in_per_s,pages_out_per_s,page_reads_per_s,page_writes_per_s,page_faults_per_s,transition_faults_per_s,cache_faults_per_s,demand_zero_faults_per_s,pagefile_used_mb,pagefile_alloc_mb,pagefile_pct,sys_read_ms,sys_write_ms,sys_read_mbps,sys_write_mbps,sys_queue,sys_avg_queue,ext_read_ms,ext_write_ms,ext_read_mbps,ext_write_mbps,ext_queue,ext_avg_queue,cpu_pct,paging,p30_covered,p120_covered,ext_present,storage_events,vbox_vm_procs,vbox_vm_ws_mb,wsl_ws_mb,rate_issues,sample_ms'
 if (-not $TestFixture) { Add-Line $procPath 'utc,metric,rank,name,rate,ws_mb' }
 function Publish($doc) {
     $json = ConvertTo-StateJson -Doc $doc -Monitor $info -WrittenQpc ([Diagnostics.Stopwatch]::GetTimestamp()) -QpcFrequency $freq -WrittenUtc (Now-Utc)
@@ -234,7 +216,7 @@ try {
             if ($fixtureQ.Count) { $s = $fixtureQ.Dequeue() } else { $s = $fxLast.PSObject.Copy(); $s.mono = [double]$fxLast.mono + 5.0 }
             $fxLast = $s
         } else {
-            $raw = Read-HostRaw $layout $eventState $vbox $vbx
+            $raw = Read-HostRaw $layout $eventState
             $s = ConvertTo-DerivedSample -Prev $prevRaw -Cur $raw -Layout $layout
             $prevRaw = $raw
         }
@@ -244,7 +226,7 @@ try {
         $ms = ([Diagnostics.Stopwatch]::GetTimestamp() - $t0) * 1000.0 / $freq
         $counts[$doc.status] = 1 + [int]$counts[$doc.status]
         $m = $doc.memory; $sd = $doc.disks.system; $xd = $doc.disks.external; $w = $doc.paging.windows
-        $vmx = if ($s.vm -is [System.Collections.IDictionary]) { $s.vm } else { @{} }
+        $px = Get-Prop $s 'procs'
         Add-Line $csvPath (@(
             $s.utc, (F $s.mono 3), $seq, $doc.status, ($doc.reasons -join ';'),
             (F $doc.commit.pct 2), (F ($(if (Test-Finite $doc.commit.committed_bytes) { $doc.commit.committed_bytes / 1MB } else { $null })) 0), (F ($(if (Test-Finite $doc.commit.limit_bytes) { $doc.commit.limit_bytes / 1MB } else { $null })) 0),
@@ -256,7 +238,7 @@ try {
             (F $xd.read_ms 3), (F $xd.write_ms 3), (F $xd.read_mbps 3), (F $xd.write_mbps 3), $xd.queue, (F $xd.avg_queue 3),
             (F $doc.cpu_pct 1), $doc.paging.assessment, $w.'30'.covered, $w.'120'.covered,
             $doc.external_disk.present, $doc.storage_events.count_since_start,
-            $vmx[$vmNames[0]].state, $vmx[$vmNames[1]].state, (F $vmx[$vmNames[0]].ws_mb 0), (F $vmx[$vmNames[1]].ws_mb 0), (F $vmx['WSL'].ws_mb 0),
+            (Get-Prop $px 'vbox_vm_procs'), (F (Get-Prop $px 'vbox_vm_ws_mb') 0), (F (Get-Prop $px 'wsl_ws_mb') 0),
             ($m.rate_issues -join ';'), (F $ms 0)
         ) -join ',')
         if ($doc.status -ne $lastStatus) {

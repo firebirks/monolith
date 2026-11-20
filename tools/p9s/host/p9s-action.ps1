@@ -9,6 +9,7 @@
 #   pwsh -NoProfile -File p9s-action.ps1 -Action emergency.acpi-shutdown -Vm P9S-D12
 #   pwsh -NoProfile -File p9s-action.ps1 -Action calib.dry-run -Scenario nominal
 #   pwsh -NoProfile -File p9s-action.ps1 -Action vbox.status
+#   pwsh -NoProfile -File p9s-action.ps1 -Action acpi.preflight [-Authorization <file>]
 # Start it with pwsh -File (as above). Started with & from a prompt or
 # another script it refuses with exit 2 and does nothing: its closures could
 # not find the toolkit's functions there.
@@ -16,12 +17,13 @@
 # p9s-local.json next to this script (see p9s-local.example.json).
 # Coordinator files live next to the monitor state file (default
 # %TEMP%\p9s-hostmon\): coordinator-session.json, coordinator.lock,
-# coordinator-stop.request, coordinator-audit.jsonl, and the VirtualBox
-# layer's vbox-operation.json, vbox-quarantine.json, vbox-audit.jsonl.
+# coordinator-stop.request, coordinator-audit.jsonl, vm-observations.jsonl,
+# acpi-validation-ledger.json, and the VirtualBox layer's
+# vbox-operation.json, vbox-quarantine.json, vbox-audit.jsonl.
 param(
     [Parameter(Mandatory)][string]$Action,
     [string]$Vm, [string]$Text, [string]$Key, [string]$Name, [int]$Seconds, [string]$Plan, [string]$Kind,
-    [string]$Scenario, [string]$MonitorRun, [string]$Reference, [string]$AcknowledgeAbort, [string]$Operation,
+    [string]$Scenario, [string]$MonitorRun, [string]$Reference, [string]$AcknowledgeAbort, [string]$Operation, [string]$Authorization,
     [switch]$DryRun, [string]$StatePath, [string]$AuditPath, [string]$ConfigPath
 )
 $ErrorActionPreference = 'Stop'
