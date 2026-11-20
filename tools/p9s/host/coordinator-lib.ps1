@@ -14,15 +14,22 @@
 #   emergency    emergency.status, emergency.acpi-shutdown (one ACPI
 #                power-button request per VM, then the VM state is watched;
 #                success only when the VM is off), emergency.wait-off: no gate
-#   observe      session.status, audit.oob, audit.vmconfig: read only
+#   observe      session.status, audit.oob, audit.vmconfig, vbox.status:
+#                read only
 #   calibration  calib.preflight (read only), calib.dry-run (simulated): no
 #                live calibration exists in this version
 # STOP or ABORT seen in any monitor state halts the session for good; ABORT
 # must be acknowledged with its id, with every laboratory VM off, before a
-# new session opens. The coordinator cannot stop anyone from running
-# VBoxManage or other tools directly: it governs the approved automation only.
-# Machine-local settings and secrets come from p9s-config.ps1.
+# new session opens. Every VirtualBox call goes through p9s-vbox.ps1 (one
+# host-wide lock, bounded waits, quarantine); while a quarantine is in place
+# no test action, session or ACPI request is possible, and vbox.recover
+# clears it at the operator's request. The coordinator cannot stop anyone
+# from running VBoxManage or other tools directly: it governs the approved
+# automation only. Machine-local settings and secrets come from
+# p9s-config.ps1.
 . (Join-Path $PSScriptRoot 'p9s-config.ps1')
+. (Join-Path $PSScriptRoot 'p9s-vbox.ps1')
+$script:P9SCoordinatorLibFile = $PSCommandPath
 
 # ------------------------------------------------------------ allowlists
 # VM names: from the local configuration (Set-P9SVmNames), else the defaults.
@@ -79,6 +86,8 @@ function Get-P9SActionSpec {
         'calib.dry-run'            = @{ class = 'calibration'; vm = $false; required = @('Scenario'); optional = @() }
         'audit.oob'                = @{ class = 'observe'; vm = $false; required = @('MonitorRun'); optional = @() }
         'audit.vmconfig'           = @{ class = 'observe'; vm = $true; required = @('Reference'); optional = @() }
+        'vbox.status'              = @{ class = 'observe'; vm = $false; required = @(); optional = @() }
+        'vbox.recover'             = @{ class = 'session'; vm = $false; required = @('Operation'); optional = @() }
     }
 }
 
@@ -120,6 +129,7 @@ function Test-P9SRequest {
             'Plan' { $v -is [string] -and (Test-Path -LiteralPath $v -PathType Leaf) }
             'Reference' { $v -is [string] -and (Test-Path -LiteralPath $v -PathType Leaf) }
             'MonitorRun' { $v -is [string] -and (Test-Path -LiteralPath $v -PathType Container) }
+            'Operation' { [string]$v -cmatch (Get-P9SVBoxIdPattern) }
             default { $false }
         }
         if ($ok) { $valid[$k] = $true }
@@ -268,6 +278,43 @@ function Get-P9SGate($Ctx) {
     [pscustomobject]@{ ok = $t.ok; reasons = @($t.reasons); status = $t.status; run_id = $t.run_id; halt_status = $hs; halt_reasons = $hr
         mode = $(if ($doc -is [pscustomobject] -and $doc.monitor) { [string]$doc.monitor.mode } else { $null }); text = $r.text; doc = $doc }
 }
+# The VirtualBox management state of the context (p9s-vbox.ps1): a
+# quarantine, or a lock this process could not release, refuses every test
+# action, session and ACPI request. A context without a VirtualBox part (the
+# tests' mock contexts) is not tracked.
+function Get-P9SVBoxGate($Ctx) {
+    $vb = Get-Prop $Ctx 'VBox'
+    if (-not $vb) { return [pscustomobject]@{ ok = $true; reasons = @(); latch = $null; text = 'not tracked' } }
+    if ($script:P9SVBoxRetained[$vb.MutexName]) { return [pscustomobject]@{ ok = $false; reasons = @('VBOX_API_QUARANTINED', 'VBOX_LOCK_RETAINED'); latch = $null; text = 'QUARANTINED (this process keeps the VirtualBox lock)' } }
+    $q = Read-P9SVBoxLatch $vb
+    if (-not $q.present) {
+        # a record whose owner is gone: an operation ended unfinished;
+        # the next VirtualBox operation quarantines it
+        $rr = Read-P9SVBoxRecord $vb
+        if ($rr.present -and (-not $rr.ok -or (Test-P9SChildAlive $rr.doc.owner_pid $rr.doc.owner_start_ticks) -ne 'alive')) {
+            return [pscustomobject]@{ ok = $false; reasons = @('VBOX_OPERATION_UNFINISHED'); latch = $null; text = 'UNFINISHED OPERATION (its owner ended; the next VirtualBox operation quarantines)' }
+        }
+        return [pscustomobject]@{ ok = $true; reasons = @(); latch = $null; text = 'not quarantined' }
+    }
+    $why = if ($q.ok) { [string]$q.doc.reason } else { 'VBOX_LATCH_UNREADABLE' }
+    [pscustomobject]@{ ok = $false; reasons = @('VBOX_API_QUARANTINED', $why); latch = $q.doc
+        text = "QUARANTINED ($why$(if ($q.ok) { ", operation $($q.doc.operation_id)$(if ($q.doc.operation) { " $($q.doc.operation) $($q.doc.vm)" })" }))" }
+}
+# Closures built with GetNewClosure (the unlock dispatcher, the calibration
+# host checks) find functions through the global scope. That holds when
+# p9s-action.ps1 is started with pwsh -File (or dot-sourced at a prompt),
+# not when it is started with & from a prompt or another script. The check
+# asks a closure, the same way, for the functions those closures call.
+function Test-P9SSupportedInvocation {
+    $lib = [string]$script:P9SCoordinatorLibFile
+    $need = [ordered]@{ 'Read-P9SSecret' = (Join-Path (Split-Path -Parent $lib) 'p9s-config.ps1'); 'Get-P9SScancodesForText' = $lib; 'Get-P9SCalibrationHostChecks' = $lib }
+    $probe = { param($n) Get-Command -Name $n -CommandType Function -ErrorAction SilentlyContinue }.GetNewClosure()
+    foreach ($n in $need.Keys) {
+        $f = & $probe $n
+        if (-not $f -or -not $f.ScriptBlock.File -or -not ([string]$f.ScriptBlock.File).Equals([string]$need[$n], [StringComparison]::OrdinalIgnoreCase)) { return [pscustomobject]@{ ok = $false; reason = 'UNSUPPORTED_INVOCATION'; missing = $n } }
+    }
+    [pscustomobject]@{ ok = $true; reason = $null; missing = $null }
+}
 # A STOP or ABORT seen in any parseable state (fresh or not) halts the
 # session record; a stronger halt replaces a weaker one; the first reasons
 # of each level are kept. Returns the session record (created if needed).
@@ -300,6 +347,7 @@ function Test-P9SCheckpoint($Ctx, $Session, $Res) {
     if ($Session.lifecycle -ne 'ACTIVE') { $reasons.Add("SESSION_$($Session.lifecycle)") }
     if ($g.run_id -and $g.run_id -ne $Session.monitor_run_id) { $reasons.Add('MONITOR_RUN_CHANGED') }
     if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
+    foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }
     [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }
 }
 
@@ -359,6 +407,8 @@ function Invoke-P9SNormal {
     if ($sessOk) { $Session = Update-P9SHalt $Ctx $Session $g $Res }
     if ($Session) { $Res.session = $Session.session_id }
     if (-not $g.ok) { foreach ($r in $g.reasons) { $reasons.Add($r) } }
+    $vg = Get-P9SVBoxGate $Ctx
+    foreach ($r in $vg.reasons) { $reasons.Add($r) }
     $active = $Session -and $Session.session_id
     if ($sessOk -and -not $active) { $reasons.Add('SESSION_MISSING') }
     if ($active) {
@@ -368,7 +418,7 @@ function Invoke-P9SNormal {
         if ($Session.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') }
     }
     if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
-    if ($active) {
+    if ($active -and $vg.ok) {
         $actual = @{}
         foreach ($n in Get-P9SVmNames) {
             $actual[$n] = [string](& $Ctx.ReadVmState $n)
@@ -484,6 +534,23 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
     if (-not $sr.ok) { Set-P9SRefused $Res @('SESSION_UNREADABLE') $null; Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V; return $Res }
     $sess = $sr.session
     if ($sess) { $Res.session = $sess.session_id }
+    if ($a -eq 'vbox.recover') {
+        # the operator's recovery of a VirtualBox quarantine (p9s-vbox.ps1)
+        $vb = Get-Prop $Ctx 'VBox'
+        if (-not $vb) { Set-P9SRefused $Res @('VBOX_NOT_TRACKED') $null; Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V; return $Res }
+        $rc = Invoke-P9SVBoxRecovery -VBox $vb -OperationId ([string]$Request.Operation) -DryRun:$dry
+        foreach ($l in $rc.lines) { $Res.lines.Add($l) }
+        if ($rc.outcome -eq 'CLEARED') {
+            $Res.outcome = 'DONE'
+            if ($sess -and $sess.session_id -and $sess.lifecycle -eq 'ACTIVE') {
+                $sess.lifecycle = 'VBOX_RECOVERED'; Save-P9SSession $Ctx $sess
+                $Res.lines.Add("session $($sess.session_id) must be closed and a new one opened: the monitor, the VM states and the session are qualified again before any test action")
+            }
+        } elseif ($rc.outcome -eq 'DRYRUN') { $Res.outcome = 'DRYRUN' }
+        else { Set-P9SRefused $Res @($rc.reasons) $null }
+        Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+        return $Res
+    }
     if ($a -eq 'session.close') {
         # an emergency whose VM did not power off cannot be closed away
         $stopReq = Read-P9SStopRequest $Ctx
@@ -521,6 +588,8 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
     }
     $reasons = [System.Collections.Generic.List[string]]::new()
     if (-not $g.ok) { foreach ($r in $g.reasons) { $reasons.Add($r) } }
+    $vg = Get-P9SVBoxGate $Ctx
+    foreach ($r in $vg.reasons) { $reasons.Add($r) }
     if ($sess -and $sess.session_id -and $sess.lifecycle -eq 'ACTIVE') { $reasons.Add('SESSION_ALREADY_OPEN') }
     if ($sess -and $sess.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') }
     if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('STOP_REQUEST_PENDING') }
@@ -532,9 +601,11 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
         }
     }
     $actual = @{}
-    foreach ($n in Get-P9SVmNames) {
-        $actual[$n] = [string](& $Ctx.ReadVmState $n)
-        if ($actual[$n] -notin 'off', 'running') { $reasons.Add("VM_STATE_UNEXPECTED:$n") }
+    if ($vg.ok) {
+        foreach ($n in Get-P9SVmNames) {
+            $actual[$n] = [string](& $Ctx.ReadVmState $n)
+            if ($actual[$n] -notin 'off', 'running') { $reasons.Add("VM_STATE_UNEXPECTED:$n") }
+        }
     }
     if ($ackOk -and @($actual.Values | Where-Object { $_ -ne 'off' }).Count) { $reasons.Add('VMS_NOT_OFF') }
     if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $g; Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V; return $Res }
@@ -563,7 +634,10 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
         $sr = Read-P9SSession $Ctx
         $Res.lines.Add("monitor: status $(if ($g.status) { $g.status } else { '-' }), run $(if ($g.run_id) { $g.run_id } else { '-' }); $(if ($g.ok) { 'READY for test actions' } else { $g.reasons -join ', ' })")
         $Res.lines.Add("session: $(if (-not $sr.ok) { 'UNREADABLE' } elseif ($sr.session) { "$($sr.session.session_id) $($sr.session.lifecycle)$(if ($sr.session.halt) { " halt $($sr.session.halt.status) $($sr.session.halt.abort_id)" })$(if ($sr.session.inflight) { ' IN-FLIGHT ' + $sr.session.inflight.action })" } else { 'none' })")
-        foreach ($n in Get-P9SVmNames) { $Res.lines.Add("$n $(& $Ctx.ReadVmState $n)") }
+        $vg = Get-P9SVBoxGate $Ctx
+        $Res.lines.Add("VirtualBox API: $($vg.text)")
+        if ($vg.ok) { foreach ($n in Get-P9SVmNames) { $Res.lines.Add("$n $(& $Ctx.ReadVmState $n)") } }
+        else { foreach ($n in Get-P9SVmNames) { $Res.lines.Add("$n unknown (not read while VirtualBox is quarantined; see vbox.status)") } }
         $Res.outcome = 'DONE'
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
@@ -573,6 +647,8 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
         if ($dry) {
             $Res.outcome = 'DRYRUN'
             $Res.lines.Add("dry run: would send one ACPI power-button request to $vm (VBoxManage $((Get-VBoxAcpiArgs $vm) -join ' ')) and watch it for up to $limit s; no keyboard input, no forced power-off")
+            $vg = Get-P9SVBoxGate $Ctx
+            if (-not $vg.ok) { $Res.lines.Add("dry run: VirtualBox is $($vg.text): no request could be sent now") }
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
@@ -602,8 +678,17 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
                 $s = Update-P9SHalt $Ctx $sr.session $g $Res
                 if ($s -and $s.session_id) { $Res.session = $s.session_id; if ($s.lifecycle -eq 'ACTIVE') { $s.lifecycle = 'SHUTDOWN'; Save-P9SSession $Ctx $s } }
             }
-            $st = [string](& $Ctx.ReadVmState $vm)
-            if ($st -eq 'off') { $Res.outcome = 'DONE'; $Res.lines.Add("$vm is already off; no request sent") }
+            $vg = Get-P9SVBoxGate $Ctx
+            $st = if ($vg.ok) { [string](& $Ctx.ReadVmState $vm) } else { $null }
+            if (-not $vg.ok) {
+                # the management plane is in doubt: nothing can be sent,
+                # and nothing is known about the guest
+                $Res.outcome = 'FAILED'; foreach ($r in $vg.reasons) { $Res.reasons.Add($r) }; $Res.reasons.Add('EMERGENCY_UNRESOLVED')
+                $Res.lines.Add("*** VirtualBox is $($vg.text). No ACPI request can be sent through the toolkit and the state of $vm is unknown. EMERGENCY UNRESOLVED: the stop request stays in place; the operator decides outside the coordinator (vbox.status shows the quarantine; vbox.recover clears it once the cause is resolved). ***")
+                $req.unresolved[$vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $Ctx $req
+                if ($s -and $s.session_id) { $s.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $s }
+            }
+            elseif ($st -eq 'off') { $Res.outcome = 'DONE'; $Res.lines.Add("$vm is already off; no request sent") }
             elseif ($st -ne 'running') { Set-P9SRefused $Res @("VM_NOT_RUNNING:$st") $g; $Res.lines.Add("$vm is $st; an ACPI request is sent only to a running VM") }
             else {
                 $req.acpi[$vm] = [DateTime]::UtcNow.ToString('o')
@@ -621,13 +706,21 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             }
         } finally { $lock.Dispose() }
         if ($sent) {
-            $elapsed = 0; $st = $null
+            $elapsed = 0; $st = $null; $vq = $null
             while ($true) {
+                $vq = Get-P9SVBoxGate $Ctx
+                if (-not $vq.ok) { $st = $null; break }
                 $st = [string](& $Ctx.ReadVmState $vm)
                 if ($st -in 'off', 'aborted' -or $elapsed -ge $limit) { break }
                 & $Ctx.Sleep 2000; $elapsed += 2
             }
-            if ($st -eq 'off') {
+            if (-not $vq.ok) {
+                $Res.outcome = 'FAILED'; foreach ($r in $vq.reasons) { $Res.reasons.Add($r) }; $Res.reasons.Add('EMERGENCY_UNRESOLVED')
+                $Res.lines.Add("*** VirtualBox became $($vq.text) while $vm was watched (about $elapsed s after the request). Its state is unknown. EMERGENCY UNRESOLVED: no further query, no second request; the operator decides outside the coordinator. ***")
+                $req.unresolved[$vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $Ctx $req
+                Set-P9SSessionAfterEmergency $Ctx $null $null 'EMERGENCY_UNRESOLVED'
+            }
+            elseif ($st -eq 'off') {
                 $Res.outcome = 'DONE'; $Res.lines.Add("$vm powered off after the ACPI request (about $elapsed s)")
                 Set-P9SSessionAfterEmergency $Ctx $vm 'off' $null
             } elseif ($st -eq 'aborted') {
@@ -644,6 +737,13 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
         return $Res
     }
     # emergency.wait-off: read only, bounded
+    $vg = Get-P9SVBoxGate $Ctx
+    if (-not $vg.ok) {
+        Set-P9SRefused $Res @($vg.reasons) $null
+        $Res.lines.Add("VirtualBox is $($vg.text): the state of $vm is not read and is unknown")
+        Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+        return $Res
+    }
     $limit = [int]$Request.Seconds; $elapsed = 0; $st = $null
     while ($true) {
         $st = [string](& $Ctx.ReadVmState $vm)
@@ -677,7 +777,8 @@ function Find-OutOfBandVmChanges {
         $prev = $null
         foreach ($s in @($Samples)) {
             $cur = [string]$s.($cols[$vm])
-            if (-not $cur) { continue }
+            # no observation: the lock was busy, VirtualBox was quarantined, or the read failed
+            if (-not $cur -or $cur -in 'busy', 'quarantined', 'unreadable') { continue }
             if ($prev -and $cur -ne $prev) {
                 $t = ConvertTo-P9SUtc $s.utc
                 $want = if ($cur -in 'starting', 'running') { 'vm.start' } elseif ($cur -in 'stopping', 'off') { 'emergency.acpi-shutdown' } else { $null }
@@ -727,7 +828,22 @@ function Invoke-P9SObserve($Ctx, [hashtable]$Request, $V, $Res) {
             foreach ($e in $ev) { $Res.lines.Add("  $($e.utc) $($e.vm) $($e.from) -> $($e.to): $(if ($e.explained) { $e.by } else { 'POSSIBLE OUT-OF-BAND CHANGE' })") }
             if ($un.Count) { $Res.reasons.Add("OUT_OF_BAND_CHANGES:$($un.Count)") }
         }
+        'vbox.status' {
+            # read only and without any VirtualBox call
+            $vg = Get-P9SVBoxGate $Ctx
+            $Res.lines.Add("VirtualBox API: $($vg.text)")
+            $vb = Get-Prop $Ctx 'VBox'
+            if ($vb) {
+                $rr = Read-P9SVBoxRecord $vb
+                if ($rr.present) { $Res.lines.Add($(if ($rr.ok) { "operation record: $($rr.doc.operation_id) $($rr.doc.operation) $($rr.doc.vm) phase $($rr.doc.phase)$(if ($rr.doc.child_pid) { "; VBoxManage child $($rr.doc.child_pid) $(Test-P9SChildAlive $rr.doc.child_pid $rr.doc.child_start_ticks)" })" } else { 'operation record: UNREADABLE' })) }
+                if ($vg.latch -and $vg.latch.child_pid) { $Res.lines.Add("quarantined child: VBoxManage $($vg.latch.child_pid) $(Test-P9SChildAlive $vg.latch.child_pid $vg.latch.child_start_ticks)") }
+                if (-not $vg.ok) { $Res.lines.Add('recovery: see "VirtualBox operations" in README.md; p9s-action.ps1 -Action vbox.recover -Operation <operation id> clears it only after its checks') }
+            }
+            if (-not $vg.ok) { foreach ($r in $vg.reasons) { $Res.reasons.Add($r) } }
+        }
         'audit.vmconfig' {
+            $vg = Get-P9SVBoxGate $Ctx
+            if (-not $vg.ok) { Set-P9SRefused $Res @($vg.reasons) $null; Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V; return $Res }
             $d = @(Compare-VmConfig -Reference (Get-Content -LiteralPath $Request.Reference) -Current @(& $Ctx.ReadVmConfig ([string]$Request.Vm)))
             $Res.lines.Add("$($Request.Vm) configuration against $([IO.Path]::GetFileName([string]$Request.Reference)): $($d.Count) differing keys")
             foreach ($x in $d) { $Res.lines.Add("  $($x.key) $($x.change)$(if ($x.capture) { ' (CAPTURE SETTING)' })") }
@@ -907,10 +1023,15 @@ function Invoke-P9SCalibration($Ctx, [hashtable]$Request, $V, $Res) {
     $c = Test-P9SCalibrationState -Text $g.text -NowQpc (& $Ctx.NowQpc) -QpcFrequency $Ctx.QpcFrequency -IsMonitorAlive $Ctx.IsMonitorAlive
     $Res.lines.Add("monitor state: $(if ($c.ok) { "OK ($($c.status))" } else { 'NOT OK: ' + ($c.reasons -join ', ') })")
     $Res.lines.Add("300-s gate before the first VM start: $(if ($c.qualified) { 'met' } else { 'not met' })")
-    $mem = 0; foreach ($n in Get-P9SVmNames) { $l = @(& $Ctx.ReadVmConfig $n) | Where-Object { $_ -match '^memory=(\d+)$' } | Select-Object -First 1; if ($l -match '^memory=(\d+)$') { $mem += [int]$Matches[1] } else { $mem = $null; break } }
+    $vg = Get-P9SVBoxGate $Ctx
+    $Res.lines.Add("VirtualBox API: $($vg.text) -> $(if ($vg.ok) { 'PASS' } else { 'FAIL (no VirtualBox query is made)' })")
+    foreach ($r in $vg.reasons) { $Res.reasons.Add($r) }
+    $mem = $null
+    if ($vg.ok) { $mem = 0; foreach ($n in Get-P9SVmNames) { $l = @(& $Ctx.ReadVmConfig $n) | Where-Object { $_ -match '^memory=(\d+)$' } | Select-Object -First 1; if ($l -match '^memory=(\d+)$') { $mem += [int]$Matches[1] } else { $mem = $null; break } } }
     $lim = Get-P9SCalibrationLimits
     $Res.lines.Add("available memory: $(if (-not (Test-Finite $c.avail_mb)) { 'PENDING (no monitor value)' } else { "$([math]::Round([double]$c.avail_mb)) MB now$(if ($null -ne $mem) { "; the two VMs are configured with $mem MB" }); at least $($lim.second_vm_min_available_mb) MB is required before the second VM starts (PROPOSAL, not approved)" })")
-    foreach ($x in @(& $Ctx.CalibrationHostChecks)) { $Res.lines.Add("host: $x") }
+    if ($vg.ok) { foreach ($x in @(& $Ctx.CalibrationHostChecks)) { $Res.lines.Add("host: $x") } }
+    else { $Res.lines.Add('host: VM checks not run while VirtualBox is quarantined -> FAIL') }
     $Res.lines.Add('authorization: none (a live calibration needs the owner''s separate authorization and a new kit version)')
     $Res.lines.Add('LIVE CALIBRATION: NOT AVAILABLE IN THIS KIT VERSION')
     if (-not $c.ok) { foreach ($r in $c.reasons) { $Res.reasons.Add($r) } }
@@ -920,14 +1041,32 @@ function Invoke-P9SCalibration($Ctx, [hashtable]$Request, $V, $Res) {
 }
 
 # ------------------------------------------------------------ real context
-function Get-VBoxManagePath { Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe' }
-function Get-VBoxStartArgs([string]$Vm) { , @('startvm', $Vm, '--type', 'gui') }
-function Get-P9SVmStateReal([string]$Vm) {
+# VM state through the VirtualBox layer: 'off', the VirtualBox state name,
+# or 'unreadable' for anything else (no VBoxManage, a refused, failed or
+# timed-out query, a quarantine, no VMState line). 'unreadable' is never
+# taken for 'off'. The last layer result stays in $script:P9SLastVBoxResult.
+function Get-P9SVmStateReal([string]$Vm, $VBox) {
     if ($Vm -cnotin (Get-P9SVmNames)) { return 'unreadable' }
-    $o = & (Get-VBoxManagePath) showvminfo $Vm --machinereadable 2>$null
-    if ($LASTEXITCODE -ne 0) { return 'unreadable' }
-    $l = @($o | Where-Object { $_ -like 'VMState=*' }) | Select-Object -First 1
-    if ($l -match '^VMState="([a-z]+)"$') { if ($Matches[1] -eq 'poweroff') { 'off' } else { $Matches[1] } } else { 'unreadable' }
+    $r = $null
+    try { $r = Invoke-P9SVBoxOperation -VBox $(if ($VBox) { $VBox } else { Get-P9SVBoxDefault }) -Operation 'vm.state' -Vm $Vm } catch {}
+    $script:P9SLastVBoxResult = $r
+    if (-not $r -or $r.outcome -ne 'COMPLETED' -or $r.exit_code -ne 0) { return 'unreadable' }
+    $s = ConvertFrom-P9SVBoxState $r.lines
+    if ($s) { $s } else { 'unreadable' }
+}
+function Get-P9SVmConfigReal([string]$Vm, $VBox) {
+    if ($Vm -cnotin (Get-P9SVmNames)) { return @() }
+    $r = $null
+    try { $r = Invoke-P9SVBoxOperation -VBox $(if ($VBox) { $VBox } else { Get-P9SVBoxDefault }) -Operation 'vm.config' -Vm $Vm } catch {}
+    $script:P9SLastVBoxResult = $r
+    if (-not $r -or $r.outcome -ne 'COMPLETED' -or $r.exit_code -ne 0) { return @() }
+    @($r.lines)
+}
+# A dispatch succeeded only if VBoxManage ran and exited 0; otherwise the
+# reason code (never the command's output) is the error.
+function Assert-P9SVBoxCompleted($R) {
+    if ($R -and $R.outcome -eq 'COMPLETED' -and $R.exit_code -eq 0) { return }
+    throw "$(if ($R) { $R.reason } else { 'VBOX_INTERNAL_ERROR' }) ($(if ($R) { $R.outcome } else { '-' })$(if ($R -and $null -ne $R.exit_code) { ", exit $($R.exit_code)" }))"
 }
 # Text -> groups of scan codes for the guests' Italian keyboard layout
 # (letters, digits, space, '-' and '.'; '~' = em dash via Ctrl+Shift+U 2014
@@ -946,16 +1085,22 @@ function Get-P9SScancodesForText([string]$Text) {
     }
     , $seq.ToArray()
 }
+# Keyboard input through the VirtualBox COM API, under the VirtualBox lock
+# (p9s-vbox.ps1 Invoke-P9SVBoxInProcess); the call itself cannot be bounded
+# in time.
 function Send-P9SGuestScancodes([string]$Vm, [object[]]$Groups) {
-    $vbc = New-Object -ComObject VirtualBox.VirtualBoxClient
-    $m = $vbc.VirtualBox.FindMachine($Vm)
-    if ($m.State -ne 6) { throw "the VM is not running (state $($m.State)); nothing sent" }
-    $s = $vbc.Session
-    $m.LockMachine($s, 1)
-    try { $kb = $s.Console.Keyboard; foreach ($g in $Groups) { foreach ($c in @($g)) { $kb.PutScancode([int]$c); Start-Sleep -Milliseconds 60 }; Start-Sleep -Milliseconds 140 } }
-    finally { $s.UnlockMachine() }
+    $r = Invoke-P9SVBoxInProcess -VBox (Get-P9SVBoxDefault) -Operation 'guest.keys' -Vm $Vm -Arguments @($Vm, $Groups) -Body {
+        param($name, $groupList)
+        $vbc = New-Object -ComObject VirtualBox.VirtualBoxClient
+        $m = $vbc.VirtualBox.FindMachine($name)
+        if ($m.State -ne 6) { throw "the VM is not running (state $($m.State)); nothing sent" }
+        $s = $vbc.Session
+        $m.LockMachine($s, 1)
+        try { $kb = $s.Console.Keyboard; foreach ($g in $groupList) { foreach ($c in @($g)) { $kb.PutScancode([int]$c); Start-Sleep -Milliseconds 60 }; Start-Sleep -Milliseconds 140 } }
+        finally { $s.UnlockMachine() }
+    }
+    if ($r.outcome -ne 'COMPLETED') { throw "$($r.reason) ($($r.outcome))$(if ($r.note) { ": $($r.note)" })" }
 }
-function Get-VBoxAcpiArgs([string]$Vm) { , @('controlvm', $Vm, 'acpipowerbutton') }
 # guest.unlock: the profile passphrase of the VM from the local secret store
 # (p9s-config.ps1), typed as scan codes. Errors are codes; the value is never
 # in a message. -Sender and -GetAcl are replaced by mocks in the tests.
@@ -976,11 +1121,11 @@ function New-P9SUnlockDispatcher {
 # a forced power-off, a reset, a snapshot or a raw scan-code string.
 function Get-P9SRealDispatch($Config) {
     @{
-        'vm.start' = { param($vm) $sa = Get-VBoxStartArgs $vm; & (Get-VBoxManagePath) @sa | Out-Null; if ($LASTEXITCODE -ne 0) { throw "VBoxManage startvm exited with $LASTEXITCODE" } }
+        'vm.start' = { param($vm) Assert-P9SVBoxCompleted (Invoke-P9SVBoxOperation -VBox (Get-P9SVBoxDefault) -Operation 'vm.start' -Vm $vm) }
         'guest.text' = { param($vm, $text) Send-P9SGuestScancodes $vm (Get-P9SScancodesForText $text) }
         'guest.key' = { param($vm, $codes) Send-P9SGuestScancodes $vm @(, [int[]]$codes) }
         'guest.unlock' = (New-P9SUnlockDispatcher -Config $Config -Sender { param($vm, $groups) Send-P9SGuestScancodes $vm $groups })
-        'vm.acpi' = { param($vm) $aa = Get-VBoxAcpiArgs $vm; & (Get-VBoxManagePath) @aa | Out-Null; if ($LASTEXITCODE -ne 0) { throw "VBoxManage controlvm exited with $LASTEXITCODE" } }
+        'vm.acpi' = { param($vm) Assert-P9SVBoxCompleted (Invoke-P9SVBoxOperation -VBox (Get-P9SVBoxDefault) -Operation 'vm.acpi' -Vm $vm) }
     }
 }
 function Get-P9SCalibrationHostChecks($Config) {
@@ -1000,7 +1145,7 @@ function Get-P9SCalibrationHostChecks($Config) {
         $out.Add("$vm state $st -> $(if ($st -eq 'off') { 'PASS' } else { 'FAIL' })")
         $ref = if ($Config -and $Config.vm_config_reference) { $(if ($i -eq 0) { $Config.vm_config_reference.debian } else { $Config.vm_config_reference.ubuntu }) } else { $null }
         if ($ref -and (Test-Path -LiteralPath $ref)) {
-            $diff = @(Compare-VmConfig -Reference (Get-Content -LiteralPath $ref) -Current @(& (Get-VBoxManagePath) showvminfo $vm --machinereadable))
+            $diff = @(Compare-VmConfig -Reference (Get-Content -LiteralPath $ref) -Current @(Get-P9SVmConfigReal $vm))
             $out.Add("$vm configuration against $([IO.Path]::GetFileName($ref)): $($diff.Count) differing keys$(if ($diff.Count) { ' (' + (($diff | ForEach-Object key) -join ', ') + ')' }) -> $(if ($diff.Count) { 'FAIL' } else { 'PASS' })")
         } else { $out.Add("$vm configuration reference not configured or missing -> PENDING") }
     }
@@ -1013,13 +1158,17 @@ function New-P9SRealContext([string]$StatePath, [string]$AuditPath, [Parameter(M
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $me = Get-Process -Id $PID
     $cfg = $Config
+    # the VirtualBox layer keeps its records next to the coordinator files
+    $vbx = New-P9SVBoxContext -Dir $dir -VmNames @(Get-P9SVmNames)
+    Set-P9SVBoxDefault $vbx
     [pscustomobject]@{
         StatePath = $full; SessionPath = Join-Path $dir 'coordinator-session.json'; LockPath = Join-Path $dir 'coordinator.lock'
         StopRequestPath = Join-Path $dir 'coordinator-stop.request'; AuditPath = $(if ($AuditPath) { $AuditPath } else { Join-Path $dir 'coordinator-audit.jsonl' })
         ThresholdsPath = Join-Path $KitDir 'paging-thresholds.json'
         ReadState = { param($p) Read-StateFile -Path $p }; NowQpc = { [Diagnostics.Stopwatch]::GetTimestamp() }; QpcFrequency = [Diagnostics.Stopwatch]::Frequency; IsMonitorAlive = $null
         ReadVmState = { param($vm) Get-P9SVmStateReal $vm }
-        ReadVmConfig = { param($vm) if ($vm -cin (Get-P9SVmNames)) { & (Get-VBoxManagePath) showvminfo $vm --machinereadable } }
+        ReadVmConfig = { param($vm) Get-P9SVmConfigReal $vm }
+        VBox = $vbx
         Dispatch = (Get-P9SRealDispatch $cfg)
         Sleep = { param($ms) Start-Sleep -Milliseconds $ms }; Pid = $PID; ProcessStartTicks = $me.StartTime.ToUniversalTime().Ticks
         EmergencyLockWaitMs = 30000; CalibrationHostChecks = { Get-P9SCalibrationHostChecks $cfg }.GetNewClosure()

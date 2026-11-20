@@ -444,17 +444,15 @@ Case 'K34' 'calibration preflight lists the bootstrap conditions, read only' {
 $cli = Join-Path $kit 'p9s-action.ps1'
 $pw = (Get-Process -Id $PID).Path
 $vb = Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe'
-# VM states for the "nothing changed" checks, read only. A read that returns
-# nothing (concurrent VBoxManage calls can) is retried, never taken for a
-# state.
-function VmStateLine([string]$v) {
-    $l = $null
-    for ($i = 0; $i -lt 5 -and -not $l; $i++) { $l = @((& $vb showvminfo $v --machinereadable 2>$null) | Where-Object { $_ -like 'VMState=*' }) | Select-Object -First 1; if (-not $l) { Start-Sleep -Milliseconds 500 } }
-    if ($l) { $l } else { "$v unreadable" }
-}
+# VM states for the "nothing changed" checks, read only, through the
+# toolkit's VirtualBox layer (host-wide lock, one query at a time, no
+# retry); its records go to this run's folder. A failed read is
+# 'unreadable', never a state.
+$oracleVBox = New-P9SVBoxContext -Dir (Join-Path $OutDir 'vbox-oracle') -VmNames @('P9S-D12', 'P9S-U24')
+function VmStateLine([string]$v) { Get-P9SVmStateReal $v $oracleVBox }
 function VmStates {
     if (-not (Test-Path -LiteralPath $vb)) { return 'no VirtualBox' }
-    @(foreach ($v in 'P9S-D12', 'P9S-U24') { VmStateLine $v }) -join ' '
+    @(foreach ($v in 'P9S-D12', 'P9S-U24') { "$v $(VmStateLine $v)" }) -join ' '
 }
 Case 'K35' 'command line: calibration dry run changes no VM; refusals exit 1' {
     $before = (VmStates) -join ' '
@@ -495,7 +493,7 @@ Case 'K37' $k37 {
     $state = Join-Path $d 'state.json'
     Write-StateAtomic -Path $state -Text (ConvertTo-StateJson -Doc $doc -Monitor $info -WrittenQpc ([Diagnostics.Stopwatch]::GetTimestamp()) -QpcFrequency ([Diagnostics.Stopwatch]::Frequency) -WrittenUtc 'x')
     $vmNow = @{}
-    foreach ($v in 'P9S-D12', 'P9S-U24') { $vmNow[$v] = $(if ((VmStateLine $v) -eq 'VMState="poweroff"') { 'off' } else { 'other' }) }
+    foreach ($v in 'P9S-D12', 'P9S-U24') { $vmNow[$v] = $(if ((VmStateLine $v) -eq 'off') { 'off' } else { 'other' }) }
     $sess = [ordered]@{ schema = 'p9s-coordinator-session/1'; session_id = 'ses-k37'; kind = 'Test'; opened_utc = 'x'; monitor_run_id = 'run-K'; lifecycle = 'ACTIVE'; halt = $null; previous_halt = $null; expected_vm = $vmNow; inflight = $null; last_marker = $null }
     Write-StateAtomic -Path (Join-Path $d 'coordinator-session.json') -Text ($sess | ConvertTo-Json -Depth 5)
     $p = Start-Process -FilePath $pw -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-File', $cli, '-Action', 'wait', '-Seconds', '60', '-StatePath', $state)

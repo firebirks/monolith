@@ -38,6 +38,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'hostmon-lib.ps1')
 . (Join-Path $PSScriptRoot 'p9s-config.ps1')
+. (Join-Path $PSScriptRoot 'p9s-vbox.ps1')
 $localCfg = Read-P9SConfig -Path (Get-P9SConfigPath -ConfigPath $ConfigPath -ToolDir $PSScriptRoot)
 if ($localCfg.external_disk) {
     if (-not $ExternalDrive) { $ExternalDrive = $localCfg.external_disk.drive_letter }
@@ -90,7 +91,7 @@ function Resolve-HostLayout {
 }
 $storageProviders = 'disk|Ntfs|partmgr|volmgr|storahci|stornvme|USBSTOR|UASPStor|USBHUB|Storport|StorPort|volsnap|Kernel-PnP|Kernel-Power|WHEA'
 $vmStates = @{ 1 = 'off'; 2 = 'saved'; 3 = 'teleported'; 4 = 'aborted'; 5 = 'aborted-saved'; 6 = 'running'; 7 = 'paused'; 8 = 'stuck'; 9 = 'teleporting'; 10 = 'live-snapshotting'; 11 = 'starting'; 12 = 'stopping'; 13 = 'saving'; 14 = 'restoring'; 15 = 'teleporting-paused' }
-function Read-HostRaw($Layout, $EventState, $Vbox) {
+function Read-HostRaw($Layout, $EventState, $Vbox, $VBoxCtx) {
     $r = [ordered]@{ ok = $true; error = $null; mono = (Now-Mono); utc = (Now-Utc); mem = $null; cpu = $null; pf_usage = @(); pf_perf = @(); disks = @()
         external_present = $null; external_identity_ok = $Layout.external_identity_ok; eventlog_ok = $null; storage_events_new = 0; storage_event_ids = @(); vm = @{} }
     try {
@@ -112,12 +113,23 @@ function Read-HostRaw($Layout, $EventState, $Vbox) {
         $EventState.since = (Get-Date).AddSeconds(-30)
     }
     if ($Vbox) {
+        # COM reads under the toolkit's VirtualBox lock, tried briefly: a busy
+        # lock or a quarantine skips this sample's VM states (p9s-vbox.ps1)
+        $rd = Invoke-P9SVBoxInProcess -VBox $VBoxCtx -Operation 'monitor.vmstates' -Opportunistic -Arguments @(, $Vbox) -Body {
+            param($machines)
+            $o = @{}
+            foreach ($n in @($machines.Keys)) {
+                try { $st = [int]$machines[$n].State; $sp = $null; if ($st -eq 6) { $sp = [int]$machines[$n].SessionPID }; $o[$n] = @{ state = $st; spid = $sp } } catch { $o[$n] = $null }
+            }
+            $o
+        }
         foreach ($n in @($Vbox.Keys)) {
-            try {
-                $st = [int]$Vbox[$n].State; $ws = $null
-                if ($st -eq 6) { $gp = Get-Process -Id ([int]$Vbox[$n].SessionPID) -ErrorAction SilentlyContinue; if ($gp) { $ws = $gp.WorkingSet64 / 1MB } }
-                $r.vm[$n] = [pscustomobject]@{ state = $vmStates[$st]; ws_mb = $ws }
-            } catch { $r.vm[$n] = [pscustomobject]@{ state = 'unreadable'; ws_mb = $null } }
+            if ($rd.outcome -ne 'COMPLETED') { $r.vm[$n] = [pscustomobject]@{ state = $(switch ($rd.outcome) { 'BUSY' { 'busy' } 'QUARANTINED' { 'quarantined' } default { 'unreadable' } }); ws_mb = $null }; continue }
+            $x = $rd.value[$n]
+            if (-not $x) { $r.vm[$n] = [pscustomobject]@{ state = 'unreadable'; ws_mb = $null }; continue }
+            $ws = $null
+            if ($x.spid) { $gp = Get-Process -Id ([int]$x.spid) -ErrorAction SilentlyContinue; if ($gp) { $ws = $gp.WorkingSet64 / 1MB } }
+            $r.vm[$n] = [pscustomobject]@{ state = $vmStates[[int]$x.state]; ws_mb = $ws }
         }
     }
     $w = Get-Process vmmemWSL -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -161,13 +173,19 @@ $info = [ordered]@{
     kit = [ordered]@{ lib_sha256 = (Get-FileSha256 (Join-Path $PSScriptRoot 'hostmon-lib.ps1')); monitor_sha256 = (Get-FileSha256 $PSCommandPath) }
 }
 $interval = if ($TestIntervalMs -gt 0) { $TestIntervalMs / 1000.0 } else { $cfg.interval_s }
-$layout = $null; $vbox = $null
+$layout = $null; $vbox = $null; $vbx = $null
 if (-not $TestFixture) {
     $layout = Resolve-HostLayout
-    try {
-        $vbc = New-Object -ComObject VirtualBox.VirtualBoxClient
-        $vbox = [ordered]@{}; foreach ($n in $vmNames) { $vbox[$n] = $vbc.VirtualBox.FindMachine($n) }
-    } catch { $vbox = $null }
+    # the VirtualBox layer's records sit next to the state file, where
+    # the coordinator keeps them too
+    $vbx = New-P9SVBoxContext -Dir (Split-Path -Parent ([IO.Path]::GetFullPath($StatePath))) -VmNames $vmNames
+    $c = Invoke-P9SVBoxInProcess -VBox $vbx -Operation 'monitor.connect' -Opportunistic -LockWaitMs 10000 -Arguments @(, $vmNames) -Body {
+        param($names)
+        $client = New-Object -ComObject VirtualBox.VirtualBoxClient
+        $m = [ordered]@{}; foreach ($n in $names) { $m[$n] = $client.VirtualBox.FindMachine($n) }
+        $m
+    }
+    if ($c.outcome -eq 'COMPLETED' -and $c.value) { $vbox = $c.value }
 }
 [ordered]@{
     run_id = $runId; start_utc = $startUtc.ToString('o'); pid = $PID; pwsh = [string]$PSVersionTable.PSVersion
@@ -216,7 +234,7 @@ try {
             if ($fixtureQ.Count) { $s = $fixtureQ.Dequeue() } else { $s = $fxLast.PSObject.Copy(); $s.mono = [double]$fxLast.mono + 5.0 }
             $fxLast = $s
         } else {
-            $raw = Read-HostRaw $layout $eventState $vbox
+            $raw = Read-HostRaw $layout $eventState $vbox $vbx
             $s = ConvertTo-DerivedSample -Prev $prevRaw -Cur $raw -Layout $layout
             $prevRaw = $raw
         }

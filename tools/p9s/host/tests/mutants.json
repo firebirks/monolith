@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 23,
+  "count": 39,
   "mutants": [
     {
       "id": "SM1",
@@ -261,6 +261,195 @@
       ],
       "find": "    $lock = Enter-P9SLock $Ctx 0",
       "replace": "    $lock = Enter-P9SLock $Ctx 3000"
+    },
+    {
+      "id": "VB1",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "a lock name per process instead of one per host",
+      "killers": [
+        "V01",
+        "V02",
+        "V03"
+      ],
+      "find": "MutexName = $(if ($MutexName) { $MutexName } else { Get-P9SVBoxMutexName })",
+      "replace": "MutexName = $(if ($MutexName) { \"$MutexName-$PID\" } else { Get-P9SVBoxMutexName })"
+    },
+    {
+      "id": "VB2",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "the child is not waited for",
+      "killers": [
+        "V01",
+        "V02",
+        "V08",
+        "V09"
+      ],
+      "find": "$done = Wait-P9SVBoxChild $child ([int]$VBox.ExecMs[$op])",
+      "replace": "$done = $true"
+    },
+    {
+      "id": "VB3",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "a late end after a timeout counts as success",
+      "killers": [
+        "V04",
+        "V07"
+      ],
+      "find": "if ($done -eq $true) { $Res.outcome = 'TIMED_OUT_EXITED'; $Res.reason = 'VBOX_COMMAND_TIMEOUT'",
+      "replace": "if ($done -eq $true) { $Res.outcome = 'COMPLETED'; $State.resolved = $true; return $true; $Res.reason = 'VBOX_COMMAND_TIMEOUT'"
+    },
+    {
+      "id": "VB4",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "no quarantine after a timeout",
+      "killers": [
+        "V04",
+        "V05",
+        "V06"
+      ],
+      "find": "$Res.latched = Set-P9SVBoxLatch $VBox $Res.reason $rec $why",
+      "replace": "$Res.latched = $true"
+    },
+    {
+      "id": "VB5",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "a record of a live process is taken for an ended owner",
+      "killers": [
+        "V14"
+      ],
+      "find": "if ($owner -ne 'gone') {",
+      "replace": "if ($false) {"
+    },
+    {
+      "id": "VB6",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "an owner that ended while starting VBoxManage is taken over",
+      "killers": [
+        "V12",
+        "V32"
+      ],
+      "find": "'STARTING' { return (Stop-P9SVBoxEntry $VBox 'VBOX_API_STATE_UNKNOWN' $rec 'owner ended while starting VBoxManage') }",
+      "replace": "'STARTING' { Remove-P9SVBoxRecord $VBox; return [pscustomobject]@{ ok = $true; reason = $null; latched = $false; note = 'x' } }"
+    },
+    {
+      "id": "VB7",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "a live orphaned child is taken for an ended one",
+      "killers": [
+        "V11"
+      ],
+      "find": "if ($alive -eq 'gone') {",
+      "replace": "if ($true) {"
+    },
+    {
+      "id": "VB8",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "the lock is released although the quarantine was not written",
+      "killers": [
+        "V18"
+      ],
+      "find": "if ($Release) { try { $Handle.mutex.ReleaseMutex() } catch {}; $Handle.mutex.Dispose() }",
+      "replace": "if ($true) { try { $Handle.mutex.ReleaseMutex() } catch {}; $Handle.mutex.Dispose() }"
+    },
+    {
+      "id": "VB9",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "the monitor quarantines a busy lock instead of skipping",
+      "killers": [
+        "V25"
+      ],
+      "find": "elseif ($Opportunistic) { $res.outcome = 'BUSY' }",
+      "replace": "elseif ($false) { $res.outcome = 'BUSY' }"
+    },
+    {
+      "id": "VB10",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "the error text of a failed command is recorded",
+      "killers": [
+        "V08",
+        "V30"
+      ],
+      "find": "$Res.diag = ConvertTo-P9SVBoxDiag $(if ($o) { $o.err } else { '' })",
+      "replace": "$Res.diag = $(if ($o) { $o.err } else { '' })"
+    },
+    {
+      "id": "VB11",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "recovery does not check for a running child",
+      "killers": [
+        "V16"
+      ],
+      "find": "if ($a -ne 'gone') {",
+      "replace": "if ($false) {"
+    },
+    {
+      "id": "VB12",
+      "suite": "vbox",
+      "file": "p9s-vbox.ps1",
+      "what": "recovery clears although a query failed",
+      "killers": [
+        "V16"
+      ],
+      "find": "if (-not $st) { & $refuse 'VBOX_RECOVERY_PROBE_FAILED'",
+      "replace": "if ($false) { & $refuse 'VBOX_RECOVERY_PROBE_FAILED'"
+    },
+    {
+      "id": "VB13",
+      "suite": "vbox",
+      "file": "coordinator-lib.ps1",
+      "what": "the coordinator ignores the quarantine",
+      "killers": [
+        "V20",
+        "V21",
+        "V22"
+      ],
+      "find": "$q = Read-P9SVBoxLatch $vb\n    if (-not $q.present) {",
+      "replace": "$q = Read-P9SVBoxLatch $vb\n    if ($true) {"
+    },
+    {
+      "id": "VB14",
+      "suite": "vbox",
+      "file": "coordinator-lib.ps1",
+      "what": "an emergency under quarantine goes on to the VM",
+      "killers": [
+        "V21"
+      ],
+      "find": "if (-not $vg.ok) {\n                # the management plane is in doubt",
+      "replace": "if ($false) {\n                # the management plane is in doubt"
+    },
+    {
+      "id": "VB15",
+      "suite": "vbox",
+      "file": "coordinator-lib.ps1",
+      "what": "an unreadable VM state is taken for off",
+      "killers": [
+        "V09",
+        "V26"
+      ],
+      "find": "    if (-not $r -or $r.outcome -ne 'COMPLETED' -or $r.exit_code -ne 0) { return 'unreadable' }",
+      "replace": "    if (-not $r -or $r.outcome -ne 'COMPLETED' -or $r.exit_code -ne 0) { return 'off' }"
+    },
+    {
+      "id": "VB16",
+      "suite": "vbox",
+      "file": "coordinator-lib.ps1",
+      "what": "an unsupported start is not detected",
+      "killers": [
+        "V29"
+      ],
+      "find": "if (-not $f -or -not $f.ScriptBlock.File -or -not ([string]$f.ScriptBlock.File).Equals([string]$need[$n], [StringComparison]::OrdinalIgnoreCase)) {",
+      "replace": "if ($false) {"
     }
   ]
 }

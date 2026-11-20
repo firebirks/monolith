@@ -344,7 +344,7 @@ Case 'H36' 'qualification cap and unresolved ACPI shutdown in the dry run' {
 # ---- publication safety of this tree --------------------------------------------------------
 $dist = 'README.md', 'assert-host-safe.ps1', 'com-type.ps1', 'coordinator-lib.ps1', 'host-monitor.ps1', 'hostmon-lib.ps1', 'p9s-action.ps1', 'p9s-config.ps1',
         'p9s-local.example.json', 'paging-thresholds.json', 'vm-action.ps1', 'tests\coordinator-tests.ps1', 'tests\hostmon-tests.ps1', 'tests\stagec-tests.ps1',
-        'tests\run-all.ps1', 'tests\mutants.json'
+        'tests\run-all.ps1', 'tests\mutants.json', 'p9s-vbox.ps1', 'tests\vbox-tests.ps1'
 $localOnly = 'p9s-local.json', 'KIT-SHA256SUMS.txt'
 $distFiles = @($dist | ForEach-Object { Join-Path $kit $_ } | Where-Object { Test-Path -LiteralPath $_ })
 Case 'H40' 'the tree holds exactly the distribution files (plus known local-only files)' {
@@ -382,16 +382,13 @@ Case 'H44' 'example configuration is valid and holds only placeholders' {
 $cli = Join-Path $kit 'p9s-action.ps1'
 $pw = (Get-Process -Id $PID).Path
 $vb = Join-Path $env:ProgramFiles 'Oracle\VirtualBox\VBoxManage.exe'
-# VM states for the "nothing changed" check, read only. A read that returns
-# nothing (concurrent VBoxManage calls can) is retried, never taken for a
-# state.
+# VM states for the "nothing changed" check, read only, through the
+# toolkit's VirtualBox layer (host-wide lock, one query at a time, no
+# retry); its records go to this run's folder.
+$oracleVBox = New-P9SVBoxContext -Dir (Join-Path $OutDir 'vbox-oracle') -VmNames @('P9S-D12', 'P9S-U24')
 function VmStates {
     if (-not (Test-Path -LiteralPath $vb)) { return 'no VirtualBox' }
-    @(foreach ($v in 'P9S-D12', 'P9S-U24') {
-        $l = $null
-        for ($i = 0; $i -lt 5 -and -not $l; $i++) { $l = @((& $vb showvminfo $v --machinereadable 2>$null) | Where-Object { $_ -like 'VMState=*' }) | Select-Object -First 1; if (-not $l) { Start-Sleep -Milliseconds 500 } }
-        if ($l) { $l } else { "$v unreadable" }
-    }) -join ' '
+    @(foreach ($v in 'P9S-D12', 'P9S-U24') { "$v $(Get-P9SVmStateReal $v $oracleVBox)" }) -join ' '
 }
 Case 'H50' 'command line with a configuration file: ACPI dry run, calibration simulation, retired shutdown typing' {
     $before = VmStates

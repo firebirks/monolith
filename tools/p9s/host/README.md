@@ -45,6 +45,7 @@ does not touch Tor, Monolith or its profiles.
 | `assert-host-safe.ps1` | Read-only check of the state: exit 0 only when READY |
 | `p9s-action.ps1` | The coordinator's entry point |
 | `coordinator-lib.ps1` | Actions, checks, sessions, emergency path, calibration dry run |
+| `p9s-vbox.ps1` | Every VirtualBox operation: one host-wide lock, bounded waits, quarantine, recovery |
 | `p9s-config.ps1` | Local configuration and the local secret store |
 | `p9s-local.example.json` | Example of the local configuration |
 | `paging-thresholds.json` | Paging values: candidates, not approved |
@@ -52,8 +53,9 @@ does not touch Tor, Monolith or its profiles.
 | `tests/hostmon-tests.ps1` | Monitor tests |
 | `tests/coordinator-tests.ps1` | Coordinator tests |
 | `tests/stagec-tests.ps1` | Configuration, credentials, ACPI shutdown, calibration, publication checks |
-| `tests/run-all.ps1` | Runs and checks the three suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 23 targeted faults and the tests that must detect them |
+| `tests/vbox-tests.ps1` | The VirtualBox layer: serialization, timeouts, crashes, recovery, coordinator use |
+| `tests/run-all.ps1` | Runs and checks the four suites, and the mutants (local and CI) |
+| `tests/mutants.json` | The 39 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -155,7 +157,15 @@ prints `HOST GATE OK` (exit 0) or `HOST GATE REFUSED` with every reason.
 Exit 0 for DISPATCHED, DONE or DRYRUN, 1 for a refusal or an unfinished
 outcome, 2 for FAILED. Next to the state file it keeps
 `coordinator-session.json`, `coordinator.lock`, `coordinator-stop.request`
-and `coordinator-audit.jsonl`.
+and `coordinator-audit.jsonl`, and the VirtualBox layer keeps its files
+there too (see "VirtualBox operations").
+
+Start it only with `pwsh -File` (as above) or dot-sourced at a prompt.
+Started with `&` from a prompt or from another script, its closures could
+not find the toolkit's functions (the profile passphrase would not be
+typed, the calibration host checks would fail); it then prints
+`refused: UNSUPPORTED_INVOCATION`, exits 2, and does nothing: no state is
+read, no file is written, no input is sent.
 
 Test actions need a READY state with the paging stop enforced, an ACTIVE
 test session opened on the same monitor run, both VMs in the state the
@@ -175,6 +185,8 @@ actions check again between chunks or every 5 s.
 | `emergency.acpi-shutdown` | One ACPI power-button request, then waits for power-off |
 | `emergency.wait-off`, `emergency.status` | Read-only |
 | `session.status`, `audit.oob`, `audit.vmconfig` | Read-only |
+| `vbox.status` | The VirtualBox quarantine, if any; no VirtualBox call |
+| `vbox.recover -Operation <id>` | The operator's recovery of a quarantine (see "VirtualBox operations") |
 | `calib.preflight`, `calib.dry-run` | Read-only preflight; simulated calibration |
 
 STOP or ABORT seen in any monitor state halts the session for good:
@@ -196,6 +208,96 @@ cannot start a VM or send text.
 
 Audit records hold action names, reason codes, the monitor run and
 sanitized parameters: text only as its length, paths as file names.
+
+## VirtualBox operations
+
+Every VirtualBox operation of the toolkit, read-only ones included, goes
+through `p9s-vbox.ps1`:
+
+- VBoxManage runs as a child process for four operations only, and only
+  for the two configured VMs: `vm.state` and `vm.config` (`showvminfo`),
+  `vm.start` (`startvm`) and `vm.acpi` (`controlvm <vm> acpipowerbutton`);
+- the toolkit's COM calls (keyboard input to a guest, the monitor's VM
+  states) run inside their process.
+
+All of them take one host-wide named mutex,
+`Global\P9S-VirtualBox-Management-v1`, the same whatever the folder,
+process or VM, and hold it for the whole operation: a second operation,
+in this or in another toolkit process, waits for it. The waits are
+bounded:
+
+| Limit | Default | Why |
+| --- | --- | --- |
+| Lock wait | 150 s | Longer than the longest command plus its confirmation, so that a healthy holder finishes, or quarantines, first |
+| `vm.state`, `vm.config`, `vm.acpi` | 30 s | A query or a posted ACPI event normally takes seconds |
+| `vm.start` | 120 s | `startvm` returns once the VM process runs |
+| Confirmation after a timeout | 10 s | A late end of the command is still seen |
+| The monitor's lock try | 1 s | The monitor skips a sample's VM states instead of waiting |
+
+The defaults bound the waits; they are not shown to suit every condition
+of VirtualBox.
+
+Nothing is retried automatically and no process is ever terminated: no
+VBoxManage, no VBoxSVC, no VM. A command that times out is not a success.
+Whatever cannot be resolved writes `vbox-quarantine.json` next to the
+coordinator files:
+
+- the lock was not acquired in time (`VBOX_LOCK_TIMEOUT`);
+- the command did not end in time: `VBOX_COMMAND_TIMEOUT` if it ended in
+  the confirmation window, `VBOX_CHILD_UNRESOLVED` with its process id if
+  it still runs, `VBOX_TERMINATION_UNVERIFIED` if its end cannot be
+  confirmed;
+- an operation was interrupted (`VBOX_OPERATION_CANCELLED`,
+  `VBOX_OPERATION_INTERRUPTED`);
+- an earlier owner ended without finishing: its operation record
+  (`vbox-operation.json`) is still there and cannot exclude a command
+  still running (`VBOX_API_STATE_UNKNOWN`, `VBOX_RECORD_INCOMPLETE`,
+  `VBOX_RECORD_UNREADABLE`, `VBOX_CHILD_UNRESOLVED`,
+  `VBOX_OPERATION_INTERRUPTED`), or the record belongs to a process that
+  still runs (`VBOX_RECORD_STALE`). The record is the evidence: Windows
+  reports the mutex as abandoned only while another process holds it
+  open, and recreates it otherwise. An owner that ended before it started
+  VBoxManage is the only case taken over without a quarantine; until then
+  the coordinator refuses with `VBOX_OPERATION_UNFINISHED`.
+
+The mutex is released only once the child has exited or the quarantine is
+written and read back; if the quarantine cannot be written, the process
+keeps the mutex until it ends. While a quarantine is in place every
+VirtualBox operation is refused, in every toolkit process, and so are test
+actions, sessions and ACPI requests: an emergency is recorded as
+unresolved, and the coordinator claims neither that a request was sent nor
+that a guest shut down. A missing `VBoxManage.exe` makes every VM state
+`unreadable`, never `off`, without a quarantine.
+
+Recovery, by the operator, once the cause is understood:
+
+1. `p9s-action.ps1 -Action vbox.status` shows the quarantine, its
+   operation id, any recorded VBoxManage process and whether it still
+   runs; it makes no VirtualBox call.
+2. If that process still runs, decide outside the toolkit (wait for it, or
+   end it by hand knowing what it was doing); the toolkit never ends it.
+3. `p9s-action.ps1 -Action vbox.recover -Operation <id>` (`-DryRun`
+   first) refuses if the id does not match or the process still runs,
+   then reads the state of each VM once, one query at a time, and clears
+   the quarantine only if every query answers; a failed query leaves it.
+   For an unfinished operation without a quarantine
+   (`VBOX_OPERATION_UNFINISHED`), the id is the one of its record: the
+   first `vbox.recover` judges it and quarantines it under the same id
+   unless it never started VBoxManage; the second clears it.
+4. An open test session is then refused (`SESSION_VBOX_RECOVERED`): close
+   it and open a new one, which checks the monitor state and the VM states
+   again.
+
+The records and `vbox-audit.jsonl` hold operation names, VM names, codes,
+times and process ids, never command lines, command output, paths or
+secrets; a failed command appears as the length of its error output and
+its VirtualBox error codes.
+
+The lock covers the toolkit only. VBoxManage typed by hand, the VirtualBox
+window, other programs and other projects' VMs are outside it. A COM call
+made inside a toolkit process cannot be bounded in time: a hung one keeps
+its process and the lock, and the other toolkit processes then time out
+and quarantine.
 
 ## Calibration (preparation only)
 
@@ -243,15 +345,15 @@ determined local user.
     pwsh -NoProfile -File tests/run-all.ps1 -OutDir <new folder>
          [-Mutants]
 
-runs the three suites (`hostmon`, `coordinator`, `stagec`), each in a
-new `pwsh -File` process, and judges them by their `results.json`: every
-declared case must be reported once, as PASS, FAIL or NOT_RUN; the exit
-code of a suite must agree with its results; anything on the error stream
-fails the run; the coordinator files of the default state folder must not
-change. `-Mutants` then applies each fault of `tests/mutants.json` to its
-own copy of this folder and requires one of the tests named for it to
-fail. Exit 0 only when every check passed. A suite can also be run on its
-own:
+runs the four suites (`hostmon`, `coordinator`, `stagec`, `vbox`), each
+in a new `pwsh -File` process, and judges them by their `results.json`:
+every declared case must be reported once, as PASS, FAIL or NOT_RUN; the
+exit code of a suite must agree with its results; anything on the error
+stream fails the run; the coordinator files of the default state folder
+must not change. `-Mutants` then applies each fault of
+`tests/mutants.json` to its own copy of this folder and requires one of
+the tests named for it to fail. Exit 0 only when every check passed. A
+suite can also be run on its own:
 
     pwsh -NoProfile -File tests/coordinator-tests.ps1 -OutDir <new folder>
 
@@ -267,8 +369,12 @@ dispatchers that only record calls, synthetic monitor states, dry runs
 and the simulated calibration; secrets are fixture files written by the
 test; the monitor and the coordinator run as separate processes only in
 fixture mode or for dry runs and refusals. Where VirtualBox is installed
-some cases also read the VM states (`VBoxManage showvminfo`, read only)
-to show that they did not change.
+some cases also read the VM states (`VBoxManage showvminfo`, read only,
+through `p9s-vbox.ps1`: one query at a time) to show that they did not
+change. The `vbox` suite never runs VirtualBox: its "VBoxManage" is a mock
+script started with pwsh, steered by named events, in worker processes
+that contend for test-only mutex names; a second mutex held by every mock
+while it runs detects any overlap.
 
 CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs
 
@@ -302,6 +408,12 @@ live calibration.
   dialog) depends on its desktop settings and is not verified.
 - No paging value is approved; paging stop enforcement is not validated.
 - The monitor was validated live once, with both VMs off.
+- The VirtualBox layer has not run against a real VirtualBox: its tests
+  use a mock VBoxManage. How long the real commands take on this host,
+  whether the defaults above fit them, and whether VirtualBox recovers by
+  itself from a hung management API are not known. Serialization reduces
+  the exposure to concurrent management calls; it cannot keep VirtualBox
+  from hanging.
 
 ## Rollback
 

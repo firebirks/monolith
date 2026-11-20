@@ -34,8 +34,8 @@ if ($OutDir.StartsWith($kit + [IO.Path]::DirectorySeparatorChar, [StringComparis
 New-Item -ItemType Directory -Path $OutDir | Out-Null
 $pwsh = (Get-Process -Id $PID).Path
 $problems = [System.Collections.Generic.List[string]]::new()
-$suites = 'hostmon', 'coordinator', 'stagec'
-$required = @($suites | ForEach-Object { "tests\$_-tests.ps1" }) + @('hostmon-lib.ps1', 'coordinator-lib.ps1', 'p9s-config.ps1', 'paging-thresholds.json') + @(if ($Mutants) { 'tests\mutants.json' })
+$suites = 'hostmon', 'coordinator', 'stagec', 'vbox'
+$required = @($suites | ForEach-Object { "tests\$_-tests.ps1" }) + @('hostmon-lib.ps1', 'coordinator-lib.ps1', 'p9s-config.ps1', 'p9s-vbox.ps1', 'paging-thresholds.json') + @(if ($Mutants) { 'tests\mutants.json' })
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $kit $_)) })
 if ($missing.Count) { "FAIL required files missing: $($missing -join ', ')"; [ordered]@{ schema = 'p9s-test-run/1'; ok = $false; problems = @("required files missing: $($missing -join ', ')") } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'summary.json') -Encoding utf8; exit 1 }
 
@@ -59,7 +59,7 @@ if ($CleanRunner) {
     if ($problems.Count) { $problems | ForEach-Object { "FAIL $_" }; $envFacts | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'environment.json') -Encoding utf8; exit 1 }
 }
 $envFacts | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'environment.json') -Encoding utf8
-$allowedNotRun = @{ hostmon = @(); coordinator = @(); stagec = @() }
+$allowedNotRun = @{ hostmon = @(); coordinator = @(); stagec = @(); vbox = @() }
 if (-not $envFacts.vboxmanage_present) { $allowedNotRun.coordinator = @('K37') }
 
 # the coordinator files of the default state folder, before
