@@ -1,23 +1,30 @@
 #Requires -Version 7.0
 # P9-S restricted single-VM ACPI validation (library; dot-sourced by
 # coordinator-lib.ps1). Purpose: one supervised check that the native
-# VirtualBox ACPI power button shuts the Debian VM (P9S-D12) down. The
+# VirtualBox ACPI power button shuts one laboratory VM down: the Debian VM
+# (P9S-D12, validated live on 2026-11-21) or the Ubuntu VM (P9S-U24). The
 # paging values cannot be calibrated before such checks exist, and normal
 # test actions need approved paging values: this capability breaks that
-# circle for exactly one VM, one start and one ACPI request, and for
-# nothing else. It is not a test mode and grants no exception to the
-# normal gate:
-#   - its actions are the acpi.* entries of the coordinator; none accepts
-#     a VM name, text, keys, a plan or a command; the only dispatches are
-#     one vm.start and one vm.acpi of P9S-D12;
+# circle for exactly one VM per session, one start and one ACPI request,
+# and for nothing else. It is not a test mode and grants no exception to
+# the normal gate:
+#   - the targets are a closed table (Get-P9SAcpiValidationTargets), each
+#     bound to its role in the local configuration; a session is bound to
+#     the one target its authorization names and keeps it; its actions are
+#     the acpi.* entries of the coordinator, none accepts a VM name, text,
+#     keys, a plan or a command; the only dispatches are one vm.start and
+#     one vm.acpi of that target;
 #   - it needs an owner-written authorization file naming that purpose,
 #     that VM, the permitted actions, one start, one ACPI request, a window
-#     of at most 4 hours and the boundaries below; the file is checked, not
-#     trusted as a cryptographic proof: the same Windows account can write
-#     it. It is the only way in: without a valid file acpi.open is refused,
-#     and without a validation session opened with one every later live
-#     step is refused, before the coordinator lock, any VirtualBox query or
-#     any dispatch (Get-P9SAcpiUnauthorized; dry runs included);
+#     of at most 4 hours, its own memory minimum and the boundaries below;
+#     P9S-U24 needs schema version 2 (memory in MiB by name, target code in
+#     the id); the file is checked, not trusted as a cryptographic proof:
+#     the same Windows account can write it. It is the only way in: without
+#     a valid file acpi.open is refused, and without a validation session
+#     opened with one, whose ledger entry names the same target and file,
+#     every later live step is refused, before the coordinator lock, any
+#     VirtualBox query or any dispatch (Get-P9SAcpiUnauthorized; dry runs
+#     included); acpi.preflight reads no VM state without a valid file;
 #   - no VirtualBox VM process of any VM may run on the host when the
 #     session opens and when the start is dispatched (Windows process list,
 #     not VirtualBox: another project's VM is never touched, only waited
@@ -26,8 +33,10 @@
 #     (so it reports UNCALIBRATED while the paging values are unapproved),
 #     fresh, alive, the 300-second commit qualification met, commit below
 #     90 %, no WARNING, UNKNOWN, STOP or ABORT, measurements complete, and,
-#     before the start and during the observation, at least the provisional
-#     available-memory minimum (MiB, as the Windows counter reports it).
+#     before the start and during the observation, at least the memory
+#     minimum of the authorization (MiB, as the Windows counter reports
+#     it; never below the target's floor in the table, which refuses lower
+#     values and approves nothing).
 #     The coordinator calls that ACPI_VALIDATION_ELIGIBLE; it is not READY
 #     and the monitor state is not changed;
 #   - the budgets (one start, one ACPI request) live in
@@ -44,14 +53,62 @@
 function Get-P9SAcpiValidationCapability {
     [pscustomobject]@{ name = 'ACPI_VALIDATION'; live_enabled = $true; note = 'live only inside a validation session opened with a valid owner authorization; without one every live step is refused before any VirtualBox query' }
 }
-function Get-P9SAcpiValidationTarget { 'P9S-D12' }
+# The only VMs a validation can target, each bound to its role in the local
+# configuration (vms.debian, vms.ubuntu), to the authorization schemas that
+# may name it and to the lowest memory minimum an authorization may set
+# for it. Nothing else is a target: not a name from a request, not another
+# configured VM, not another project's VM.
+function Get-P9SAcpiValidationTargets {
+    [ordered]@{
+        'P9S-D12' = [pscustomobject]@{ vm = 'P9S-D12'; role = 'debian'; index = 0; code = 'd12'; schemas = @('p9s-acpi-validation-authorization/1', 'p9s-acpi-validation-authorization/2'); min_available_mib_floor = 8192 }
+        'P9S-U24' = [pscustomobject]@{ vm = 'P9S-U24'; role = 'ubuntu'; index = 1; code = 'u24'; schemas = @('p9s-acpi-validation-authorization/2'); min_available_mib_floor = 8192 }
+    }
+}
+# The target entry of a VM name: only an exact name of the table that the
+# local configuration gives the same role; otherwise $null.
+function Get-P9SAcpiValidationTarget([AllowNull()][AllowEmptyString()][string]$Vm) {
+    $t = Get-P9SAcpiValidationTargets
+    if (-not $Vm -or $Vm -cnotin @($t.Keys)) { return $null }
+    $e = $t[$Vm]; $names = @(Get-P9SVmNames)
+    if ($names.Count -le $e.index -or [string]$names[$e.index] -cne $Vm) { return $null }
+    $e
+}
+function Get-P9SAcpiAuthorizationSchemas { 'p9s-acpi-validation-authorization/1', 'p9s-acpi-validation-authorization/2' }
+# Every field an authorization may hold: a misspelled, duplicated or extra
+# field (a second target, another limit) is refused, never ignored.
+function Get-P9SAcpiAuthorizationFields {
+    'schema', 'note', 'authorization_id', 'purpose', 'target_vm', 'permitted_actions', 'max_startups', 'max_acpi_requests', 'valid_from_utc', 'expires_utc',
+    'monitor_conditions', 'preflight_checks', 'supervision', 'on_stop_or_abort', 'provisional_safeguard_approved', 'approved_by', 'approved_utc'
+}
+# The memory field: version 1 (P9S-D12 only) says mb and means MiB, as the
+# Windows counter; version 2 names the unit.
+function Get-P9SAcpiMemoryField([string]$Schema) { if ($Schema -ceq 'p9s-acpi-validation-authorization/1') { 'provisional_min_available_mb' } else { 'provisional_min_available_mib' } }
+# Property names that occur twice in one JSON object (a parser keeps only
+# the last, so a second target_vm would win unseen).
+function Get-P9SJsonDuplicateNames([string]$Text) {
+    $out = [System.Collections.Generic.List[string]]::new()
+    $doc = $null
+    try { $doc = [System.Text.Json.JsonDocument]::Parse($Text) } catch { return @() }
+    try {
+        $walk = $null
+        $walk = {
+            param($el, [string]$path)
+            if ($el.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+                $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+                foreach ($p in $el.EnumerateObject()) { if (-not $seen.Add($p.Name)) { $out.Add("$path$($p.Name)") }; & $walk $p.Value "$path$($p.Name)." }
+            } elseif ($el.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) { foreach ($i in $el.EnumerateArray()) { & $walk $i $path } }
+        }
+        & $walk $doc.RootElement ''
+    } finally { $doc.Dispose() }
+    @($out)
+}
 function Get-P9SAcpiValidationActions { 'acpi.preflight', 'acpi.open', 'acpi.start', 'acpi.observe', 'acpi.shutdown', 'acpi.confirm-off', 'acpi.integrity', 'acpi.finalize' }
 # the actions an authorization must list to be usable (the others are
 # read-only or close the session)
 function Get-P9SAcpiAuthorizedActions { 'acpi.open', 'acpi.start', 'acpi.observe', 'acpi.shutdown', 'acpi.integrity' }
 function Get-P9SAcpiValidationLimits {
     [pscustomobject]@{
-        max_startups = 1; max_acpi_requests = 1; max_window_hours = 4; provisional_min_available_mb = 8192
+        max_startups = 1; max_acpi_requests = 1; max_window_hours = 4; provisional_min_available_mib = 8192
         shutdown_wait_s = 180; max_wait_s = 600; authorization_max_bytes = 16384
     }
 }
@@ -85,14 +142,26 @@ function Read-P9SAcpiAuthorization {
     $fi = Get-Item -LiteralPath $full
     if ($fi.Length -gt $lim.authorization_max_bytes) { $reasons.Add('AUTHORIZATION_TOO_LARGE'); return (& $out) }
     $sha = Get-FileSha256 $full
-    $o = $null
-    try { $o = Get-Content -LiteralPath $full -Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $reasons.Add('AUTHORIZATION_INVALID_JSON'); return (& $out) }
-    if ($o -isnot [System.Collections.IDictionary] -or $o.schema -cne 'p9s-acpi-validation-authorization/1') { $reasons.Add('AUTHORIZATION_SCHEMA_UNSUPPORTED'); return (& $out) }
-    $id = [string]$o.authorization_id
-    if ($id -cnotmatch '^acpiauth-[0-9]{8}-[0-9a-f]{8}$') { $reasons.Add('AUTHORIZATION_ID_INVALID') }
-    if ([string]$o.purpose -cne 'ACPI_VALIDATION') { $reasons.Add('AUTHORIZATION_PURPOSE') }
-    $target = [string]$o.target_vm
-    if ($target -cne (Get-P9SAcpiValidationTarget) -or $target -cnotin (Get-P9SVmNames)) { $reasons.Add('AUTHORIZATION_TARGET_NOT_ALLOWED') }
+    $o = $null; $text = $null
+    try { $text = Get-Content -LiteralPath $full -Raw; $o = $text | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $reasons.Add('AUTHORIZATION_INVALID_JSON'); return (& $out) }
+    $schema = if ($o -is [System.Collections.IDictionary]) { [string]$o['schema'] } else { $null }
+    if ($schema -cnotin @(Get-P9SAcpiAuthorizationSchemas)) { $reasons.Add('AUTHORIZATION_SCHEMA_UNSUPPORTED'); return (& $out) }
+    $v2 = $schema -ceq 'p9s-acpi-validation-authorization/2'
+    foreach ($k in @(Get-P9SJsonDuplicateNames $text)) { $reasons.Add("AUTHORIZATION_DUPLICATE_FIELD:$k") }
+    foreach ($k in @($o.Keys)) { if ([string]$k -cnotin @(Get-P9SAcpiAuthorizationFields)) { $reasons.Add("AUTHORIZATION_UNKNOWN_FIELD:$k") } }
+    # exactly one target, a string naming an entry of the table that this
+    # schema may name and that the configuration gives the same role
+    $tv = $o['target_vm']
+    $tg = if ($tv -is [string]) { Get-P9SAcpiValidationTarget $tv } else { $null }
+    $target = if ($tg) { $tg.vm } else { $null }
+    if (-not $tg -or $schema -cnotin @($tg.schemas)) { $reasons.Add('AUTHORIZATION_TARGET_NOT_ALLOWED') }
+    # version 2 ids carry the target code, so that an id cannot be moved to
+    # the other VM by editing the target alone
+    $id = [string]$o['authorization_id']
+    $idm = [regex]::Match($id, $(if ($v2) { '^acpiauth-(d12|u24)-[0-9]{8}-[0-9a-f]{8}$' } else { '^acpiauth-[0-9]{8}-[0-9a-f]{8}$' }))
+    if (-not $idm.Success) { $reasons.Add('AUTHORIZATION_ID_INVALID') }
+    elseif ($v2 -and $tg -and $idm.Groups[1].Value -cne $tg.code) { $reasons.Add('AUTHORIZATION_ID_TARGET_MISMATCH') }
+    if ([string]$o['purpose'] -cne 'ACPI_VALIDATION') { $reasons.Add('AUTHORIZATION_PURPOSE') }
     $acts = @($o.permitted_actions)
     if (-not $acts.Count -or @($acts | Where-Object { $_ -isnot [string] -or $_ -cnotin (Get-P9SAuthorizedActionsList) }).Count -or @($acts | Group-Object | Where-Object Count -gt 1).Count -or $acts -cnotcontains 'acpi.open') { $reasons.Add('AUTHORIZATION_ACTIONS_INVALID') }
     foreach ($k in 'max_startups', 'max_acpi_requests') { if ($o[$k] -isnot [long] -and $o[$k] -isnot [int] -or [long]$o[$k] -ne 1) { $reasons.Add("AUTHORIZATION_BUDGET:$k") } }
@@ -100,11 +169,18 @@ function Read-P9SAcpiAuthorization {
     if (-not $from -or -not $to) { $reasons.Add('AUTHORIZATION_TIME_INVALID') }
     elseif ($to -le $from) { $reasons.Add('AUTHORIZATION_TIME_INVALID') }
     elseif (($to - $from).TotalHours -gt $lim.max_window_hours) { $reasons.Add('AUTHORIZATION_WINDOW_TOO_LONG') }
-    $mc = $o.monitor_conditions; $want = Get-P9SAcpiMonitorConditions
+    # the monitor conditions of this version, and the session's own memory
+    # minimum under the unit name of the schema, never below the target's
+    # floor (a refusal threshold, not an approval)
+    $mc = $o['monitor_conditions']; $want = Get-P9SAcpiMonitorConditions; $memKey = Get-P9SAcpiMemoryField $schema
     $mcOk = $mc -is [System.Collections.IDictionary]
-    if ($mcOk) { foreach ($k in $want.Keys) { if ([string]$mc[$k] -cne [string]$want[$k]) { $mcOk = $false } } }
-    $minMb = if ($mcOk) { $mc['provisional_min_available_mb'] } else { $null }
-    if (-not $mcOk -or ($minMb -isnot [long] -and $minMb -isnot [int]) -or [long]$minMb -lt $lim.provisional_min_available_mb) { $reasons.Add('AUTHORIZATION_MONITOR_CONDITIONS') }
+    if ($mcOk) {
+        foreach ($k in $want.Keys) { if ([string]$mc[$k] -cne [string]$want[$k]) { $mcOk = $false } }
+        foreach ($k in @($mc.Keys)) { if ([string]$k -cnotin (@($want.Keys) + $memKey)) { $mcOk = $false; if ($v2 -and [string]$k -ceq 'provisional_min_available_mb') { $reasons.Add('AUTHORIZATION_MEMORY_UNIT') } } }
+    }
+    $minMb = if ($mcOk) { $mc[$memKey] } else { $null }
+    $floor = if ($tg) { [long]$tg.min_available_mib_floor } else { [long]$lim.provisional_min_available_mib }
+    if (-not $mcOk -or ($minMb -isnot [long] -and $minMb -isnot [int]) -or [long]$minMb -lt $floor) { $reasons.Add('AUTHORIZATION_MONITOR_CONDITIONS') }
     $pf = @($o.preflight_checks)
     if (@(Compare-Object -ReferenceObject @(Get-P9SAcpiPreflightChecks) -DifferenceObject @($pf | ForEach-Object { [string]$_ }) -CaseSensitive).Count) { $reasons.Add('AUTHORIZATION_PREFLIGHT_CHECKS') }
     if ([string]$o.supervision -cne 'operator-present') { $reasons.Add('AUTHORIZATION_SUPERVISION') }
@@ -113,9 +189,9 @@ function Read-P9SAcpiAuthorization {
     if ([string]::IsNullOrWhiteSpace([string]$o.approved_by) -or [string]$o.approved_by -match '^<.*>$' -or -not (ConvertTo-P9SAuthTime $o.approved_utc)) { $reasons.Add('AUTHORIZATION_APPROVAL_INCOMPLETE') }
     if ($reasons.Count -eq 0) {
         $auth = [ordered]@{
-            authorization_id = $id; authorization_sha256 = $sha; target_vm = $target; permitted_actions = @($acts)
+            authorization_id = $id; authorization_sha256 = $sha; schema = $schema; target_vm = $target; permitted_actions = @($acts)
             max_startups = 1; max_acpi_requests = 1; valid_from_utc = $from.ToString('o'); expires_utc = $to.ToString('o')
-            min_available_mb = [long]$minMb; approved_utc = (ConvertTo-P9SAuthTime $o.approved_utc).ToString('o')
+            min_available_mib = [long]$minMb; approved_utc = (ConvertTo-P9SAuthTime $o.approved_utc).ToString('o')
         }
     }
     & $out
@@ -226,18 +302,61 @@ function Set-P9SAcpiAfterEmergency($Ctx, [string]$Vm, [string]$Phase, [switch]$L
 
 # ------------------------------------------------------------ helpers
 function Test-P9SAcpiLive($Ctx) { [bool](Get-Prop $Ctx 'AcpiValidationLive') }
-# The default: nothing live without an owner authorization. acpi.open needs
-# a valid authorization file; every later live step an open validation
-# session bound to one. Reads files only (no VirtualBox, no lock).
+# The binding of a validation session, from files only: its stored
+# authorization names an allowed target, and the ledger entry of that
+# authorization names the same target, the same file and this session. A
+# session or ledger edited after the open (another target, another
+# authorization) is refused.
+function Get-P9SAcpiBindingReasons($Session, $LedgerDoc) {
+    $r = [System.Collections.Generic.List[string]]::new()
+    $au = $Session.validation
+    if (-not (Get-P9SAcpiValidationTarget ([string]$au.target_vm))) { $r.Add('ACPI_TARGET_NOT_ALLOWED') }
+    $e = Get-P9SAcpiEntry $LedgerDoc ([string]$au.authorization_id)
+    if (-not $e) { $r.Add('ACPI_LEDGER_ENTRY_MISSING') }
+    else {
+        if ([string]$e.target_vm -cne [string]$au.target_vm) { $r.Add('ACPI_TARGET_MISMATCH') }
+        if ([string]$e.authorization_sha256 -cne [string]$au.authorization_sha256 -or [string]$e.session_id -cne [string]$Session.session_id) { $r.Add('ACPI_AUTHORIZATION_MISMATCH') }
+    }
+    @($r)
+}
+# The default: nothing live without a valid owner authorization. acpi.open
+# needs a valid authorization file inside its time window; every later
+# live step an open validation session bound to one
+# (Get-P9SAcpiBindingReasons), inside the window of its stored copy. Reads
+# files only (no VirtualBox, no lock). Returns the reasons and the bound
+# target. Recovery stays available: acpi.confirm-off, acpi.finalize and the
+# emergency path are not live steps.
 function Get-P9SAcpiUnauthorized($Ctx, [hashtable]$Request) {
     $a = [string]$Request.Action
-    if ($a -ceq 'acpi.open') { return @((Read-P9SAcpiAuthorization -Path ([string]$Request.Authorization) -KitDir (Split-Path -Parent $Ctx.ThresholdsPath)).reasons) }
+    $no = { param([string[]]$Why) [pscustomobject]@{ reasons = @($Why); vm = $null } }
+    $now = Get-P9SUtcNow $Ctx
+    if ($a -ceq 'acpi.open') {
+        $au = Read-P9SAcpiAuthorization -Path ([string]$Request.Authorization) -KitDir (Split-Path -Parent $Ctx.ThresholdsPath)
+        if (-not $au.ok) { return (& $no $au.reasons) }
+        $w = Test-P9SAcpiAuthorizationTime $au.auth $now
+        if ($w) { return (& $no $w) }
+        return [pscustomobject]@{ reasons = @(); vm = [string]$au.auth.target_vm }
+    }
     if ($a -cin 'acpi.start', 'acpi.observe', 'acpi.shutdown', 'acpi.integrity') {
         $sr = Read-P9SSession $Ctx
-        if (-not $sr.ok) { return @('SESSION_UNREADABLE') }
-        if (-not $sr.session -or [string]$sr.session.kind -cne 'AcpiValidation' -or -not $sr.session.validation) { return @('ACPI_VALIDATION_SESSION_MISSING') }
+        if (-not $sr.ok) { return (& $no 'SESSION_UNREADABLE') }
+        if (-not $sr.session -or [string]$sr.session.kind -cne 'AcpiValidation' -or -not $sr.session.validation) { return (& $no 'ACPI_VALIDATION_SESSION_MISSING') }
+        $lg = Read-P9SAcpiLedger $Ctx
+        if (-not $lg.ok) { return (& $no $lg.reason) }
+        $bind = @(Get-P9SAcpiBindingReasons $sr.session $lg.doc)
+        if ($bind.Count) { return (& $no $bind) }
+        $w = Test-P9SAcpiAuthorizationTime $sr.session.validation $now
+        if ($w) { return (& $no $w) }
+        return [pscustomobject]@{ reasons = @(); vm = [string]$sr.session.validation.target_vm }
     }
-    @()
+    [pscustomobject]@{ reasons = @(); vm = $null }
+}
+# The configuration record of a target, by its role in the local
+# configuration (vm_config_reference.debian or .ubuntu).
+function Get-P9SAcpiReferencePath($Ctx, $Target) {
+    if (-not $Target -or -not $Ctx.Config -or -not $Ctx.Config.vm_config_reference) { return $null }
+    $v = $Ctx.Config.vm_config_reference.($Target.role)
+    if ($v) { [string]$v } else { $null }
 }
 # Processes of running VirtualBox VMs on the whole host (any VM, any
 # project), from the Windows process list, not from VirtualBox: there must
@@ -262,7 +381,7 @@ function Get-P9SAcpiBundle($Ctx) {
     if (-not $lg.ok) { $b.reasons.Add($lg.reason) } else { $b.ledger = $lg.doc }
     if ($b.ledger -and $b.auth) {
         $b.entry = Get-P9SAcpiEntry $b.ledger ([string]$b.auth.authorization_id)
-        if (-not $b.entry) { $b.reasons.Add('ACPI_LEDGER_ENTRY_MISSING') }
+        foreach ($x in @(Get-P9SAcpiBindingReasons $b.session $b.ledger)) { $b.reasons.Add($x) }
     }
     $b
 }
@@ -306,7 +425,7 @@ function Save-P9SAcpiState($Ctx, $B, [switch]$BeforeDispatch) {
 # ------------------------------------------------------------ entry
 function Invoke-P9SValidation($Ctx, [hashtable]$Request, $V, $Res) {
     $a = [string]$Request.Action; $dry = [bool]$Request.DryRun
-    $Res.vm = Get-P9SAcpiValidationTarget
+    $Res.vm = $null
     if ($a -ceq 'acpi.preflight') { return (Invoke-P9SAcpiPreflight $Ctx $Request $V $Res) }
     # a context with the live path switched off: refused before anything is
     # read, so that it makes no VirtualBox call
@@ -316,13 +435,15 @@ function Invoke-P9SValidation($Ctx, [hashtable]$Request, $V, $Res) {
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
     }
-    $na = @(Get-P9SAcpiUnauthorized $Ctx $Request)
-    if ($na.Count) {
-        Set-P9SRefused $Res $na $null
-        $Res.lines.Add("no owner authorization is bound to $a$(if ($a -ceq 'acpi.open') { ' (the authorization file is not valid)' } else { ' (no ACPI validation session is open)' }): nothing was read from VirtualBox and nothing was sent")
+    $na = Get-P9SAcpiUnauthorized $Ctx $Request
+    if ($na.reasons.Count) {
+        Set-P9SRefused $Res @($na.reasons) $null
+        $Res.lines.Add("no valid owner authorization is bound to $a$(if ($a -ceq 'acpi.open') { ' (the authorization file is not valid or not in its window)' } else { ' (no ACPI validation session bound to a valid authorization in its window is open)' }): nothing was read from VirtualBox and nothing was sent")
+        if ($a -ceq 'acpi.shutdown') { $Res.lines.Add('the validation request is not available now; to shut the VM down use emergency.acpi-shutdown (one request; it knows whether this validation already sent one)') }
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
     }
+    $Res.vm = $na.vm
     $hold = [pscustomobject]@{ lock = (Enter-P9SLock $Ctx 0) }
     if (-not $hold.lock) {
         Set-P9SRefused $Res @('COORDINATOR_BUSY') $null
@@ -349,22 +470,24 @@ function Invoke-P9SValidation($Ctx, [hashtable]$Request, $V, $Res) {
 
 # ------------------------------------------------------------ preflight
 function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
-    $target = Get-P9SAcpiValidationTarget
     $cap = Get-P9SAcpiValidationCapability
     $lim = Get-P9SAcpiValidationLimits
     $live = Test-P9SAcpiLive $Ctx
-    $Res.lines.Add("capability $($cap.name): live path $(if ($live) { 'enabled only inside a session opened with a valid owner authorization' } else { 'SWITCHED OFF in this context (dry runs only)' }); target $target; one start, one ACPI request")
-    $minMb = $lim.provisional_min_available_mb
-    $au = $null
+    $Res.lines.Add("capability $($cap.name): live path $(if ($live) { 'enabled only inside a session opened with a valid owner authorization' } else { 'SWITCHED OFF in this context (dry runs only)' }); targets $(@((Get-P9SAcpiValidationTargets).Keys) -join ', '), one per session, named by the authorization; one start, one ACPI request")
+    # the target comes only from a valid authorization: without one no VM
+    # state is read
+    $minMb = [double]$lim.provisional_min_available_mib
+    $au = $null; $tg = $null
     if ($Request.Authorization) {
         $au = Read-P9SAcpiAuthorization -Path ([string]$Request.Authorization) -KitDir (Split-Path -Parent $Ctx.ThresholdsPath)
         if ($au.ok) {
+            $tg = Get-P9SAcpiValidationTarget ([string]$au.auth.target_vm)
             $w = Test-P9SAcpiAuthorizationTime $au.auth (Get-P9SUtcNow $Ctx)
-            $Res.lines.Add("authorization $($au.id): valid$(if ($w) { ", but $w" } else { '' }); window $($au.auth.valid_from_utc) to $($au.auth.expires_utc); actions $(@($au.auth.permitted_actions) -join ' ')")
-            if ($w) { $Res.reasons.Add($w) }
-            $minMb = [double]$au.auth.min_available_mb
-        } else { $Res.lines.Add("authorization: NOT VALID ($($au.reasons -join ', '))"); Add-P9SAcpiReasons $Res.reasons $au.reasons }
-    } else { $Res.lines.Add('authorization: none given (-Authorization <file>); a session cannot open without one') }
+            $Res.lines.Add("authorization $($au.id) ($($au.auth.schema)): valid$(if ($w) { ", but $w (outside its window it names no target: no VM state is read)" } else { '' }); target $($tg.vm); window $($au.auth.valid_from_utc) to $($au.auth.expires_utc); actions $(@($au.auth.permitted_actions) -join ' '); memory minimum $($au.auth.min_available_mib) MiB, approved for this session")
+            if ($w) { $Res.reasons.Add($w); $tg = $null } else { $Res.vm = $tg.vm }
+            $minMb = [double]$au.auth.min_available_mib
+        } else { $Res.lines.Add("authorization: NOT VALID ($($au.reasons -join ', ')); no target, no VM state read"); Add-P9SAcpiReasons $Res.reasons $au.reasons }
+    } else { $Res.lines.Add('authorization: none given (-Authorization <file>); a session cannot open without one, and without one no target is chosen and no VM state is read'); $Res.reasons.Add('AUTHORIZATION_MISSING') }
     $lg = Read-P9SAcpiLedger $Ctx
     if (-not $lg.ok) { $Res.lines.Add("ledger: $($lg.reason) -> FAIL"); $Res.reasons.Add($lg.reason) }
     else {
@@ -377,7 +500,7 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
     $Res.lines.Add("session: $(if (-not $sr.ok) { 'UNREADABLE' } elseif ($sr.session) { "$($sr.session.session_id) kind $($sr.session.kind) $($sr.session.lifecycle)" } else { 'none' })")
     $g = Get-P9SGate $Ctx; $Res.status = $g.status; $Res.run_id = $g.run_id
     $e = Test-P9SAcpiValidationState -Text $g.text -NowQpc (& $Ctx.NowQpc) -QpcFrequency $Ctx.QpcFrequency -IsMonitorAlive $Ctx.IsMonitorAlive -MinAvailableMb $minMb
-    $Res.lines.Add("monitor: status $(if ($e.status) { $e.status } else { '-' }), run $(if ($e.run_id) { $e.run_id } else { '-' }); commit $(if (Test-Finite $e.commit_pct) { ([double]$e.commit_pct).ToString('F1', [Globalization.CultureInfo]::InvariantCulture) + ' %' } else { '-' }); available $(if (Test-Finite $e.avail_mb) { [math]::Round([double]$e.avail_mb) } else { '-' }) MiB (provisional minimum $minMb MiB before the start and while observing, validation only, owner approval required)")
+    $Res.lines.Add("monitor: status $(if ($e.status) { $e.status } else { '-' }), run $(if ($e.run_id) { $e.run_id } else { '-' }); commit $(if (Test-Finite $e.commit_pct) { ([double]$e.commit_pct).ToString('F1', [Globalization.CultureInfo]::InvariantCulture) + ' %' } else { '-' }); available $(if (Test-Finite $e.avail_mb) { [math]::Round([double]$e.avail_mb) } else { '-' }) MiB (minimum $minMb MiB before the start and while observing, $(if ($tg) { 'from the authorization' } else { 'the lowest the code accepts; the authorization sets the session value' }); validation only)")
     $Res.lines.Add("paging: $(if ($e.paging_calibration) { $e.paging_calibration } else { '-' }) (recorded, never a paging pass; normal READY stays unavailable)")
     $Res.lines.Add("$($e.state)$(if (-not $e.ok) { ': ' + ($e.reasons -join ', ') })")
     Add-P9SAcpiReasons $Res.reasons $e.reasons
@@ -387,15 +510,18 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
     $vg = Get-P9SVBoxGate $Ctx
     $Res.lines.Add("VirtualBox API: $($vg.text) -> $(if ($vg.ok) { 'PASS' } else { 'FAIL (no VirtualBox query is made)' })")
     Add-P9SAcpiReasons $Res.reasons $vg.reasons
-    if ($vg.ok) {
+    if (-not $tg) { $Res.lines.Add('target: not read (no valid authorization names one)') }
+    elseif ($vg.ok) {
         $tr = [System.Collections.Generic.List[string]]::new()
-        $o = Test-P9SAcpiTarget $Ctx $target 'preflight' 'off' $tr
+        $o = Test-P9SAcpiTarget $Ctx $tg.vm 'preflight' 'off' $tr
         $Res.lines.Add("target: $(Format-P9SVmObservation $o) -> $(if ($tr.Count) { 'FAIL' } else { 'PASS' })")
         Add-P9SAcpiReasons $Res.reasons $tr
     }
-    $ref = if ($Ctx.Config -and $Ctx.Config.vm_config_reference) { $Ctx.Config.vm_config_reference.debian } else { $null }
-    $Res.lines.Add("configuration reference: $(if ($ref -and (Test-Path -LiteralPath $ref)) { "$([IO.Path]::GetFileName($ref)) -> PASS" } else { 'not configured or missing -> FAIL' })")
-    if (-not ($ref -and (Test-Path -LiteralPath $ref))) { $Res.reasons.Add('ACPI_REFERENCE_MISSING') }
+    if ($tg) {
+        $ref = Get-P9SAcpiReferencePath $Ctx $tg
+        $Res.lines.Add("configuration reference ($($tg.role)): $(if ($ref -and (Test-Path -LiteralPath $ref)) { "$([IO.Path]::GetFileName($ref)) -> PASS" } else { 'not configured or missing -> FAIL' })")
+        if (-not ($ref -and (Test-Path -LiteralPath $ref))) { $Res.reasons.Add('ACPI_REFERENCE_MISSING') }
+    } else { $Res.lines.Add('configuration reference: not checked (no target)') }
     $Res.lines.Add("ACPI VALIDATION PREFLIGHT: $(if ($Res.reasons.Count) { 'NOT READY TO OPEN' } else { 'all checks passed' }); live path $(if ($live) { 'enabled with a valid authorization' } else { 'SWITCHED OFF' })")
     $Res.outcome = 'DONE'
     Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
@@ -406,9 +532,12 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
 function Invoke-P9SAcpiOpen($Ctx, [hashtable]$Request, $Res) {
     $dry = [bool]$Request.DryRun
     $reasons = [System.Collections.Generic.List[string]]::new()
-    $target = Get-P9SAcpiValidationTarget
     $au = Read-P9SAcpiAuthorization -Path ([string]$Request.Authorization) -KitDir (Split-Path -Parent $Ctx.ThresholdsPath)
     Add-P9SAcpiReasons $reasons $au.reasons
+    # the session's one target: the one its authorization names, for good
+    $tg = if ($au.ok) { Get-P9SAcpiValidationTarget ([string]$au.auth.target_vm) } else { $null }
+    $target = if ($tg) { $tg.vm } else { $null }
+    if (-not $target) { Add-P9SAcpiReasons $reasons @('AUTHORIZATION_TARGET_NOT_ALLOWED') }
     if ($au.ok) {
         $w = Test-P9SAcpiAuthorizationTime $au.auth (Get-P9SUtcNow $Ctx); if ($w) { $reasons.Add($w) }
         if (@($au.auth.permitted_actions) -cnotcontains 'acpi.open') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.open') }
@@ -435,14 +564,14 @@ function Invoke-P9SAcpiOpen($Ctx, [hashtable]$Request, $Res) {
             if ([string]$Request.AcknowledgeAbort -cne [string]$sess.halt.abort_id) { $reasons.Add('ABORT_NOT_ACKNOWLEDGED') } else { $ackOk = $true }
         }
     }
-    $minMb = if ($au.ok) { [double]$au.auth.min_available_mb } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mb }
+    $minMb = if ($au.ok) { [double]$au.auth.min_available_mib } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mib }
     $e = Test-P9SAcpiValidationState -Text $g.text -NowQpc (& $Ctx.NowQpc) -QpcFrequency $Ctx.QpcFrequency -IsMonitorAlive $Ctx.IsMonitorAlive -MinAvailableMb $minMb
     Add-P9SAcpiReasons $reasons $e.reasons
     Add-P9SAcpiReasons $reasons (Get-P9SAcpiHostVmReasons $Ctx)
     $vg = Get-P9SVBoxGate $Ctx
     Add-P9SAcpiReasons $reasons $vg.reasons
     $states = [ordered]@{}
-    if ($vg.ok) {
+    if ($vg.ok -and $target) {
         $o = Test-P9SAcpiTarget $Ctx $target 'session' 'off' $reasons
         $states[$target] = $o.state
         if ($ackOk) { foreach ($n in Get-P9SVmNames) { if ($n -cne $target) { $x = Get-P9SVmObservation $Ctx $n 'session'; $states[$n] = $x.state; if ($x.state -cne 'off') { $reasons.Add('VMS_NOT_OFF') } } } }
@@ -455,11 +584,11 @@ function Invoke-P9SAcpiOpen($Ctx, [hashtable]$Request, $Res) {
     $new.expected_vm = [ordered]@{ $target = 'off' }; $new.previous_halt = $prev
     $new.validation = $au.auth
     $entry = [ordered]@{
-        authorization_id = $au.id; authorization_sha256 = $au.sha256; session_id = $new.session_id; target_vm = $target; monitor_run_id = $g.run_id
-        opened_utc = [DateTime]::UtcNow.ToString('o'); valid_from_utc = $au.auth.valid_from_utc; expires_utc = $au.auth.expires_utc
+        authorization_id = $au.id; authorization_sha256 = $au.sha256; authorization_schema = $au.auth.schema; session_id = $new.session_id; target_vm = $target; monitor_run_id = $g.run_id
+        opened_utc = [DateTime]::UtcNow.ToString('o'); valid_from_utc = $au.auth.valid_from_utc; expires_utc = $au.auth.expires_utc; min_available_mib = $au.auth.min_available_mib
         startups_used = 0; acpi_used = 0; acpi_source = $null; phase = 'OPEN'; deadline_utc = $null; integrity = $null; outcome = $null; finalized_utc = $null; events = @()
     }
-    Add-P9SAcpiEvent $entry 'opened' "monitor run $($g.run_id); commit $([math]::Round([double]$e.commit_pct, 1)) %; available $([math]::Round([double]$e.avail_mb)) MB"
+    Add-P9SAcpiEvent $entry 'opened' "monitor run $($g.run_id); commit $([math]::Round([double]$e.commit_pct, 1)) %; available $([math]::Round([double]$e.avail_mb)) MiB (minimum $($au.auth.min_available_mib) MiB)"
     $lg.doc.entries = @($lg.doc.entries) + @($entry)
     # the ledger first: if the session record then fails, the
     # authorization is spent and nothing can start
@@ -478,13 +607,13 @@ function Invoke-P9SAcpiStart($Ctx, [hashtable]$Request, $Res) {
     if ($b.session) { $Res.session = $b.session.session_id; if ($b.session.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') } }
     if ($b.auth -and @($b.auth.permitted_actions) -cnotcontains 'acpi.start') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.start') }
     if ($b.entry -and $b.auth -and [int]$b.entry.startups_used -ge [int]$b.auth.max_startups) { $reasons.Add('ACPI_STARTUP_BUDGET_EXHAUSTED') }
-    $minMb = if ($b.auth) { [double]$b.auth.min_available_mb } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mb }
+    $minMb = if ($b.auth) { [double]$b.auth.min_available_mib } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mib }
     $c = Test-P9SAcpiConditions $Ctx $b $Res -MinAvailableMb $minMb
     Add-P9SAcpiReasons $reasons $c.reasons
     Add-P9SAcpiReasons $reasons (Get-P9SAcpiHostVmReasons $Ctx)
-    $target = if ($b.auth) { [string]$b.auth.target_vm } else { Get-P9SAcpiValidationTarget }
+    $target = if ($b.auth) { [string]$b.auth.target_vm } else { $null }
     $o = $null
-    if ((Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'start' 'off' $reasons }
+    if ($target -and (Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'start' 'off' $reasons }
     if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $c.gate; return $Res }
     # last check, immediately before the dispatch: the monitor and the host
     # VM processes again, and the observation must still be fresh
@@ -535,12 +664,12 @@ function Invoke-P9SAcpiObserve($Ctx, [hashtable]$Request, $Res) {
     if ($b.entry -and [int]$b.entry.startups_used -lt 1) { $reasons.Add('ACPI_NOT_STARTED') }
     # the provisional memory minimum holds while the VM runs too: below it
     # the observation ends and the one ACPI request stays available
-    $minMb = if ($b.auth) { [double]$b.auth.min_available_mb } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mb }
+    $minMb = if ($b.auth) { [double]$b.auth.min_available_mib } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mib }
     $lowHint = "available memory is below the provisional minimum ($minMb MiB): no further observation; the one ACPI request (acpi.shutdown) stays available"
     $c = Test-P9SAcpiConditions $Ctx $b $Res -MinAvailableMb $minMb
     Add-P9SAcpiReasons $reasons $c.reasons
-    $target = if ($b.auth) { [string]$b.auth.target_vm } else { Get-P9SAcpiValidationTarget }
-    if ((Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'observe' 'running' $reasons; if ($o.observed) { $Res.lines.Add("begin: $(Format-P9SVmObservation $o)") } }
+    $target = if ($b.auth) { [string]$b.auth.target_vm } else { $null }
+    if ($target -and (Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'observe' 'running' $reasons; if ($o.observed) { $Res.lines.Add("begin: $(Format-P9SVmObservation $o)") } }
     if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $c.gate; if ($reasons -ccontains 'MEMORY_BELOW_PROVISIONAL_MINIMUM') { $Res.lines.Add($lowHint) }; return $Res }
     $secs = [int]$Request.Seconds
     if ($dry) { $Res.outcome = 'DRYRUN'; $Res.lines.Add("dry run: would observe $target for $secs s with a monitor check every 5 s and one VM-state query at each end"); return $Res }
@@ -572,9 +701,9 @@ function Invoke-P9SAcpiShutdown($Ctx, [hashtable]$Request, $Res, $Hold) {
     if ($b.entry -and $b.auth -and [int]$b.entry.acpi_used -ge [int]$b.auth.max_acpi_requests) { $reasons.Add('ACPI_BUDGET_EXHAUSTED') }
     $c = Test-P9SAcpiConditions $Ctx $b $Res -ForShutdown
     Add-P9SAcpiReasons $reasons $c.reasons
-    $target = if ($b.auth) { [string]$b.auth.target_vm } else { Get-P9SAcpiValidationTarget }
+    $target = if ($b.auth) { [string]$b.auth.target_vm } else { $null }
     $o = $null
-    if ((Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'shutdown' 'running' $reasons }
+    if ($target -and (Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'shutdown' 'running' $reasons }
     if ($reasons.Count) {
         Set-P9SRefused $Res @($reasons) $c.gate
         if (@($reasons | Where-Object { $_ -like 'SESSION_HALTED*' -or $_ -eq 'EMERGENCY_STOP_REQUESTED' -or $_ -like 'AUTHORIZATION_*' -or $_ -like 'STATE_*' -or $_ -eq 'MONITOR_NOT_RUNNING' }).Count) { $Res.lines.Add("the validation request is not available now; to shut $target down use emergency.acpi-shutdown (one request; it knows whether this validation already sent one)") }
@@ -695,6 +824,9 @@ function Invoke-P9SAcpiConfirmOff($Ctx, [hashtable]$Request, $Res, $Hold) {
     if (-not $entry -or (Test-P9SAcpiEntryResolved $entry)) { $u = @(Get-P9SAcpiUnresolved $lg.doc ''); if ($u.Count) { $entry = $u[-1] } }
     if (-not $entry -or (Test-P9SAcpiEntryResolved $entry)) { Set-P9SRefused $Res @('ACPI_NOTHING_TO_CONFIRM') $null; $Res.lines.Add('no ACPI validation is waiting for a confirmation'); return $Res }
     $target = [string]$entry.target_vm
+    # only a VM of the target table is ever watched, whatever the ledger says
+    if (-not (Get-P9SAcpiValidationTarget $target)) { Set-P9SRefused $Res @('ACPI_TARGET_NOT_ALLOWED') $null; $Res.lines.Add("the unresolved validation $($entry.authorization_id) names '$target', which is not a validation target: nothing is read"); return $Res }
+    $Res.vm = $target
     $vg = Get-P9SVBoxGate $Ctx
     if (-not $vg.ok) { Set-P9SRefused $Res @($vg.reasons) $null; $Res.lines.Add("VirtualBox is $($vg.text): the state of $target is not read and stays unknown"); return $Res }
     $secs = [int]$Request.Seconds
@@ -713,11 +845,11 @@ function Invoke-P9SAcpiIntegrity($Ctx, [hashtable]$Request, $Res) {
     $reasons = [System.Collections.Generic.List[string]]::new(); Add-P9SAcpiReasons $reasons $b.reasons
     if ($b.session) { $Res.session = $b.session.session_id; if ([string]$b.session.lifecycle -ceq 'CLOSED') { $reasons.Add('SESSION_CLOSED') }; if ($b.session.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') } }
     if ($b.auth -and @($b.auth.permitted_actions) -cnotcontains 'acpi.integrity') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.integrity') }
-    $ref = if ($Request.Reference) { [string]$Request.Reference } elseif ($Ctx.Config -and $Ctx.Config.vm_config_reference) { [string]$Ctx.Config.vm_config_reference.debian } else { $null }
+    $target = if ($b.auth) { [string]$b.auth.target_vm } else { $null }
+    $ref = if ($Request.Reference) { [string]$Request.Reference } else { Get-P9SAcpiReferencePath $Ctx (Get-P9SAcpiValidationTarget $target) }
     if (-not $ref -or -not (Test-Path -LiteralPath $ref -PathType Leaf)) { $reasons.Add('ACPI_REFERENCE_MISSING') }
     $vg = Get-P9SVBoxGate $Ctx; Add-P9SAcpiReasons $reasons $vg.reasons
-    $target = if ($b.auth) { [string]$b.auth.target_vm } else { Get-P9SAcpiValidationTarget }
-    if ($vg.ok) { $null = Test-P9SAcpiTarget $Ctx $target 'integrity' 'off' $reasons }
+    if ($vg.ok -and $target) { $null = Test-P9SAcpiTarget $Ctx $target 'integrity' 'off' $reasons }
     if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $null; return $Res }
     if ($dry) { $Res.outcome = 'DRYRUN'; $Res.lines.Add("dry run: would read the configuration of $target once and compare it with $([IO.Path]::GetFileName($ref)) (key names only)"); return $Res }
     $cur = @(& $Ctx.ReadVmConfig $target)
@@ -753,7 +885,7 @@ function Invoke-P9SAcpiFinalize($Ctx, [hashtable]$Request, $Res) {
     if ($b.session -and [string]$b.session.lifecycle -ceq 'CLOSED') { $reasons.Add('SESSION_CLOSED') }
     if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $null; return $Res }
     $Res.session = $b.session.session_id
-    $target = [string]$b.auth.target_vm
+    $target = [string]$b.auth.target_vm; $Res.vm = $target
     $note = $null
     if ($b.session.inflight) {
         $note = "in-flight $($b.session.inflight.action) of an ended coordinator discarded; its effect is unknown"

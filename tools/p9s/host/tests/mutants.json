@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 61,
+  "count": 74,
   "mutants": [
     {
       "id": "SM1",
@@ -587,9 +587,11 @@
       "what": "another target VM is accepted",
       "killers": [
         "A04",
-        "A02"
+        "A02",
+        "U02",
+        "U04"
       ],
-      "find": "    if ($target -cne (Get-P9SAcpiValidationTarget) -or $target -cnotin (Get-P9SVmNames)) { $reasons.Add('AUTHORIZATION_TARGET_NOT_ALLOWED') }",
+      "find": "    if (-not $tg -or $schema -cnotin @($tg.schemas)) { $reasons.Add('AUTHORIZATION_TARGET_NOT_ALLOWED') }",
       "replace": "    if ($false) { $reasons.Add('AUTHORIZATION_TARGET_NOT_ALLOWED') }"
     },
     {
@@ -645,9 +647,10 @@
       "file": "p9s-acpival.ps1",
       "what": "a live step without an owner authorization reaches VirtualBox",
       "killers": [
-        "A01"
+        "A01",
+        "U06"
       ],
-      "find": "    if ($na.Count) {",
+      "find": "    if ($na.reasons.Count) {",
       "replace": "    if ($false) {"
     },
     {
@@ -704,6 +707,154 @@
       ],
       "find": "    if ($b.auth -and @($b.auth.permitted_actions) -cnotcontains 'acpi.shutdown') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.shutdown') }",
       "replace": "    if ($false) { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.shutdown') }"
+    },
+    {
+      "id": "AV18",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a target is accepted whatever role the configuration gives it",
+      "killers": [
+        "U02"
+      ],
+      "find": "    if ($names.Count -le $e.index -or [string]$names[$e.index] -cne $Vm) { return $null }",
+      "replace": "    if ($false) { return $null }"
+    },
+    {
+      "id": "AV19",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a version-2 id of one target is accepted for the other",
+      "killers": [
+        "U02",
+        "U04"
+      ],
+      "find": "    elseif ($v2 -and $tg -and $idm.Groups[1].Value -cne $tg.code) {",
+      "replace": "    elseif ($false) {"
+    },
+    {
+      "id": "AV20",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a duplicated field (a second target) is silently accepted",
+      "killers": [
+        "U02"
+      ],
+      "find": "    foreach ($k in @(Get-P9SJsonDuplicateNames $text)) {",
+      "replace": "    foreach ($k in @()) {"
+    },
+    {
+      "id": "AV21",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unknown field (another target or limit) is ignored",
+      "killers": [
+        "U02"
+      ],
+      "find": "    foreach ($k in @($o.Keys)) { if ([string]$k -cnotin @(Get-P9SAcpiAuthorizationFields)) {",
+      "replace": "    foreach ($k in @($o.Keys)) { if ($false) {"
+    },
+    {
+      "id": "AV22",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a session edited to another target is accepted",
+      "killers": [
+        "U03"
+      ],
+      "find": "        if ([string]$e.target_vm -cne [string]$au.target_vm) { $r.Add('ACPI_TARGET_MISMATCH') }",
+      "replace": "        if ($false) { $r.Add('ACPI_TARGET_MISMATCH') }"
+    },
+    {
+      "id": "AV23",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a ledger entry of another authorization or session is accepted",
+      "killers": [
+        "U03"
+      ],
+      "find": "        if ([string]$e.authorization_sha256 -cne [string]$au.authorization_sha256 -or [string]$e.session_id -cne [string]$Session.session_id) {",
+      "replace": "        if ($false) {"
+    },
+    {
+      "id": "AV24",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a memory minimum below the target floor is accepted",
+      "killers": [
+        "A02",
+        "U17"
+      ],
+      "find": "-or [long]$minMb -lt $floor) { $reasons.Add('AUTHORIZATION_MONITOR_CONDITIONS') }",
+      "replace": "-or $false) { $reasons.Add('AUTHORIZATION_MONITOR_CONDITIONS') }"
+    },
+    {
+      "id": "AV25",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an expired authorization passes the guard and reaches VirtualBox",
+      "killers": [
+        "U06"
+      ],
+      "find": "        $w = Test-P9SAcpiAuthorizationTime $au.auth $now",
+      "replace": "        $w = $null"
+    },
+    {
+      "id": "AV26",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the preflight reads a VM state without an authorization",
+      "killers": [
+        "U06"
+      ],
+      "find": "    $au = $null; $tg = $null",
+      "replace": "    $au = $null; $tg = Get-P9SAcpiValidationTarget 'P9S-U24'"
+    },
+    {
+      "id": "AV27",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unreadable ledger is read as an empty one (budgets and unresolved entries lost)",
+      "killers": [
+        "U18"
+      ],
+      "find": "        if ($r.error -eq 'missing') { return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger) } }",
+      "replace": "        if ($true) { return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger) } }"
+    },
+    {
+      "id": "AV28",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unresolved shutdown counts as resolved",
+      "killers": [
+        "A12",
+        "U12"
+      ],
+      "find": "function Get-P9SAcpiResolvedPhases { 'OPEN', 'START_FAILED', 'OFF_CONFIRMED', 'OFF_AFTER_DEADLINE', 'OFF_REQUEST_UNCONFIRMED', 'OFF_WITHOUT_ACPI', 'OFF_ABNORMAL' }",
+      "replace": "function Get-P9SAcpiResolvedPhases { 'OPEN', 'START_FAILED', 'OFF_CONFIRMED', 'OFF_AFTER_DEADLINE', 'OFF_REQUEST_UNCONFIRMED', 'OFF_WITHOUT_ACPI', 'OFF_ABNORMAL', 'ACPI_VALIDATION_UNRESOLVED' }"
+    },
+    {
+      "id": "AV29",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an ABORT is tolerated by the validation conditions",
+      "killers": [
+        "A09",
+        "U13"
+      ],
+      "find": "} else { @('STATUS_UNCALIBRATED') }",
+      "replace": "} else { @('STATUS_UNCALIBRATED', 'STATUS_ABORT_REQUIRED', 'LATCHED') }"
+    },
+    {
+      "id": "AV30",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the ledger entries are dropped when it is read (budgets reset on restart)",
+      "killers": [
+        "A05",
+        "U08"
+      ],
+      "find": "    $d.entries = @($d.entries)",
+      "replace": "    $d.entries = @()"
     }
   ]
 }

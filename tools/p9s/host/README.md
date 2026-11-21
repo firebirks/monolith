@@ -25,10 +25,11 @@ does not touch Tor, Monolith or its profiles.
   window or edit the state files. The coordinator makes the approved
   automation fail closed; it does not prevent anything else, and it
   detects some changes made outside it only afterwards.
-- Not validated with running VMs. Every test is offline: synthetic
-  monitor states, mocked dispatchers, dry runs, a simulated calibration
-  and a short real-sampling run of the monitor. Section "Not validated"
-  lists what still needs a live run.
+- Validated live only in part. The tests are offline: synthetic monitor
+  states, mocked dispatchers, dry runs, a simulated calibration and a
+  short real-sampling run of the monitor. One supervised session ran the
+  monitor live and started and shut down `P9S-D12` once. Section "Not
+  validated" lists what still needs a live run.
 
 ## Requirements
 
@@ -51,11 +52,12 @@ does not touch Tor, Monolith or its profiles.
 | `p9s-action.ps1` | The coordinator's entry point |
 | `coordinator-lib.ps1` | Actions, checks, sessions, emergency path, calibration dry run |
 | `p9s-vmstate.ps1` | VM-state observations: one query on request, its times, freshness, journal |
-| `p9s-acpival.ps1` | The restricted single-VM ACPI validation (owner authorization required) |
+| `p9s-acpival.ps1` | The restricted single-VM ACPI validation of `P9S-D12` or `P9S-U24` (owner authorization required) |
 | `p9s-vbox.ps1` | Every VirtualBox operation: one host-wide lock, bounded waits, quarantine, recovery |
 | `p9s-config.ps1` | Local configuration and the local secret store |
 | `p9s-local.example.json` | Example of the local configuration |
-| `acpi-validation-authorization.example.json` | Example of the owner's validation authorization (never valid as it is) |
+| `acpi-validation-authorization.example.json` | Example of a version-1 authorization for `P9S-D12` (never valid as it is) |
+| `acpi-validation-authorization-u24.example.json` | Example of a version-2 authorization for `P9S-U24` (never valid as it is) |
 | `paging-thresholds.json` | Paging values: candidates, not approved |
 | `com-type.ps1`, `vm-action.ps1` | Compatibility wrappers that call the coordinator |
 | `tests/hostmon-tests.ps1` | Monitor tests |
@@ -63,9 +65,9 @@ does not touch Tor, Monolith or its profiles.
 | `tests/stagec-tests.ps1` | Configuration, credentials, ACPI shutdown, calibration, publication checks |
 | `tests/vbox-tests.ps1` | The VirtualBox layer: serialization, timeouts, crashes, recovery, coordinator use |
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
-| `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, budgets, recovery, races |
+| `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races |
 | `tests/run-all.ps1` | Runs and checks the six suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 61 targeted faults and the tests that must detect them |
+| `tests/mutants.json` | The 74 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -366,23 +368,39 @@ The normal gate needs approved paging values, and those values need a
 calibration with running VMs, which in turn needs a VM shutdown that is
 known to work. The `acpi.*` actions break that circle for one purpose
 only: one supervised check that the native VirtualBox ACPI power button
-shuts `P9S-D12` down. It is a separate capability, not a test mode, and
-it grants no exception to the normal gate.
+shuts one laboratory VM down. It is a separate capability, not a test
+mode, and it grants no exception to the normal gate.
+
+Validated live once: on 2026-11-21 (commit `2f4c609`) one session
+started `P9S-D12` once and sent it one ACPI request; the guest entered
+the ACPI S5 state itself and was observed off 5.2 s after the request.
+That says nothing about `P9S-U24`: its validation is prepared in this
+version and has never run.
+
+A session has exactly one target, the VM its authorization names, from
+a closed table: `P9S-D12` (role `debian`) and `P9S-U24` (role
+`ubuntu`). The target must also be the name the local configuration
+gives that role; any other name, another project's VM included, is
+refused. The target never changes after `acpi.open`: the session keeps
+its copy of the authorization, its ledger entry names the same target,
+file and session, and a session or ledger edited afterwards is refused
+(`ACPI_TARGET_MISMATCH`, `ACPI_AUTHORIZATION_MISMATCH`).
 
 Nothing live runs by default. The owner's authorization file is the
-only way in: `acpi.open` without a valid one, and every later live step
-without a validation session opened with one, is refused before the
-coordinator lock, any VirtualBox query or any dispatch (dry runs too).
-Only the read-only `acpi.preflight` and `acpi.confirm-off` work without
-it. A context whose live switch is off
-(the tests use one) refuses every live step with
-`ACPI_VALIDATION_LIVE_DISABLED` before anything is read.
+only way in: `acpi.open` without a valid file inside its time window,
+and every later live step without a validation session bound to one in
+its window, is refused before the coordinator lock, any VirtualBox
+query or any dispatch (dry runs too). `acpi.preflight` reads no VM state
+without a valid file in its window. Recovery stays available after the
+window: `acpi.confirm-off`, `acpi.finalize`, `emergency.acpi-shutdown`.
+A context whose live switch is off (the tests use one) refuses every
+live step with `ACPI_VALIDATION_LIVE_DISABLED` before anything is read.
 
 | Action | What it does |
 | --- | --- |
-| `acpi.preflight [-Authorization <file>]` | Read-only: capability, authorization, ledger, monitor, VirtualBox, one observation of `P9S-D12`, configuration reference |
-| `acpi.open -Authorization <file>` | Opens the validation session; the authorization id is spent |
-| `acpi.start` | The one start of `P9S-D12` |
+| `acpi.preflight [-Authorization <file>]` | Read-only: capability, authorization, ledger, monitor, VirtualBox; with a valid file in its window, one observation of its target and the target's configuration reference |
+| `acpi.open -Authorization <file>` | Opens the validation session for the file's target; the authorization id is spent |
+| `acpi.start` | The one start of the session's target |
 | `acpi.observe -Seconds <n>` | Up to 600 s with a monitor check every 5 s and one observation at each end |
 | `acpi.shutdown [-Seconds <n>]` | The one ACPI request, then one observation every 5 s up to the deadline (180 s, at most 600) |
 | `acpi.confirm-off -Seconds <n>` | Read only: watches an unresolved validation again; sends nothing |
@@ -390,24 +408,33 @@ it. A context whose live switch is off
 | `acpi.finalize` | Records the outcome and closes the session |
 
 None of them takes a VM name, text, keys, a plan or a command; the only
-dispatches are one `startvm` and one `acpipowerbutton` of `P9S-D12`.
-Normal test actions are refused in a validation session
+dispatches are one `startvm` and one `acpipowerbutton` of the session's
+target. Normal test actions are refused in a validation session
 (`SESSION_KIND_MISMATCH`), `session.close` sends it to `acpi.finalize`,
-and no test session opens until it is finalized and resolved.
+and no test session opens until it is finalized and resolved. An
+authorization for either VM enables no T-CLEAN step and no READY.
 
 The authorization is a file the owner writes outside this folder for
-one session (`acpi-validation-authorization.example.json` shows the
-fields and is never valid as it is). It must name the purpose
-`ACPI_VALIDATION`, the target `P9S-D12`, the permitted actions, one
-start, one ACPI request, a window of at most 4 hours, the monitor
-conditions and preflight checks of this version, operator supervision,
-the stop policy, the approval of the provisional memory safeguard, and
-who approved it and when. The coordinator checks every field and keeps
-a copy in the session; editing the file later changes nothing. It is
-not a cryptographic proof: the same Windows account, or software running
-as it, can write it. It records the owner's decision for one session and
-makes its boundaries checkable; it is a workflow control, not a security
-boundary.
+one session. Version 1 (`acpi-validation-authorization.example.json`)
+is the format of the Debian session and can name `P9S-D12` only; its
+memory field `provisional_min_available_mb` means MiB. Version 2
+(`acpi-validation-authorization-u24.example.json`) can name either VM
+and is required for `P9S-U24`: its id carries the target code
+(`acpiauth-u24-YYYYMMDD-xxxxxxxx`), so that changing the target of a
+file invalidates it, and its memory field is
+`provisional_min_available_mib`. Neither example is ever valid as it
+is. A file must name the purpose `ACPI_VALIDATION`, one target as a
+single string, the permitted actions, one start, one ACPI request, a
+window of at most 4 hours, the monitor conditions and preflight checks
+of this version, its memory minimum, operator supervision, the stop
+policy, the approval of that minimum, and who approved it and when. An
+unknown, duplicated or misspelled field is refused, never ignored. The
+coordinator keeps a copy in the session; editing the file later changes
+nothing. An authorization id opens one session, ever, whatever its
+target. The file is not a cryptographic proof: the same Windows
+account, or software running as it, can write it. It records the
+owner's decision for one session and makes its boundaries checkable; it
+is a workflow control, not a security boundary.
 
 No VirtualBox VM process of any VM (`VirtualBoxVM`, `VBoxHeadless`, from
 the Windows process list) may run on the host when the session opens
@@ -420,23 +447,30 @@ fresh and alive, the 300-second commit qualification met, commit below
 90 %, no WARNING (a suspected paging pressure with the candidate values
 is one), UNKNOWN, STOP or ABORT, the external disk confirmed,
 measurements complete and, before the start and while the VM is
-observed, at least 8192 MiB available. The monitor's `avail_mb` is the
-Windows `AvailableMBytes` counter, whole MiB (2^20 bytes): 8192 means
-8,589,934,592 bytes, not a decimal value. Below it the start is refused
-and an observation ends; the one ACPI request stays available. The
-coordinator calls that `ACPI_VALIDATION_ELIGIBLE`. It is not READY: the
-monitor still reports UNCALIBRATED, nothing is written to its state,
-and every normal test action stays refused. The 8192 MiB is a
-provisional, validation-only safeguard that needs the owner's approval;
-it is not a paging threshold and not part of the normal gate. The ACPI
-request itself also accepts a WARNING or a broken qualification (it
-lowers the load), never a STOP, an ABORT or a stale or dead monitor.
+observed, at least the memory minimum of the authorization available.
+The monitor's `avail_mb` is the Windows `AvailableMBytes` counter, whole
+MiB (2^20 bytes): 8192 means 8,589,934,592 bytes, not a decimal value.
+Below the minimum the start is refused and an observation ends; the one
+ACPI request stays available. The code refuses any minimum below 8192
+MiB for either VM; that floor approves nothing. The owner approved 8192
+MiB for the Debian session only; for `P9S-U24` the value and its
+approval belong to its own authorization. Available memory alone is not
+a paging criterion. The coordinator calls all this
+`ACPI_VALIDATION_ELIGIBLE`. It is not READY: the monitor still reports
+UNCALIBRATED, nothing is written to its state, and every normal test
+action stays refused. The minimum is a validation-only safeguard, not a
+paging threshold and not part of the normal gate. The ACPI request
+itself also accepts a WARNING or a broken qualification (it lowers the
+load), never a STOP, an ABORT or a stale or dead monitor.
 
 The budgets live in `acpi-validation-ledger.json` next to the
 coordinator files, keyed by the authorization id, and are spent before
 the dispatch: a crash, a restart or a lost session record cannot give
 them back, an authorization opens one session only, and an outcome that
-cannot be recorded leaves the earlier, unresolved phase.
+cannot be recorded leaves the earlier, unresolved phase. A new session
+adds its own entry and never changes an earlier one: the entry of the
+Debian session stays as it was recorded. An unresolved validation of
+either VM blocks a new validation of both.
 
 | Phase | Meaning | What is possible next |
 | --- | --- | --- |
@@ -585,23 +619,22 @@ authorization file, and any override of the safety checks.
 
 ## Not validated
 
-- The real dispatchers (`startvm`, keyboard input through the VirtualBox
-  API, `acpipowerbutton`) have not run against a VM in this version.
-- How each guest answers the ACPI power button (shutdown, suspend or a
-  dialog) depends on its desktop settings and is not verified.
-- No paging value is approved; paging stop enforcement is not validated.
-- The monitor was validated live once, with both VMs off, in its earlier
-  form that also read the VM states; the form without VirtualBox has run
-  only in the tests (about 24 s of real sampling per run).
-- The restricted ACPI validation had not run live when this version was
-  published; the provisional 8192 MiB safeguard is approved only inside
-  an owner authorization, for one session.
-- The VirtualBox layer has run against a real VirtualBox for three
-  read-only queries (two state queries and one configuration query on
-  2026-11-20, 101 to 1164 ms, serialized); `startvm`, `acpipowerbutton`,
-  keyboard input, a real timeout and the recovery from a hung management
-  API have not. Serialization reduces the exposure to concurrent
-  management calls; it cannot keep VirtualBox from hanging.
+- Live on 2026-11-21 (commit `2f4c609`), one supervised session: the
+  monitor without VirtualBox sampled for about 2 h 22 min in two runs
+  (no invalid sample, largest gap 5.03 s, no STOP or ABORT); `startvm`
+  and `acpipowerbutton` ran once each against `P9S-D12` through the
+  VirtualBox layer, and the Debian guest powered itself off 5.2 s after
+  the request. Keyboard input through the VirtualBox API has not run in
+  this version.
+- `P9S-U24` has never been started or shut down by the toolkit; how the
+  Ubuntu guest answers the power button (shutdown, suspend, a dialog, or
+  a delay) is not known. The Debian result does not carry over.
+- No paging value is approved; paging stop enforcement is not validated;
+  no calibration with both VMs has run.
+- The VirtualBox layer has not met a real timeout or a hung management
+  API; its recovery from one is verified only with mocks. Serialization
+  reduces the exposure to concurrent management calls; it cannot keep
+  VirtualBox from hanging.
 
 ## Rollback
 

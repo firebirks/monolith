@@ -1052,9 +1052,10 @@ used by Monolith:
   and report success once the VM is off;
 - a calibration of the paging values with both VMs running, prepared as a
   simulated dry run only;
-- a restricted validation of the ACPI shutdown of `P9S-D12`, outside the
-  normal gate: one start and one request, possible only in a session
-  opened with the owner's authorization file.
+- a restricted validation of the ACPI shutdown of one VM per session,
+  `P9S-D12` or `P9S-U24`, outside the normal gate: one start and one
+  request, possible only in a session opened with the owner's
+  authorization file for that VM.
 
 State on 2026-11-20: the source was published as `fe6180f`; `7ef2df8`
 added the CI job `p9s-windows-toolkit`, and `83c9ef8` put every
@@ -1093,17 +1094,66 @@ blocks every new session until the VM is observed off. That version,
 detected).
 
 On 2026-11-21 the owner authorized one supervised live run, and the
-live path was enabled for it: the owner's authorization file is the
-only way in, a live step without it is refused before any VirtualBox
-query, and no VirtualBox VM of any project may run on the host when the
-session opens or the VM starts. The toolkit's 204 declared tests and 61
-targeted faults run in the CI job, where K37 is again reported as not
-run.
+live path was enabled for it (`2f4c609`, CI run 44892829016: 204 tests
+declared, 203 passed, K37 not run; 61 targeted faults detected): the
+owner's authorization file is the only way in, a live step without it
+is refused before any VirtualBox query, and no VirtualBox VM of any
+project may run on the host when the session opens or the VM starts.
 
-What remains unverified: the monitor without VirtualBox has run only in
-the tests, about 24 s of real sampling per run; no VM has been started
-or shut down by the toolkit, and the guests' answer to the power button
-is not known; no calibration with both VMs has run, no paging value is
+The same day the session ran on `2f4c609` with the owner present:
+purpose `ACPI_VALIDATION`, target `P9S-D12`, budgets of one start and
+one ACPI request, both spent (times UTC).
+
+- The monitor ran live without VirtualBox in two runs, 1,440 samples
+  over 2 hours and 264 samples over 22 minutes, with no invalid sample,
+  a largest gap of 5.03 s and no STOP or ABORT. Each run qualified with
+  300 continuous seconds below 90 % commit and stayed UNCALIBRATED,
+  never READY.
+- With the VM running, commit peaked at 67.5 % and available memory
+  fell to 14,958 MiB at its lowest (the minimum approved for this
+  session was 8,192 MiB). The page file held about 88 MiB, page-outs
+  peaked at 77 per second, D: latency at 79 ms for reads during the boot
+  and 113 ms for one write while the VM ran, and no storage event was
+  recorded.
+- In the two hours before the start, page-ins reached about 44,500 per
+  second for 10 s and 27,000 for 15 s, and stayed between 6,200 and
+  9,000 per second for about three and a half minutes, with almost no
+  page-outs, a steady page file and at least 15,316 MiB available. This
+  does not establish a paging-pressure incident. It is consistent with
+  reads of file-backed pages, a cause that no per-process trace
+  confirmed.
+- The start was dispatched at 13:27:47.8 and the VM ran at 13:28:03.7;
+  the guest kernel's VirtualBox driver reported at about 13:28:41.
+  After 120 s of observation without input, the one ACPI request was
+  dispatched at 13:31:50.45 and VBoxManage completed it. VirtualBox
+  logged the guest entering ACPI S5 at 13:31:55.25, and a fresh query of
+  the coordinator observed the VM powered off at 13:31:55.64, 5.2 s
+  after the request. All three were observed: the command completed,
+  the guest powered itself down, the off state was seen. The
+  configuration was unchanged and the snapshots untouched; no forced
+  power-off, recovery, second request or other VM was involved.
+
+That is one Debian shutdown and nothing more. Ubuntu was not started,
+no calibration with both VMs ran, no Monolith traffic was generated, the
+paging values stay unapproved, the recovery from a hung VirtualBox API
+was not tried live, and the Debian result does not show how Ubuntu
+answers the power button.
+
+The validation was then prepared for `P9S-U24`, offline only. The two
+VMs form a closed table of targets, each bound to its role in the local
+configuration; a session is bound to the one target its authorization
+names, and that target cannot change afterwards. `P9S-U24` needs a
+version-2 authorization, whose id carries the target code and whose
+memory minimum is named in MiB, approved by that authorization and never
+below 8192 MiB; the Debian approval does not carry over. An
+authorization outside its window now reads nothing either, and the
+preflight reads no VM state without a valid one. The toolkit's 222
+declared tests and 74 targeted faults run in the CI job. No Ubuntu
+authorization exists, and no VM was started for this preparation.
+
+What remains unverified: the toolkit has started and shut down only
+`P9S-D12`, once; the Ubuntu guest's answer to the power button is not
+known; no calibration with both VMs has run, no paging value is
 approved and no paging stop has been enforced. The coordinator is not a
 security boundary: the same Windows account can still drive VirtualBox
 directly. The earlier ad hoc scripts that typed account passwords read
@@ -1111,12 +1161,10 @@ from local session logs are retired; the toolkit supports no account or
 sudo password.
 ### 16.2 Open before T-CLEAN-15
 
-- A supervised live validation, separately authorized, of the monitor
-  without VirtualBox and of the ACPI shutdown of `P9S-D12`: one start,
-  one request, the power-off observed.
+- A supervised live validation, separately authorized, of the ACPI
+  shutdown of `P9S-U24`: one start, one request, the power-off observed.
 - A calibration with both VMs running, separately authorized, and the
   owner's approval of the paging values that follow from it.
-- The ACPI shutdown verified on both guests.
 - The diagnostic SOCKS observer of the guests correlates by descriptor
   number only; it can misclassify a connection when another thread reuses
   the number. It is to be corrected before scenarios that rely on its

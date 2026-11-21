@@ -63,6 +63,7 @@ function JM($m, [long]$q, [long]$f, [double]$age = 1) {
 $ELIG = M (Feed (NewMon 'run-A') 0 300)
 $ELIG_B = M (Feed (NewMon 'run-B') 0 300)
 $LOWMEM = M (Feed (NewMon 'run-A') 0 300 50 7000)
+$MEM9 = M (Feed (NewMon 'run-A') 0 300 50 9000)
 $m1 = NewMon 'run-A'; $null = Feed $m1 0 300; $WARN = M (Feed $m1 305 305 92)
 $m2 = NewMon 'run-A'; $null = Feed $m2 0 300; $PAGWARN = M (Feed $m2 305 360 50 3000 3000)
 $m3 = NewMon 'run-A'; $null = Feed $m3 0 300; $STOP = M (Feed $m3 305 335 95)
@@ -78,15 +79,23 @@ function Z([datetime]$d) { $d.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'
 # ---- authorizations ---------------------------------------------------------------------
 $authDir = Join-Path $OutDir 'authorizations'; New-Item -ItemType Directory -Path $authDir | Out-Null
 $script:authN = 0
-function New-Auth([hashtable]$Set = @{}, [string[]]$Remove = @(), $From = $null, $To = $null, [switch]$Real) {
+# -Version 0: 1 for P9S-D12 (the format of the Debian session), 2 for any
+# other target; version 2 ids carry the target code and the memory
+# minimum is named in MiB.
+function New-Auth([hashtable]$Set = @{}, [string[]]$Remove = @(), $From = $null, $To = $null, [switch]$Real, [string]$Target = 'P9S-D12', [int]$Version = 0) {
     $script:authN++
     $base = if ($Real) { [DateTime]::UtcNow } else { $T0 }
     if ($null -eq $From) { $From = $base.AddMinutes(-10) }; if ($null -eq $To) { $To = $base.AddHours(2) }
+    if (-not $Version) { $Version = $(if ($Target -ceq 'P9S-D12') { 1 } else { 2 }) }
+    $code = if ($Target -ceq 'P9S-U24') { 'u24' } else { 'd12' }
+    $id = if ($Version -eq 1) { 'acpiauth-20261120-{0:x8}' -f (0x10000 + $script:authN) } else { 'acpiauth-{0}-20261120-{1:x8}' -f $code, (0x10000 + $script:authN) }
+    $mem = if ($Version -eq 1) { 'provisional_min_available_mb' } else { 'provisional_min_available_mib' }
+    $mc = [ordered]@{ mode = 'Monitor'; paging_stop = 'Required'; commit_gate_s = 300; commit_below_pct = 90 }; $mc[$mem] = 8192
     $h = [ordered]@{
-        schema = 'p9s-acpi-validation-authorization/1'; authorization_id = ('acpiauth-20261120-{0:x8}' -f (0x10000 + $script:authN)); purpose = 'ACPI_VALIDATION'; target_vm = 'P9S-D12'
+        schema = "p9s-acpi-validation-authorization/$Version"; authorization_id = $id; purpose = 'ACPI_VALIDATION'; target_vm = $Target
         permitted_actions = @('acpi.open', 'acpi.start', 'acpi.observe', 'acpi.shutdown', 'acpi.integrity'); max_startups = 1; max_acpi_requests = 1
         valid_from_utc = (Z $From); expires_utc = (Z $To)
-        monitor_conditions = [ordered]@{ mode = 'Monitor'; paging_stop = 'Required'; commit_gate_s = 300; commit_below_pct = 90; provisional_min_available_mb = 8192 }
+        monitor_conditions = $mc
         preflight_checks = @(Get-P9SAcpiPreflightChecks); supervision = 'operator-present'; on_stop_or_abort = 'halt-then-emergency-acpi-shutdown-no-repeat'
         provisional_safeguard_approved = $true; approved_by = 'test fixture only'; approved_utc = (Z $base.AddHours(-1))
     }
@@ -109,7 +118,7 @@ function New-VCtx {
     $freq = if ($RealClock) { [Diagnostics.Stopwatch]::Frequency } else { $F }
     $prov = @{ mon = $Mon; age = 1.0; reads = 0; switchAt = 0; switchTo = $null; vmreads = 0; onVmRead = $null; acpiSent = $false; acpiReads = 0; offAfter = -1
         onStart = $null; onAcpi = $null; onSleep = $null; startThrows = $false; acpiThrows = $false; startSets = 'running'; ledgerWrites = 0; failLedgerAt = 0; failLedgerTo = 0; alive = $true; vmprocs = 0
-        config = @('name="P9S-D12"', 'memory=4096', 'acpi="on"', 'VMState="poweroff"') }
+        acpiVm = $null; config = @('name="P9S-D12"', 'memory=4096', 'acpi="on"', 'VMState="poweroff"'); configU = @('name="P9S-U24"', 'memory=4096', 'cpus=4', 'acpi="on"', 'VMState="poweroff"') }
     $vmTable = @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'off' }; foreach ($k in $Vms.Keys) { $vmTable[$k] = $Vms[$k] }
     $nowq = { if ($clk.real) { [Diagnostics.Stopwatch]::GetTimestamp() } else { $clk.q } }.GetNewClosure()
     $readState = {
@@ -122,12 +131,12 @@ function New-VCtx {
     $readVm = {
         param($vm)
         $prov.vmreads++
-        if ($prov.acpiSent -and $vm -ceq 'P9S-D12') { $prov.acpiReads++; if ($prov.offAfter -ge 0 -and $prov.acpiReads -gt $prov.offAfter) { $vmTable[$vm] = 'off' } }
+        if ($prov.acpiSent -and $vm -ceq $prov.acpiVm) { $prov.acpiReads++; if ($prov.offAfter -ge 0 -and $prov.acpiReads -gt $prov.offAfter) { $vmTable[$vm] = 'off' } }
         if ($prov.onVmRead) { & $prov.onVmRead $vm }
         $vmTable[$vm]
     }.GetNewClosure()
     $start = { param($vm) $calls.Add([pscustomobject]@{ kind = 'vm.start'; vm = $vm }); if ($prov.onStart) { & $prov.onStart }; if ($prov.startThrows) { throw 'mock start failure' }; if ($prov.startSets) { $vmTable[$vm] = $prov.startSets } }.GetNewClosure()
-    $acpi = { param($vm) $calls.Add([pscustomobject]@{ kind = 'vm.acpi'; vm = $vm }); if ($prov.acpiThrows) { throw 'mock ACPI failure' }; $prov.acpiSent = $true; $prov.acpiReads = 0; if ($prov.onAcpi) { & $prov.onAcpi } }.GetNewClosure()
+    $acpi = { param($vm) $calls.Add([pscustomobject]@{ kind = 'vm.acpi'; vm = $vm }); if ($prov.acpiThrows) { throw 'mock ACPI failure' }; $prov.acpiSent = $true; $prov.acpiVm = $vm; $prov.acpiReads = 0; if ($prov.onAcpi) { & $prov.onAcpi } }.GetNewClosure()
     $text = { param($vm, $arg) $calls.Add([pscustomobject]@{ kind = 'guest.text'; vm = $vm }) }.GetNewClosure()
     $key = { param($vm, $arg) $calls.Add([pscustomobject]@{ kind = 'guest.key'; vm = $vm }) }.GetNewClosure()
     $unlock = { param($vm) $calls.Add([pscustomobject]@{ kind = 'guest.unlock'; vm = $vm }) }.GetNewClosure()
@@ -139,19 +148,20 @@ function New-VCtx {
     }.GetNewClosure()
     $sleep = { param($ms) if ($clk.real) { Start-Sleep -Milliseconds ([math]::Max(1, [int]($ms / 50))) } else { $clk.q += [long]($ms * $freq / 1000); $clk.utc = $clk.utc.AddMilliseconds($ms) }; if ($prov.onSleep) { & $prov.onSleep } }.GetNewClosure()
     $utc = { if ($clk.real) { [DateTime]::UtcNow } else { $clk.utc } }.GetNewClosure()
-    $refPath = Join-Path $Dir 'P9S-D12-reference.txt'
+    $refPath = Join-Path $Dir 'P9S-D12-reference.txt'; $refPathU = Join-Path $Dir 'P9S-U24-reference.txt'
     if (-not (Test-Path -LiteralPath $refPath)) { $prov.config | Set-Content -LiteralPath $refPath -Encoding ascii }
+    if (-not (Test-Path -LiteralPath $refPathU)) { $prov.configU | Set-Content -LiteralPath $refPathU -Encoding ascii }
     [pscustomobject]@{
         StatePath = Join-Path $Dir 'state.json'; SessionPath = Join-Path $Dir 'coordinator-session.json'; LockPath = Join-Path $Dir 'coordinator.lock'
         StopRequestPath = Join-Path $Dir 'coordinator-stop.request'; AuditPath = Join-Path $Dir 'coordinator-audit.jsonl'; ThresholdsPath = Join-Path $kit 'paging-thresholds.json'
         ReadState = $readState; NowQpc = $nowq; QpcFrequency = $freq; IsMonitorAlive = { param($a, $b) $prov.alive }.GetNewClosure()
-        ReadVmState = $readVm; ReadVmConfig = { param($vm) @($prov.config) }.GetNewClosure()
+        ReadVmState = $readVm; ReadVmConfig = { param($vm) if ($vm -ceq 'P9S-U24') { @($prov.configU) } else { @($prov.config) } }.GetNewClosure()
         Dispatch = @{ 'vm.start' = $start; 'vm.acpi' = $acpi; 'guest.text' = $text; 'guest.key' = $key; 'guest.unlock' = $unlock }
         Sleep = $sleep; Pid = $PID; ProcessStartTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
         EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }
         ObservationPath = Join-Path $Dir 'vm-observations.jsonl'; LedgerPath = Join-Path $Dir 'acpi-validation-ledger.json'; WriteLedger = $wl; UtcNow = $utc; AcpiValidationLive = $Live
         CountVmProcesses = { [int]$prov.vmprocs }.GetNewClosure()
-        Config = [pscustomobject]@{ vm_config_reference = [pscustomobject]@{ debian = $refPath; ubuntu = $null } }
+        Config = [pscustomobject]@{ vm_config_reference = [pscustomobject]@{ debian = $refPath; ubuntu = $refPathU } }
         Calls = $calls; Prov = $prov; VmTable = $vmTable; Dir = $Dir; Clock = $clk
     }
 }
@@ -162,15 +172,15 @@ function AObs($c, [int]$s = 30) { Act $c @{ Action = 'acpi.observe'; Seconds = $
 function AShut($c, [int]$s = 0) { if ($s) { Act $c @{ Action = 'acpi.shutdown'; Seconds = $s } } else { Act $c @{ Action = 'acpi.shutdown' } } }
 function AConfirm($c, [int]$s = 30) { Act $c @{ Action = 'acpi.confirm-off'; Seconds = $s } }
 function AFinal($c) { Act $c @{ Action = 'acpi.finalize' } }
-function Emerg($c) { Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' } }
+function Emerg($c, [string]$Vm = 'P9S-D12') { Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = $Vm } }
 function Ledger($c) { $r = Read-P9SAcpiLedger $c; if ($r.ok) { $r.doc } else { $null } }
 function Entry($c, [string]$Auth) { $l = Ledger $c; if ($l) { Get-P9SAcpiEntry $l (AuthId $Auth) } else { $null } }
 function Sess($c) { (Read-P9SSession $c).session }
 function Kinds($c) { (@($c.Calls | ForEach-Object { "$($_.kind) $($_.vm)" })) -join ', ' }
 function Count($c, [string]$kind) { @($c.Calls | Where-Object { $_.kind -eq $kind }).Count }
 # open and start on a fresh mock context; the VM then runs
-function Started([hashtable]$Vms = @{}, $Mon = $ELIG) {
-    $c = New-VCtx -Mon $Mon -Vms $Vms; $a = New-Auth
+function Started([hashtable]$Vms = @{}, $Mon = $ELIG, [string]$Target = 'P9S-D12') {
+    $c = New-VCtx -Mon $Mon -Vms $Vms; $a = New-Auth -Target $Target
     $o = AOpen $c $a; $s = AStart $c
     if ($o.outcome -ne 'DONE' -or $s.outcome -ne 'DISPATCHED') { throw "setup failed: open $(Why $o), start $(Why $s)" }
     [pscustomobject]@{ c = $c; a = $a }
@@ -227,6 +237,15 @@ $mock = Join-Path $OutDir 'mockvbox.ps1'
 'VMState="poweroff"'
 exit 0
 '@ | Set-Content -LiteralPath $mock -Encoding ascii
+# a recording "VBoxManage" for the VirtualBox layer: every call it gets is
+# appended to the log named by its first argument (a tripwire)
+$recvbox = Join-Path $OutDir 'recvbox.ps1'
+@'
+Add-Content -LiteralPath $args[0] -Value (($args | Select-Object -Skip 1) -join ' ')
+'name="' + $args[2] + '"'
+'VMState="poweroff"'
+exit 0
+'@ | Set-Content -LiteralPath $recvbox -Encoding ascii
 $script:events = [System.Collections.Generic.List[object]]::new()
 function New-Event([string]$Name) { $e = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $Name); $script:events.Add($e); $e }
 $script:wN = 0
@@ -296,7 +315,7 @@ Case 'A01' 'nothing live by default: without an owner authorization every live s
 Case 'A02' 'the authorization file: the example and every boundary violation are refused' {
     $kd = Split-Path -Parent (Join-Path $kit 'paging-thresholds.json')
     $ok = Read-P9SAcpiAuthorization -Path (New-Auth) -KitDir $kd
-    Expect ($ok.ok -and $ok.auth.target_vm -eq 'P9S-D12' -and $ok.auth.min_available_mb -eq 8192 -and $ok.auth.max_startups -eq 1 -and $ok.auth.max_acpi_requests -eq 1) "valid fixture refused: $($ok.reasons -join ',')"
+    Expect ($ok.ok -and $ok.auth.target_vm -eq 'P9S-D12' -and $ok.auth.min_available_mib -eq 8192 -and $ok.auth.max_startups -eq 1 -and $ok.auth.max_acpi_requests -eq 1) "valid fixture refused: $($ok.reasons -join ',')"
     $ex = Read-P9SAcpiAuthorization -Path (Join-Path $kit 'acpi-validation-authorization.example.json') -KitDir (Join-Path $OutDir 'not-the-kit')
     foreach ($r in 'AUTHORIZATION_ID_INVALID', 'AUTHORIZATION_TIME_INVALID', 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED', 'AUTHORIZATION_APPROVAL_INCOMPLETE') { Expect (-not $ex.ok -and ($ex.reasons -contains $r)) "example: missing $r ($($ex.reasons -join ','))" }
     $inKit = Read-P9SAcpiAuthorization -Path (Join-Path $kit 'acpi-validation-authorization.example.json') -KitDir $kd
@@ -316,7 +335,8 @@ Case 'A02' 'the authorization file: the example and every boundary violation are
         @(@{ on_stop_or_abort = 'continue' }, 'AUTHORIZATION_STOP_POLICY'), @(@{ provisional_safeguard_approved = $false }, 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED'),
         @(@{ provisional_safeguard_approved = 'true' }, 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED'), @(@{ approved_by = '' }, 'AUTHORIZATION_APPROVAL_INCOMPLETE'),
         @(@{ approved_by = '<owner>' }, 'AUTHORIZATION_APPROVAL_INCOMPLETE'), @(@{ authorization_id = 'acpiauth-1' }, 'AUTHORIZATION_ID_INVALID'),
-        @(@{ schema = 'p9s-acpi-validation-authorization/2' }, 'AUTHORIZATION_SCHEMA_UNSUPPORTED'))
+        @(@{ schema = 'p9s-acpi-validation-authorization/3' }, 'AUTHORIZATION_SCHEMA_UNSUPPORTED'),
+        @(@{ schema = 'p9s-acpi-validation-authorization/2' }, 'AUTHORIZATION_MEMORY_UNIT'), @(@{ schema = 'p9s-acpi-validation-authorization/2' }, 'AUTHORIZATION_ID_INVALID'))
     foreach ($x in $cases) {
         $r = Read-P9SAcpiAuthorization -Path (New-Auth -Set $x[0]) -KitDir $kd
         Expect (-not $r.ok -and ($r.reasons -contains $x[1])) "$(($x[0].Keys) -join ',') -> $($r.reasons -join ',') (expected $($x[1]))"
@@ -861,6 +881,349 @@ Case 'Z10' 'an emergency that waited for the lock while the validation sent its 
     $r = Wait-AWorker $w
     Expect ($r.outcome -eq 'REFUSED' -and @($r.reasons) -contains 'ACPI_ALREADY_REQUESTED') "emergency: $($r.outcome) $(@($r.reasons) -join ',')"
     Expect (@(DispatchLog $c | Where-Object { $_ -like 'vm.acpi *' }).Count -eq 0) "dispatches: $(@(DispatchLog $c) -join '; ')"
+}
+# ---- two targets: P9S-U24 next to P9S-D12, each session bound to its own -------------------------
+Case 'U01' 'each authorization drives only its own target: a Debian session never touches P9S-U24, an Ubuntu session never touches P9S-D12' {
+    foreach ($pair in @(@('P9S-D12', 'P9S-U24'), @('P9S-U24', 'P9S-D12'))) {
+        $tv = $pair[0]; $other = $pair[1]
+        $c = New-VCtx; $c.Prov.offAfter = 1
+        $a = New-Auth -Target $tv
+        $steps = @((Act $c @{ Action = 'acpi.preflight'; Authorization = $a }), (AOpen $c $a), (AStart $c), (AObs $c 10), (AShut $c), (Act $c @{ Action = 'acpi.integrity' }), (AFinal $c))
+        Expect (@($steps | Where-Object { $_.outcome -notin 'DONE', 'DISPATCHED' -or $_.reasons.Count }).Count -eq 0) "$tv flow: $(@($steps | ForEach-Object { Why $_ }) -join ' / ')"
+        Expect ((Kinds $c) -eq "vm.start $tv, vm.acpi $tv" -and $c.VmTable[$other] -eq 'off') "$tv calls: $(Kinds $c)"
+        $j = @(Read-P9SVmObservations $c.ObservationPath)
+        Expect ($j.Count -gt 0 -and @($j | Where-Object { $_.vm -ne $tv }).Count -eq 0) "$tv observed another VM"
+        $e = Entry $c $a
+        Expect ($e.target_vm -eq $tv -and $e.outcome -eq 'VALIDATED' -and $e.startups_used -eq 1 -and $e.acpi_used -eq 1 -and $e.integrity.differing -eq 0) "$tv ledger: $($e.target_vm) $($e.outcome)"
+        $aud = @(Get-Content -LiteralPath $c.AuditPath | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.action -like 'acpi.*' })
+        Expect (@($aud | Where-Object { $_.vm -ne $tv }).Count -eq 0) "$tv audit names another VM: $(@($aud | ForEach-Object { "$($_.action)=$($_.vm)" }) -join ' ')"
+    }
+}
+Case 'U02' 'a target is one exact name of the table for its role: several, empty, unknown, other-project, wrong-case, wrong-schema, misbound, duplicated and extra fields are refused' {
+    $kd = Split-Path -Parent (Join-Path $kit 'paging-thresholds.json')
+    $ok = Read-P9SAcpiAuthorization -Path (New-Auth -Target 'P9S-U24') -KitDir $kd
+    Expect ($ok.ok -and $ok.auth.target_vm -eq 'P9S-U24' -and $ok.auth.schema -eq 'p9s-acpi-validation-authorization/2' -and $ok.auth.min_available_mib -eq 8192) "valid Ubuntu fixture refused: $($ok.reasons -join ',')"
+    $ok2 = Read-P9SAcpiAuthorization -Path (New-Auth -Target 'P9S-D12' -Version 2) -KitDir $kd
+    Expect ($ok2.ok -and $ok2.auth.target_vm -eq 'P9S-D12') "valid version-2 Debian fixture refused: $($ok2.reasons -join ',')"
+    $cases = @(
+        @(@{ target_vm = @('P9S-D12', 'P9S-U24') }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'), @(@{ target_vm = @('P9S-U24') }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'),
+        @(@{ target_vm = '' }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'), @(@{ target_vm = $null }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'),
+        @(@{ target_vm = 'another-project-vm' }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'), @(@{ target_vm = 'p9s-u24' }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'),
+        @(@{ target_vm = ' P9S-U24' }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'), @(@{ target_vm = 'P9S-U24 ' }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'),
+        @(@{ target_vm = 'P9S-D12' }, 'AUTHORIZATION_ID_TARGET_MISMATCH'),
+        @(@{ target_vms = @('P9S-D12') }, 'AUTHORIZATION_UNKNOWN_FIELD:target_vms'),
+        @(@{ authorization_id = 'acpiauth-20261120-0000aaaa' }, 'AUTHORIZATION_ID_INVALID'))
+    foreach ($x in $cases) {
+        $r = Read-P9SAcpiAuthorization -Path (New-Auth -Target 'P9S-U24' -Set $x[0]) -KitDir $kd
+        Expect (-not $r.ok -and ($r.reasons -contains $x[1])) "$(($x[0].Keys) -join ',')=$(@($x[0].Values) -join '|') -> $($r.reasons -join ',') (expected $($x[1]))"
+    }
+    $v1 = Read-P9SAcpiAuthorization -Path (New-Auth -Target 'P9S-U24' -Version 1) -KitDir $kd
+    Expect (-not $v1.ok -and ($v1.reasons -contains 'AUTHORIZATION_TARGET_NOT_ALLOWED')) "version 1 naming Ubuntu: $($v1.reasons -join ',')"
+    $dup = Join-Path $authDir 'duplicate-target.json'
+    (Get-Content -Raw -LiteralPath (New-Auth -Target 'P9S-D12' -Version 2)) -replace '"target_vm": "P9S-D12"', '"target_vm": "P9S-D12", "target_vm": "P9S-U24"' | Set-Content -LiteralPath $dup -Encoding utf8
+    $rd = Read-P9SAcpiAuthorization -Path $dup -KitDir $kd
+    Expect (-not $rd.ok -and ($rd.reasons -contains 'AUTHORIZATION_DUPLICATE_FIELD:target_vm')) "two target_vm fields: $($rd.reasons -join ',')"
+    $cs = Join-Path $authDir 'case-variant-target.json'
+    (Get-Content -Raw -LiteralPath (New-Auth -Target 'P9S-U24')) -replace '"target_vm": "P9S-U24"', '"target_vm": "P9S-U24", "Target_VM": "P9S-D12"' | Set-Content -LiteralPath $cs -Encoding utf8
+    $rc2 = Read-P9SAcpiAuthorization -Path $cs -KitDir $kd
+    Expect (-not $rc2.ok -and ($rc2.reasons -contains 'AUTHORIZATION_UNKNOWN_FIELD:Target_VM')) "a second target in another case: $($rc2.reasons -join ',')"
+    Set-P9SVmNames @('P9S-D12', 'another-project-vm')
+    try {
+        $rn = Read-P9SAcpiAuthorization -Path (New-Auth -Target 'P9S-U24') -KitDir $kd
+        Expect (-not $rn.ok -and ($rn.reasons -contains 'AUTHORIZATION_TARGET_NOT_ALLOWED')) "Ubuntu role configured as another VM: $($rn.reasons -join ',')"
+        Expect ($null -eq (Get-P9SAcpiValidationTarget 'another-project-vm') -and $null -eq (Get-P9SAcpiValidationTarget 'P9S-U24') -and $null -ne (Get-P9SAcpiValidationTarget 'P9S-D12')) 'target table follows a foreign configuration'
+    } finally { Set-P9SVmNames @(Get-P9SDefaultVmNames) }
+    $c = New-VCtx
+    $o = AOpen $c (New-Auth -Target 'P9S-U24' -Set @{ target_vm = @('P9S-D12', 'P9S-U24') })
+    Expect ($o.outcome -eq 'REFUSED' -and $c.Prov.vmreads -eq 0 -and -not (Test-Path -LiteralPath $c.SessionPath)) "open with two targets: $(Why $o)"
+}
+Case 'U03' 'the target cannot change after the open: a session or ledger edited to another target or authorization is refused before any VirtualBox read' {
+    $c = New-VCtx; $a = New-Auth -Target 'P9S-D12'
+    $o = AOpen $c $a
+    Expect ($o.outcome -eq 'DONE') "open: $(Why $o)"
+    $orig = Get-Content -Raw -LiteralPath $c.SessionPath
+    $sr = Read-P9SSession $c; $sr.session.validation.target_vm = 'P9S-U24'; Save-P9SSession $c $sr.session
+    $r0 = $c.Prov.vmreads
+    foreach ($x in @((AStart $c), (AObs $c 5), (AShut $c), (Act $c @{ Action = 'acpi.integrity' }))) { Expect ($x.outcome -eq 'REFUSED' -and (Has $x 'ACPI_TARGET_MISMATCH')) "session edited to P9S-U24: $(Why $x)" }
+    Expect ($c.Prov.vmreads -eq $r0 -and $c.Calls.Count -eq 0) "read or dispatched after the session edit: reads $($c.Prov.vmreads - $r0), $(Kinds $c)"
+    $sr = Read-P9SSession $c; $sr.session.validation.target_vm = 'another-project-vm'; Save-P9SSession $c $sr.session
+    $y = AStart $c
+    Expect ($y.outcome -eq 'REFUSED' -and (Has $y 'ACPI_TARGET_NOT_ALLOWED') -and $c.Calls.Count -eq 0) "session edited to another project's VM: $(Why $y)"
+    Set-Content -LiteralPath $c.SessionPath -Value $orig -NoNewline
+    $l = Ledger $c; $e = Get-P9SAcpiEntry $l (AuthId $a); $e.target_vm = 'P9S-U24'; $null = Save-P9SAcpiLedger $c $l
+    $z = AStart $c
+    Expect ($z.outcome -eq 'REFUSED' -and (Has $z 'ACPI_TARGET_MISMATCH') -and $c.Prov.vmreads -eq $r0 -and $c.Calls.Count -eq 0) "ledger edited to P9S-U24: $(Why $z)"
+    $l = Ledger $c; $e = Get-P9SAcpiEntry $l (AuthId $a); $e.target_vm = 'P9S-D12'; $e.authorization_sha256 = ('0' * 64); $null = Save-P9SAcpiLedger $c $l
+    $w = AStart $c
+    Expect ($w.outcome -eq 'REFUSED' -and (Has $w 'ACPI_AUTHORIZATION_MISMATCH') -and $c.Calls.Count -eq 0) "ledger bound to another file: $(Why $w)"
+    $l = Ledger $c; $e = Get-P9SAcpiEntry $l (AuthId $a); $e.authorization_sha256 = (Get-FileSha256 $a); $null = Save-P9SAcpiLedger $c $l
+    (Get-Content -Raw -LiteralPath $a) -replace '"target_vm": "P9S-D12"', '"target_vm": "P9S-U24"' | Set-Content -LiteralPath $a -Encoding utf8
+    $s = AStart $c
+    Expect ($s.outcome -eq 'DISPATCHED' -and (Kinds $c) -eq 'vm.start P9S-D12') "after the authorization file was edited: $(Why $s) $(Kinds $c)"
+}
+Case 'U04' 'a used authorization stays used: the Debian permit cannot open again, relabelled for Ubuntu or moved to version 2' {
+    $c = New-VCtx; $c.Prov.offAfter = 1; $a = New-Auth -Target 'P9S-D12'
+    $steps = @((AOpen $c $a), (AStart $c), (AShut $c), (AFinal $c))
+    Expect ((Entry $c $a).outcome -eq 'VALIDATED') "Debian validation: $(@($steps | ForEach-Object { Why $_ }) -join ' / ')"
+    $again = AOpen $c $a
+    Expect ($again.outcome -eq 'REFUSED' -and (Has $again 'AUTHORIZATION_ALREADY_USED')) "same permit again: $(Why $again)"
+    $h = Get-Content -Raw -LiteralPath $a | ConvertFrom-Json -AsHashtable
+    $h.target_vm = 'P9S-U24'; $p1 = Join-Path $authDir 'debian-relabelled.json'; $h | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $p1 -Encoding utf8
+    $h.schema = 'p9s-acpi-validation-authorization/2'; $h.monitor_conditions.Remove('provisional_min_available_mb'); $h.monitor_conditions['provisional_min_available_mib'] = 8192
+    $p2 = Join-Path $authDir 'debian-relabelled-v2.json'; $h | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $p2 -Encoding utf8
+    $d2 = New-Auth -Target 'P9S-D12' -Version 2; $p3 = Join-Path $authDir 'debian-v2-moved.json'
+    (Get-Content -Raw -LiteralPath $d2) -replace '"target_vm": "P9S-D12"', '"target_vm": "P9S-U24"' | Set-Content -LiteralPath $p3 -Encoding utf8
+    foreach ($x in @(@($p1, 'AUTHORIZATION_TARGET_NOT_ALLOWED'), @($p2, 'AUTHORIZATION_ID_INVALID'), @($p3, 'AUTHORIZATION_ID_TARGET_MISMATCH'))) {
+        $r = AOpen $c $x[0]
+        Expect ($r.outcome -eq 'REFUSED' -and (Has $r $x[1])) "$([IO.Path]::GetFileName($x[0])): $(Why $r) (expected $($x[1]))"
+    }
+    Expect (@((Ledger $c).entries).Count -eq 1 -and (Kinds $c) -eq 'vm.start P9S-D12, vm.acpi P9S-D12' -and $c.VmTable['P9S-U24'] -eq 'off') "afterwards: $(@((Ledger $c).entries).Count) entries, $(Kinds $c)"
+}
+Case 'U05' 'an Ubuntu authorization outside its window is refused at open and before the start, before any VirtualBox read' {
+    $c = New-VCtx
+    $x = AOpen $c (New-Auth -Target 'P9S-U24' -From $T0.AddMinutes(5) -To $T0.AddHours(1))
+    Expect ($x.outcome -eq 'REFUSED' -and (Has $x 'AUTHORIZATION_NOT_YET_VALID') -and $c.Prov.vmreads -eq 0) "not yet valid: $(Why $x)"
+    $y = AOpen $c (New-Auth -Target 'P9S-U24' -From $T0.AddHours(-2) -To $T0.AddMinutes(-1))
+    Expect ($y.outcome -eq 'REFUSED' -and (Has $y 'AUTHORIZATION_EXPIRED') -and $c.Prov.vmreads -eq 0 -and $c.Prov.reads -eq 0) "expired: $(Why $y)"
+    $a = New-Auth -Target 'P9S-U24' -From $T0.AddMinutes(-10) -To $T0.AddMinutes(20)
+    $o = AOpen $c $a
+    Expect ($o.outcome -eq 'DONE') "open: $(Why $o)"
+    $c.Clock.utc = $T0.AddMinutes(21); $r0 = $c.Prov.vmreads
+    $s = AStart $c
+    Expect ($s.outcome -eq 'REFUSED' -and (@($s.reasons) -join ',') -eq 'AUTHORIZATION_EXPIRED' -and $c.Calls.Count -eq 0 -and $c.Prov.vmreads -eq $r0 -and (Entry $c $a).startups_used -eq 0) "start after expiry: $(Why $s)"
+}
+Case 'U06' 'no valid Ubuntu authorization: no coordinator lock, no VirtualBox lock, no VM read, no dispatch, no budget; no toolkit file is a permit' {
+    $d = Join-Path $OutDir 'realctx-u24'
+    $rc = New-P9SRealContext -StatePath (Join-Path $d 'state.json') -KitDir $kit -Config $null
+    $log = Join-Path $d 'vboxmanage-calls.log'
+    $vb = New-P9SVBoxContext -Dir $d -VmNames @('P9S-D12', 'P9S-U24') -MutexName "Global\P9S-TEST-$run-u06" -ExePath $pw -PrefixArgs @('-NoProfile', '-NonInteractive', '-File', $recvbox, $log) -LockWaitMs 1500
+    $rc.ReadVmState = { param($vm) Get-P9SVmStateReal $vm $vb }.GetNewClosure()
+    $rc.ReadVmConfig = { param($vm) Get-P9SVmConfigReal $vm $vb }.GetNewClosure()
+    $rc.Dispatch = @{ 'vm.start' = { param($vm) Assert-P9SVBoxCompleted (Invoke-P9SVBoxOperation -VBox $vb -Operation 'vm.start' -Vm $vm) }.GetNewClosure(); 'vm.acpi' = { param($vm) Assert-P9SVBoxCompleted (Invoke-P9SVBoxOperation -VBox $vb -Operation 'vm.acpi' -Vm $vm) }.GetNewClosure() }
+    $rc.CountVmProcesses = { 0 }
+    $ux = Join-Path $kit 'acpi-validation-authorization-u24.example.json'
+    $uxOut = Join-Path $authDir 'u24-example-copy.json'; Copy-Item -LiteralPath $ux -Destination $uxOut
+    $old = New-Auth -Real -Target 'P9S-U24' -From ([DateTime]::UtcNow.AddHours(-3)) -To ([DateTime]::UtcNow.AddMinutes(-5))
+    $early = New-Auth -Real -Target 'P9S-U24' -From ([DateTime]::UtcNow.AddMinutes(30)) -To ([DateTime]::UtcNow.AddHours(2))
+    $deb = New-Auth -Real -Target 'P9S-D12'; $debU = Join-Path $authDir 'debian-for-ubuntu.json'
+    (Get-Content -Raw -LiteralPath $deb) -replace '"target_vm": "P9S-D12"', '"target_vm": "P9S-U24"' | Set-Content -LiteralPath $debU -Encoding utf8
+    $cases = @(
+        @(@{ Action = 'acpi.open'; Authorization = $ux }, 'AUTHORIZATION_IN_TOOLKIT'), @(@{ Action = 'acpi.open'; Authorization = $uxOut }, 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED'),
+        @(@{ Action = 'acpi.open'; Authorization = $uxOut; DryRun = $true }, 'AUTHORIZATION_ID_INVALID'), @(@{ Action = 'acpi.open'; Authorization = $old }, 'AUTHORIZATION_EXPIRED'),
+        @(@{ Action = 'acpi.open'; Authorization = $early }, 'AUTHORIZATION_NOT_YET_VALID'), @(@{ Action = 'acpi.open'; Authorization = $debU }, 'AUTHORIZATION_TARGET_NOT_ALLOWED'),
+        @(@{ Action = 'acpi.start' }, 'ACPI_VALIDATION_SESSION_MISSING'), @(@{ Action = 'acpi.start'; DryRun = $true }, 'ACPI_VALIDATION_SESSION_MISSING'),
+        @(@{ Action = 'acpi.observe'; Seconds = 5 }, 'ACPI_VALIDATION_SESSION_MISSING'), @(@{ Action = 'acpi.shutdown' }, 'ACPI_VALIDATION_SESSION_MISSING'),
+        @(@{ Action = 'acpi.integrity' }, 'ACPI_VALIDATION_SESSION_MISSING'))
+    # the coordinator lock is held throughout: an action that went past the
+    # authorization check would report COORDINATOR_BUSY
+    $lk = [IO.FileStream]::new($rc.LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        foreach ($x in $cases) {
+            $r = Act $rc $x[0]
+            Expect ($r.outcome -eq 'REFUSED' -and (Has $r $x[1]) -and -not (Has $r 'COORDINATOR_BUSY')) "$($x[0].Action)$(if ($x[0].DryRun) { ' -DryRun' }): $(Why $r) (expected $($x[1]))"
+        }
+        foreach ($p in @($null, $uxOut, $old)) {
+            $r = Act $rc $(if ($p) { @{ Action = 'acpi.preflight'; Authorization = $p } } else { @{ Action = 'acpi.preflight' } })
+            Expect ($r.outcome -eq 'DONE' -and $r.reasons.Count -gt 0 -and ($r.lines -join ' ') -notmatch 'target: P9S') "preflight $(if ($p) { [IO.Path]::GetFileName($p) } else { 'without a file' }): $(Why $r)"
+        }
+    } finally { $lk.Dispose() }
+    # recovery actions take the coordinator lock; with nothing to recover they read nothing either
+    foreach ($x in @(@(@{ Action = 'acpi.finalize' }, 'ACPI_VALIDATION_SESSION_MISSING'), @(@{ Action = 'acpi.confirm-off'; Seconds = 5 }, 'ACPI_NOTHING_TO_CONFIRM'))) {
+        $r = Act $rc $x[0]
+        Expect ($r.outcome -eq 'REFUSED' -and (Has $r $x[1])) "$($x[0].Action): $(Why $r) (expected $($x[1]))"
+    }
+    Expect (-not (Test-Path -LiteralPath $log)) "VBoxManage was called: $(if (Test-Path -LiteralPath $log) { (Get-Content -LiteralPath $log) -join '; ' })"
+    foreach ($n in 'vbox-audit.jsonl', 'vbox-operation.json', 'vbox-quarantine.json', 'acpi-validation-ledger.json', 'coordinator-session.json', 'vm-observations.jsonl') { Expect (-not (Test-Path -LiteralPath (Join-Path $d $n))) "$n written" }
+    foreach ($j in Get-ChildItem -LiteralPath $kit -Recurse -Filter '*.json') {
+        $r = Read-P9SAcpiAuthorization -Path $j.FullName -KitDir (Join-Path $OutDir 'not-the-kit')
+        Expect (-not $r.ok) "$($j.Name) is a valid permit"
+    }
+    $re = Read-P9SAcpiAuthorization -Path $ux -KitDir (Join-Path $OutDir 'not-the-kit')
+    foreach ($w in 'AUTHORIZATION_ID_INVALID', 'AUTHORIZATION_TIME_INVALID', 'AUTHORIZATION_MONITOR_CONDITIONS', 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED', 'AUTHORIZATION_APPROVAL_INCOMPLETE') { Expect ($re.reasons -contains $w) "Ubuntu example: missing $w ($($re.reasons -join ','))" }
+}
+Case 'U07' 'a new Ubuntu session leaves the Debian ledger entry as it was and starts with fresh budgets' {
+    $c = New-VCtx; $c.Prov.offAfter = 1
+    $ad = New-Auth -Target 'P9S-D12'
+    $null = AOpen $c $ad; $null = AStart $c; $null = AShut $c; $null = Act $c @{ Action = 'acpi.integrity' }; $null = AFinal $c
+    $before = Entry $c $ad | ConvertTo-Json -Depth 8 -Compress
+    Expect ((Entry $c $ad).outcome -eq 'VALIDATED') "Debian validation: $((Entry $c $ad).outcome)"
+    $au = New-Auth -Target 'P9S-U24'
+    $o = AOpen $c $au; $eu = Entry $c $au
+    Expect ($o.outcome -eq 'DONE' -and $eu.startups_used -eq 0 -and $eu.acpi_used -eq 0 -and $eu.phase -eq 'OPEN' -and $eu.target_vm -eq 'P9S-U24') "Ubuntu open: $(Why $o) $($eu.startups_used)/$($eu.acpi_used) $($eu.phase)"
+    $null = AStart $c; $null = AShut $c; $null = AFinal $c
+    $after = Entry $c $ad | ConvertTo-Json -Depth 8 -Compress
+    Expect ($before -ceq $after) 'the Debian entry changed'
+    $l = Ledger $c
+    Expect (@($l.entries).Count -eq 2 -and $l.entries[0].authorization_id -eq (AuthId $ad) -and $l.entries[1].authorization_id -eq (AuthId $au)) "entries: $(@($l.entries | ForEach-Object authorization_id) -join ',')"
+    Expect ((Entry $c $au).outcome -eq 'VALIDATED' -and (Kinds $c) -eq 'vm.start P9S-D12, vm.acpi P9S-D12, vm.start P9S-U24, vm.acpi P9S-U24') "Ubuntu: $((Entry $c $au).outcome) $(Kinds $c)"
+}
+Case 'U08' 'one Ubuntu start: no second start, not after the VM is off again, not from a new process' {
+    $c = New-VCtx; $c.Prov.offAfter = 0; $a = New-Auth -Target 'P9S-U24'
+    $null = AOpen $c $a; $s1 = AStart $c; $sh = AShut $c
+    Expect ($s1.outcome -eq 'DISPATCHED' -and $sh.outcome -eq 'DONE' -and $c.VmTable['P9S-U24'] -eq 'off') "start $(Why $s1), shutdown $(Why $sh)"
+    $s2 = AStart $c
+    Expect ($s2.outcome -eq 'REFUSED' -and (@($s2.reasons) -join ',') -eq 'ACPI_STARTUP_BUDGET_EXHAUSTED' -and (Count $c 'vm.start') -eq 1) "second start: $(Why $s2)"
+    $c2 = New-VCtx -Dir $c.Dir
+    $s3 = AStart $c2
+    Expect ($s3.outcome -eq 'REFUSED' -and (Has $s3 'ACPI_STARTUP_BUDGET_EXHAUSTED') -and $c2.Calls.Count -eq 0 -and (Entry $c $a).startups_used -eq 1) "after a restart: $(Why $s3)"
+}
+Case 'U09' 'one Ubuntu ACPI request: neither the validation nor the emergency path sends a second one' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c
+    $t1 = AShut $c 10
+    Expect ($t1.outcome -eq 'TIMEOUT' -and (Has $t1 'ACPI_VALIDATION_UNRESOLVED')) "first request: $(Why $t1)"
+    $t2 = AShut $c 10
+    Expect ($t2.outcome -eq 'REFUSED' -and (@($t2.reasons) -join ',') -eq 'ACPI_BUDGET_EXHAUSTED') "second request: $(Why $t2)"
+    $em = Emerg $c 'P9S-U24'
+    Expect ($em.outcome -eq 'REFUSED' -and (Has $em 'ACPI_ALREADY_REQUESTED')) "emergency: $(Why $em)"
+    Expect ((Count $c 'vm.acpi') -eq 1 -and (Kinds $c) -eq 'vm.start P9S-U24, vm.acpi P9S-U24' -and (Entry $c $x.a).acpi_used -eq 1) "requests: $(Kinds $c)"
+}
+Case 'U10' 'a crashed Ubuntu coordinator cannot give a budget back: after the start or the request a new process finds it spent' {
+    $c = New-VCtx -RealClock; $a = New-Auth -Real -Target 'P9S-U24'
+    $null = AOpen $c $a
+    $w = Start-AWorker $c @{ Action = 'acpi.start' } @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'off' } -Crash 'start'
+    $null = Wait-AWorker $w
+    $e = Entry $c $a
+    Expect ($w.p.ExitCode -eq 9 -and $e.startups_used -eq 1 -and $e.phase -eq 'STARTING' -and @(DispatchLog $c | Where-Object { $_ -like 'vm.start P9S-U24 *' }).Count -eq 1) "after the start crash: exit $($w.p.ExitCode) $($e.startups_used) $($e.phase)"
+    $c2 = New-VCtx -Dir $c.Dir -RealClock -Vms @{ 'P9S-U24' = 'running' }
+    $s = AStart $c2
+    Expect ((Has $s 'ACPI_STARTUP_BUDGET_EXHAUSTED') -and (Has $s 'INFLIGHT_UNRESOLVED') -and $c2.Calls.Count -eq 0) "after restart: $(Why $s)"
+    $c3 = New-VCtx -RealClock; $a3 = New-Auth -Real -Target 'P9S-U24'
+    $null = AOpen $c3 $a3; $null = AStart $c3
+    $w3 = Start-AWorker $c3 @{ Action = 'acpi.shutdown' } @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'running' } -Crash 'acpi'
+    $null = Wait-AWorker $w3
+    $c4 = New-VCtx -Dir $c3.Dir -RealClock -Vms @{ 'P9S-U24' = 'running' }
+    $sh = AShut $c4; $em = Emerg $c4 'P9S-U24'
+    Expect ($w3.p.ExitCode -eq 9 -and (Entry $c3 $a3).acpi_used -eq 1 -and (Has $sh 'ACPI_BUDGET_EXHAUSTED') -and (Has $em 'ACPI_ALREADY_REQUESTED') -and $c4.Calls.Count -eq 0) "after the request crash: $(Why $sh) / $(Why $em)"
+}
+Case 'U11' 'two processes race for the one Ubuntu start, and for the one Ubuntu request: one dispatch each' {
+    $c = New-VCtx -RealClock; $a = New-Auth -Real -Target 'P9S-U24'
+    $null = AOpen $c $a
+    $go = New-Event "Global\P9S-TEST-$run-u11-go"; $r1 = New-Event "Global\P9S-TEST-$run-u11-r1"; $r2 = New-Event "Global\P9S-TEST-$run-u11-r2"
+    $vms = @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'off' }
+    $w1 = Start-AWorker $c @{ Action = 'acpi.start' } $vms -DispatchMs 800 -Go "Global\P9S-TEST-$run-u11-go" -Ready "Global\P9S-TEST-$run-u11-r1"
+    $w2 = Start-AWorker $c @{ Action = 'acpi.start' } $vms -DispatchMs 800 -Go "Global\P9S-TEST-$run-u11-go" -Ready "Global\P9S-TEST-$run-u11-r2"
+    Expect ($r1.WaitOne(60000) -and $r2.WaitOne(60000)) 'start workers not ready'
+    $null = $go.Set(); $x1 = Wait-AWorker $w1; $x2 = Wait-AWorker $w2
+    Expect (@(DispatchLog $c | Where-Object { $_ -like 'vm.start P9S-U24 *' }).Count -eq 1 -and (Entry $c $a).startups_used -eq 1 -and @(@($x1, $x2) | Where-Object { $_.outcome -eq 'DISPATCHED' }).Count -eq 1) "starts: $(@(DispatchLog $c) -join '; ')"
+    $go2 = New-Event "Global\P9S-TEST-$run-u11-go2"; $q1 = New-Event "Global\P9S-TEST-$run-u11-q1"; $q2 = New-Event "Global\P9S-TEST-$run-u11-q2"
+    $vms2 = @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'running' }
+    $w3 = Start-AWorker $c @{ Action = 'acpi.shutdown'; Seconds = 10 } $vms2 -DispatchMs 500 -Go "Global\P9S-TEST-$run-u11-go2" -Ready "Global\P9S-TEST-$run-u11-q1"
+    $w4 = Start-AWorker $c @{ Action = 'acpi.shutdown'; Seconds = 10 } $vms2 -DispatchMs 500 -Go "Global\P9S-TEST-$run-u11-go2" -Ready "Global\P9S-TEST-$run-u11-q2"
+    Expect ($q1.WaitOne(60000) -and $q2.WaitOne(60000)) 'request workers not ready'
+    $null = $go2.Set(); $x3 = Wait-AWorker $w3; $x4 = Wait-AWorker $w4
+    Expect (@(DispatchLog $c | Where-Object { $_ -like 'vm.acpi P9S-U24 *' }).Count -eq 1 -and (Entry $c $a).acpi_used -eq 1 -and @(@($x3, $x4) | Where-Object { $_.outcome -eq 'REFUSED' -and @($_.reasons) -contains 'ACPI_BUDGET_EXHAUSTED' }).Count -eq 1) "requests: $(@(DispatchLog $c) -join '; ')"
+    Expect (@(DispatchLog $c | Where-Object { $_ -like '* P9S-D12 *' }).Count -eq 0) 'P9S-D12 was touched'
+}
+Case 'U12' 'an unresolved Ubuntu shutdown blocks every further start: no new Ubuntu or Debian validation, no test session, until the VM is observed off' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c
+    $t1 = AShut $c 10; $fin = AFinal $c
+    Expect ($t1.outcome -eq 'TIMEOUT' -and (Entry $c $x.a).outcome -eq 'ACPI_VALIDATION_UNRESOLVED' -and (Sess $c).lifecycle -eq 'CLOSED') "unresolved: $(Why $t1) / $(Why $fin)"
+    $nu = AOpen $c (New-Auth -Target 'P9S-U24'); $nd = AOpen $c (New-Auth -Target 'P9S-D12'); $ts = Act $c @{ Action = 'session.open'; Kind = 'Test' }
+    Expect ((Has $nu 'ACPI_VALIDATION_UNRESOLVED_PREVIOUS') -and (Has $nd 'ACPI_VALIDATION_UNRESOLVED_PREVIOUS') -and (Has $ts 'ACPI_VALIDATION_UNRESOLVED') -and (Count $c 'vm.start') -eq 1) "new sessions: $(Why $nu) / $(Why $nd) / $(Why $ts)"
+    $c.VmTable['P9S-U24'] = 'off'
+    $k = AConfirm $c 10
+    Expect ($k.outcome -eq 'DONE' -and (Test-P9SAcpiEntryResolved (Entry $c $x.a))) "confirmation: $(Why $k) $((Entry $c $x.a).phase)"
+    $nd2 = AOpen $c (New-Auth -Target 'P9S-D12')
+    Expect ($nd2.outcome -eq 'DONE') "Debian after the confirmation: $(Why $nd2)"
+}
+Case 'U13' 'STOP and ABORT stop an Ubuntu session: no start, no progression; the one emergency request is counted' {
+    $c = New-VCtx; $a = New-Auth -Target 'P9S-U24'; $null = AOpen $c $a
+    $c.Prov.mon = $STOP
+    $s = AStart $c
+    Expect ($s.outcome -eq 'REFUSED' -and (Has $s 'SESSION_HALTED_STOP') -and $c.Calls.Count -eq 0 -and (Entry $c $a).startups_used -eq 0) "start under STOP: $(Why $s)"
+    $y = Started -Target 'P9S-U24'; $cy = $y.c; $cy.Prov.mon = $ABORT
+    $b = AObs $cy 10; $sh = AShut $cy
+    Expect ((Has $b 'SESSION_HALTED_ABORT') -and $sh.outcome -eq 'REFUSED' -and (Count $cy 'vm.acpi') -eq 0) "observe and request under ABORT: $(Why $b) / $(Why $sh)"
+    $cy.Prov.offAfter = 0
+    $em = Emerg $cy 'P9S-U24'
+    Expect ($em.outcome -eq 'DONE' -and (Entry $cy $y.a).acpi_source -eq 'emergency' -and (Entry $cy $y.a).acpi_used -eq 1 -and (Kinds $cy) -eq 'vm.start P9S-U24, vm.acpi P9S-U24') "emergency: $(Why $em) $(Kinds $cy)"
+    $sh2 = AShut $cy
+    Expect ($sh2.outcome -eq 'REFUSED' -and (Count $cy 'vm.acpi') -eq 1) "after the emergency: $(Why $sh2)"
+}
+Case 'U14' 'a missing or stale monitor state and a stale VM observation refuse the Ubuntu start' {
+    $c = New-VCtx; $a = New-Auth -Target 'P9S-U24'; $null = AOpen $c $a
+    $c.Prov.mon = $null
+    $s1 = AStart $c
+    Expect ($s1.outcome -eq 'REFUSED' -and (Has $s1 'STATE_EMPTY') -and $c.Calls.Count -eq 0) "no monitor state: $(Why $s1)"
+    $c.Prov.mon = $ELIG; $c.Prov.age = 13
+    $s2 = AStart $c
+    Expect ($s2.outcome -eq 'REFUSED' -and (Has $s2 'STATE_STALE') -and $c.Calls.Count -eq 0) "stale monitor state: $(Why $s2)"
+    $c.Prov.age = 1
+    $k = $c.Clock; $step = 11L * $F; $c.Prov.onVmRead = { param($vm) $k.q += $step }.GetNewClosure()
+    $s3 = AStart $c
+    Expect ($s3.outcome -eq 'REFUSED' -and (Has $s3 'VM_STATE_STALE:P9S-U24') -and $c.Calls.Count -eq 0 -and (Entry $c $a).startups_used -eq 0) "stale observation: $(Why $s3)"
+}
+Case 'U15' 'an unreadable Ubuntu state is never taken for off' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c
+    $tbl = $c.VmTable; $c.Prov.onAcpi = { $tbl['P9S-U24'] = 'unreadable' }.GetNewClosure()
+    $r = AShut $c
+    Expect ($r.outcome -eq 'FAILED' -and (Has $r 'VM_STATE_UNOBSERVED') -and (Has $r 'ACPI_VALIDATION_UNRESOLVED')) "watch: $(Why $r)"
+    $k = AConfirm $c 10
+    Expect ($k.outcome -ne 'DONE' -and (Entry $c $x.a).phase -eq 'ACPI_VALIDATION_UNRESOLVED' -and (Sess $c).expected_vm['P9S-U24'] -ne 'off') "confirmation of an unreadable state: $(Why $k) $((Entry $c $x.a).phase)"
+}
+Case 'U16' 'an Ubuntu authorization grants no normal action: no T-CLEAN step, no test session, no READY' {
+    $c = New-VCtx; $null = AOpen $c (New-Auth -Target 'P9S-U24')
+    $plan = Join-Path $c.Dir 'plan.json'; [ordered]@{ schema = 'p9s-plan/1'; name = 'p'; steps = @(@{ Action = 'wait'; Seconds = 5 }) } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $plan
+    foreach ($r in @(@{ Action = 'vm.start'; Vm = 'P9S-U24' }, @{ Action = 'vm.start'; Vm = 'P9S-D12' }, @{ Action = 'guest.type'; Vm = 'P9S-U24'; Text = 'abc' }, @{ Action = 'guest.key'; Vm = 'P9S-U24'; Key = 'Enter' },
+                      @{ Action = 'guest.unlock'; Vm = 'P9S-U24' }, @{ Action = 'scenario.begin'; Name = 'tclean-15' }, @{ Action = 'sequence.run'; Plan = $plan })) {
+        $x = Act $c $r
+        Expect ($x.outcome -eq 'REFUSED' -and (Has $x 'SESSION_KIND_MISMATCH')) "$($r.Action) $($r.Vm): $(Why $x)"
+    }
+    $ts = Act $c @{ Action = 'session.open'; Kind = 'Test' }
+    Expect ($ts.outcome -eq 'REFUSED' -and (Has $ts 'ACPI_VALIDATION_NOT_FINALIZED') -and $c.Calls.Count -eq 0) "test session: $(Why $ts)"
+    $g = Get-P9SGate $c
+    Expect ($g.status -eq 'UNCALIBRATED' -and -not $g.ok) "normal gate: $($g.status) ok $($g.ok)"
+}
+Case 'U17' 'the Ubuntu memory minimum: stated by the session in MiB, approved by it, never below the floor, applied before the start and while observing' {
+    $kd = Split-Path -Parent (Join-Path $kit 'paging-thresholds.json')
+    $base = [ordered]@{ mode = 'Monitor'; paging_stop = 'Required'; commit_gate_s = 300; commit_below_pct = 90 }
+    $mk = { param($k, $v) $m = [ordered]@{}; foreach ($i in $base.Keys) { $m[$i] = $base[$i] }; if ($k) { $m[$k] = $v }; $m }
+    $cases = @(
+        @(@{ monitor_conditions = (& $mk $null $null) }, 'AUTHORIZATION_MONITOR_CONDITIONS'), @(@{ monitor_conditions = (& $mk 'provisional_min_available_mb' 8192) }, 'AUTHORIZATION_MEMORY_UNIT'),
+        @(@{ monitor_conditions = (& $mk 'provisional_min_available_mib' 4096) }, 'AUTHORIZATION_MONITOR_CONDITIONS'), @(@{ monitor_conditions = (& $mk 'provisional_min_available_mib' 8191) }, 'AUTHORIZATION_MONITOR_CONDITIONS'),
+        @(@{ monitor_conditions = (& $mk 'provisional_min_available_mib' '8192') }, 'AUTHORIZATION_MONITOR_CONDITIONS'), @(@{ monitor_conditions = (& $mk 'provisional_min_available_mib' 8192.5) }, 'AUTHORIZATION_MONITOR_CONDITIONS'),
+        @(@{ provisional_safeguard_approved = $false }, 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED'), @(@{ provisional_safeguard_approved = 'true' }, 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED'))
+    foreach ($x in $cases) {
+        $r = Read-P9SAcpiAuthorization -Path (New-Auth -Target 'P9S-U24' -Set $x[0]) -KitDir $kd
+        Expect (-not $r.ok -and ($r.reasons -contains $x[1])) "$($x[0] | ConvertTo-Json -Compress -Depth 4) -> $($r.reasons -join ',') (expected $($x[1]))"
+    }
+    $r2 = Read-P9SAcpiAuthorization -Path (New-Auth -Target 'P9S-U24' -Remove @('provisional_safeguard_approved')) -KitDir $kd
+    Expect (-not $r2.ok -and ($r2.reasons -contains 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED')) "approval missing: $($r2.reasons -join ',')"
+    $c = New-VCtx; $c.Prov.offAfter = 1
+    $a = New-Auth -Target 'P9S-U24' -Set @{ monitor_conditions = (& $mk 'provisional_min_available_mib' 10240) }
+    $p = Act $c @{ Action = 'acpi.preflight'; Authorization = $a }
+    Expect (($p.lines -join ' ') -match 'memory minimum 10240 MiB') "preflight: $($p.lines -join ' | ')"
+    $null = AOpen $c $a
+    $c.Prov.mon = $MEM9
+    $s1 = AStart $c
+    Expect ($s1.outcome -eq 'REFUSED' -and (Has $s1 'MEMORY_BELOW_PROVISIONAL_MINIMUM') -and $c.Calls.Count -eq 0) "start at 9000 MiB with a 10240 MiB minimum: $(Why $s1)"
+    $c.Prov.mon = $ELIG
+    $s2 = AStart $c
+    Expect ($s2.outcome -eq 'DISPATCHED') "start at 16000 MiB: $(Why $s2)"
+    $c.Prov.mon = $MEM9
+    $b = AObs $c 10
+    Expect ($b.outcome -eq 'REFUSED' -and (Has $b 'MEMORY_BELOW_PROVISIONAL_MINIMUM')) "observe at 9000 MiB: $(Why $b)"
+    $sh = AShut $c
+    Expect ($sh.outcome -eq 'DONE' -and (Entry $c $a).phase -eq 'OFF_CONFIRMED' -and (Entry $c $a).min_available_mib -eq 10240) "the request below the minimum: $(Why $sh)"
+}
+Case 'U18' 'a corrupt or locked ledger refuses every validation step and every new validation; it is never read as an empty one' {
+    $c = New-VCtx; $a = New-Auth -Target 'P9S-U24'; $null = AOpen $c $a
+    $good = Get-Content -Raw -LiteralPath $c.LedgerPath
+    $r0 = $c.Prov.vmreads
+    Set-Content -LiteralPath $c.LedgerPath -Value '{ "schema": "p9s-acpi-validation-ledger/1", "entries": [' -NoNewline
+    $s1 = AStart $c; $r1 = $c.Prov.vmreads; $o1 = AOpen $c (New-Auth -Target 'P9S-U24')
+    Expect ((Has $s1 'ACPI_LEDGER_UNREADABLE') -and (Has $o1 'ACPI_LEDGER_UNREADABLE') -and $c.Calls.Count -eq 0 -and $r1 -eq $r0) "corrupt ledger: $(Why $s1) / $(Why $o1)"
+    $p1 = Act $c @{ Action = 'acpi.preflight'; Authorization = (New-Auth -Target 'P9S-U24') }
+    Expect ((Has $p1 'ACPI_LEDGER_UNREADABLE') -and ($p1.lines -join ' ') -match 'NOT READY TO OPEN') "preflight with a corrupt ledger: $(Why $p1)"
+    $r0 = $c.Prov.vmreads
+    Set-Content -LiteralPath $c.LedgerPath -Value $good -NoNewline
+    $hold = [IO.FileStream]::new($c.LedgerPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try {
+        $s2 = AStart $c; $r2 = $c.Prov.vmreads; $o2 = AOpen $c $a; $o3 = AOpen $c (New-Auth -Target 'P9S-D12')
+        Expect ((Has $s2 'ACPI_LEDGER_UNREADABLE') -and (Has $o2 'ACPI_LEDGER_UNREADABLE') -and (Has $o3 'ACPI_LEDGER_UNREADABLE') -and $c.Calls.Count -eq 0 -and $r2 -eq $r0) "locked ledger: $(Why $s2) / $(Why $o2) / $(Why $o3)"
+    } finally { $hold.Dispose() }
+    $s3 = AStart $c
+    Expect ($s3.outcome -eq 'DISPATCHED' -and (Entry $c $a).startups_used -eq 1 -and (Kinds $c) -eq 'vm.start P9S-U24') "once readable again: $(Why $s3)"
 }
 foreach ($e in $script:events) { try { $null = $e.Set() } catch {} }
 $pass = @($results | Where-Object result -eq 'PASS').Count
