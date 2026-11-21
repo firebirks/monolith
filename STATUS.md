@@ -1053,8 +1053,8 @@ used by Monolith:
 - a calibration of the paging values with both VMs running, prepared as a
   simulated dry run only;
 - a restricted validation of the ACPI shutdown of `P9S-D12`, outside the
-  normal gate: one start and one request under an owner authorization,
-  prepared with its live path disabled.
+  normal gate: one start and one request, possible only in a session
+  opened with the owner's authorization file.
 
 State on 2026-11-20: the source was published as `fe6180f`; `7ef2df8`
 added the CI job `p9s-windows-toolkit`, and `83c9ef8` put every
@@ -1083,14 +1083,22 @@ when it needs one; a stale or unreadable observation cannot authorize
 an action. The restricted ACPI validation answers the circle between
 calibration and the normal gate without changing that gate: it is
 limited to `P9S-D12`, one start and one request, a monitor that reports
-UNCALIBRATED with every other condition met, and at least 8192 MB
-available before the start (a provisional safeguard for the validation
-only, not approved); its budgets survive restarts, and an unresolved
-outcome blocks every new session until the VM is observed off. Its live
-path is disabled in the code: a live run needs the owner's separate
-authorization of one session and of the change that enables it. The
-toolkit's 201 declared tests and 55 targeted faults run in the CI job,
-where K37 is again reported as not run.
+UNCALIBRATED with every other condition met, and at least 8192 MiB
+available before the start and while the VM runs (a provisional
+safeguard the owner approved for one validation session, not a paging
+threshold); its budgets survive restarts, and an unresolved outcome
+blocks every new session until the VM is observed off. That version,
+`f574cfd`, kept the live path disabled in the code (CI run 44825277275:
+201 tests declared, 200 passed, K37 not run; 55 targeted faults
+detected).
+
+On 2026-11-21 the owner authorized one supervised live run, and the
+live path was enabled for it: the owner's authorization file is the
+only way in, a live step without it is refused before any VirtualBox
+query, and no VirtualBox VM of any project may run on the host when the
+session opens or the VM starts. The toolkit's 204 declared tests and 61
+targeted faults run in the CI job, where K37 is again reported as not
+run.
 
 What remains unverified: the monitor without VirtualBox has run only in
 the tests, about 24 s of real sampling per run; no VM has been started

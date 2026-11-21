@@ -14,14 +14,20 @@
 #     that VM, the permitted actions, one start, one ACPI request, a window
 #     of at most 4 hours and the boundaries below; the file is checked, not
 #     trusted as a cryptographic proof: the same Windows account can write
-#     it. The live path is also disabled in the code of this version
-#     (Get-P9SAcpiValidationCapability): enabling it is a reviewed change
-#     the owner authorizes with the session;
+#     it. It is the only way in: without a valid file acpi.open is refused,
+#     and without a validation session opened with one every later live
+#     step is refused, before the coordinator lock, any VirtualBox query or
+#     any dispatch (Get-P9SAcpiUnauthorized; dry runs included);
+#   - no VirtualBox VM process of any VM may run on the host when the
+#     session opens and when the start is dispatched (Windows process list,
+#     not VirtualBox: another project's VM is never touched, only waited
+#     for);
 #   - the monitor must be a Monitor-mode run with the paging stop required
 #     (so it reports UNCALIBRATED while the paging values are unapproved),
 #     fresh, alive, the 300-second commit qualification met, commit below
 #     90 %, no WARNING, UNKNOWN, STOP or ABORT, measurements complete, and,
-#     before the start, at least the provisional available-memory minimum.
+#     before the start and during the observation, at least the provisional
+#     available-memory minimum (MiB, as the Windows counter reports it).
 #     The coordinator calls that ACPI_VALIDATION_ELIGIBLE; it is not READY
 #     and the monitor state is not changed;
 #   - the budgets (one start, one ACPI request) live in
@@ -36,7 +42,7 @@
 #     off. No second request, no keyboard input, no forced power-off.
 
 function Get-P9SAcpiValidationCapability {
-    [pscustomobject]@{ name = 'ACPI_VALIDATION'; live_enabled = $false; note = 'prepared; the live path is disabled in this version of the toolkit' }
+    [pscustomobject]@{ name = 'ACPI_VALIDATION'; live_enabled = $true; note = 'live only inside a validation session opened with a valid owner authorization; without one every live step is refused before any VirtualBox query' }
 }
 function Get-P9SAcpiValidationTarget { 'P9S-D12' }
 function Get-P9SAcpiValidationActions { 'acpi.preflight', 'acpi.open', 'acpi.start', 'acpi.observe', 'acpi.shutdown', 'acpi.confirm-off', 'acpi.integrity', 'acpi.finalize' }
@@ -220,6 +226,31 @@ function Set-P9SAcpiAfterEmergency($Ctx, [string]$Vm, [string]$Phase, [switch]$L
 
 # ------------------------------------------------------------ helpers
 function Test-P9SAcpiLive($Ctx) { [bool](Get-Prop $Ctx 'AcpiValidationLive') }
+# The default: nothing live without an owner authorization. acpi.open needs
+# a valid authorization file; every later live step an open validation
+# session bound to one. Reads files only (no VirtualBox, no lock).
+function Get-P9SAcpiUnauthorized($Ctx, [hashtable]$Request) {
+    $a = [string]$Request.Action
+    if ($a -ceq 'acpi.open') { return @((Read-P9SAcpiAuthorization -Path ([string]$Request.Authorization) -KitDir (Split-Path -Parent $Ctx.ThresholdsPath)).reasons) }
+    if ($a -cin 'acpi.start', 'acpi.observe', 'acpi.shutdown', 'acpi.integrity') {
+        $sr = Read-P9SSession $Ctx
+        if (-not $sr.ok) { return @('SESSION_UNREADABLE') }
+        if (-not $sr.session -or [string]$sr.session.kind -cne 'AcpiValidation' -or -not $sr.session.validation) { return @('ACPI_VALIDATION_SESSION_MISSING') }
+    }
+    @()
+}
+# Processes of running VirtualBox VMs on the whole host (any VM, any
+# project), from the Windows process list, not from VirtualBox: there must
+# be none when the session opens and when the start is dispatched. An
+# unknown count refuses.
+function Get-P9SAcpiHostVmReasons($Ctx) {
+    $h = Get-Prop $Ctx 'CountVmProcesses'
+    $n = $null
+    if ($h) { try { $n = & $h } catch { $n = $null } }
+    if ($n -isnot [int]) { return @('VM_PROCESSES_UNKNOWN') }
+    if ($n -gt 0) { return @("VM_PROCESS_RUNNING:$n") }
+    @()
+}
 # The validation session, the ledger and its entry, with every reason found.
 function Get-P9SAcpiBundle($Ctx) {
     $b = [pscustomobject]@{ reasons = [System.Collections.Generic.List[string]]::new(); session = $null; ledger = $null; entry = $null; auth = $null }
@@ -277,11 +308,18 @@ function Invoke-P9SValidation($Ctx, [hashtable]$Request, $V, $Res) {
     $a = [string]$Request.Action; $dry = [bool]$Request.DryRun
     $Res.vm = Get-P9SAcpiValidationTarget
     if ($a -ceq 'acpi.preflight') { return (Invoke-P9SAcpiPreflight $Ctx $Request $V $Res) }
-    # the live path: disabled in this version; refused before anything is
-    # read, so that a disabled capability makes no VirtualBox call
+    # a context with the live path switched off: refused before anything is
+    # read, so that it makes no VirtualBox call
     if ($a -cne 'acpi.confirm-off' -and -not $dry -and -not (Test-P9SAcpiLive $Ctx)) {
         Set-P9SRefused $Res @('ACPI_VALIDATION_LIVE_DISABLED') $null
-        $Res.lines.Add("the restricted ACPI validation is prepared but its live path is disabled in this version of the toolkit; -DryRun shows what $a would do. Enabling it is a reviewed change authorized by the owner together with the session.")
+        $Res.lines.Add("the live path of the restricted ACPI validation is switched off in this context; -DryRun shows what $a would do.")
+        Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+        return $Res
+    }
+    $na = @(Get-P9SAcpiUnauthorized $Ctx $Request)
+    if ($na.Count) {
+        Set-P9SRefused $Res $na $null
+        $Res.lines.Add("no owner authorization is bound to $a$(if ($a -ceq 'acpi.open') { ' (the authorization file is not valid)' } else { ' (no ACPI validation session is open)' }): nothing was read from VirtualBox and nothing was sent")
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
     }
@@ -315,7 +353,7 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
     $cap = Get-P9SAcpiValidationCapability
     $lim = Get-P9SAcpiValidationLimits
     $live = Test-P9SAcpiLive $Ctx
-    $Res.lines.Add("capability $($cap.name): live path $(if ($live) { 'ENABLED' } else { 'DISABLED in this version (dry runs only)' }); target $target; one start, one ACPI request")
+    $Res.lines.Add("capability $($cap.name): live path $(if ($live) { 'enabled only inside a session opened with a valid owner authorization' } else { 'SWITCHED OFF in this context (dry runs only)' }); target $target; one start, one ACPI request")
     $minMb = $lim.provisional_min_available_mb
     $au = $null
     if ($Request.Authorization) {
@@ -339,10 +377,13 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
     $Res.lines.Add("session: $(if (-not $sr.ok) { 'UNREADABLE' } elseif ($sr.session) { "$($sr.session.session_id) kind $($sr.session.kind) $($sr.session.lifecycle)" } else { 'none' })")
     $g = Get-P9SGate $Ctx; $Res.status = $g.status; $Res.run_id = $g.run_id
     $e = Test-P9SAcpiValidationState -Text $g.text -NowQpc (& $Ctx.NowQpc) -QpcFrequency $Ctx.QpcFrequency -IsMonitorAlive $Ctx.IsMonitorAlive -MinAvailableMb $minMb
-    $Res.lines.Add("monitor: status $(if ($e.status) { $e.status } else { '-' }), run $(if ($e.run_id) { $e.run_id } else { '-' }); commit $(if (Test-Finite $e.commit_pct) { ([double]$e.commit_pct).ToString('F1', [Globalization.CultureInfo]::InvariantCulture) + ' %' } else { '-' }); available $(if (Test-Finite $e.avail_mb) { [math]::Round([double]$e.avail_mb) } else { '-' }) MB (provisional minimum $minMb MB before the start, validation only, owner approval required)")
+    $Res.lines.Add("monitor: status $(if ($e.status) { $e.status } else { '-' }), run $(if ($e.run_id) { $e.run_id } else { '-' }); commit $(if (Test-Finite $e.commit_pct) { ([double]$e.commit_pct).ToString('F1', [Globalization.CultureInfo]::InvariantCulture) + ' %' } else { '-' }); available $(if (Test-Finite $e.avail_mb) { [math]::Round([double]$e.avail_mb) } else { '-' }) MiB (provisional minimum $minMb MiB before the start and while observing, validation only, owner approval required)")
     $Res.lines.Add("paging: $(if ($e.paging_calibration) { $e.paging_calibration } else { '-' }) (recorded, never a paging pass; normal READY stays unavailable)")
     $Res.lines.Add("$($e.state)$(if (-not $e.ok) { ': ' + ($e.reasons -join ', ') })")
     Add-P9SAcpiReasons $Res.reasons $e.reasons
+    $hv = @(Get-P9SAcpiHostVmReasons $Ctx)
+    $Res.lines.Add("VirtualBox VM processes on the host (any VM, Windows process list): $(if ($hv.Count) { "$($hv -join ', ') -> FAIL" } else { 'none -> PASS' })")
+    Add-P9SAcpiReasons $Res.reasons $hv
     $vg = Get-P9SVBoxGate $Ctx
     $Res.lines.Add("VirtualBox API: $($vg.text) -> $(if ($vg.ok) { 'PASS' } else { 'FAIL (no VirtualBox query is made)' })")
     Add-P9SAcpiReasons $Res.reasons $vg.reasons
@@ -355,7 +396,7 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
     $ref = if ($Ctx.Config -and $Ctx.Config.vm_config_reference) { $Ctx.Config.vm_config_reference.debian } else { $null }
     $Res.lines.Add("configuration reference: $(if ($ref -and (Test-Path -LiteralPath $ref)) { "$([IO.Path]::GetFileName($ref)) -> PASS" } else { 'not configured or missing -> FAIL' })")
     if (-not ($ref -and (Test-Path -LiteralPath $ref))) { $Res.reasons.Add('ACPI_REFERENCE_MISSING') }
-    $Res.lines.Add("ACPI VALIDATION PREFLIGHT: $(if ($Res.reasons.Count) { 'NOT READY TO OPEN' } else { 'all checks passed' }); live path $(if ($live) { 'enabled' } else { 'DISABLED' })")
+    $Res.lines.Add("ACPI VALIDATION PREFLIGHT: $(if ($Res.reasons.Count) { 'NOT READY TO OPEN' } else { 'all checks passed' }); live path $(if ($live) { 'enabled with a valid authorization' } else { 'SWITCHED OFF' })")
     $Res.outcome = 'DONE'
     Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
     $Res
@@ -397,6 +438,7 @@ function Invoke-P9SAcpiOpen($Ctx, [hashtable]$Request, $Res) {
     $minMb = if ($au.ok) { [double]$au.auth.min_available_mb } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mb }
     $e = Test-P9SAcpiValidationState -Text $g.text -NowQpc (& $Ctx.NowQpc) -QpcFrequency $Ctx.QpcFrequency -IsMonitorAlive $Ctx.IsMonitorAlive -MinAvailableMb $minMb
     Add-P9SAcpiReasons $reasons $e.reasons
+    Add-P9SAcpiReasons $reasons (Get-P9SAcpiHostVmReasons $Ctx)
     $vg = Get-P9SVBoxGate $Ctx
     Add-P9SAcpiReasons $reasons $vg.reasons
     $states = [ordered]@{}
@@ -439,15 +481,17 @@ function Invoke-P9SAcpiStart($Ctx, [hashtable]$Request, $Res) {
     $minMb = if ($b.auth) { [double]$b.auth.min_available_mb } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mb }
     $c = Test-P9SAcpiConditions $Ctx $b $Res -MinAvailableMb $minMb
     Add-P9SAcpiReasons $reasons $c.reasons
+    Add-P9SAcpiReasons $reasons (Get-P9SAcpiHostVmReasons $Ctx)
     $target = if ($b.auth) { [string]$b.auth.target_vm } else { Get-P9SAcpiValidationTarget }
     $o = $null
     if ((Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'start' 'off' $reasons }
     if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $c.gate; return $Res }
-    # last check, immediately before the dispatch: the monitor again, and
-    # the observation must still be fresh
+    # last check, immediately before the dispatch: the monitor and the host
+    # VM processes again, and the observation must still be fresh
     $c2 = Test-P9SAcpiConditions $Ctx $b $Res -MinAvailableMb $minMb
+    $hv = @(Get-P9SAcpiHostVmReasons $Ctx)
     $f = Test-P9SVmObservation -Observation $o -NowQpc ([long](& $Ctx.NowQpc)) -QpcFrequency $Ctx.QpcFrequency -Vm $target
-    if (-not $c2.ok -or -not $f.ok) { Set-P9SRefused $Res (@('STATE_CHANGED_BEFORE_DISPATCH') + @($c2.reasons) + @($f.reasons)) $c2.gate; return $Res }
+    if (-not $c2.ok -or -not $f.ok -or $hv.Count) { Set-P9SRefused $Res (@('STATE_CHANGED_BEFORE_DISPATCH') + @($c2.reasons) + @($f.reasons) + $hv) $c2.gate; return $Res }
     if ($dry) { $Res.outcome = 'DRYRUN'; $Res.lines.Add("dry run: would start $target once (VBoxManage $((Get-VBoxStartArgs $target) -join ' ')); the start budget would then be spent"); return $Res }
     # the budget is spent before the dispatch
     $b.entry.startups_used = [int]$b.entry.startups_used + 1; $b.entry.phase = 'STARTING'
@@ -489,11 +533,15 @@ function Invoke-P9SAcpiObserve($Ctx, [hashtable]$Request, $Res) {
     if ($b.session) { $Res.session = $b.session.session_id; if ($b.session.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') } }
     if ($b.auth -and @($b.auth.permitted_actions) -cnotcontains 'acpi.observe') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.observe') }
     if ($b.entry -and [int]$b.entry.startups_used -lt 1) { $reasons.Add('ACPI_NOT_STARTED') }
-    $c = Test-P9SAcpiConditions $Ctx $b $Res
+    # the provisional memory minimum holds while the VM runs too: below it
+    # the observation ends and the one ACPI request stays available
+    $minMb = if ($b.auth) { [double]$b.auth.min_available_mb } else { [double](Get-P9SAcpiValidationLimits).provisional_min_available_mb }
+    $lowHint = "available memory is below the provisional minimum ($minMb MiB): no further observation; the one ACPI request (acpi.shutdown) stays available"
+    $c = Test-P9SAcpiConditions $Ctx $b $Res -MinAvailableMb $minMb
     Add-P9SAcpiReasons $reasons $c.reasons
     $target = if ($b.auth) { [string]$b.auth.target_vm } else { Get-P9SAcpiValidationTarget }
     if ((Get-P9SVBoxGate $Ctx).ok) { $o = Test-P9SAcpiTarget $Ctx $target 'observe' 'running' $reasons; if ($o.observed) { $Res.lines.Add("begin: $(Format-P9SVmObservation $o)") } }
-    if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $c.gate; return $Res }
+    if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $c.gate; if ($reasons -ccontains 'MEMORY_BELOW_PROVISIONAL_MINIMUM') { $Res.lines.Add($lowHint) }; return $Res }
     $secs = [int]$Request.Seconds
     if ($dry) { $Res.outcome = 'DRYRUN'; $Res.lines.Add("dry run: would observe $target for $secs s with a monitor check every 5 s and one VM-state query at each end"); return $Res }
     $left = $secs; $stopped = $false
@@ -501,8 +549,8 @@ function Invoke-P9SAcpiObserve($Ctx, [hashtable]$Request, $Res) {
         $step = [math]::Min(5, $left)
         & $Ctx.Sleep ($step * 1000)
         $left -= $step
-        $k = Test-P9SAcpiConditions $Ctx $b $Res
-        if (-not $k.ok) { $stopped = $true; $Res.outcome = 'STOPPED_AT_CHECKPOINT'; Add-P9SAcpiReasons $Res.reasons $k.reasons; $Res.lines.Add("observation stopped with $left s left ($($k.reasons -join ', '))"); break }
+        $k = Test-P9SAcpiConditions $Ctx $b $Res -MinAvailableMb $minMb
+        if (-not $k.ok) { $stopped = $true; $Res.outcome = 'STOPPED_AT_CHECKPOINT'; Add-P9SAcpiReasons $Res.reasons $k.reasons; $Res.lines.Add("observation stopped with $left s left ($($k.reasons -join ', '))"); if ($k.reasons -ccontains 'MEMORY_BELOW_PROVISIONAL_MINIMUM') { $Res.lines.Add($lowHint) }; break }
     }
     $vgEnd = Get-P9SVBoxGate $Ctx
     if ($vgEnd.ok) { $x = Get-P9SVmObservation $Ctx $target 'observe'; $Res.lines.Add("end: $(Format-P9SVmObservation $x)") } else { $Res.lines.Add("end: $target not read (VirtualBox $($vgEnd.text))") }

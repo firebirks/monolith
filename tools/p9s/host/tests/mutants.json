@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 55,
+  "count": 61,
   "mutants": [
     {
       "id": "SM1",
@@ -573,12 +573,12 @@
       "id": "AV7",
       "suite": "acpival",
       "file": "p9s-acpival.ps1",
-      "what": "the live path is enabled",
+      "what": "a context with the live switch off is not refused",
       "killers": [
         "A01"
       ],
-      "find": "name = 'ACPI_VALIDATION'; live_enabled = $false;",
-      "replace": "name = 'ACPI_VALIDATION'; live_enabled = $true;"
+      "find": "    if ($a -cne 'acpi.confirm-off' -and -not $dry -and -not (Test-P9SAcpiLive $Ctx)) {",
+      "replace": "    if ($false) {"
     },
     {
       "id": "AV8",
@@ -638,6 +638,72 @@
       ],
       "find": "function Get-P9SVBoxInProcessOperations { 'guest.keys' }",
       "replace": "function Get-P9SVBoxInProcessOperations { 'guest.keys', 'monitor.vmstates', 'monitor.connect' }"
+    },
+    {
+      "id": "AV12",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a live step without an owner authorization reaches VirtualBox",
+      "killers": [
+        "A01"
+      ],
+      "find": "    if ($na.Count) {",
+      "replace": "    if ($false) {"
+    },
+    {
+      "id": "AV13",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a running VM process on the host is ignored",
+      "killers": [
+        "A15"
+      ],
+      "find": "    if ($n -gt 0) { return @(\"VM_PROCESS_RUNNING:$n\") }",
+      "replace": "    if ($false) { return @(\"VM_PROCESS_RUNNING:$n\") }"
+    },
+    {
+      "id": "AV14",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the last check before the start ignores host VM processes",
+      "killers": [
+        "A15"
+      ],
+      "find": "    if (-not $c2.ok -or -not $f.ok -or $hv.Count) {",
+      "replace": "    if (-not $c2.ok -or -not $f.ok) {"
+    },
+    {
+      "id": "AV15",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the memory minimum is not checked while the VM is observed",
+      "killers": [
+        "A16"
+      ],
+      "find": "        $k = Test-P9SAcpiConditions $Ctx $b $Res -MinAvailableMb $minMb",
+      "replace": "        $k = Test-P9SAcpiConditions $Ctx $b $Res"
+    },
+    {
+      "id": "AV16",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a start the authorization does not list is accepted",
+      "killers": [
+        "A17"
+      ],
+      "find": "    if ($b.auth -and @($b.auth.permitted_actions) -cnotcontains 'acpi.start') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.start') }",
+      "replace": "    if ($false) { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.start') }"
+    },
+    {
+      "id": "AV17",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an ACPI request the authorization does not list is accepted",
+      "killers": [
+        "A17"
+      ],
+      "find": "    if ($b.auth -and @($b.auth.permitted_actions) -cnotcontains 'acpi.shutdown') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.shutdown') }",
+      "replace": "    if ($false) { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.shutdown') }"
     }
   ]
 }

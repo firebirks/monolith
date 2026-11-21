@@ -51,7 +51,7 @@ does not touch Tor, Monolith or its profiles.
 | `p9s-action.ps1` | The coordinator's entry point |
 | `coordinator-lib.ps1` | Actions, checks, sessions, emergency path, calibration dry run |
 | `p9s-vmstate.ps1` | VM-state observations: one query on request, its times, freshness, journal |
-| `p9s-acpival.ps1` | The restricted single-VM ACPI validation (live path disabled) |
+| `p9s-acpival.ps1` | The restricted single-VM ACPI validation (owner authorization required) |
 | `p9s-vbox.ps1` | Every VirtualBox operation: one host-wide lock, bounded waits, quarantine, recovery |
 | `p9s-config.ps1` | Local configuration and the local secret store |
 | `p9s-local.example.json` | Example of the local configuration |
@@ -65,7 +65,7 @@ does not touch Tor, Monolith or its profiles.
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
 | `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, budgets, recovery, races |
 | `tests/run-all.ps1` | Runs and checks the six suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 55 targeted faults and the tests that must detect them |
+| `tests/mutants.json` | The 61 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -212,7 +212,7 @@ actions check again between chunks or every 5 s.
 | `vbox.status` | The VirtualBox quarantine, if any; no VirtualBox call |
 | `vbox.recover -Operation <id>` | The operator's recovery of a quarantine (see "VirtualBox operations") |
 | `calib.preflight`, `calib.dry-run` | Read-only preflight; simulated calibration |
-| `acpi.preflight`, `acpi.open` ... `acpi.finalize` | The restricted ACPI validation (see below); live path disabled |
+| `acpi.preflight`, `acpi.open` ... `acpi.finalize` | The restricted ACPI validation (see below); owner authorization required |
 
 STOP or ABORT seen in any monitor state halts the session for good:
 queued plan steps are cancelled, nothing is retried. After STOP a new
@@ -360,7 +360,7 @@ monitor run with the coordinator's dispatches: for layout-2 runs it
 uses the observations made during the run, which see a change only at
 the next observation; for older runs the VM columns of `samples.csv`.
 
-## Restricted ACPI validation (prepared; live path disabled)
+## Restricted ACPI validation
 
 The normal gate needs approved paging values, and those values need a
 calibration with running VMs, which in turn needs a VM shutdown that is
@@ -369,12 +369,14 @@ only: one supervised check that the native VirtualBox ACPI power button
 shuts `P9S-D12` down. It is a separate capability, not a test mode, and
 it grants no exception to the normal gate.
 
-This version prepares it and keeps its live path disabled in the code
-(`Get-P9SAcpiValidationCapability`): every live step is refused with
-`ACPI_VALIDATION_LIVE_DISABLED` before any state is read, and only dry
-runs and the read-only `acpi.preflight` and `acpi.confirm-off` work.
-Enabling it is a reviewed change that the owner authorizes together with
-one precise session.
+Nothing live runs by default. The owner's authorization file is the
+only way in: `acpi.open` without a valid one, and every later live step
+without a validation session opened with one, is refused before the
+coordinator lock, any VirtualBox query or any dispatch (dry runs too).
+Only the read-only `acpi.preflight` and `acpi.confirm-off` work without
+it. A context whose live switch is off
+(the tests use one) refuses every live step with
+`ACPI_VALIDATION_LIVE_DISABLED` before anything is read.
 
 | Action | What it does |
 | --- | --- |
@@ -402,17 +404,29 @@ conditions and preflight checks of this version, operator supervision,
 the stop policy, the approval of the provisional memory safeguard, and
 who approved it and when. The coordinator checks every field and keeps
 a copy in the session; editing the file later changes nothing. It is
-not a cryptographic proof: the same Windows account can write it. The
-boundary is the owner's approval and the disabled live path.
+not a cryptographic proof: the same Windows account, or software running
+as it, can write it. It records the owner's decision for one session and
+makes its boundaries checkable; it is a workflow control, not a security
+boundary.
+
+No VirtualBox VM process of any VM (`VirtualBoxVM`, `VBoxHeadless`, from
+the Windows process list) may run on the host when the session opens
+and when the start is dispatched (`VM_PROCESS_RUNNING`): another
+project's VM is never touched, the validation waits for the host to be
+free of VMs.
 
 The monitor must be a Monitor-mode run with the paging stop required,
 fresh and alive, the 300-second commit qualification met, commit below
 90 %, no WARNING (a suspected paging pressure with the candidate values
 is one), UNKNOWN, STOP or ABORT, the external disk confirmed,
-measurements complete and, before the start, at least 8192 MB
-available. The coordinator calls that `ACPI_VALIDATION_ELIGIBLE`. It is
-not READY: the monitor still reports UNCALIBRATED, nothing is written to
-its state, and every normal test action stays refused. The 8192 MB is a
+measurements complete and, before the start and while the VM is
+observed, at least 8192 MiB available. The monitor's `avail_mb` is the
+Windows `AvailableMBytes` counter, whole MiB (2^20 bytes): 8192 means
+8,589,934,592 bytes, not a decimal value. Below it the start is refused
+and an observation ends; the one ACPI request stays available. The
+coordinator calls that `ACPI_VALIDATION_ELIGIBLE`. It is not READY: the
+monitor still reports UNCALIBRATED, nothing is written to its state,
+and every normal test action stays refused. The 8192 MiB is a
 provisional, validation-only safeguard that needs the owner's approval;
 it is not a paging threshold and not part of the normal gate. The ACPI
 request itself also accepts a WARNING or a broken qualification (it
@@ -566,8 +580,8 @@ validated".
 Free-form commands, keyboard strings outside the allowed characters,
 mouse input, account and sudo passwords, the desktop login, forced
 power-off, reset, snapshots, VM configuration changes, capture control,
-live calibration, a live ACPI validation in this version, and any
-override of the safety checks.
+live calibration, a live ACPI validation without the owner's
+authorization file, and any override of the safety checks.
 
 ## Not validated
 
@@ -579,8 +593,9 @@ override of the safety checks.
 - The monitor was validated live once, with both VMs off, in its earlier
   form that also read the VM states; the form without VirtualBox has run
   only in the tests (about 24 s of real sampling per run).
-- The restricted ACPI validation has never run live: its live path is
-  disabled; the provisional 8192 MB safeguard is not approved.
+- The restricted ACPI validation had not run live when this version was
+  published; the provisional 8192 MiB safeguard is approved only inside
+  an owner authorization, for one session.
 - The VirtualBox layer has run against a real VirtualBox for three
   read-only queries (two state queries and one configuration query on
   2026-11-20, 101 to 1164 ms, serialized); `startvm`, `acpipowerbutton`,

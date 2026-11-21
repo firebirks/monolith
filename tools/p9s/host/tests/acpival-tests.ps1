@@ -108,7 +108,7 @@ function New-VCtx {
     $clk = @{ q = $NOW; utc = $T0; real = [bool]$RealClock }
     $freq = if ($RealClock) { [Diagnostics.Stopwatch]::Frequency } else { $F }
     $prov = @{ mon = $Mon; age = 1.0; reads = 0; switchAt = 0; switchTo = $null; vmreads = 0; onVmRead = $null; acpiSent = $false; acpiReads = 0; offAfter = -1
-        onStart = $null; onAcpi = $null; onSleep = $null; startThrows = $false; acpiThrows = $false; startSets = 'running'; ledgerWrites = 0; failLedgerAt = 0; failLedgerTo = 0; alive = $true
+        onStart = $null; onAcpi = $null; onSleep = $null; startThrows = $false; acpiThrows = $false; startSets = 'running'; ledgerWrites = 0; failLedgerAt = 0; failLedgerTo = 0; alive = $true; vmprocs = 0
         config = @('name="P9S-D12"', 'memory=4096', 'acpi="on"', 'VMState="poweroff"') }
     $vmTable = @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'off' }; foreach ($k in $Vms.Keys) { $vmTable[$k] = $Vms[$k] }
     $nowq = { if ($clk.real) { [Diagnostics.Stopwatch]::GetTimestamp() } else { $clk.q } }.GetNewClosure()
@@ -150,6 +150,7 @@ function New-VCtx {
         Sleep = $sleep; Pid = $PID; ProcessStartTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
         EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }
         ObservationPath = Join-Path $Dir 'vm-observations.jsonl'; LedgerPath = Join-Path $Dir 'acpi-validation-ledger.json'; WriteLedger = $wl; UtcNow = $utc; AcpiValidationLive = $Live
+        CountVmProcesses = { [int]$prov.vmprocs }.GetNewClosure()
         Config = [pscustomobject]@{ vm_config_reference = [pscustomobject]@{ debian = $refPath; ubuntu = $null } }
         Calls = $calls; Prov = $prov; VmTable = $vmTable; Dir = $Dir; Clock = $clk
     }
@@ -203,6 +204,7 @@ $ctx = [pscustomobject]@{
     Sleep = { param($ms) Start-Sleep -Milliseconds ([math]::Max(1, [int]($ms / 20))) }; Pid = $PID; ProcessStartTicks = $me.StartTime.ToUniversalTime().Ticks
     EmergencyLockWaitMs = 10000; CalibrationHostChecks = { @() }
     ObservationPath = Join-Path $s.dir 'vm-observations.jsonl'; LedgerPath = Join-Path $s.dir 'acpi-validation-ledger.json'; UtcNow = { [DateTime]::UtcNow }; AcpiValidationLive = $true
+    CountVmProcesses = { 0 }
 }
 if ($s.ready) { $null = [Threading.EventWaitHandle]::OpenExisting($s.ready).Set() }
 if ($s.go) { $null = [Threading.EventWaitHandle]::OpenExisting($s.go).WaitOne(60000) }
@@ -250,27 +252,46 @@ function DispatchLog($c) { @(if (Test-Path -LiteralPath (Join-Path $c.Dir 'dispa
 "== P9-S restricted ACPI validation synthetic tests, $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')), pwsh $($PSVersionTable.PSVersion), run $run"
 
 # ---- the capability ------------------------------------------------------------------------------
-Case 'A01' 'the live path is disabled in this version: every live step is refused before anything is read' {
+Case 'A01' 'nothing live by default: without an owner authorization every live step is refused before any VirtualBox query, dry runs too' {
     $cap = Get-P9SAcpiValidationCapability
-    Expect ($cap.name -eq 'ACPI_VALIDATION' -and $cap.live_enabled -eq $false) "capability: $($cap.live_enabled)"
+    Expect ($cap.name -eq 'ACPI_VALIDATION' -and $cap.live_enabled -eq $true) "capability: $($cap.live_enabled)"
     $d = Join-Path $OutDir 'realctx'
     $rc = New-P9SRealContext -StatePath (Join-Path $d 'state.json') -KitDir $kit -Config $null
-    Expect ($rc.AcpiValidationLive -eq $false) 'the real context enables the live path'
+    Expect ($rc.AcpiValidationLive -eq $true) 'the real context does not follow the capability'
+    $n = & $rc.CountVmProcesses
+    Expect ($n -is [int] -and $n -ge 0) "the real count of host VM processes: $n"
     $trip = [System.Collections.Generic.List[string]]::new()
     $rc.ReadState = { param($p) $trip.Add('state'); [pscustomobject]@{ ok = $false; text = $null; error = 'missing' } }.GetNewClosure()
     $rc.ReadVmState = { param($vm) $trip.Add("vm $vm"); 'off' }.GetNewClosure()
     $rc.ReadVmConfig = { param($vm) $trip.Add("config $vm"); @() }.GetNewClosure()
     $rc.Dispatch = @{ 'vm.start' = { param($vm) $trip.Add('start') }.GetNewClosure(); 'vm.acpi' = { param($vm) $trip.Add('acpi') }.GetNewClosure() }
-    $a = New-Auth
-    foreach ($r in @(@{ Action = 'acpi.open'; Authorization = $a }, @{ Action = 'acpi.start' }, @{ Action = 'acpi.observe'; Seconds = 5 }, @{ Action = 'acpi.shutdown' }, @{ Action = 'acpi.integrity' }, @{ Action = 'acpi.finalize' })) {
-        $x = Act $rc $r
-        Expect ($x.outcome -eq 'REFUSED' -and (@($x.reasons) -join ',') -eq 'ACPI_VALIDATION_LIVE_DISABLED') "$($r.Action): $(Why $x)"
+    $rc.CountVmProcesses = { $trip.Add('processes'); 0 }.GetNewClosure()
+    $ex = Join-Path $kit 'acpi-validation-authorization.example.json'
+    $exOut = Join-Path $authDir 'example-copy.json'; Copy-Item -LiteralPath $ex -Destination $exOut
+    $cases = @(
+        @(@{ Action = 'acpi.open'; Authorization = $ex }, 'AUTHORIZATION_IN_TOOLKIT'), @(@{ Action = 'acpi.open'; Authorization = $exOut }, 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED'),
+        @(@{ Action = 'acpi.open'; Authorization = (New-Auth -Set @{ max_acpi_requests = 2 }) }, 'AUTHORIZATION_BUDGET:max_acpi_requests'),
+        @(@{ Action = 'acpi.open'; Authorization = $exOut; DryRun = $true }, 'AUTHORIZATION_SAFEGUARD_NOT_APPROVED'),
+        @(@{ Action = 'acpi.start' }, 'ACPI_VALIDATION_SESSION_MISSING'), @(@{ Action = 'acpi.start'; DryRun = $true }, 'ACPI_VALIDATION_SESSION_MISSING'),
+        @(@{ Action = 'acpi.observe'; Seconds = 5 }, 'ACPI_VALIDATION_SESSION_MISSING'), @(@{ Action = 'acpi.shutdown' }, 'ACPI_VALIDATION_SESSION_MISSING'),
+        @(@{ Action = 'acpi.shutdown'; DryRun = $true }, 'ACPI_VALIDATION_SESSION_MISSING'), @(@{ Action = 'acpi.integrity' }, 'ACPI_VALIDATION_SESSION_MISSING'),
+        @(@{ Action = 'acpi.finalize' }, 'ACPI_VALIDATION_SESSION_MISSING'))
+    foreach ($x in $cases) {
+        $r = Act $rc $x[0]
+        Expect ($r.outcome -eq 'REFUSED' -and (Has $r $x[1])) "$($x[0].Action)$(if ($x[0].DryRun) { ' -DryRun' }): $(Why $r) (expected $($x[1]))"
     }
-    Expect ($trip.Count -eq 0) "read or dispatched: $($trip -join ',')"
+    $j = Act $rc @{ Action = 'acpi.open'; Authorization = (Join-Path $authDir 'absent.json') }
+    Expect ($j.outcome -eq 'REJECTED') "open without a file: $(Why $j)"
+    Expect ($trip.Count -eq 0) "read or dispatched without an authorization: $($trip -join ',')"
     Expect (-not (Test-Path -LiteralPath (Join-Path $d 'acpi-validation-ledger.json')) -and -not (Test-Path -LiteralPath (Join-Path $d 'coordinator-session.json'))) 'a ledger or a session was written'
+    # a context with the live switch off refuses before anything is read
     $m = New-VCtx -Live $false
-    $y = AOpen $m $a
+    $y = AOpen $m (New-Auth)
     Expect ($y.outcome -eq 'REFUSED' -and (Has $y 'ACPI_VALIDATION_LIVE_DISABLED') -and $m.Prov.vmreads -eq 0 -and $m.Prov.reads -eq 0) "mock with the switch off: $(Why $y)"
+    # a valid authorization is the way in
+    $v = New-VCtx; $va = New-Auth
+    $o = AOpen $v $va; $s = AStart $v
+    Expect ($o.outcome -eq 'DONE' -and $s.outcome -eq 'DISPATCHED' -and (Count $v 'vm.start') -eq 1) "with an authorization: open $(Why $o), start $(Why $s)"
 }
 Case 'A02' 'the authorization file: the example and every boundary violation are refused' {
     $kd = Split-Path -Parent (Join-Path $kit 'paging-thresholds.json')
@@ -503,6 +524,57 @@ Case 'A14' 'dry runs dispatch nothing and spend nothing' {
     $m = New-VCtx -Live $false
     $d3 = Act $m @{ Action = 'acpi.open'; Authorization = (New-Auth); DryRun = $true }
     Expect ($d3.outcome -eq 'DRYRUN') "dry run with the live path off: $(Why $d3)"
+}
+Case 'A15' 'a VirtualBox VM process of any VM on the host refuses the open and the start, also when it appears just before the dispatch' {
+    $c = New-VCtx; $a = New-Auth; $p = $c.Prov
+    $p.vmprocs = 1
+    $o = AOpen $c $a
+    Expect ($o.outcome -eq 'REFUSED' -and (Has $o 'VM_PROCESS_RUNNING:1') -and -not (Entry $c $a)) "open with a VM process: $(Why $o)"
+    $p.vmprocs = 0
+    $o2 = AOpen $c $a
+    Expect ($o2.outcome -eq 'DONE') "open: $(Why $o2)"
+    $p.vmprocs = 2
+    $s = AStart $c
+    Expect ($s.outcome -eq 'REFUSED' -and (Has $s 'VM_PROCESS_RUNNING:2') -and (Count $c 'vm.start') -eq 0 -and (Entry $c $a).startups_used -eq 0) "start with VM processes: $(Why $s)"
+    $p.vmprocs = 0
+    $p.onVmRead = { param($vm) $p.vmprocs = 1 }.GetNewClosure()
+    $s2 = AStart $c
+    Expect ($s2.outcome -eq 'REFUSED' -and (Has $s2 'STATE_CHANGED_BEFORE_DISPATCH') -and (Has $s2 'VM_PROCESS_RUNNING:1') -and (Count $c 'vm.start') -eq 0 -and (Entry $c $a).startups_used -eq 0) "a VM process appearing before the dispatch: $(Why $s2)"
+    $p.onVmRead = $null; $p.vmprocs = 0
+    $c.CountVmProcesses = { throw 'no process list' }
+    $s3 = AStart $c
+    Expect ($s3.outcome -eq 'REFUSED' -and (Has $s3 'VM_PROCESSES_UNKNOWN') -and (Count $c 'vm.start') -eq 0) "unknown count: $(Why $s3)"
+    $c.CountVmProcesses = { 0 }
+    $s4 = AStart $c
+    Expect ($s4.outcome -eq 'DISPATCHED' -and (Count $c 'vm.start') -eq 1) "start with the host free of VMs: $(Why $s4)"
+}
+Case 'A16' 'available memory below the provisional minimum while the VM runs: the observation ends, the one ACPI request stays available' {
+    $x = Started; $c = $x.c; $a = $x.a; $p = $c.Prov
+    $p.mon = $LOWMEM
+    $b = AObs $c 30
+    Expect ($b.outcome -eq 'REFUSED' -and (Has $b 'MEMORY_BELOW_PROVISIONAL_MINIMUM') -and @(@($b.lines) -match 'stays available').Count -eq 1) "observe below the minimum: $(Why $b)"
+    $p.mon = $ELIG; $p.switchAt = $p.reads + 3; $p.switchTo = $LOWMEM
+    $b2 = AObs $c 60
+    Expect ($b2.outcome -eq 'STOPPED_AT_CHECKPOINT' -and (Has $b2 'MEMORY_BELOW_PROVISIONAL_MINIMUM') -and @(@($b2.lines) -match 'stays available').Count -eq 1) "observation crossing the minimum: $(Why $b2)"
+    $p.offAfter = 1
+    $s = AShut $c
+    Expect ($s.outcome -eq 'DONE' -and (Count $c 'vm.acpi') -eq 1 -and (Entry $c $a).phase -eq 'OFF_CONFIRMED') "the request below the minimum: $(Why $s)"
+}
+Case 'A17' 'a valid authorization permits only the actions it lists: an unlisted step is refused and dispatches nothing' {
+    $c = New-VCtx; $a = New-Auth -Set @{ permitted_actions = @('acpi.open') }
+    $o = AOpen $c $a
+    Expect ($o.outcome -eq 'DONE') "open: $(Why $o)"
+    $s = AStart $c
+    Expect ($s.outcome -eq 'REFUSED' -and (Has $s 'ACTION_NOT_AUTHORIZED:acpi.start') -and $c.Calls.Count -eq 0 -and (Entry $c $a).startups_used -eq 0) "start not listed: $(Why $s)"
+    $fin = AFinal $c
+    Expect ($fin.outcome -eq 'DONE' -and (Entry $c $a).outcome -eq 'NOT_STARTED') "finalize: $(Why $fin)"
+    $c2 = New-VCtx; $a2 = New-Auth -Set @{ permitted_actions = @('acpi.open', 'acpi.start', 'acpi.integrity') }
+    $null = AOpen $c2 $a2; $s2 = AStart $c2
+    Expect ($s2.outcome -eq 'DISPATCHED') "start listed: $(Why $s2)"
+    $b = AObs $c2 10
+    Expect ($b.outcome -eq 'REFUSED' -and (Has $b 'ACTION_NOT_AUTHORIZED:acpi.observe')) "observe not listed: $(Why $b)"
+    $d = AShut $c2
+    Expect ($d.outcome -eq 'REFUSED' -and (Has $d 'ACTION_NOT_AUTHORIZED:acpi.shutdown') -and (Count $c2 'vm.acpi') -eq 0 -and (Entry $c2 $a2).acpi_used -eq 0) "shutdown not listed: $(Why $d)"
 }
 
 # ---- recovery when the guest does not power off ------------------------------------------------

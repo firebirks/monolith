@@ -20,8 +20,8 @@
 #                live calibration exists in this version
 #   validation   acpi.*: the restricted single-VM ACPI validation of
 #                p9s-acpival.ps1 (one start and one ACPI request of
-#                P9S-D12 under an owner authorization); its live path is
-#                disabled in this version
+#                P9S-D12 under an owner authorization); without a valid
+#                authorization nothing live runs
 # STOP or ABORT seen in any monitor state halts the session for good; ABORT
 # must be acknowledged with its id, with every laboratory VM off, before a
 # new session opens. VM states are observations made on demand
@@ -1265,6 +1265,9 @@ function New-P9SRealContext([string]$StatePath, [string]$AuditPath, [Parameter(M
         EmergencyLockWaitMs = 30000; CalibrationHostChecks = { Get-P9SCalibrationHostChecks $cfg }.GetNewClosure()
         ObservationPath = Join-Path $dir 'vm-observations.jsonl'; LedgerPath = Join-Path $dir 'acpi-validation-ledger.json'
         UtcNow = { [DateTime]::UtcNow }; AcpiValidationLive = [bool](Get-P9SAcpiValidationCapability).live_enabled
+        # running VirtualBox VMs of the whole host, from the Windows process
+        # list (the names the monitor counts); no VirtualBox call
+        CountVmProcesses = { @(Get-Process -Name 'VirtualBoxVM', 'VBoxHeadless' -ErrorAction SilentlyContinue).Count }
         Config = $cfg; ConfigError = $(if ($cfg -and $cfg.present -and -not $cfg.ok) { 'CONFIG_INVALID' } else { $null })
     }
 }
