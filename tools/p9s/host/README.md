@@ -65,9 +65,9 @@ does not touch Tor, Monolith or its profiles.
 | `tests/stagec-tests.ps1` | Configuration, credentials, ACPI shutdown, calibration, publication checks |
 | `tests/vbox-tests.ps1` | The VirtualBox layer: serialization, timeouts, crashes, recovery, coordinator use |
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
-| `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races |
+| `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races, damaged ledgers, low memory |
 | `tests/run-all.ps1` | Runs and checks the six suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 74 targeted faults and the tests that must detect them |
+| `tests/mutants.json` | The 92 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -223,7 +223,8 @@ with both VMs off. A coordinator that dies during an action leaves an
 in-flight record that blocks test actions until `session.close`.
 
 Emergency shutdown (`emergency.acpi-shutdown`): available in every state,
-including STOP, ABORT, UNKNOWN and with no monitor at all. It writes a
+including STOP, ABORT, UNKNOWN, low memory and with no monitor at all.
+It writes a
 stop request that every running action honours, waits up to 30 s for any
 running action to stop, sends one `VBoxManage controlvm <vm>
 acpipowerbutton` (the guest sees a power-button press) and watches the VM
@@ -232,6 +233,16 @@ request fails or the VM stays on, the emergency is UNRESOLVED: no second
 request, no keyboard input and no forced power-off are attempted; the
 operator decides, and the session cannot be closed while that VM runs. It
 cannot start a VM or send text.
+
+It sends a request only when it can establish that none has been sent
+to that VM: the stop request records each emergency request before it
+is sent, and the validation ledger records the request of an
+unresolved validation. Both are read again under the coordinator lock,
+so that a request another process sent while this one waited is seen.
+When either record cannot be read, is missing after use or does not
+match (see "Uncertain request history"), the history is unknown and
+nothing is sent (`SHUTDOWN_HISTORY_UNCERTAIN`). A request that cannot be
+recorded first is not sent either (`ACPI_REQUEST_NOT_SENT`).
 
 Audit records hold action names, reason codes, the monitor run and
 sanitized parameters: text only as its length, paths as file names.
@@ -450,13 +461,18 @@ measurements complete and, before the start and while the VM is
 observed, at least the memory minimum of the authorization available.
 The monitor's `avail_mb` is the Windows `AvailableMBytes` counter, whole
 MiB (2^20 bytes): 8192 means 8,589,934,592 bytes, not a decimal value.
-Below the minimum the start is refused and an observation ends; the one
-ACPI request stays available. The code refuses any minimum below 8192
-MiB for either VM; that floor approves nothing. The owner approved 8192
-MiB for the Debian session only; for `P9S-U24` the value and its
-approval belong to its own authorization. Available memory alone is not
-a paging criterion. The coordinator calls all this
-`ACPI_VALIDATION_ELIGIBLE`. It is not READY: the monitor still reports
+The minimum guards what adds or prolongs workload: below it `acpi.open`
+and `acpi.start` are refused and `acpi.observe` ends (it still reports
+the VM state it read). It does not apply to observation or recovery:
+`emergency.status`, `emergency.wait-off`, `session.status`,
+`acpi.confirm-off`, `acpi.finalize`, the one ACPI request and
+`emergency.acpi-shutdown` work below it. Low memory grants nothing: a
+request the ledger does not show as unused stays refused. The code
+refuses any minimum below 8192 MiB for either VM; that floor approves
+nothing. The owner approved 8192 MiB for the Debian session only; for
+`P9S-U24` the value and its approval belong to its own authorization.
+Available memory alone is not a paging criterion. The coordinator calls
+all this `ACPI_VALIDATION_ELIGIBLE`. It is not READY: the monitor still reports
 UNCALIBRATED, nothing is written to its state, and every normal test
 action stays refused. The minimum is a validation-only safeguard, not a
 paging threshold and not part of the normal gate. The ACPI request
@@ -471,6 +487,23 @@ cannot be recorded leaves the earlier, unresolved phase. A new session
 adds its own entry and never changes an earlier one: the entry of the
 Debian session stays as it was recorded. An unresolved validation of
 either VM blocks a new validation of both.
+
+The ledger is never taken for empty when it cannot be trusted. Absent,
+it is empty only on a host where no validation has used one (no
+revision record, no validation session record); absent after use is
+`ACPI_LEDGER_MISSING`. Locked, empty, truncated, not JSON, with a
+duplicated name, another schema, an entry without its id, a duplicated
+id, or a budget count that is not a whole number of 0 or more, it is
+`ACPI_LEDGER_UNREADABLE`. Each save raises its revision by one, reads
+the file back, then writes `acpi-validation-ledger.revision.json` (the
+revision and the SHA-256 of the text). A ledger older than that record,
+such as a restored copy, is `ACPI_LEDGER_STALE`; one of the same
+revision with other content, or an unreadable record, is
+`ACPI_LEDGER_INCONSISTENT`. A ledger written before the record existed
+(the Debian session's) is read as it is until its next save. This
+guards against accidents (a failed or partial write, a deleted file, a
+restored backup), not against someone who edits both files under the
+same Windows account.
 
 | Phase | Meaning | What is possible next |
 | --- | --- | --- |
@@ -505,6 +538,52 @@ can close it as `ACPI_VALIDATION_UNRESOLVED`, which keeps that block.
 Outcomes: `VALIDATED`, `SHUTDOWN_LATE`, `OFF_AFTER_UNCONFIRMED_REQUEST`,
 `OFF_AFTER_EMERGENCY_ACPI`, `ENDED_WITHOUT_ACPI`, `OFF_ABNORMAL`,
 `START_FAILED`, `NOT_STARTED`, `ACPI_VALIDATION_UNRESOLVED`.
+
+### Uncertain request history
+
+| Kind | Actions | Requires |
+| --- | --- | --- |
+| Normal validation | `acpi.open` ... `acpi.finalize` | A valid authorization, a readable ledger whose entry matches the session, and the monitor conditions above |
+| Emergency observation | `emergency.status`, `emergency.wait-off`, `session.status` | Nothing more: available with a damaged ledger, low memory, STOP, ABORT, or a stale or missing monitor; grants no ACPI request |
+| Emergency ACPI dispatch | `emergency.acpi-shutdown` | A readable stop request and ledger, no request recorded for the VM, the VM observed running, VirtualBox not quarantined, the coordinator lock; the request recorded before it is sent |
+| Operator-assisted recovery | Outside the coordinator | Whenever the request history is uncertain |
+
+When the ledger is missing after use, unreadable, stale or
+inconsistent, when a ledger entry no longer matches its validation
+session, or when the stop request cannot be read, the toolkit cannot
+tell whether an ACPI request was sent. It reports
+`SHUTDOWN_HISTORY_UNCERTAIN` with the reason, and then:
+
+- no ACPI request is sent, by the validation or by the emergency path,
+  to either VM; no keyboard input, no forced power-off, no restart of
+  VirtualBox;
+- the emergency path reads the VM state once (read only), records a VM
+  not seen off as unresolved in the stop request when that can be read,
+  and marks the session `EMERGENCY_UNRESOLVED`; the monitor keeps
+  measuring;
+- the files are kept as they are: no action repairs, resets or
+  recreates the ledger or the stop request, and `session.close` keeps an
+  unreadable stop request;
+- `emergency.status` names the reason and the size, write time and
+  digest prefix of each ledger file, and the audit records the same;
+- every new validation and every test session stays refused.
+
+Recovery is the operator's, outside the coordinator, under a separately
+authorized decision: the VM window shows whether the guest is still on,
+and only a restored, readable history lets the toolkit act again. A VM
+observed off does not restore a missing history, and the toolkit has
+no command that resets a ledger.
+
+What follows from these rules:
+
+- an unreadable ledger is not an unused budget;
+- low memory blocks new workload, not observation;
+- low memory does not authorize a second shutdown request;
+- a second ACPI request is never an automatic fallback;
+- a failed ledger write is no proof that a request was sent, nor that
+  it was not: a budget spent in a ledger that reached the disk stays
+  spent;
+- a completed ACPI command is no proof that the guest powered off.
 
 ## Calibration (preparation only)
 
@@ -631,6 +710,9 @@ authorization file, and any override of the safety checks.
   a delay) is not known. The Debian result does not carry over.
 - No paging value is approved; paging stop enforcement is not validated;
   no calibration with both VMs has run.
+- Damaged ledgers, low-memory recovery and concurrent emergencies are
+  verified with synthetic files, mocks and worker processes only; no
+  real disk failure has been reproduced.
 - The VirtualBox layer has not met a real timeout or a hung management
   API; its recovery from one is verified only with mocks. Serialization
   reduces the exposure to concurrent management calls; it cannot keep
@@ -640,6 +722,7 @@ authorization file, and any override of the safety checks.
 
 The toolkit changes nothing on the host. To remove it, stop the monitor,
 delete `%TEMP%\p9s-hostmon` (state, coordinator files, VM observations,
-the validation ledger and the VirtualBox layer's records) and this
+the validation ledger and its revision record, and the VirtualBox
+layer's records) and this
 folder's `p9s-local.json`; reverting the commit that added the folder
 removes the rest.

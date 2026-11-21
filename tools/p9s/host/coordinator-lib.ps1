@@ -250,14 +250,58 @@ function Save-P9SSession($Ctx, $Session) { Write-StateAtomic -Path $Ctx.SessionP
 # The stop request: written by an emergency action, honoured by every
 # checkpoint, removed only by session.close. It also records the ACPI
 # request sent to each VM (never repeated in the same emergency) and the VMs
-# whose shutdown is unresolved.
-function Read-P9SStopRequest($Ctx) {
+# whose shutdown is unresolved. present and not ok: it exists but cannot be
+# read (locked, not JSON, another shape), so the requests it records are
+# unknown; it is then kept as it is, never replaced.
+function Read-P9SStopRequestState($Ctx) {
     $r = Read-StateFile -Path $Ctx.StopRequestPath
-    if (-not $r.ok) { return $null }
-    try { $x = $r.text | ConvertFrom-Json -AsHashtable -ErrorAction Stop; if ($x -is [System.Collections.IDictionary]) { return $x } } catch {}
-    [ordered]@{ reason = 'UNREADABLE'; acpi = [ordered]@{}; unresolved = [ordered]@{} }
+    if (-not $r.ok) { return [pscustomobject]@{ present = ($r.error -ne 'missing'); ok = $false; doc = $null } }
+    $x = $null; try { $x = $r.text | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch {}
+    $bad = [pscustomobject]@{ present = $true; ok = $false; doc = $null }
+    if ($x -isnot [System.Collections.IDictionary]) { return $bad }
+    foreach ($k in 'acpi', 'unresolved') {
+        if ($null -eq $x[$k]) { $x[$k] = [ordered]@{} } elseif ($x[$k] -isnot [System.Collections.IDictionary]) { return $bad }
+    }
+    [pscustomobject]@{ present = $true; ok = $true; doc = $x }
 }
+function Read-P9SStopRequest($Ctx) {
+    $s = Read-P9SStopRequestState $Ctx
+    if ($s.ok) { return $s.doc }
+    if ($s.present) { return [ordered]@{ reason = 'UNREADABLE'; acpi = [ordered]@{}; unresolved = [ordered]@{} } }
+    $null
+}
+function New-P9SStopRequestDoc($Ctx) { [ordered]@{ reason = 'EMERGENCY_ACPI_SHUTDOWN'; utc = [DateTime]::UtcNow.ToString('o'); pid = $Ctx.Pid; acpi = [ordered]@{}; unresolved = [ordered]@{} } }
 function Save-P9SStopRequest($Ctx, $Req) { Write-StateAtomic -Path $Ctx.StopRequestPath -Text ($Req | ConvertTo-Json -Depth 5) }
+# Raises the stop request when there is none, without the lock and without
+# replacing one that exists (another emergency's record of its request, or
+# an unreadable file). $true when this call created it.
+function Add-P9SStopRequestIfAbsent($Ctx) {
+    $full = [IO.Path]::GetFullPath($Ctx.StopRequestPath)
+    if ([IO.File]::Exists($full)) { return $false }
+    $tmp = [IO.Path]::Combine([IO.Path]::GetDirectoryName($full), '.' + [IO.Path]::GetFileName($full) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        [IO.File]::WriteAllText($tmp, ((New-P9SStopRequestDoc $Ctx) | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($tmp, $full, $false)
+        return $true
+    } catch { return $false }
+    finally { try { if ([IO.File]::Exists($tmp)) { [IO.File]::Delete($tmp) } } catch {} }
+}
+# Records a VM whose emergency shutdown is unresolved, merged into the stop
+# request as it is now, under the lock (-Locked: the caller holds it);
+# never over an unreadable one. $false when it was not recorded.
+function Set-P9SStopRequestUnresolved($Ctx, [string]$Vm, [switch]$Locked) {
+    $lock = if ($Locked) { $null } else { Enter-P9SLock $Ctx 2000 }
+    if (-not $Locked -and -not $lock) { return $false }
+    try {
+        $sq = Read-P9SStopRequestState $Ctx
+        if ($sq.present -and -not $sq.ok) { return $false }
+        $req = if ($sq.ok) { $sq.doc } else { New-P9SStopRequestDoc $Ctx }
+        $req.unresolved[$Vm] = [DateTime]::UtcNow.ToString('o')
+        Save-P9SStopRequest $Ctx $req
+        return $true
+    } catch { return $false }
+    finally { if ($lock) { $lock.Dispose() } }
+}
 # After an emergency wait (the lock was released while waiting): record the
 # VM state the session should now expect, or the unresolved lifecycle.
 function Set-P9SSessionAfterEmergency($Ctx, [string]$Vm, [string]$VmState, [string]$Lifecycle) {
@@ -579,8 +623,16 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
-        # an emergency whose VM did not power off cannot be closed away
-        $stopReq = Read-P9SStopRequest $Ctx
+        # an emergency whose VM did not power off cannot be closed away,
+        # nor one whose record cannot be read (it is kept for the operator)
+        $sq = Read-P9SStopRequestState $Ctx
+        if ($sq.present -and -not $sq.ok) {
+            Set-P9SRefused $Res @('STOP_REQUEST_UNREADABLE', 'SHUTDOWN_HISTORY_UNCERTAIN') $null
+            $Res.lines.Add("not closed: the stop request cannot be read, so the ACPI requests it records and the VMs whose shutdown is unresolved are unknown. It is kept as it is; the operator inspects it and decides outside the coordinator.")
+            Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+            return $Res
+        }
+        $stopReq = $sq.doc
         if ($stopReq -and $stopReq.unresolved) {
             $still = @(foreach ($k in @($stopReq.unresolved.Keys)) { if ((Get-P9SVmObservation $Ctx $k 'session').state -ne 'off') { $k } })
             if ($still.Count) {
@@ -660,6 +712,34 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
 }
 
 # ------------------------------------------------------------ emergency path
+# An emergency whose request history cannot be established (the ledger
+# unreadable, missing, stale or inconsistent, or the stop request
+# unreadable): no request is sent, under the lock. The VM state is read
+# once when VirtualBox allows it (read only); a VM not seen off is recorded
+# as unresolved in the stop request (when it can be read) and in the
+# session; the files are kept as they are. Returns the audit note.
+function Invoke-P9SEmergencyUncertain($Ctx, $Res, [string]$Vm, $H, $Vg, $S, $G) {
+    $obs = if ($Vg.ok) { Get-P9SVmObservation $Ctx $Vm 'shutdown' } else { $null }
+    $off = [bool]($obs -and $obs.observed -and [string]$obs.state -ceq 'off')
+    Set-P9SRefused $Res (@($H.reasons) + @($(if (-not $Vg.ok) { $Vg.reasons })) + @($(if (-not $off) { 'EMERGENCY_UNRESOLVED' }))) $G
+    $what = @($H.reasons | Where-Object { $_ -cne 'SHUTDOWN_HISTORY_UNCERTAIN' -and $_ -cne 'ACPI_ALREADY_REQUESTED' }) -join ' / '
+    $Res.lines.Add("*** $what / SHUTDOWN_HISTORY_UNCERTAIN: the toolkit cannot establish whether an ACPI request was already sent to $Vm. NO REQUEST IS SENT: an unknown history is not an unused budget. No keyboard input, no forced power-off, no restart of VirtualBox. ***")
+    $Res.lines.Add("${Vm}: $(if ($obs) { Format-P9SVmObservation $obs } else { "not read (VirtualBox $($Vg.text))" })$(if ($off) { '; no request is needed, but the history still has to be reconciled' })")
+    $diag = [System.Collections.Generic.List[string]]::new()
+    if ($H.diagnosis) { $diag.Add("ledger: $($H.diagnosis)") }
+    if ($H.reasons -ccontains 'STOP_REQUEST_UNREADABLE') {
+        $sp = [string]$Ctx.StopRequestPath
+        $diag.Add("stop request: $(try { $i = [IO.FileInfo]::new($sp); "$($i.Length) bytes, written $($i.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture))" } catch { 'not inspected' })")
+    }
+    foreach ($d in $diag) { $Res.lines.Add($d) }
+    $Res.lines.Add("monitor: status $(if ($G.status) { $G.status } else { '-' }), run $(if ($G.run_id) { $G.run_id } else { '-' }) (it keeps measuring on its own; nothing of it is changed)")
+    if (-not $off) {
+        if (-not (Set-P9SStopRequestUnresolved $Ctx $Vm -Locked)) { $Res.lines.Add('the stop request is not updated (it cannot be read or written); it is kept as it is') }
+        if ($S -and $S.session_id) { try { $S.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $S } catch { $Res.reasons.Add('EVIDENCE_WRITE_FAILED') } }
+    }
+    $Res.lines.Add('The ledger and the stop request are kept as they are for inspection: never repaired, reset or recreated. emergency.status and emergency.wait-off still read the VM state (read only); no request is sent through the toolkit until a separately authorized recovery restores a readable history. The operator decides outside the coordinator.')
+    "request history uncertain ($(@($H.reasons) -join ', ')); $($diag -join '; ')"
+}
 function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
     $a = [string]$Request.Action; $vm = [string]$Request.Vm; $dry = [bool]$Request.DryRun
     if ($a -eq 'emergency.status') {
@@ -673,7 +753,15 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
         else { foreach ($n in Get-P9SVmNames) { $Res.lines.Add("$n unknown (not read while VirtualBox is quarantined; see vbox.status)") } }
         $lg = Read-P9SAcpiLedger $Ctx
         if ($lg.ok -and @(Get-P9SAcpiUnresolved $lg.doc '').Count) { foreach ($u in @(Get-P9SAcpiUnresolved $lg.doc '')) { $Res.lines.Add("ACPI validation $($u.authorization_id) of $($u.target_vm): $($u.phase) (unresolved; acpi.confirm-off)") } }
-        elseif (-not $lg.ok -and (Get-Prop $Ctx 'LedgerPath')) { $Res.lines.Add("ACPI validation ledger: $($lg.reason)") }
+        elseif (-not $lg.ok -and (Get-Prop $Ctx 'LedgerPath')) {
+            $Res.lines.Add("ACPI validation ledger: $($lg.reason) / SHUTDOWN_HISTORY_UNCERTAIN: $(Get-P9SAcpiLedgerDiagnosis $Ctx $lg). No ACPI request is sent through the toolkit while the history is unknown; the files are kept as they are for the operator.")
+            foreach ($r in $lg.reason, 'SHUTDOWN_HISTORY_UNCERTAIN') { if (-not $Res.reasons.Contains($r)) { $Res.reasons.Add($r) } }
+        }
+        $sq = Read-P9SStopRequestState $Ctx
+        if ($sq.present -and -not $sq.ok) {
+            $Res.lines.Add('stop request: UNREADABLE / SHUTDOWN_HISTORY_UNCERTAIN: the ACPI requests it records are unknown; it is kept as it is and no ACPI request is sent through the toolkit.')
+            foreach ($r in 'STOP_REQUEST_UNREADABLE', 'SHUTDOWN_HISTORY_UNCERTAIN') { if (-not $Res.reasons.Contains($r)) { $Res.reasons.Add($r) } }
+        } elseif ($sq.ok) { $Res.lines.Add("stop request: ACPI requests sent to $(if ($sq.doc.acpi.Count) { @($sq.doc.acpi.Keys) -join ', ' } else { 'none' }); unresolved $(if ($sq.doc.unresolved.Count) { @($sq.doc.unresolved.Keys) -join ', ' } else { 'none' })") }
         $Res.outcome = 'DONE'
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
@@ -685,38 +773,34 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             $Res.lines.Add("dry run: would send one ACPI power-button request to $vm (VBoxManage $((Get-VBoxAcpiArgs $vm) -join ' ')) and watch it for up to $limit s; no keyboard input, no forced power-off")
             $vg = Get-P9SVBoxGate $Ctx
             if (-not $vg.ok) { $Res.lines.Add("dry run: VirtualBox is $($vg.text): no request could be sent now") }
+            $dh = Get-P9SAcpiRequestHistory $Ctx $vm
+            if (-not $dh.ok) { $Res.lines.Add("dry run: no request could be sent now ($(@($dh.reasons) -join ', '))") }
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
-        $req = Read-P9SStopRequest $Ctx
-        if (-not $req) { $req = [ordered]@{ reason = 'EMERGENCY_ACPI_SHUTDOWN'; utc = [DateTime]::UtcNow.ToString('o'); pid = $Ctx.Pid } }
-        if (-not $req.acpi) { $req.acpi = [ordered]@{} }
-        if (-not $req.unresolved) { $req.unresolved = [ordered]@{} }
-        if ($req.acpi.Contains($vm)) {
-            Set-P9SRefused $Res @('ACPI_ALREADY_REQUESTED') $null
-            $Res.lines.Add("an ACPI request was already sent to $vm in this emergency ($($req.acpi[$vm])); it is not repeated. Watch it with emergency.wait-off; if it stays on, the operator decides outside the coordinator.")
+        # a request already sent to this VM, by this emergency or by an
+        # unresolved validation, is not repeated: refused at once, nothing
+        # written. Decided again under the lock below (a validation releases
+        # the lock while it watches its request, another emergency may send
+        # one meanwhile); an unknown history refuses there too.
+        $h = Get-P9SAcpiRequestHistory $Ctx $vm
+        if ($h.spent) {
+            Set-P9SRefused $Res @($h.reasons) $null
+            $Res.lines.Add("$($h.spent); it is not repeated. Watch it with emergency.wait-off$(if ($h.entry) { ' or acpi.confirm-off' }); if it stays on, the operator decides outside the coordinator.")
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
-        # an unresolved restricted ACPI validation of this VM that already
-        # sent its request: not repeated either (checked again under the
-        # lock below: the validation releases the lock while it watches)
-        $spent = Get-P9SAcpiSpentRequest $Ctx $vm
-        if ($spent) {
-            Set-P9SRefused $Res @('ACPI_ALREADY_REQUESTED') $null
-            $Res.lines.Add("the ACPI validation $($spent.authorization_id) already sent its request to $vm (phase $($spent.phase)); it is not repeated. Watch it with acpi.confirm-off or emergency.wait-off; if it stays on, the operator decides outside the coordinator.")
-            Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
-            return $Res
-        }
-        Save-P9SStopRequest $Ctx $req
+        # the stop request halts every other action at its next checkpoint;
+        # one that exists is left as it is
+        $null = Add-P9SStopRequestIfAbsent $Ctx
         $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs
         if (-not $lock) {
-            Set-P9SRefused $Res @('EMERGENCY_LOCK_TIMEOUT') $null
+            Set-P9SRefused $Res (@('EMERGENCY_LOCK_TIMEOUT') + @($h.reasons)) $null
             $Res.lines.Add('another coordinator action did not reach a checkpoint in time; no request sent. The stop request stays in place.')
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
-        $sent = $false
+        $sent = $false; $note = $null
         try {
             $g = Get-P9SGate $Ctx; $Res.status = $g.status; $Res.run_id = $g.run_id
             $s = $null; $sr = Read-P9SSession $Ctx
@@ -724,46 +808,62 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
                 $s = Update-P9SHalt $Ctx $sr.session $g $Res
                 if ($s -and $s.session_id) { $Res.session = $s.session_id; if ($s.lifecycle -eq 'ACTIVE') { $s.lifecycle = 'SHUTDOWN'; Save-P9SSession $Ctx $s } }
             }
+            # the decision, from the records as they are now
+            $h = Get-P9SAcpiRequestHistory $Ctx $vm
             $vg = Get-P9SVBoxGate $Ctx
-            $st = if ($vg.ok) { (Get-P9SVmObservation $Ctx $vm 'shutdown').state } else { $null }
-            if (-not $vg.ok) {
+            if ($h.uncertain) { $note = Invoke-P9SEmergencyUncertain $Ctx $Res $vm $h $vg $s $g }
+            elseif ($h.spent) {
+                Set-P9SRefused $Res @($h.reasons) $g
+                $Res.lines.Add("$($h.spent), while this emergency waited for the lock; it is not repeated. Watch it with emergency.wait-off$(if ($h.entry) { ' or acpi.confirm-off' }).")
+            }
+            elseif (-not $vg.ok) {
                 # the management plane is in doubt: nothing can be sent,
                 # and nothing is known about the guest
                 $Res.outcome = 'FAILED'; foreach ($r in $vg.reasons) { $Res.reasons.Add($r) }; $Res.reasons.Add('EMERGENCY_UNRESOLVED')
                 $Res.lines.Add("*** VirtualBox is $($vg.text). No ACPI request can be sent through the toolkit and the state of $vm is unknown. EMERGENCY UNRESOLVED: the stop request stays in place; the operator decides outside the coordinator (vbox.status shows the quarantine; vbox.recover clears it once the cause is resolved). ***")
-                $req.unresolved[$vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $Ctx $req
+                $null = Set-P9SStopRequestUnresolved $Ctx $vm -Locked
                 if ($s -and $s.session_id) { $s.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $s }
             }
-            elseif ($st -eq 'off') { $Res.outcome = 'DONE'; $Res.lines.Add("$vm is already off; no request sent") }
-            elseif ($st -ne 'running') { Set-P9SRefused $Res @("VM_NOT_RUNNING:$st") $g; $Res.lines.Add("$vm is $st; an ACPI request is sent only to a running VM") }
-            elseif ($spent = Get-P9SAcpiSpentRequest $Ctx $vm) {
-                Set-P9SRefused $Res @('ACPI_ALREADY_REQUESTED') $g
-                $Res.lines.Add("the ACPI validation $($spent.authorization_id) sent its request to $vm while this emergency waited (phase $($spent.phase)); it is not repeated. Watch it with acpi.confirm-off or emergency.wait-off.")
-            }
             else {
-                $req.acpi[$vm] = [DateTime]::UtcNow.ToString('o')
-                Save-P9SStopRequest $Ctx $req
-                # a restricted ACPI validation of this VM spends its one
-                # request on this one (best effort: the stop request above
-                # already blocks every validation step)
-                $vlg = Read-P9SAcpiLedger $Ctx
-                $ventry = if ($vlg.ok) { @(Get-P9SAcpiUnresolved $vlg.doc $vm) | Select-Object -Last 1 } else { $null }
-                if ($ventry) {
-                    $ventry.acpi_used = [int]$ventry.acpi_used + 1; $ventry.acpi_source = 'emergency'; $ventry.phase = 'SHUTDOWN_REQUESTING'
-                    $ventry.deadline_utc = (Get-P9SUtcNow $Ctx).AddSeconds($limit).ToString('o')
-                    Add-P9SAcpiEvent $ventry 'emergency-acpi' 'emergency.acpi-shutdown sends the request'
-                    if (-not (Save-P9SAcpiLedger $Ctx $vlg.doc)) { $Res.lines.Add('the ACPI validation ledger could not be updated; the stop request records the request') }
-                }
-                try {
-                    & $Ctx.Dispatch['vm.acpi'] $vm
-                    $Res.dispatched = 1; $sent = $true
-                    $Res.lines.Add("ACPI power-button request sent to $vm")
-                } catch {
-                    $Res.outcome = 'FAILED'; $Res.reasons.Add('ACPI_REQUEST_FAILED'); $Res.reasons.Add('EMERGENCY_UNRESOLVED')
-                    $Res.lines.Add("*** ACPI request to $vm failed ($($_.Exception.Message)). EMERGENCY UNRESOLVED: nothing else is tried; the operator decides outside the coordinator. ***")
-                    $req.unresolved[$vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $Ctx $req
-                    if ($s -and $s.session_id) { $s.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $s }
-                    $null = Set-P9SAcpiAfterEmergency $Ctx $vm 'ACPI_VALIDATION_UNRESOLVED' -Locked
+                $st = (Get-P9SVmObservation $Ctx $vm 'shutdown').state
+                if ($st -eq 'off') { $Res.outcome = 'DONE'; $Res.lines.Add("$vm is already off; no request sent") }
+                elseif ($st -ne 'running') { Set-P9SRefused $Res @("VM_NOT_RUNNING:$st") $g; $Res.lines.Add("$vm is $st; an ACPI request is sent only to a running VM") }
+                else {
+                    # recorded before it is sent: first in the unresolved
+                    # validation of this VM, whose one request it spends,
+                    # then in the stop request; when either cannot be
+                    # written nothing is sent
+                    $recorded = $true
+                    if ($h.entry) {
+                        $ve = $h.entry
+                        $ve.acpi_used = [int]$ve.acpi_used + 1; $ve.acpi_source = 'emergency'; $ve.phase = 'SHUTDOWN_REQUESTING'
+                        $ve.deadline_utc = (Get-P9SUtcNow $Ctx).AddSeconds($limit).ToString('o')
+                        Add-P9SAcpiEvent $ve 'emergency-acpi' 'emergency.acpi-shutdown sends the request'
+                        if (-not (Save-P9SAcpiLedger $Ctx $h.ledger)) { $recorded = $false; $Res.lines.Add("the ACPI validation ledger could not be written (validation $($ve.authorization_id)); if the write reached the file, the request counts as spent there") }
+                    }
+                    if ($recorded) {
+                        $req = if ($h.stop) { $h.stop } else { New-P9SStopRequestDoc $Ctx }
+                        $req.acpi[$vm] = [DateTime]::UtcNow.ToString('o')
+                        try { Save-P9SStopRequest $Ctx $req } catch { $recorded = $false; $Res.lines.Add("the stop request could not be written ($($_.Exception.Message))") }
+                    }
+                    if (-not $recorded) {
+                        $Res.outcome = 'FAILED'; foreach ($r in 'EVIDENCE_WRITE_FAILED', 'ACPI_REQUEST_NOT_SENT', 'EMERGENCY_UNRESOLVED') { $Res.reasons.Add($r) }
+                        $Res.lines.Add("*** the request to $vm could not be recorded before it is sent: NOTHING WAS SENT, and nothing is claimed. No keyboard input, no forced power-off. EMERGENCY UNRESOLVED: the operator decides outside the coordinator. ***")
+                        $null = Set-P9SStopRequestUnresolved $Ctx $vm -Locked
+                        if ($s -and $s.session_id) { try { $s.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $s } catch {} }
+                    } else {
+                        try {
+                            & $Ctx.Dispatch['vm.acpi'] $vm
+                            $Res.dispatched = 1; $sent = $true
+                            $Res.lines.Add("ACPI power-button request sent to $vm")
+                        } catch {
+                            $Res.outcome = 'FAILED'; $Res.reasons.Add('ACPI_REQUEST_FAILED'); $Res.reasons.Add('EMERGENCY_UNRESOLVED')
+                            $Res.lines.Add("*** ACPI request to $vm failed ($($_.Exception.Message)). EMERGENCY UNRESOLVED: nothing else is tried; the operator decides outside the coordinator. ***")
+                            $null = Set-P9SStopRequestUnresolved $Ctx $vm -Locked
+                            if ($s -and $s.session_id) { $s.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $s }
+                            $null = Set-P9SAcpiAfterEmergency $Ctx $vm 'ACPI_VALIDATION_UNRESOLVED' -Locked
+                        }
+                    }
                 }
             }
         } finally { $lock.Dispose() }
@@ -780,7 +880,7 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             if (-not $vq.ok) {
                 $Res.outcome = 'FAILED'; foreach ($r in $vq.reasons) { $Res.reasons.Add($r) }; $Res.reasons.Add('EMERGENCY_UNRESOLVED')
                 $Res.lines.Add("*** VirtualBox became $($vq.text) while $vm was watched (about $elapsed s after the request). Its state is unknown. EMERGENCY UNRESOLVED: no further query, no second request; the operator decides outside the coordinator. ***")
-                $req.unresolved[$vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $Ctx $req
+                $null = Set-P9SStopRequestUnresolved $Ctx $vm
                 Set-P9SSessionAfterEmergency $Ctx $null $null 'EMERGENCY_UNRESOLVED'
             }
             elseif ($st -eq 'off') {
@@ -792,11 +892,11 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             } else {
                 $Res.outcome = 'TIMEOUT'; $Res.reasons.Add('EMERGENCY_UNRESOLVED')
                 $Res.lines.Add("*** $vm is still $st $limit s after the ACPI request. EMERGENCY UNRESOLVED: no forced power-off and no keyboard input are attempted; the operator decides outside the coordinator. ***")
-                $req.unresolved[$vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $Ctx $req
+                $null = Set-P9SStopRequestUnresolved $Ctx $vm
                 Set-P9SSessionAfterEmergency $Ctx $null $null 'EMERGENCY_UNRESOLVED'
             }
         }
-        Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+        Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V -Note $note
         return $Res
     }
     # emergency.wait-off: read only, bounded

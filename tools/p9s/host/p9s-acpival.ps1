@@ -43,7 +43,11 @@
 #     acpi-validation-ledger.json next to the coordinator files, keyed by
 #     the authorization id, and are spent before the dispatch: a restart,
 #     a crash or a lost session record cannot give them back, and an
-#     authorization id opens one session only;
+#     authorization id opens one session only. A ledger that cannot be
+#     read, is absent after use, or is older than its revision record is
+#     never an empty one: every validation step and every emergency ACPI
+#     request is refused (SHUTDOWN_HISTORY_UNCERTAIN), the file is kept as
+#     it is, and only read-only observation remains;
 #   - success is a power-off observed after the request, never the request
 #     itself; a VM that stays on, an unreadable state or a VirtualBox
 #     failure leaves ACPI_VALIDATION_UNRESOLVED, which blocks every new
@@ -241,30 +245,123 @@ function Test-P9SAcpiValidationState {
 }
 
 # ------------------------------------------------------------ ledger
-function New-P9SAcpiLedger { [ordered]@{ schema = 'p9s-acpi-validation-ledger/1'; entries = @() } }
+# The ledger is the only record of the budgets. What the toolkit cannot
+# establish from it is refused, never taken for an unused budget:
+#   - absent: an empty ledger only where none was ever used (no revision
+#     record, no validation session record); absent after use is
+#     ACPI_LEDGER_MISSING;
+#   - unreadable (locked, empty, truncated, not JSON, a duplicated name,
+#     another schema, an entry without its id, a duplicated id, a budget
+#     count that is not a whole number >= 0): ACPI_LEDGER_UNREADABLE;
+#   - older than its revision record (a restored copy): ACPI_LEDGER_STALE;
+#     the same revision with other content, or an unreadable revision
+#     record: ACPI_LEDGER_INCONSISTENT.
+# Each save raises the revision by one, reads the file back, then writes
+# the revision record (acpi-validation-ledger.revision.json: the revision
+# and the SHA-256 of the text). Nothing is repaired, reset or recreated on
+# read: the files stay as they are for the operator. A ledger written
+# before the record existed (no revision, no record) is read as it is
+# until its next save. This guards against accidents (a failed or partial
+# write, a deleted file, a restored backup), not against someone who edits
+# both files under the same Windows account.
+function New-P9SAcpiLedger { [ordered]@{ schema = 'p9s-acpi-validation-ledger/1'; revision = 0; entries = @() } }
+function Get-P9SAcpiLedgerRevisionPath($Ctx) { $p = Get-Prop $Ctx 'LedgerPath'; if ($p) { [IO.Path]::ChangeExtension([string]$p, '.revision.json') } else { $null } }
+function Get-P9STextSha256([string]$Text) { [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.UTF8Encoding]::new($false).GetBytes($Text))).ToLowerInvariant() }
+function Test-P9SAcpiCount($v) { ($v -is [int] -or $v -is [long]) -and $v -ge 0 }
+# The structure every ledger must have: $null, or what is wrong with it.
+function Test-P9SAcpiLedgerDoc($D) {
+    if ($D -isnot [System.Collections.IDictionary] -or [string]$D.schema -cne 'p9s-acpi-validation-ledger/1' -or $null -eq $D.entries) { return 'schema' }
+    if ($D.Contains('revision') -and -not (Test-P9SAcpiCount $D.revision)) { return 'revision' }
+    $ids = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($e in @($D.entries)) {
+        if ($e -isnot [System.Collections.IDictionary] -or -not $e.authorization_id) { return 'entry' }
+        if (-not (Test-P9SAcpiCount $e.startups_used) -or -not (Test-P9SAcpiCount $e.acpi_used)) { return 'budget count' }
+        if (-not $ids.Add([string]$e.authorization_id)) { return 'duplicated id' }
+    }
+    $null
+}
+function Read-P9SAcpiLedgerRevision($Ctx) {
+    $r = Read-StateFile -Path (Get-P9SAcpiLedgerRevisionPath $Ctx)
+    $bad = [pscustomobject]@{ present = $true; ok = $false; revision = $null; sha256 = $null }
+    if (-not $r.ok) { $bad.present = ($r.error -ne 'missing'); return $bad }
+    $d = $null; try { $d = $r.text | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch {}
+    if ($d -isnot [System.Collections.IDictionary] -or [string]$d.schema -cne 'p9s-acpi-validation-ledger-revision/1' -or -not (Test-P9SAcpiCount $d.revision) -or [string]$d.sha256 -cnotmatch '^[0-9a-f]{64}$') { return $bad }
+    [pscustomobject]@{ present = $true; ok = $true; revision = [long]$d.revision; sha256 = [string]$d.sha256 }
+}
+# Why an absent ledger was in use ($null: never used): its revision record
+# exists, or the session record is, or cannot be shown not to be, the
+# record of a validation session.
+function Get-P9SAcpiLedgerUse($Ctx, $Rev) {
+    if ($Rev.present) { return 'its revision record exists' }
+    $sr = Read-P9SSession $Ctx
+    if (-not $sr.ok) { return 'the session record is unreadable' }
+    if ($sr.session -and [string]$sr.session.kind -ceq 'AcpiValidation') { return 'a validation session record names it' }
+    $null
+}
 function Read-P9SAcpiLedger($Ctx) {
     $p = Get-Prop $Ctx 'LedgerPath'
-    if (-not $p) { return [pscustomobject]@{ ok = $false; reason = 'ACPI_LEDGER_UNAVAILABLE'; doc = $null } }
+    $no = { param([string]$Why, [string]$Detail) [pscustomobject]@{ ok = $false; reason = $Why; doc = $null; detail = $Detail } }
+    if (-not $p) { return (& $no 'ACPI_LEDGER_UNAVAILABLE' 'no ledger path') }
+    # the revision record first: it is written after the ledger, so a
+    # ledger read after it is never older than a save left it
+    $rev = Read-P9SAcpiLedgerRevision $Ctx
+    if ($rev.present -and -not $rev.ok) { return (& $no 'ACPI_LEDGER_INCONSISTENT' 'revision record unreadable') }
     $r = Read-StateFile -Path $p
-    if (-not $r.ok) {
-        if ($r.error -eq 'missing') { return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger) } }
-        return [pscustomobject]@{ ok = $false; reason = 'ACPI_LEDGER_UNREADABLE'; doc = $null }
+    if (-not $r.ok -and $r.error -eq 'missing') {
+        $use = Get-P9SAcpiLedgerUse $Ctx $rev
+        if ($use) { return (& $no 'ACPI_LEDGER_MISSING' "absent, but $use") }
+        return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger); detail = 'absent, never used' }
     }
+    if (-not $r.ok) { return (& $no 'ACPI_LEDGER_UNREADABLE' "not read ($($r.error))") }
+    if ([string]::IsNullOrWhiteSpace($r.text)) { return (& $no 'ACPI_LEDGER_UNREADABLE' 'empty') }
     $d = $null; try { $d = $r.text | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch {}
-    if ($d -isnot [System.Collections.IDictionary] -or $d.schema -cne 'p9s-acpi-validation-ledger/1' -or $null -eq $d.entries) { return [pscustomobject]@{ ok = $false; reason = 'ACPI_LEDGER_UNREADABLE'; doc = $null } }
+    if ($null -eq $d) { return (& $no 'ACPI_LEDGER_UNREADABLE' 'not JSON') }
+    if (@(Get-P9SJsonDuplicateNames $r.text).Count) { return (& $no 'ACPI_LEDGER_UNREADABLE' 'duplicated name') }
+    $bad = Test-P9SAcpiLedgerDoc $d
+    if ($bad) { return (& $no 'ACPI_LEDGER_UNREADABLE' $bad) }
+    $n = if ($d.Contains('revision')) { [long]$d.revision } else { 0L }
+    if ($rev.present) {
+        if ($n -lt $rev.revision) { return (& $no 'ACPI_LEDGER_STALE' "revision $n, revision record $($rev.revision)") }
+        if ($n -eq $rev.revision -and (Get-P9STextSha256 $r.text) -cne $rev.sha256) { return (& $no 'ACPI_LEDGER_INCONSISTENT' "revision $n with other content") }
+    }
     $d.entries = @($d.entries)
-    foreach ($e in $d.entries) { if ($e -isnot [System.Collections.IDictionary] -or -not $e.authorization_id) { return [pscustomobject]@{ ok = $false; reason = 'ACPI_LEDGER_UNREADABLE'; doc = $null } } }
-    [pscustomobject]@{ ok = $true; reason = $null; doc = $d }
+    [pscustomobject]@{ ok = $true; reason = $null; doc = $d; detail = "revision $n" }
 }
-# $true when written; a failed write is never retried silently: the caller
-# then does not dispatch.
+# $true only when the ledger is written, read back unchanged and its
+# revision recorded. A failed write is never retried silently: the caller
+# then does not dispatch (a budget it spent counts as spent if the ledger
+# was written).
 function Save-P9SAcpiLedger($Ctx, $Doc) {
     try {
+        $Doc.revision = $(if ($Doc.Contains('revision')) { [long]$Doc.revision } else { 0L }) + 1
         $text = $Doc | ConvertTo-Json -Depth 8
+        $chk = $null; try { $chk = $text | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch {}
+        if (Test-P9SAcpiLedgerDoc $chk) { return $false }
         $w = Get-Prop $Ctx 'WriteLedger'
         if ($w) { & $w $Ctx.LedgerPath $text } else { Write-StateAtomic -Path $Ctx.LedgerPath -Text $text }
+        $back = Read-StateFile -Path $Ctx.LedgerPath
+        if (-not $back.ok -or $back.text -cne $text) { return $false }
+        $rec = [ordered]@{ schema = 'p9s-acpi-validation-ledger-revision/1'; revision = [long]$Doc.revision; sha256 = (Get-P9STextSha256 $text); utc = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json
+        $wr = Get-Prop $Ctx 'WriteLedgerRevision'
+        if ($wr) { & $wr (Get-P9SAcpiLedgerRevisionPath $Ctx) $rec } else { Write-StateAtomic -Path (Get-P9SAcpiLedgerRevisionPath $Ctx) -Text $rec }
         return $true
     } catch { return $false }
+}
+# Facts about the ledger files for the operator, nothing secret: what the
+# reader found, then the size, write time and digest prefix of each file.
+# Reads only.
+function Get-P9SAcpiLedgerDiagnosis($Ctx, $Read) {
+    $parts = foreach ($p in @((Get-Prop $Ctx 'LedgerPath'), (Get-P9SAcpiLedgerRevisionPath $Ctx))) {
+        if (-not $p) { continue }
+        $n = [IO.Path]::GetFileName([string]$p)
+        try {
+            if (-not [IO.File]::Exists($p)) { "$n absent"; continue }
+            $i = [IO.FileInfo]::new($p)
+            $h = try { (Get-FileSha256 $p).Substring(0, 16) } catch { 'not readable' }
+            "$n $($i.Length) bytes, written $($i.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)), sha256 $h..."
+        } catch { "$n not inspected ($($_.Exception.GetType().Name))" }
+    }
+    "$(if ($Read -and $Read.reason) { "$($Read.reason) ($($Read.detail)); " })$(@($parts) -join '; ')"
 }
 function Get-P9SAcpiEntry($Doc, [string]$Id) { foreach ($e in @($Doc.entries)) { if ([string]$e.authorization_id -ceq $Id) { return $e } }; $null }
 function Add-P9SAcpiEvent($E, [string]$What, [string]$Detail) {
@@ -272,16 +369,43 @@ function Add-P9SAcpiEvent($E, [string]$What, [string]$Detail) {
 }
 # Unresolved entries for one VM (any VM when $Vm is empty).
 function Get-P9SAcpiUnresolved($Doc, [string]$Vm) { @(@($Doc.entries) | Where-Object { -not (Test-P9SAcpiEntryResolved $_) -and (-not $Vm -or [string]$_.target_vm -ceq $Vm) }) }
-# The unresolved validation of this VM that has already spent its one ACPI
-# request (sent, or dispatched without a recorded end), if any: the
-# emergency path then sends none. An unreadable ledger blocks nothing here:
-# the emergency path stays available.
-function Get-P9SAcpiSpentRequest($Ctx, [string]$Vm) {
-    $lg = Read-P9SAcpiLedger $Ctx
-    if (-not $lg.ok) { return $null }
-    $e = @(Get-P9SAcpiUnresolved $lg.doc $Vm) | Select-Object -Last 1
-    if ($e -and [int]$e.acpi_used -ge 1) { return $e }
-    $null
+# What the toolkit knows of the ACPI requests already sent to one VM: the
+# stop request of the emergency path and the unresolved validation of that
+# VM in the ledger. ok only when both are readable and neither records a
+# request. spent: a request was sent (or dispatched without a recorded
+# end). uncertain: a record could not be read, so the history is unknown,
+# which is never "no request sent" (SHUTDOWN_HISTORY_UNCERTAIN). entry and
+# ledger: the unresolved validation the next request would spend. A
+# context without a ledger path has no validation and no ledger.
+function Get-P9SAcpiRequestHistory($Ctx, [string]$Vm) {
+    $h = [pscustomobject]@{ ok = $false; spent = $null; uncertain = $false; reasons = [System.Collections.Generic.List[string]]::new(); stop = $null; ledger = $null; entry = $null; diagnosis = $null }
+    $sq = Read-P9SStopRequestState $Ctx
+    if ($sq.present -and -not $sq.ok) { $h.uncertain = $true; $h.reasons.Add('STOP_REQUEST_UNREADABLE') }
+    elseif ($sq.ok) {
+        $h.stop = $sq.doc
+        if ($sq.doc.acpi.Contains($Vm)) { $h.spent = "an ACPI request was already sent to $Vm in this emergency ($($sq.doc.acpi[$Vm]))" }
+    }
+    if (Get-Prop $Ctx 'LedgerPath') {
+        $lg = Read-P9SAcpiLedger $Ctx
+        if (-not $lg.ok) { $h.uncertain = $true; $h.reasons.Add($lg.reason); $h.diagnosis = Get-P9SAcpiLedgerDiagnosis $Ctx $lg }
+        else {
+            $h.ledger = $lg.doc
+            # a validation session whose ledger entry no longer matches it
+            # (another target, authorization or session): the ledger was
+            # changed outside the toolkit, so its history is unknown too
+            $sr = Read-P9SSession $Ctx
+            if ($sr.ok -and $sr.session -and [string]$sr.session.kind -ceq 'AcpiValidation' -and $sr.session.validation) {
+                $bind = @(Get-P9SAcpiBindingReasons $sr.session $lg.doc)
+                if ($bind.Count) { $h.uncertain = $true; foreach ($x in $bind) { $h.reasons.Add($x) }; $h.diagnosis = Get-P9SAcpiLedgerDiagnosis $Ctx $null }
+            }
+            $h.entry = @(Get-P9SAcpiUnresolved $lg.doc $Vm) | Select-Object -Last 1
+            if ($h.entry -and [int]$h.entry.acpi_used -ge 1 -and -not $h.spent) { $h.spent = "the ACPI validation $($h.entry.authorization_id) already sent its request to $Vm (phase $($h.entry.phase))" }
+        }
+    }
+    if ($h.spent) { $h.reasons.Insert(0, 'ACPI_ALREADY_REQUESTED') }
+    if ($h.uncertain) { $h.reasons.Add('SHUTDOWN_HISTORY_UNCERTAIN') }
+    $h.ok = -not $h.spent -and -not $h.uncertain
+    $h
 }
 # The end of an emergency ACPI request that a validation entry counted as
 # its own (emergency.acpi-shutdown): off, aborted or unresolved. -Locked:
@@ -342,7 +466,7 @@ function Get-P9SAcpiUnauthorized($Ctx, [hashtable]$Request) {
         if (-not $sr.ok) { return (& $no 'SESSION_UNREADABLE') }
         if (-not $sr.session -or [string]$sr.session.kind -cne 'AcpiValidation' -or -not $sr.session.validation) { return (& $no 'ACPI_VALIDATION_SESSION_MISSING') }
         $lg = Read-P9SAcpiLedger $Ctx
-        if (-not $lg.ok) { return (& $no $lg.reason) }
+        if (-not $lg.ok) { return (& $no @($lg.reason, 'SHUTDOWN_HISTORY_UNCERTAIN')) }
         $bind = @(Get-P9SAcpiBindingReasons $sr.session $lg.doc)
         if ($bind.Count) { return (& $no $bind) }
         $w = Test-P9SAcpiAuthorizationTime $sr.session.validation $now
@@ -378,7 +502,7 @@ function Get-P9SAcpiBundle($Ctx) {
     elseif (-not $sr.session -or [string]$sr.session.kind -cne 'AcpiValidation' -or -not $sr.session.validation) { $b.reasons.Add('ACPI_VALIDATION_SESSION_MISSING') }
     else { $b.session = $sr.session; $b.auth = $sr.session.validation }
     $lg = Read-P9SAcpiLedger $Ctx
-    if (-not $lg.ok) { $b.reasons.Add($lg.reason) } else { $b.ledger = $lg.doc }
+    if (-not $lg.ok) { $b.reasons.Add($lg.reason); $b.reasons.Add('SHUTDOWN_HISTORY_UNCERTAIN') } else { $b.ledger = $lg.doc }
     if ($b.ledger -and $b.auth) {
         $b.entry = Get-P9SAcpiEntry $b.ledger ([string]$b.auth.authorization_id)
         foreach ($x in @(Get-P9SAcpiBindingReasons $b.session $b.ledger)) { $b.reasons.Add($x) }
@@ -439,7 +563,9 @@ function Invoke-P9SValidation($Ctx, [hashtable]$Request, $V, $Res) {
     if ($na.reasons.Count) {
         Set-P9SRefused $Res @($na.reasons) $null
         $Res.lines.Add("no valid owner authorization is bound to $a$(if ($a -ceq 'acpi.open') { ' (the authorization file is not valid or not in its window)' } else { ' (no ACPI validation session bound to a valid authorization in its window is open)' }): nothing was read from VirtualBox and nothing was sent")
-        if ($a -ceq 'acpi.shutdown') { $Res.lines.Add('the validation request is not available now; to shut the VM down use emergency.acpi-shutdown (one request; it knows whether this validation already sent one)') }
+        if (@($na.reasons | Where-Object { $_ -clike 'ACPI_LEDGER_*' }).Count) {
+            $Res.lines.Add('the ledger cannot establish the request history (SHUTDOWN_HISTORY_UNCERTAIN): no ACPI request is sent through the toolkit, neither by the validation nor by emergency.acpi-shutdown. emergency.status and emergency.wait-off still read the VM state (read only); the ledger is kept as it is and the operator decides outside the coordinator.')
+        } elseif ($a -ceq 'acpi.shutdown') { $Res.lines.Add('the validation request is not available now; to shut the VM down use emergency.acpi-shutdown (one request; it knows whether this validation already sent one)') }
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
     }
@@ -489,7 +615,7 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
         } else { $Res.lines.Add("authorization: NOT VALID ($($au.reasons -join ', ')); no target, no VM state read"); Add-P9SAcpiReasons $Res.reasons $au.reasons }
     } else { $Res.lines.Add('authorization: none given (-Authorization <file>); a session cannot open without one, and without one no target is chosen and no VM state is read'); $Res.reasons.Add('AUTHORIZATION_MISSING') }
     $lg = Read-P9SAcpiLedger $Ctx
-    if (-not $lg.ok) { $Res.lines.Add("ledger: $($lg.reason) -> FAIL"); $Res.reasons.Add($lg.reason) }
+    if (-not $lg.ok) { $Res.lines.Add("ledger: $($lg.reason) ($($lg.detail)) -> FAIL"); $Res.reasons.Add($lg.reason) }
     else {
         $un = @(Get-P9SAcpiUnresolved $lg.doc '')
         $Res.lines.Add("ledger: $(@($lg.doc.entries).Count) earlier validations, $($un.Count) unresolved -> $(if ($un.Count) { 'FAIL' } else { 'PASS' })")
@@ -791,7 +917,13 @@ function Complete-P9SAcpiWatch($Ctx, $Res, $W, [string]$Target, [int]$Limit, [bo
         $lg = Read-P9SAcpiLedger $Ctx
         if ($lg.ok) { $b.ledger = $lg.doc; $b.entry = @(Get-P9SAcpiUnresolved $lg.doc $Target) | Select-Object -Last 1 }
     }
-    if (-not $b.entry) { $Res.reasons.Add('EVIDENCE_WRITE_FAILED'); $Res.lines.Add('the ledger entry was not found: the outcome is not recorded'); return }
+    if (-not $b.entry) {
+        $Res.reasons.Add('EVIDENCE_WRITE_FAILED')
+        $lr = @($b.reasons | Where-Object { $_ -clike 'ACPI_LEDGER_*' })
+        if ($lr.Count) { Add-P9SAcpiReasons $Res.reasons (@($lr) + @('SHUTDOWN_HISTORY_UNCERTAIN')); $Res.lines.Add("*** the ledger cannot be read ($($lr -join ', ')): the outcome is not recorded and the request history is uncertain; no further request is sent through the toolkit. The ledger is kept as it is; the operator decides outside the coordinator. ***") }
+        else { $Res.lines.Add('the ledger entry was not found: the outcome is not recorded') }
+        return
+    }
     if ($W.end -ceq 'OFF') {
         $late = $false
         if (-not $Deadline) { $dl = ConvertTo-P9SAuthTime $b.entry.deadline_utc; $late = -not $dl -or (Get-P9SUtcNow $Ctx) -gt $dl }
@@ -817,7 +949,11 @@ function Complete-P9SAcpiWatch($Ctx, $Res, $W, [string]$Target, [int]$Limit, [bo
 function Invoke-P9SAcpiConfirmOff($Ctx, [hashtable]$Request, $Res, $Hold) {
     $dry = [bool]$Request.DryRun
     $lg = Read-P9SAcpiLedger $Ctx
-    if (-not $lg.ok) { Set-P9SRefused $Res @($lg.reason) $null; return $Res }
+    if (-not $lg.ok) {
+        Set-P9SRefused $Res @($lg.reason, 'SHUTDOWN_HISTORY_UNCERTAIN') $null
+        $Res.lines.Add("the ledger cannot be read ($($lg.detail)): there is no validation to confirm and nothing is recorded. emergency.status and emergency.wait-off still read the VM state (read only); the ledger is kept as it is for the operator.")
+        return $Res
+    }
     $sr = Read-P9SSession $Ctx
     $entry = $null
     if ($sr.ok -and $sr.session -and [string]$sr.session.kind -ceq 'AcpiValidation' -and $sr.session.validation) { $entry = Get-P9SAcpiEntry $lg.doc ([string]$sr.session.validation.authorization_id); $Res.session = $sr.session.session_id }

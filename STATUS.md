@@ -1151,6 +1151,26 @@ preflight reads no VM state without a valid one. The toolkit's 222
 declared tests and 74 targeted faults run in the CI job. No Ubuntu
 authorization exists, and no VM was started for this preparation.
 
+A review of that preparation found that the request history could be
+lost. With the ledger unreadable, deleted or replaced by an older copy,
+a ledger entry edited to the other VM, or the stop request unreadable,
+the toolkit took the missing record for no request: the emergency path
+could send a second ACPI request after the first, and after an older
+copy the validation itself could. An emergency also did not read the
+stop request again under the lock, so a request another emergency sent
+meanwhile was not seen. Reproductions in mocks on `67c62cc` showed each
+case. The toolkit now refuses any ACPI request whose history it cannot
+establish (`SHUTDOWN_HISTORY_UNCERTAIN`): the ledger carries a revision
+checked against a record written after each save, a ledger absent after
+use is missing rather than empty, both records are read again under the
+lock, a request is recorded before it is sent, and nothing repairs or
+resets a damaged file. Observation (`emergency.status`,
+`emergency.wait-off`) stays available with a damaged ledger, low memory,
+STOP, ABORT or no monitor; the memory minimum blocks only the open, the
+start and the observation step, and grants no request. The toolkit's
+265 declared tests and 92 targeted faults run in the CI job.
+Nothing ran live.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is

@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 74,
+  "count": 92,
   "mutants": [
     {
       "id": "SM1",
@@ -40,12 +40,12 @@
     {
       "id": "SM4",
       "suite": "stagec",
-      "file": "coordinator-lib.ps1",
+      "file": "p9s-acpival.ps1",
       "what": "a second ACPI request for the same VM is allowed",
       "killers": [
         "H18"
       ],
-      "find": "        if ($req.acpi.Contains($vm)) {",
+      "find": "        if ($sq.doc.acpi.Contains($Vm)) {",
       "replace": "        if ($false) {"
     },
     {
@@ -603,10 +603,11 @@
         "A06",
         "R01",
         "R07",
-        "Z10"
+        "Z10",
+        "L13"
       ],
-      "find": "    if ($e -and [int]$e.acpi_used -ge 1) { return $e }",
-      "replace": "    if ($false) { return $e }"
+      "find": "            if ($h.entry -and [int]$h.entry.acpi_used -ge 1 -and -not $h.spent) {",
+      "replace": "            if ($false) {"
     },
     {
       "id": "AV10",
@@ -815,10 +816,13 @@
       "file": "p9s-acpival.ps1",
       "what": "an unreadable ledger is read as an empty one (budgets and unresolved entries lost)",
       "killers": [
-        "U18"
+        "U18",
+        "L03",
+        "L04",
+        "L11"
       ],
-      "find": "        if ($r.error -eq 'missing') { return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger) } }",
-      "replace": "        if ($true) { return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger) } }"
+      "find": "    if ($null -eq $d) { return (& $no 'ACPI_LEDGER_UNREADABLE' 'not JSON') }",
+      "replace": "    if ($null -eq $d) { return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger); detail = 'empty' } }"
     },
     {
       "id": "AV28",
@@ -855,6 +859,227 @@
       ],
       "find": "    $d.entries = @($d.entries)",
       "replace": "    $d.entries = @()"
+    },
+    {
+      "id": "AV31",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the emergency path takes an unreadable ledger for zero requests sent",
+      "killers": [
+        "L02",
+        "L03",
+        "L04",
+        "L05",
+        "L11",
+        "M10",
+        "M17"
+      ],
+      "find": "        if (-not $lg.ok) { $h.uncertain = $true; $h.reasons.Add($lg.reason); $h.diagnosis = Get-P9SAcpiLedgerDiagnosis $Ctx $lg }",
+      "replace": "        if (-not $lg.ok) { $h.ledger = New-P9SAcpiLedger }"
+    },
+    {
+      "id": "AV32",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "the emergency path ignores an unknown request history",
+      "killers": [
+        "L02",
+        "L11",
+        "L12"
+      ],
+      "find": "            if ($h.uncertain) { $note = Invoke-P9SEmergencyUncertain $Ctx $Res $vm $h $vg $s $g }",
+      "replace": "            if ($false) { $note = Invoke-P9SEmergencyUncertain $Ctx $Res $vm $h $vg $s $g }"
+    },
+    {
+      "id": "AV33",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "the emergency path decides on its check from before the lock",
+      "killers": [
+        "Z10",
+        "L12",
+        "L15",
+        "L16"
+      ],
+      "find": "            $h = Get-P9SAcpiRequestHistory $Ctx $vm",
+      "replace": "            $h = $h"
+    },
+    {
+      "id": "AV34",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a ledger that cannot be read is read as an empty one",
+      "killers": [
+        "L09",
+        "U18"
+      ],
+      "find": "    if (-not $r.ok) { return (& $no 'ACPI_LEDGER_UNREADABLE' \"not read ($($r.error))\") }",
+      "replace": "    if (-not $r.ok) { return [pscustomobject]@{ ok = $true; reason = $null; doc = (New-P9SAcpiLedger); detail = 'busy' } }"
+    },
+    {
+      "id": "AV35",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a damaged ledger is replaced by a new empty one",
+      "killers": [
+        "L18",
+        "L04",
+        "L11"
+      ],
+      "find": "    if ($null -eq $d) { return (& $no 'ACPI_LEDGER_UNREADABLE' 'not JSON') }",
+      "replace": "    if ($null -eq $d) { $d = New-P9SAcpiLedger; $null = Save-P9SAcpiLedger $Ctx $d; return [pscustomobject]@{ ok = $true; reason = $null; doc = $d; detail = 'recreated' } }"
+    },
+    {
+      "id": "AV36",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a ledger missing after use is read as an empty one",
+      "killers": [
+        "L01"
+      ],
+      "find": "        if ($use) { return (& $no 'ACPI_LEDGER_MISSING' \"absent, but $use\") }",
+      "replace": "        if ($false) { return (& $no 'ACPI_LEDGER_MISSING' \"absent, but $use\") }"
+    },
+    {
+      "id": "AV37",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "an emergency replaces the stop request before the lock (another request is forgotten)",
+      "killers": [
+        "L26",
+        "L25"
+      ],
+      "find": "        $null = Add-P9SStopRequestIfAbsent $Ctx",
+      "replace": "        Save-P9SStopRequest $Ctx (New-P9SStopRequestDoc $Ctx)"
+    },
+    {
+      "id": "AV38",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "below the memory minimum the VM states are no longer read",
+      "killers": [
+        "M03",
+        "M16",
+        "M17"
+      ],
+      "find": "        if ($vg.ok) { foreach ($n in Get-P9SVmNames) { $Res.lines.Add((Format-P9SVmObservation (Get-P9SVmObservation $Ctx $n 'status'))) } }",
+      "replace": "        if ($vg.ok -and [double]$g.doc.memory.avail_mb -ge 8192) { foreach ($n in Get-P9SVmNames) { $Res.lines.Add((Format-P9SVmObservation (Get-P9SVmObservation $Ctx $n 'status'))) } }"
+    },
+    {
+      "id": "AV39",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the memory minimum also refuses the one ACPI request",
+      "killers": [
+        "U17",
+        "M09"
+      ],
+      "find": "    $c = Test-P9SAcpiConditions $Ctx $b $Res -ForShutdown",
+      "replace": "    $c = Test-P9SAcpiConditions $Ctx $b $Res -ForShutdown -MinAvailableMb ([double]$b.auth.min_available_mib)"
+    },
+    {
+      "id": "AV40",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "low memory lets the emergency path past an unknown history",
+      "killers": [
+        "M10",
+        "M17"
+      ],
+      "find": "            if ($h.uncertain) { $note = Invoke-P9SEmergencyUncertain $Ctx $Res $vm $h $vg $s $g }",
+      "replace": "            if ($h.uncertain -and [double]$g.doc.memory.avail_mb -ge 8192) { $note = Invoke-P9SEmergencyUncertain $Ctx $Res $vm $h $vg $s $g }"
+    },
+    {
+      "id": "AV41",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "low memory lets the validation past its spent ACPI budget",
+      "killers": [
+        "M08"
+      ],
+      "find": "    if ($b.entry -and $b.auth -and [int]$b.entry.acpi_used -ge [int]$b.auth.max_acpi_requests) { $reasons.Add('ACPI_BUDGET_EXHAUSTED') }",
+      "replace": "    if ($b.entry -and $b.auth -and [int]$b.entry.acpi_used -ge [int]$b.auth.max_acpi_requests -and [double](Get-P9SGate $Ctx).doc.memory.avail_mb -ge 8192) { $reasons.Add('ACPI_BUDGET_EXHAUSTED') }"
+    },
+    {
+      "id": "AV42",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unreadable VM state ends the watch as off",
+      "killers": [
+        "R05",
+        "U15",
+        "M14"
+      ],
+      "find": "        if (-not $last.observed) { return [pscustomobject]@{ end = 'UNREADABLE';",
+      "replace": "        if (-not $last.observed) { return [pscustomobject]@{ end = 'OFF';"
+    },
+    {
+      "id": "AV43",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "reading the stop request drops the requests it records (a restart forgets them)",
+      "killers": [
+        "L21",
+        "L26"
+      ],
+      "find": "        if ($null -eq $x[$k]) { $x[$k] = [ordered]@{} } elseif ($x[$k] -isnot [System.Collections.IDictionary]) { return $bad }",
+      "replace": "        $x[$k] = [ordered]@{}"
+    },
+    {
+      "id": "AV44",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an older copy of the ledger is accepted",
+      "killers": [
+        "L23"
+      ],
+      "find": "        if ($n -lt $rev.revision) {",
+      "replace": "        if ($false) {"
+    },
+    {
+      "id": "AV45",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unreadable stop request is taken for no request",
+      "killers": [
+        "L25"
+      ],
+      "find": "    if ($sq.present -and -not $sq.ok) { $h.uncertain = $true; $h.reasons.Add('STOP_REQUEST_UNREADABLE') }",
+      "replace": "    if ($false) { $h.uncertain = $true; $h.reasons.Add('STOP_REQUEST_UNREADABLE') }"
+    },
+    {
+      "id": "AV46",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the emergency path trusts a ledger entry no longer bound to its session",
+      "killers": [
+        "L06",
+        "L07"
+      ],
+      "find": "                if ($bind.Count) { $h.uncertain = $true;",
+      "replace": "                if ($false) { $h.uncertain = $true;"
+    },
+    {
+      "id": "AV47",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "the emergency path sends a request it could not record",
+      "killers": [
+        "L10"
+      ],
+      "find": "                        if (-not (Save-P9SAcpiLedger $Ctx $h.ledger)) { $recorded = $false;",
+      "replace": "                        if (-not (Save-P9SAcpiLedger $Ctx $h.ledger) -and $false) { $recorded = $false;"
+    },
+    {
+      "id": "AV48",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a budget count that is not a whole number is read as a number",
+      "killers": [
+        "L08"
+      ],
+      "find": "        if (-not (Test-P9SAcpiCount $e.startups_used) -or -not (Test-P9SAcpiCount $e.acpi_used)) { return 'budget count' }",
+      "replace": "        if ($false) { return 'budget count' }"
     }
   ]
 }

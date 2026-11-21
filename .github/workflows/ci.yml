@@ -126,7 +126,7 @@ jobs:
   # or the host under load behaves.
   p9s-windows-toolkit:
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh

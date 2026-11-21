@@ -2,7 +2,11 @@
 # Synthetic tests of the restricted single-VM ACPI validation
 # (p9s-acpival.ps1): its live switch, the authorization file, the monitor
 # conditions, the one-start and one-request budgets, recovery when the
-# guest does not power off, and races between processes. The coordinator
+# guest does not power off, races between processes, damaged, missing
+# and outdated ledgers and stop requests (an unknown request history is
+# never an unused budget), and low memory (no new workload, observation
+# and recovery stay available). Damage is done to synthetic files in the
+# test folder, never to a real ledger. The coordinator
 # runs on mock contexts: monitor states come from the real policy of
 # hostmon-lib.ps1, VM states from a table, dispatchers only record calls,
 # and the clock is simulated; cross-process cases start worker processes
@@ -1224,6 +1228,478 @@ Case 'U18' 'a corrupt or locked ledger refuses every validation step and every n
     } finally { $hold.Dispose() }
     $s3 = AStart $c
     Expect ($s3.outcome -eq 'DISPATCHED' -and (Entry $c $a).startups_used -eq 1 -and (Kinds $c) -eq 'vm.start P9S-U24') "once readable again: $(Why $s3)"
+}
+# ---- ledger failures: an unknown history is never an unused budget ------------------------------
+# The request is sent and the guest stays on: the one request is spent,
+# the validation unresolved, the VM running.
+function Sent([string]$Target = 'P9S-D12', $Mon = $ELIG) {
+    $x = Started -Target $Target -Mon $Mon
+    $t = AShut $x.c 10
+    if ($t.outcome -ne 'TIMEOUT') { throw "setup failed: request $(Why $t)" }
+    $x
+}
+function LText($c) { if (Test-Path -LiteralPath $c.LedgerPath) { [IO.File]::ReadAllText($c.LedgerPath) } else { $null } }
+# the ledger and its revision record by digest: what no refusal may change
+function LFiles($c) { (@($c.LedgerPath, (Get-P9SAcpiLedgerRevisionPath $c)) | ForEach-Object { if (Test-Path -LiteralPath $_) { (Get-FileHash -LiteralPath $_).Hash } else { 'absent' } }) -join ',' }
+# the accidents a ledger can meet
+function Break-Ledger($c, [string]$How) {
+    $t = LText $c
+    switch ($How) {
+        'missing' { Remove-Item -LiteralPath $c.LedgerPath }
+        'empty' { [IO.File]::WriteAllText($c.LedgerPath, '') }
+        'truncated' { [IO.File]::WriteAllText($c.LedgerPath, $t.Substring(0, [int]($t.Length / 2))) }
+        'notjson' { [IO.File]::WriteAllText($c.LedgerPath, "`0`0`0 not a ledger") }
+        'schema' { [IO.File]::WriteAllText($c.LedgerPath, $t.Replace('p9s-acpi-validation-ledger/1', 'p9s-acpi-validation-ledger/2')) }
+        default { throw "unknown damage $How" }
+    }
+}
+# a sent Ubuntu request, the ledger damaged: nothing more is sent by either
+# path and the files stay as they are
+function Test-BrokenLedger([string]$How, [string]$Reason, [string]$Detail) {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    Break-Ledger $c $How
+    $f0 = LFiles $c
+    $l = Read-P9SAcpiLedger $c
+    Expect (-not $l.ok -and $l.reason -eq $Reason -and (-not $Detail -or $l.detail -eq $Detail)) "${How}: read as $($l.ok) $($l.reason) ($($l.detail))"
+    $m = Emerg $c 'P9S-U24'; $s = AShut $c
+    Expect ($m.outcome -eq 'REFUSED' -and (Has $m $Reason) -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and (Has $m 'EMERGENCY_UNRESOLVED') -and $m.dispatched -eq 0) "${How}: emergency $(Why $m)"
+    Expect ($s.outcome -eq 'REFUSED' -and (Has $s $Reason)) "${How}: validation request $(Why $s)"
+    Expect ((Count $c 'vm.acpi') -eq 1 -and (LFiles $c) -eq $f0) "${How}: $(Kinds $c); ledger files changed: $((LFiles $c) -ne $f0)"
+}
+Case 'L01' 'a missing ledger: empty only where none was ever used; absent after use it refuses every step and every emergency request' {
+    $c = New-VCtx; $a = New-Auth -Target 'P9S-U24'
+    $l0 = Read-P9SAcpiLedger $c
+    Expect ($l0.ok -and @($l0.doc.entries).Count -eq 0 -and -not (Test-Path -LiteralPath $c.LedgerPath)) "never used: $($l0.reason)"
+    Expect ((AOpen $c $a).outcome -eq 'DONE' -and (Test-Path -LiteralPath (Get-P9SAcpiLedgerRevisionPath $c))) 'the first validation of a host did not open'
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    Break-Ledger $c 'missing'
+    $l1 = Read-P9SAcpiLedger $c
+    Expect (-not $l1.ok -and $l1.reason -eq 'ACPI_LEDGER_MISSING') "absent after use: $($l1.reason) ($($l1.detail))"
+    foreach ($y in @((AShut $c), (AStart $c), (AOpen $c (New-Auth -Target 'P9S-U24')), (Emerg $c 'P9S-U24'), (AConfirm $c 5), (AFinal $c))) {
+        Expect ($y.outcome -eq 'REFUSED' -and (Has $y 'ACPI_LEDGER_MISSING')) "$($y.action): $(Why $y)"
+    }
+    Expect ((Count $c 'vm.acpi') -eq 1 -and -not (Test-Path -LiteralPath $c.LedgerPath)) "after: $(Kinds $c); ledger recreated: $(Test-Path -LiteralPath $c.LedgerPath)"
+    # a ledger from before the revision record: the session record is enough
+    Remove-Item -LiteralPath (Get-P9SAcpiLedgerRevisionPath $c)
+    $l2 = Read-P9SAcpiLedger $c
+    Expect (-not $l2.ok -and $l2.reason -eq 'ACPI_LEDGER_MISSING' -and $l2.detail -match 'session record') "session record only: $($l2.reason) ($($l2.detail))"
+}
+Case 'L02' 'an empty ledger is unreadable, not empty: no request by either path, nothing rewritten' { Test-BrokenLedger 'empty' 'ACPI_LEDGER_UNREADABLE' 'empty' }
+Case 'L03' 'a truncated ledger is unreadable: no request by either path, nothing rewritten' { Test-BrokenLedger 'truncated' 'ACPI_LEDGER_UNREADABLE' 'not JSON' }
+Case 'L04' 'a ledger that is not JSON is unreadable: no request by either path, nothing rewritten' { Test-BrokenLedger 'notjson' 'ACPI_LEDGER_UNREADABLE' 'not JSON' }
+Case 'L05' 'a ledger of an unsupported schema is unreadable: no request by either path, nothing rewritten' { Test-BrokenLedger 'schema' 'ACPI_LEDGER_UNREADABLE' 'schema' }
+Case 'L06' 'a ledger entry naming another session: the validation request and the emergency request are both refused' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c
+    $l = Ledger $c; $e = Get-P9SAcpiEntry $l (AuthId $x.a); $e.session_id = 'ses-20261120T000000000Z-1'; $null = Save-P9SAcpiLedger $c $l
+    $s = AShut $c; $m = Emerg $c 'P9S-U24'
+    Expect ((Has $s 'ACPI_AUTHORIZATION_MISMATCH') -and (Has $m 'ACPI_AUTHORIZATION_MISMATCH') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m.dispatched -eq 0 -and (Count $c 'vm.acpi') -eq 0) "shutdown $(Why $s) / emergency $(Why $m)"
+}
+Case 'L07' 'a ledger entry naming another VM: its request is not lost, nothing is sent to either VM' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    $l = Ledger $c; $e = Get-P9SAcpiEntry $l (AuthId $x.a); $e.target_vm = 'P9S-D12'; $null = Save-P9SAcpiLedger $c $l
+    $c.VmTable['P9S-D12'] = 'running'
+    $s = AShut $c; $m1 = Emerg $c 'P9S-U24'; $m2 = Emerg $c 'P9S-D12'
+    Expect ((Has $s 'ACPI_TARGET_MISMATCH') -and (Has $m1 'ACPI_TARGET_MISMATCH') -and (Has $m1 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m1.dispatched -eq 0 -and $m2.outcome -eq 'REFUSED' -and $m2.dispatched -eq 0) "shutdown $(Why $s) / P9S-U24 $(Why $m1) / P9S-D12 $(Why $m2)"
+    Expect ((Count $c 'vm.acpi') -eq 1 -and @($c.Calls | Where-Object vm -eq 'P9S-D12').Count -eq 0) "dispatches: $(Kinds $c)"
+}
+Case 'L08' 'a budget count that is not a whole number >= 0 makes the ledger unreadable: never read as zero' {
+    foreach ($v in '-1', '"1"', '0.5', 'null') {
+        $x = Sent -Target 'P9S-U24'; $c = $x.c
+        [IO.File]::WriteAllText($c.LedgerPath, ((LText $c) -replace '"acpi_used":\s*1', ('"acpi_used": ' + $v)))
+        $l = Read-P9SAcpiLedger $c
+        $m = Emerg $c 'P9S-U24'; $s = AShut $c
+        Expect (-not $l.ok -and $l.reason -eq 'ACPI_LEDGER_UNREADABLE' -and $l.detail -eq 'budget count' -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and (Has $s 'ACPI_LEDGER_UNREADABLE') -and (Count $c 'vm.acpi') -eq 1) "acpi_used ${v}: $($l.reason) ($($l.detail)) / $(Why $m) / $(Why $s)"
+    }
+}
+Case 'L09' 'a ledger another program holds open cannot be read: no request; once readable the same history refuses again' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    $hold = [IO.FileStream]::new($c.LedgerPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try {
+        $m = Emerg $c 'P9S-U24'; $s = AShut $c
+        Expect ((Has $m 'ACPI_LEDGER_UNREADABLE') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m.dispatched -eq 0 -and (Has $s 'ACPI_LEDGER_UNREADABLE')) "held open: $(Why $m) / $(Why $s)"
+    } finally { $hold.Dispose() }
+    $m2 = Emerg $c 'P9S-U24'
+    Expect ((Has $m2 'ACPI_ALREADY_REQUESTED') -and (Count $c 'vm.acpi') -eq 1 -and (Entry $c $x.a).acpi_used -eq 1) "readable again: $(Why $m2)"
+}
+Case 'L10' 'a failed ledger write is no proof of a dispatch: nothing unrecorded is sent; a ledger written without its revision record keeps the request spent' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $STOP
+    $c.Prov.failLedgerAt = $c.Prov.ledgerWrites + 1; $c.Prov.failLedgerTo = $c.Prov.ledgerWrites + 1
+    $m = Emerg $c 'P9S-U24'
+    $q = Read-P9SStopRequestState $c
+    Expect ($m.outcome -eq 'FAILED' -and (Has $m 'EVIDENCE_WRITE_FAILED') -and (Has $m 'ACPI_REQUEST_NOT_SENT') -and $m.dispatched -eq 0 -and (Count $c 'vm.acpi') -eq 0) "write failed: $(Why $m)"
+    Expect ((Entry $c $x.a).acpi_used -eq 0 -and $q.ok -and -not $q.doc.acpi.Contains('P9S-U24') -and $q.doc.unresolved.Contains('P9S-U24')) 'a request that was not sent is recorded as sent'
+    $c.Prov.offAfter = 0
+    $m2 = Emerg $c 'P9S-U24'
+    Expect ($m2.outcome -eq 'DONE' -and (Count $c 'vm.acpi') -eq 1 -and (Entry $c $x.a).acpi_used -eq 1) "once the ledger can be written: $(Why $m2)"
+    $y = Started -Target 'P9S-U24'; $d = $y.c
+    $d | Add-Member -NotePropertyName WriteLedgerRevision -NotePropertyValue { param($p, $t) throw 'injected revision record failure' }
+    $s = AShut $d
+    $d.WriteLedgerRevision = $null
+    Expect ($s.outcome -eq 'REFUSED' -and (Has $s 'EVIDENCE_WRITE_FAILED') -and (Count $d 'vm.acpi') -eq 0 -and (Entry $d $y.a).acpi_used -eq 1) "revision record not written: $(Why $s)"
+    $s2 = AShut $d; $m3 = Emerg $d 'P9S-U24'
+    Expect ((Has $s2 'ACPI_BUDGET_EXHAUSTED') -and (Has $m3 'ACPI_ALREADY_REQUESTED') -and (Count $d 'vm.acpi') -eq 0) "afterwards: $(Why $s2) / $(Why $m3)"
+}
+Case 'L11' 'the reported sequence: one request sent, the guest stays on, the ledger becomes unreadable; no second request, and the state stays unresolved' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    Expect ((Count $c 'vm.acpi') -eq 1 -and (Entry $c $x.a).acpi_used -eq 1 -and $c.VmTable['P9S-U24'] -eq 'running') "setup: $(Kinds $c)"
+    Break-Ledger $c 'truncated'
+    $f0 = LFiles $c
+    $e = Emerg $c 'P9S-U24'
+    $t = $e.lines -join ' '
+    Expect ($e.outcome -eq 'REFUSED' -and (Has $e 'ACPI_LEDGER_UNREADABLE') -and (Has $e 'SHUTDOWN_HISTORY_UNCERTAIN') -and (Has $e 'EMERGENCY_UNRESOLVED') -and $e.dispatched -eq 0) "emergency: $(Why $e)"
+    Expect ($t -match 'NO REQUEST IS SENT' -and $t -match 'P9S-U24: P9S-U24 running' -and $t -match 'acpi-validation-ledger\.json \d+ bytes' -and $t -match 'separately authorized recovery') "report: $t"
+    $q = Read-P9SStopRequestState $c
+    Expect ($q.ok -and $q.doc.unresolved.Contains('P9S-U24') -and -not $q.doc.acpi.Contains('P9S-U24') -and (Sess $c).lifecycle -eq 'EMERGENCY_UNRESOLVED') "recorded: stop request $($q.ok), session $((Sess $c).lifecycle)"
+    $au = @(Get-Content -LiteralPath $c.AuditPath | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.action -eq 'emergency.acpi-shutdown' })[-1]
+    Expect ($au.note -match 'request history uncertain' -and $au.note -match 'sha256 [0-9a-f]{16}' -and $au.dispatched -eq 0) "audit: $($au.note)"
+    $e2 = Emerg $c 'P9S-U24'; $sh = AShut $c; $st = AStart $c; $fi = AFinal $c; $op = AOpen $c (New-Auth -Target 'P9S-D12'); $cl = Act $c @{ Action = 'session.close' }
+    Expect ((Has $e2 'SHUTDOWN_HISTORY_UNCERTAIN') -and $e2.dispatched -eq 0) "second emergency: $(Why $e2)"
+    foreach ($r in $sh, $st, $fi, $op) { Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'ACPI_LEDGER_UNREADABLE')) "$($r.action): $(Why $r)" }
+    Expect ($cl.outcome -eq 'REFUSED' -and (Test-Path -LiteralPath $c.StopRequestPath)) "session.close: $(Why $cl)"
+    $c2 = New-VCtx -Dir $c.Dir -Vms @{ 'P9S-U24' = 'running' }
+    $e3 = Emerg $c2 'P9S-U24'
+    Expect ((Has $e3 'SHUTDOWN_HISTORY_UNCERTAIN') -and $c2.Calls.Count -eq 0) "after a restart: $(Why $e3)"
+    Expect ((Count $c 'vm.acpi') -eq 1 -and (LFiles $c) -eq $f0) "afterwards: $(Kinds $c); ledger files changed: $((LFiles $c) -ne $f0)"
+}
+Case 'L12' 'the ledger breaks while an emergency waits for the lock: decided again under the lock, nothing is sent' {
+    $c = New-VCtx -RealClock; $a = New-Auth -Real -Target 'P9S-U24'
+    $null = AOpen $c $a; $s = AStart $c
+    Expect ($s.outcome -eq 'DISPATCHED') "start: $(Why $s)"
+    $lock = [IO.FileStream]::new($c.LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        $w = Start-AWorker $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-U24'; Seconds = 4 } @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'running' }
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while (-not (Test-Path -LiteralPath $c.StopRequestPath) -and $sw.Elapsed.TotalSeconds -lt 60) { Start-Sleep -Milliseconds 50 }
+        Expect (Test-Path -LiteralPath $c.StopRequestPath) 'the emergency did not get past its first check'
+        Break-Ledger $c 'notjson'
+    } finally { $lock.Dispose() }
+    $r = Wait-AWorker $w
+    Expect ($r.outcome -eq 'REFUSED' -and @($r.reasons) -contains 'ACPI_LEDGER_UNREADABLE' -and @($r.reasons) -contains 'SHUTDOWN_HISTORY_UNCERTAIN' -and $r.dispatched -eq 0) "emergency: $($r.outcome) $(@($r.reasons) -join ',')"
+    Expect (@(DispatchLog $c | Where-Object { $_ -like 'vm.acpi *' }).Count -eq 0) "dispatches: $(@(DispatchLog $c) -join '; ')"
+}
+Case 'L13' 'the emergency request is recorded twice over: a lost stop request does not give it back' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $STOP
+    $m = Emerg $c 'P9S-U24'
+    Expect ($m.dispatched -eq 1 -and (Entry $c $x.a).acpi_used -eq 1 -and (Entry $c $x.a).acpi_source -eq 'emergency') "first: $(Why $m)"
+    $m2 = Emerg $c 'P9S-U24'
+    Remove-Item -LiteralPath $c.StopRequestPath
+    $m3 = Emerg $c 'P9S-U24'; $s = AShut $c
+    Expect ((Has $m2 'ACPI_ALREADY_REQUESTED') -and (Has $m3 'ACPI_ALREADY_REQUESTED') -and (Has $s 'ACPI_BUDGET_EXHAUSTED') -and (Count $c 'vm.acpi') -eq 1) "second $(Why $m2) / without the stop request $(Why $m3) / validation $(Why $s)"
+}
+Case 'L14' 'the validation path refuses a second request: after its own, after a restart, and after the emergency path sent it' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    $s1 = AShut $c
+    $c2 = New-VCtx -Dir $c.Dir -Vms @{ 'P9S-U24' = 'running' }; $s2 = AShut $c2
+    Expect ((Has $s1 'ACPI_BUDGET_EXHAUSTED') -and (Has $s2 'ACPI_BUDGET_EXHAUSTED') -and $c2.Calls.Count -eq 0 -and (Count $c 'vm.acpi') -eq 1) "own $(Why $s1) / restart $(Why $s2)"
+    $y = Started -Target 'P9S-U24'; $d = $y.c
+    $m = Emerg $d 'P9S-U24'; $s3 = AShut $d
+    Expect ($m.dispatched -eq 1 -and (Has $s3 'ACPI_BUDGET_EXHAUSTED') -and (Count $d 'vm.acpi') -eq 1) "after the emergency: $(Why $m) / $(Why $s3)"
+}
+Case 'L15' 'a request recorded by another emergency while this one waited for the lock is seen under the lock: no second request' {
+    $c = New-VCtx -RealClock
+    $lock = [IO.FileStream]::new($c.LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        $w = Start-AWorker $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 4 } @{ 'P9S-D12' = 'running'; 'P9S-U24' = 'off' }
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while (-not (Test-Path -LiteralPath $c.StopRequestPath) -and $sw.Elapsed.TotalSeconds -lt 60) { Start-Sleep -Milliseconds 50 }
+        Expect (Test-Path -LiteralPath $c.StopRequestPath) 'the emergency did not get past its first check'
+        # meanwhile another emergency records its request (what it writes just before its dispatch)
+        $q = Read-P9SStopRequest $c; $q.acpi['P9S-D12'] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $c $q
+    } finally { $lock.Dispose() }
+    $r = Wait-AWorker $w
+    Expect ($r.outcome -eq 'REFUSED' -and @($r.reasons) -contains 'ACPI_ALREADY_REQUESTED' -and $r.dispatched -eq 0) "emergency: $($r.outcome) $(@($r.reasons) -join ',')"
+    Expect (@(DispatchLog $c | Where-Object { $_ -like 'vm.acpi *' }).Count -eq 0) "dispatches: $(@(DispatchLog $c) -join '; ')"
+}
+Case 'L16' 'two emergencies for the same VM at once: exactly one request, and its record is not overwritten' {
+    $c = New-VCtx -RealClock
+    $go = New-Event "Global\P9S-TEST-$run-l16-go"; $r1 = New-Event "Global\P9S-TEST-$run-l16-r1"; $r2 = New-Event "Global\P9S-TEST-$run-l16-r2"
+    $vms = @{ 'P9S-D12' = 'running'; 'P9S-U24' = 'off' }
+    $w1 = Start-AWorker $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 4 } $vms -DispatchMs 500 -Go "Global\P9S-TEST-$run-l16-go" -Ready "Global\P9S-TEST-$run-l16-r1"
+    $w2 = Start-AWorker $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 4 } $vms -DispatchMs 500 -Go "Global\P9S-TEST-$run-l16-go" -Ready "Global\P9S-TEST-$run-l16-r2"
+    Expect ($r1.WaitOne(60000) -and $r2.WaitOne(60000)) 'workers not ready'
+    $null = $go.Set()
+    $outs = @((Wait-AWorker $w1), (Wait-AWorker $w2))
+    Expect (@(DispatchLog $c | Where-Object { $_ -like 'vm.acpi *' }).Count -eq 1) "dispatches: $(@(DispatchLog $c) -join '; ')"
+    Expect (@($outs | Where-Object { $_.dispatched -eq 1 }).Count -eq 1 -and @($outs | Where-Object { $_.outcome -eq 'REFUSED' -and @($_.reasons) -contains 'ACPI_ALREADY_REQUESTED' }).Count -eq 1) "outcomes: $(@($outs | ForEach-Object { "$($_.outcome) $(@($_.reasons) -join ',')" }) -join ' / ')"
+    $q = Read-P9SStopRequestState $c
+    Expect ($q.ok -and $q.doc.acpi.Contains('P9S-D12')) 'the record of the request was lost'
+}
+Case 'L17' 'a restart gives nothing back: a coordinator that ended after spending the request but before its dispatch leaves it spent' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c
+    # what acpi.shutdown writes before it dispatches; then its process ends
+    $b = Get-P9SAcpiBundle $c
+    $b.entry.acpi_used = 1; $b.entry.acpi_source = 'validation'; $b.entry.phase = 'SHUTDOWN_REQUESTING'; $b.entry.deadline_utc = (Get-P9SUtcNow $c).AddSeconds(180).ToString('o')
+    $b.session.inflight = [ordered]@{ action = 'acpi.shutdown'; vm = 'P9S-U24'; pid = 999999; start_ticks = 1; utc = [DateTime]::UtcNow.ToString('o') }
+    Expect (Save-P9SAcpiState $c $b -BeforeDispatch) 'write-ahead not written'
+    $c2 = New-VCtx -Dir $c.Dir -Vms @{ 'P9S-U24' = 'running' }
+    $s = AShut $c2; $m = Emerg $c2 'P9S-U24'; $st = AStart $c2
+    Expect ((Has $s 'ACPI_BUDGET_EXHAUSTED') -and (Has $s 'INFLIGHT_UNRESOLVED') -and (Has $m 'ACPI_ALREADY_REQUESTED') -and (Has $st 'ACPI_STARTUP_BUDGET_EXHAUSTED') -and $c2.Calls.Count -eq 0) "after a restart: $(Why $s) / $(Why $m) / $(Why $st)"
+    $c2.VmTable['P9S-U24'] = 'off'
+    $k = AConfirm $c2 10; $fin = AFinal $c2
+    Expect ($k.outcome -eq 'DONE' -and (Entry $c2 $x.a).phase -eq 'OFF_REQUEST_UNCONFIRMED' -and $fin.outcome -eq 'DONE' -and (Entry $c2 $x.a).outcome -eq 'OFF_AFTER_UNCONFIRMED_REQUEST') "resolved read only: $(Why $k) / $(Why $fin)"
+}
+Case 'L18' 'no action repairs, resets or recreates a damaged or missing ledger' {
+    foreach ($how in 'notjson', 'missing') {
+        $x = Sent -Target 'P9S-U24'; $c = $x.c
+        Break-Ledger $c $how
+        $f0 = LFiles $c; $n0 = @(Get-ChildItem -LiteralPath $c.Dir -Name -Force | Where-Object { $_ -like '*ledger*' }) -join ','
+        $acts = @(
+            @{ Action = 'acpi.preflight'; Authorization = (New-Auth -Target 'P9S-U24') }, @{ Action = 'acpi.open'; Authorization = (New-Auth -Target 'P9S-U24') }, @{ Action = 'acpi.start' },
+            @{ Action = 'acpi.observe'; Seconds = 5 }, @{ Action = 'acpi.shutdown' }, @{ Action = 'acpi.confirm-off'; Seconds = 5 }, @{ Action = 'acpi.integrity' }, @{ Action = 'acpi.finalize' },
+            @{ Action = 'emergency.status' }, @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-U24' }, @{ Action = 'emergency.wait-off'; Vm = 'P9S-U24'; Seconds = 4 },
+            @{ Action = 'session.status' }, @{ Action = 'session.open'; Kind = 'Test' }, @{ Action = 'session.close' })
+        $out = @(foreach ($r in $acts) { Act $c $r })
+        $n1 = @(Get-ChildItem -LiteralPath $c.Dir -Name -Force | Where-Object { $_ -like '*ledger*' }) -join ','
+        Expect ((LFiles $c) -eq $f0 -and $n1 -eq $n0 -and (Count $c 'vm.acpi') -eq 1) "${how}: files $n0 -> $n1, changed $((LFiles $c) -ne $f0), $(Kinds $c)"
+        Expect (@($out | Where-Object { $_.dispatched -gt 0 }).Count -eq 0) "${how}: something was dispatched"
+    }
+}
+Case 'L19' 'a damaged ledger leaves the safe diagnostics: VM state, monitor, session and what is wrong with the files, read only' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    Break-Ledger $c 'truncated'
+    $r0 = $c.Prov.vmreads
+    $st = Act $c @{ Action = 'emergency.status' }
+    $t = $st.lines -join ' | '
+    Expect ($st.outcome -eq 'DONE' -and (Has $st 'SHUTDOWN_HISTORY_UNCERTAIN') -and $t -match 'P9S-U24 running' -and $t -match 'ACPI_LEDGER_UNREADABLE \(not JSON\)' -and $t -match 'acpi-validation-ledger\.json \d+ bytes, written \S+, sha256 [0-9a-f]{16}' -and $t -match 'monitor: status UNCALIBRATED' -and $c.Prov.vmreads -gt $r0) "status: $t"
+    $w = Act $c @{ Action = 'emergency.wait-off'; Vm = 'P9S-U24'; Seconds = 4 }
+    Expect ($w.outcome -eq 'TIMEOUT' -and ($w.lines -join ' ') -match 'still running') "wait-off while on: $(Why $w)"
+    $ss = Act $c @{ Action = 'session.status' }
+    Expect ($ss.outcome -eq 'DONE' -and ($ss.lines -join ' ') -match 'ledger ACPI_LEDGER_UNREADABLE') "session.status: $($ss.lines -join ' | ')"
+    $k = AConfirm $c 5
+    Expect ($k.outcome -eq 'REFUSED' -and ($k.lines -join ' ') -match 'emergency\.wait-off') "confirm-off: $(Why $k)"
+    $c.VmTable['P9S-U24'] = 'off'
+    $w2 = Act $c @{ Action = 'emergency.wait-off'; Vm = 'P9S-U24'; Seconds = 4 }
+    Expect ($w2.outcome -eq 'DONE' -and ($w2.lines -join ' ') -match 'P9S-U24 is off' -and (Sess $c).expected_vm['P9S-U24'] -eq 'off' -and (Count $c 'vm.acpi') -eq 1) "wait-off once off: $(Why $w2)"
+}
+Case 'L20' 'a damaged ledger authorizes nothing for the other target: no Debian request, no Debian session, no fallback' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    Break-Ledger $c 'notjson'
+    $c.VmTable['P9S-D12'] = 'running'
+    $m = Emerg $c 'P9S-D12'; $o = AOpen $c (New-Auth -Target 'P9S-D12'); $p = Act $c @{ Action = 'acpi.preflight'; Authorization = (New-Auth -Target 'P9S-D12') }
+    Expect ((Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m.dispatched -eq 0 -and (Has $o 'ACPI_LEDGER_UNREADABLE') -and (Has $p 'ACPI_LEDGER_UNREADABLE')) "P9S-D12: emergency $(Why $m) / open $(Why $o) / preflight $(Why $p)"
+    Expect ((Count $c 'vm.acpi') -eq 1 -and (Count $c 'vm.start') -eq 1 -and @($c.Calls | Where-Object vm -eq 'P9S-D12').Count -eq 0) "dispatches: $(Kinds $c)"
+}
+Case 'L21' 'a dispatch whose outcome is unknown stays unresolved and spent, on both paths and after a restart' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.acpiThrows = $true
+    $r = AShut $c
+    Expect ($r.outcome -eq 'FAILED' -and (Has $r 'ACPI_VALIDATION_UNRESOLVED') -and (Entry $c $x.a).acpi_used -eq 1 -and (Entry $c $x.a).phase -eq 'ACPI_VALIDATION_UNRESOLVED') "validation: $(Why $r)"
+    $c2 = New-VCtx -Dir $c.Dir -Vms @{ 'P9S-U24' = 'running' }
+    $m = Emerg $c2 'P9S-U24'; $s = AShut $c2
+    Expect ((Has $m 'ACPI_ALREADY_REQUESTED') -and (Has $s 'ACPI_BUDGET_EXHAUSTED') -and $c2.Calls.Count -eq 0) "after a restart: $(Why $m) / $(Why $s)"
+    $d = New-VCtx -Vms @{ 'P9S-D12' = 'running' }; $d.Prov.acpiThrows = $true
+    $e1 = Emerg $d 'P9S-D12'
+    $q = Read-P9SStopRequestState $d
+    $d2 = New-VCtx -Dir $d.Dir -Vms @{ 'P9S-D12' = 'running' }
+    $e2 = Emerg $d2 'P9S-D12'
+    Expect ($e1.outcome -eq 'FAILED' -and (Has $e1 'EMERGENCY_UNRESOLVED') -and $q.doc.acpi.Contains('P9S-D12') -and $q.doc.unresolved.Contains('P9S-D12') -and (Has $e2 'ACPI_ALREADY_REQUESTED') -and $d2.Calls.Count -eq 0) "emergency: $(Why $e1) / after a restart $(Why $e2)"
+}
+Case 'L22' 'Ubuntu recovery leaves the Debian record as it was: refused emergencies, a damaged and restored ledger, a confirmation and a finalization change no Debian field' {
+    $c = New-VCtx; $c.Prov.offAfter = 1; $d = New-Auth -Target 'P9S-D12'
+    $steps = @((AOpen $c $d), (AStart $c), (AShut $c), (AFinal $c))
+    Expect (@($steps | Where-Object { $_.outcome -notin 'DONE', 'DISPATCHED' }).Count -eq 0 -and (Entry $c $d).outcome -eq 'VALIDATED') "Debian: $(@($steps | ForEach-Object { Why $_ }) -join ' / ')"
+    $deb = (Entry $c $d) | ConvertTo-Json -Depth 8 -Compress
+    $c.Prov.offAfter = -1; $u = New-Auth -Target 'P9S-U24'
+    $null = AOpen $c $u; $null = AStart $c; $t = AShut $c 10
+    $m = Emerg $c 'P9S-U24'
+    $good = LText $c
+    Break-Ledger $c 'notjson'; $m2 = Emerg $c 'P9S-U24'
+    [IO.File]::WriteAllText($c.LedgerPath, $good)
+    $c.VmTable['P9S-U24'] = 'off'
+    $k = AConfirm $c 10; $fin = AFinal $c
+    Expect ($t.outcome -eq 'TIMEOUT' -and (Has $m 'ACPI_ALREADY_REQUESTED') -and (Has $m2 'SHUTDOWN_HISTORY_UNCERTAIN') -and $k.outcome -eq 'DONE' -and $fin.outcome -eq 'DONE' -and (Entry $c $u).outcome -eq 'SHUTDOWN_LATE') "Ubuntu: $(Why $t) / $(Why $m) / $(Why $m2) / $(Why $k) / $(Why $fin)"
+    Expect (((Entry $c $d) | ConvertTo-Json -Depth 8 -Compress) -eq $deb) 'the Debian entry changed'
+    Expect (@($c.Calls | Where-Object { $_.kind -eq 'vm.acpi' -and $_.vm -eq 'P9S-U24' }).Count -eq 1 -and (Count $c 'vm.acpi') -eq 2) "dispatches: $(Kinds $c)"
+}
+Case 'L23' 'a ledger replaced by an older copy (a restored backup) is refused: the budget it no longer shows is not given back' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c
+    $old = LText $c
+    $t = AShut $c 10
+    Expect ($t.outcome -eq 'TIMEOUT') "request: $(Why $t)"
+    [IO.File]::WriteAllText($c.LedgerPath, $old)
+    $l = Read-P9SAcpiLedger $c
+    $s = AShut $c; $m = Emerg $c 'P9S-U24'
+    Expect (-not $l.ok -and $l.reason -eq 'ACPI_LEDGER_STALE' -and (Has $s 'ACPI_LEDGER_STALE') -and (Has $m 'ACPI_LEDGER_STALE') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and (Count $c 'vm.acpi') -eq 1) "older copy: $($l.reason) ($($l.detail)) / $(Why $s) / $(Why $m)"
+}
+Case 'L24' 'the same revision with other content, or an unreadable revision record: inconsistent and refused' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    $good = LText $c
+    [IO.File]::WriteAllText($c.LedgerPath, $good.Replace('"acpi_used": 1', '"acpi_used": 0'))
+    $l = Read-P9SAcpiLedger $c; $m = Emerg $c 'P9S-U24'
+    Expect (-not $l.ok -and $l.reason -eq 'ACPI_LEDGER_INCONSISTENT' -and (Has $m 'ACPI_LEDGER_INCONSISTENT') -and $m.dispatched -eq 0) "edited in place: $($l.reason) ($($l.detail)) / $(Why $m)"
+    [IO.File]::WriteAllText($c.LedgerPath, $good)
+    [IO.File]::WriteAllText((Get-P9SAcpiLedgerRevisionPath $c), '{ "schema": "p9s-acpi-validation-ledger-revision/1", "revision": ')
+    $l2 = Read-P9SAcpiLedger $c; $s = AShut $c
+    Expect (-not $l2.ok -and $l2.reason -eq 'ACPI_LEDGER_INCONSISTENT' -and (Has $s 'ACPI_LEDGER_INCONSISTENT') -and (Count $c 'vm.acpi') -eq 1) "revision record damaged: $($l2.reason) ($($l2.detail)) / $(Why $s)"
+}
+Case 'L25' 'an unreadable stop request: its requests are unknown, so the emergency sends none and session.close keeps it' {
+    $c = New-VCtx -Vms @{ 'P9S-D12' = 'running' }
+    [IO.File]::WriteAllText($c.StopRequestPath, '{ "reason": "EMERGENCY_ACPI_SHUTDOWN", "acpi": { "P9S-D12": ')
+    $h0 = (Get-FileHash -LiteralPath $c.StopRequestPath).Hash
+    $m = Emerg $c 'P9S-D12'; $cl = Act $c @{ Action = 'session.close' }; $st = Act $c @{ Action = 'emergency.status' }
+    Expect ($m.outcome -eq 'REFUSED' -and (Has $m 'STOP_REQUEST_UNREADABLE') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m.dispatched -eq 0 -and ($m.lines -join ' ') -match 'P9S-D12: P9S-D12 running') "emergency: $(Why $m)"
+    Expect ($cl.outcome -eq 'REFUSED' -and (Has $cl 'STOP_REQUEST_UNREADABLE') -and (Get-FileHash -LiteralPath $c.StopRequestPath).Hash -eq $h0) "close: $(Why $cl)"
+    Expect ($st.outcome -eq 'DONE' -and (Has $st 'STOP_REQUEST_UNREADABLE') -and ($st.lines -join ' ') -match 'P9S-D12 running') "status: $($st.lines -join ' | ')"
+    [IO.File]::WriteAllText($c.StopRequestPath, '{ "acpi": "P9S-D12" }')
+    $m2 = Emerg $c 'P9S-D12'
+    Expect ((Has $m2 'STOP_REQUEST_UNREADABLE') -and (Count $c 'vm.acpi') -eq 0) "another shape: $(Why $m2)"
+}
+Case 'L26' 'an emergency for one VM never erases the record of the request sent to the other: neither is repeated' {
+    $c = New-VCtx -Vms @{ 'P9S-D12' = 'running'; 'P9S-U24' = 'running' }
+    $m1 = Emerg $c 'P9S-D12'; $m2 = Emerg $c 'P9S-U24'; $m3 = Emerg $c 'P9S-D12'; $m4 = Emerg $c 'P9S-U24'
+    $q = Read-P9SStopRequestState $c
+    Expect ($m1.dispatched -eq 1 -and $m2.dispatched -eq 1 -and (Has $m3 'ACPI_ALREADY_REQUESTED') -and (Has $m4 'ACPI_ALREADY_REQUESTED') -and (Count $c 'vm.acpi') -eq 2) "$(Why $m1) / $(Why $m2) / $(Why $m3) / $(Why $m4); $(Kinds $c)"
+    Expect ($q.ok -and $q.doc.acpi.Contains('P9S-D12') -and $q.doc.acpi.Contains('P9S-U24') -and $q.doc.unresolved.Contains('P9S-D12') -and $q.doc.unresolved.Contains('P9S-U24')) 'a record of the stop request was lost'
+}
+
+# ---- low memory: no new workload, observation and recovery stay available ---------------------
+$MEM8192 = M (Feed (NewMon 'run-A') 0 300 50 8192)
+$MEM8191 = M (Feed (NewMon 'run-A') 0 300 50 8191)
+Case 'M01' 'enough memory permits the start: above the minimum and exactly at it' {
+    foreach ($mon in $ELIG, $MEM8192) {
+        $c = New-VCtx; $a = New-Auth -Target 'P9S-U24'; $null = AOpen $c $a
+        $c.Prov.mon = $mon
+        $s = AStart $c
+        Expect ($s.outcome -eq 'DISPATCHED' -and (Entry $c $a).startups_used -eq 1) "start at $($mon.doc.memory.avail_mb) MiB: $(Why $s)"
+    }
+}
+Case 'M02' 'too little memory refuses the start: one MiB below the minimum and further, nothing dispatched or spent' {
+    foreach ($mon in $MEM8191, $LOWMEM) {
+        $c = New-VCtx; $a = New-Auth -Target 'P9S-U24'; $null = AOpen $c $a
+        $c.Prov.mon = $mon
+        $s = AStart $c
+        Expect ($s.outcome -eq 'REFUSED' -and (Has $s 'MEMORY_BELOW_PROVISIONAL_MINIMUM') -and (Count $c 'vm.start') -eq 0 -and (Entry $c $a).startups_used -eq 0) "start at $($mon.doc.memory.avail_mb) MiB: $(Why $s)"
+    }
+}
+Case 'M03' 'below the minimum after the start the VM stays observable: status, wait-off and session status read it; the observation step reports it and stops' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM
+    $r0 = $c.Prov.vmreads
+    $st = Act $c @{ Action = 'emergency.status' }; $ob = AObs $c 10
+    $w = Act $c @{ Action = 'emergency.wait-off'; Vm = 'P9S-U24'; Seconds = 4 }; $ss = Act $c @{ Action = 'session.status' }
+    Expect ($st.outcome -eq 'DONE' -and ($st.lines -join ' ') -match 'P9S-U24 running') "status: $($st.lines -join ' | ')"
+    Expect ($ob.outcome -eq 'REFUSED' -and (Has $ob 'MEMORY_BELOW_PROVISIONAL_MINIMUM') -and ($ob.lines -join ' ') -match 'begin: P9S-U24 running' -and ($ob.lines -join ' ') -match 'stays available') "observe: $(Why $ob) $($ob.lines -join ' | ')"
+    Expect ($w.outcome -eq 'TIMEOUT' -and $ss.outcome -eq 'DONE' -and $c.Prov.vmreads -gt $r0 -and (Count $c 'vm.acpi') -eq 0) "wait-off $(Why $w) / session.status $(Why $ss)"
+}
+Case 'M04' 'low memory does not stop the monitor: every measurement keeps coming, the STOP and ABORT limits are unchanged, READY still needs approved paging values' {
+    $d = Feed (NewMon 'run-L') 0 300 50 1500 40
+    Expect ($d.memory.avail_mb -eq 1500 -and $d.commit.valid -and (Test-Finite $d.commit.pct) -and (Test-Finite $d.memory.pages_in) -and (Test-Finite $d.memory.pages_out) -and (Test-Finite $d.memory.pagefile_used_mb) -and (Test-Finite $d.memory.pagefile_pct)) "measurements: $($d.memory | ConvertTo-Json -Compress)"
+    Expect ((Test-Finite $d.disks.system.read_ms) -and (Test-Finite $d.disks.external.write_ms) -and $d.sampling.samples -eq 61 -and $d.sampling.invalid_samples -eq 0 -and $d.sampling.last_gap_s -le 12 -and $d.gate.qualified) "sampling: $($d.sampling | ConvertTo-Json -Compress)"
+    Expect ($d.status -eq 'UNCALIBRATED' -and -not $d.latched) "low memory alone: $($d.status) $($d.reasons -join ',')"
+    $lim = $d.limits
+    Expect ($lim.interval_s -eq 5 -and $lim.max_gap_s -eq 12 -and $lim.pretest_seconds -eq 300 -and $lim.sustained_pct -eq 95 -and $lim.sustained_seconds -eq 30 -and $lim.critical_pct -eq 97) "limits: $($lim | ConvertTo-Json -Compress)"
+    $m3 = NewMon 'run-L'; $null = Feed $m3 0 300 50 1500; $s = Feed $m3 305 335 95 1500
+    $m4 = NewMon 'run-L'; $null = Feed $m4 0 300 50 1500; $ab = Feed $m4 305 305 97 1500
+    Expect ($s.status -eq 'STOP_REQUIRED' -and $ab.status -eq 'ABORT_REQUIRED' -and $s.memory.avail_mb -eq 1500 -and $ab.memory.avail_mb -eq 1500) "STOP $($s.status) / ABORT $($ab.status)"
+    $m5 = NewMon 'run-L'; $null = Feed $m5 0 300 50 1500; $gap = Step-Monitor -State $m5 -Sample (S 313 50 1500)
+    $g = Test-SafetyState -Text (JM (M $gap) $NOW $F) -NowQpc $NOW -QpcFrequency $F -PagingStop NotRequired -IsMonitorAlive { param($a, $b) $true }
+    Expect ($gap.sampling.gaps_over_limit -eq 1 -and $gap.status -eq 'UNKNOWN' -and @($g.reasons) -contains 'SAMPLING_GAP') "13 s gap: $($gap.status) $(@($g.reasons) -join ',')"
+    $ready = Feed (NewMon 'run-L' $fxApproved) 0 300 50 16000
+    Expect ($ready.status -eq 'READY' -and $d.paging.calibration -eq 'UNCALIBRATED') "READY with approved values: $($ready.status); kit values $($d.paging.calibration)"
+}
+Case 'M05' 'below the minimum a shutdown is still confirmed: acpi.confirm-off records the observed power-off and finalize closes the validation' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM
+    $c.VmTable['P9S-U24'] = 'off'
+    $k = AConfirm $c 10; $fin = AFinal $c
+    Expect ($k.outcome -eq 'DONE' -and (Entry $c $x.a).phase -eq 'OFF_AFTER_DEADLINE' -and $fin.outcome -eq 'DONE' -and (Entry $c $x.a).outcome -eq 'SHUTDOWN_LATE' -and (Sess $c).lifecycle -eq 'CLOSED') "confirm $(Why $k) / finalize $(Why $fin)"
+}
+Case 'M06' 'refusals below the minimum write nothing: the budgets, the ledger revision and the session stay as they were' {
+    $c = New-VCtx; $a = New-Auth -Target 'P9S-U24'; $null = AOpen $c $a
+    $c.Prov.mon = $LOWMEM
+    $f0 = LFiles $c; $s0 = Get-Content -Raw -LiteralPath $c.SessionPath
+    $r = @((AStart $c), (AStart $c))
+    Expect (@($r | Where-Object { $_.outcome -eq 'REFUSED' -and (Has $_ 'MEMORY_BELOW_PROVISIONAL_MINIMUM') }).Count -eq 2 -and (LFiles $c) -eq $f0 -and (Get-Content -Raw -LiteralPath $c.SessionPath) -eq $s0 -and $c.Calls.Count -eq 0) "before the start: $(@($r | ForEach-Object { Why $_ }) -join ' / ')"
+    $c.Prov.mon = $ELIG; $s = AStart $c; $c.Prov.mon = $LOWMEM
+    $f1 = LFiles $c
+    $o = AObs $c 10
+    Expect ($s.outcome -eq 'DISPATCHED' -and $o.outcome -eq 'REFUSED' -and (LFiles $c) -eq $f1 -and (Entry $c $a).startups_used -eq 1 -and (Entry $c $a).acpi_used -eq 0) "after the start: $(Why $s) / $(Why $o)"
+}
+Case 'M07' 'below the minimum nothing becomes READY: no test session, no normal action, the gate stays uncalibrated' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM
+    $g = Get-P9SGate $c
+    $st = Act $c @{ Action = 'emergency.status' }; $so = Act $c @{ Action = 'session.open'; Kind = 'Test' }; $k = Act $c @{ Action = 'guest.key'; Vm = 'P9S-U24'; Key = 'Enter' }
+    Expect (-not $g.ok -and $g.status -eq 'UNCALIBRATED' -and ($st.lines -join ' ') -notmatch 'READY for test actions' -and $so.outcome -eq 'REFUSED' -and $k.outcome -eq 'REFUSED' -and @($c.Calls | Where-Object { $_.kind -like 'guest.*' }).Count -eq 0) "gate $($g.status) / test session $(Why $so) / key $(Why $k)"
+}
+Case 'M08' 'below the minimum there is no second request: both paths refuse once the one request is spent' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM
+    $s = AShut $c; $m = Emerg $c 'P9S-U24'
+    Expect ((Has $s 'ACPI_BUDGET_EXHAUSTED') -and (Has $m 'ACPI_ALREADY_REQUESTED') -and (Count $c 'vm.acpi') -eq 1) "validation $(Why $s) / emergency $(Why $m)"
+}
+Case 'M09' 'below the minimum the unused request is checked on its own: shown unused, offered by dry runs, then sent once by the validation' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM; $c.Prov.offAfter = 1
+    $ss = Act $c @{ Action = 'session.status' }; $d = Act $c @{ Action = 'acpi.shutdown'; DryRun = $true }; $dm = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-U24'; DryRun = $true }
+    Expect (($ss.lines -join ' ') -match 'ACPI requests 0 of 1' -and $d.outcome -eq 'DRYRUN' -and $dm.outcome -eq 'DRYRUN' -and ($dm.lines -join ' ') -notmatch 'no request could be sent now' -and $c.Calls.Count -eq 1) "status / dry runs: $(Why $d) / $(Why $dm)"
+    $s = AShut $c
+    Expect ($s.outcome -eq 'DONE' -and (Count $c 'vm.acpi') -eq 1 -and (Entry $c $x.a).phase -eq 'OFF_CONFIRMED') "the request below the minimum: $(Why $s)"
+}
+Case 'M10' 'below the minimum with an unreadable ledger nothing is sent: low memory grants no request' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM
+    Break-Ledger $c 'notjson'
+    $s = AShut $c; $m = Emerg $c 'P9S-U24'
+    Expect ((Has $s 'ACPI_LEDGER_UNREADABLE') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m.dispatched -eq 0 -and (Count $c 'vm.acpi') -eq 0) "validation $(Why $s) / emergency $(Why $m)"
+}
+function Test-HaltDiagnostics($Mon, [string]$Label) {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $Mon
+    $r0 = $c.Prov.vmreads
+    $st = Act $c @{ Action = 'emergency.status' }; $w = Act $c @{ Action = 'emergency.wait-off'; Vm = 'P9S-U24'; Seconds = 4 }; $ss = Act $c @{ Action = 'session.status' }
+    $c.VmTable['P9S-U24'] = 'off'
+    $k = AConfirm $c 10
+    Expect ($st.outcome -eq 'DONE' -and ($st.lines -join ' ') -match 'P9S-U24 running' -and $w.outcome -eq 'TIMEOUT' -and $ss.outcome -eq 'DONE' -and $c.Prov.vmreads -gt $r0) "${Label}: status $(Why $st) / wait-off $(Why $w) / session $(Why $ss)"
+    Expect ($k.outcome -eq 'DONE' -and (Entry $c $x.a).phase -eq 'OFF_AFTER_DEADLINE' -and (Count $c 'vm.acpi') -eq 1) "${Label}: confirmation $(Why $k)"
+}
+Case 'M11' 'a STOP leaves the read-only diagnostics: status, wait-off, session status and the confirmation still read the VM' { Test-HaltDiagnostics $STOP 'STOP' }
+Case 'M12' 'an ABORT leaves the read-only diagnostics: status, wait-off, session status and the confirmation still read the VM' { Test-HaltDiagnostics $ABORT 'ABORT' }
+Case 'M13' 'a stale or missing monitor state is named, refuses every progressing step, and leaves the read-only paths and the one emergency request' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.age = 30
+    $s = AShut $c; $o = AObs $c 5; $st = Act $c @{ Action = 'emergency.status' }
+    Expect ((Has $s 'STATE_STALE') -and ($s.lines -join ' ') -match 'emergency\.acpi-shutdown' -and (Has $o 'STATE_STALE') -and ($st.lines -join ' ') -match 'STATE_STALE' -and ($st.lines -join ' ') -match 'P9S-U24 running') "stale: $(Why $s) / $(Why $o)"
+    $c.Prov.mon = $null
+    $s2 = AShut $c; $st2 = Act $c @{ Action = 'emergency.status' }
+    Expect ((Has $s2 'STATE_EMPTY') -and ($st2.lines -join ' ') -match 'STATE_MISSING' -and (Count $c 'vm.acpi') -eq 0) "missing: $(Why $s2)"
+    $c.Prov.offAfter = 0
+    $m = Emerg $c 'P9S-U24'
+    Expect ($m.outcome -eq 'DONE' -and (Count $c 'vm.acpi') -eq 1 -and (Entry $c $x.a).acpi_source -eq 'emergency' -and (Entry $c $x.a).phase -eq 'OFF_CONFIRMED') "emergency without a monitor: $(Why $m)"
+}
+Case 'M14' 'a missing or unreadable VM state is never taken for off: no request, no confirmation, no resolved outcome' {
+    foreach ($bad in 'unreadable', $null) {
+        $x = Sent -Target 'P9S-U24'; $c = $x.c
+        $c.VmTable['P9S-U24'] = $bad
+        $w = Act $c @{ Action = 'emergency.wait-off'; Vm = 'P9S-U24'; Seconds = 4 }; $k = AConfirm $c 10; $fin = AFinal $c
+        Expect ($w.outcome -eq 'TIMEOUT' -and $k.outcome -ne 'DONE' -and (Has $fin 'ACPI_VALIDATION_UNRESOLVED') -and (Entry $c $x.a).outcome -eq 'ACPI_VALIDATION_UNRESOLVED') "'$bad': wait-off $(Why $w) / confirm $(Why $k) / finalize $(Why $fin)"
+        $d = New-VCtx -Vms @{ 'P9S-D12' = $bad }
+        $m = Emerg $d 'P9S-D12'
+        Expect ($m.outcome -eq 'REFUSED' -and (Has $m 'VM_NOT_RUNNING:unreadable') -and $d.Calls.Count -eq 0) "'$bad': emergency $(Why $m)"
+    }
+}
+Case 'M15' 'a finalization that cannot be written keeps the session and the validation open; a damaged ledger refuses it before anything is written' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    $c.Prov.failLedgerAt = $c.Prov.ledgerWrites + 1
+    $fin = AFinal $c
+    $c.Prov.failLedgerAt = 0
+    Expect ($fin.outcome -eq 'REFUSED' -and (Has $fin 'EVIDENCE_WRITE_FAILED') -and (Sess $c).lifecycle -eq 'ACTIVE' -and -not (Entry $c $x.a).outcome) "finalize: $(Why $fin)"
+    $o = AOpen $c (New-Auth -Target 'P9S-D12'); $so = Act $c @{ Action = 'session.open'; Kind = 'Test' }
+    Expect ((Has $o 'ACPI_VALIDATION_UNRESOLVED_PREVIOUS') -and $so.outcome -eq 'REFUSED' -and $c.Calls.Count -eq 2) "afterwards: open $(Why $o) / test session $(Why $so)"
+    Break-Ledger $c 'notjson'; $f0 = LFiles $c; $s0 = Get-Content -Raw -LiteralPath $c.SessionPath
+    $f2 = AFinal $c
+    Expect ((Has $f2 'ACPI_LEDGER_UNREADABLE') -and (LFiles $c) -eq $f0 -and (Get-Content -Raw -LiteralPath $c.SessionPath) -eq $s0) "damaged: $(Why $f2)"
+}
+Case 'M16' 'scenario, readable ledger: memory falls below the minimum after the start; no second start, the VM stays observable, the unused request is sent once and the power-off recorded; never READY' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM
+    $s = AStart $c; $st = Act $c @{ Action = 'emergency.status' }; $ss = Act $c @{ Action = 'session.status' }
+    Expect ((Has $s 'ACPI_STARTUP_BUDGET_EXHAUSTED') -and (Has $s 'MEMORY_BELOW_PROVISIONAL_MINIMUM') -and (Count $c 'vm.start') -eq 1) "second start: $(Why $s)"
+    Expect (($st.lines -join ' ') -match 'P9S-U24 running' -and ($ss.lines -join ' ') -match 'ACPI requests 0 of 1') "observation: $($st.lines -join ' | ')"
+    $c.Prov.offAfter = 1
+    $m = Emerg $c 'P9S-U24'; $fin = AFinal $c
+    Expect ($m.outcome -eq 'DONE' -and (Count $c 'vm.acpi') -eq 1 -and (Entry $c $x.a).acpi_used -eq 1 -and (Entry $c $x.a).acpi_source -eq 'emergency') "emergency: $(Why $m)"
+    Expect ($fin.outcome -eq 'DONE' -and (Entry $c $x.a).outcome -eq 'OFF_AFTER_EMERGENCY_ACPI' -and ($fin.lines -join ' ') -match 'final state P9S-U24 off' -and (Get-P9SGate $c).status -ne 'READY') "finalize: $(Why $fin) $($fin.lines -join ' | ')"
+}
+Case 'M17' 'scenario, damaged ledger: memory below the minimum and the ledger unreadable; nothing is sent, the state stays unresolved and observable, never READY' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c; $c.Prov.mon = $LOWMEM
+    Break-Ledger $c 'truncated'
+    $s = AStart $c; $sh = AShut $c; $m = Emerg $c 'P9S-U24'; $st = Act $c @{ Action = 'emergency.status' }; $fin = AFinal $c
+    Expect ((Has $s 'ACPI_LEDGER_UNREADABLE') -and (Has $sh 'ACPI_LEDGER_UNREADABLE') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and (Has $m 'EMERGENCY_UNRESOLVED') -and (Count $c 'vm.acpi') -eq 0 -and (Count $c 'vm.start') -eq 1) "start $(Why $s) / request $(Why $sh) / emergency $(Why $m)"
+    Expect (($st.lines -join ' ') -match 'P9S-U24 running' -and (Has $fin 'ACPI_LEDGER_UNREADABLE') -and (Sess $c).lifecycle -eq 'EMERGENCY_UNRESOLVED' -and (Get-P9SGate $c).status -ne 'READY') "status / finalize $(Why $fin) / session $((Sess $c).lifecycle)"
+    $c.VmTable['P9S-U24'] = 'off'
+    $w = Act $c @{ Action = 'emergency.wait-off'; Vm = 'P9S-U24'; Seconds = 4 }; $f2 = AFinal $c
+    Expect ($w.outcome -eq 'DONE' -and (Sess $c).expected_vm['P9S-U24'] -eq 'off' -and (Has $f2 'ACPI_LEDGER_UNREADABLE') -and (Sess $c).lifecycle -ne 'CLOSED') "powered off, history still unknown: $(Why $w) / $(Why $f2)"
 }
 foreach ($e in $script:events) { try { $null = $e.Set() } catch {} }
 $pass = @($results | Where-Object result -eq 'PASS').Count
