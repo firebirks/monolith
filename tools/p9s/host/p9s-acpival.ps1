@@ -383,7 +383,7 @@ function Get-P9SAcpiRequestHistory($Ctx, [string]$Vm) {
     if ($sq.present -and -not $sq.ok) { $h.uncertain = $true; $h.reasons.Add('STOP_REQUEST_UNREADABLE') }
     elseif ($sq.ok) {
         $h.stop = $sq.doc
-        if ($sq.doc.acpi.Contains($Vm)) { $h.spent = "an ACPI request was already sent to $Vm in this emergency ($($sq.doc.acpi[$Vm]))" }
+        if ($sq.doc.acpi.Contains($Vm)) { $h.spent = "an ACPI request to $Vm is recorded in this emergency ($($sq.doc.acpi[$Vm])); it is recorded before its dispatch, so the record alone does not show that it reached the VM" }
     }
     if (Get-Prop $Ctx 'LedgerPath') {
         $lg = Read-P9SAcpiLedger $Ctx
@@ -399,7 +399,10 @@ function Get-P9SAcpiRequestHistory($Ctx, [string]$Vm) {
                 if ($bind.Count) { $h.uncertain = $true; foreach ($x in $bind) { $h.reasons.Add($x) }; $h.diagnosis = Get-P9SAcpiLedgerDiagnosis $Ctx $null }
             }
             $h.entry = @(Get-P9SAcpiUnresolved $lg.doc $Vm) | Select-Object -Last 1
-            if ($h.entry -and [int]$h.entry.acpi_used -ge 1 -and -not $h.spent) { $h.spent = "the ACPI validation $($h.entry.authorization_id) already sent its request to $Vm (phase $($h.entry.phase))" }
+            if ($h.entry -and [int]$h.entry.acpi_used -ge 1 -and -not $h.spent) {
+                $h.spent = if ([string]$h.entry.phase -ceq 'SHUTDOWN_REQUESTING') { "the ACPI validation $($h.entry.authorization_id) recorded its request to $Vm, but its dispatch is not confirmed (phase SHUTDOWN_REQUESTING: no confirmation of the dispatch is recorded)" }
+                else { "the ACPI validation $($h.entry.authorization_id) already sent its request to $Vm (phase $($h.entry.phase))" }
+            }
         }
     }
     if ($h.spent) { $h.reasons.Insert(0, 'ACPI_ALREADY_REQUESTED') }
@@ -937,7 +940,9 @@ function Complete-P9SAcpiWatch($Ctx, $Res, $W, [string]$Target, [int]$Limit, [bo
         if ($phase -ceq 'OFF_AFTER_DEADLINE' -and $Res.outcome -ceq 'DONE') { $Res.reasons.Add('SHUTDOWN_AFTER_DEADLINE'); $Res.lines.Add('the power-off was observed after the deadline: the validation records it as late') }
         if ($b.session -and $b.session.expected_vm) { $b.session.expected_vm[$Target] = 'off' }
     } elseif ($W.end -ceq 'ABORTED') { if ($b.session -and $b.session.expected_vm) { $b.session.expected_vm[$Target] = 'aborted' } }
-    elseif ($Deadline -or [string]$b.entry.phase -cin 'SHUTDOWN_REQUESTED', 'SHUTDOWN_REQUESTING') { $phase = 'ACPI_VALIDATION_UNRESOLVED' }
+    # a dispatch never confirmed keeps SHUTDOWN_REQUESTING (unresolved):
+    # once the VM is seen off it is OFF_REQUEST_UNCONFIRMED, never late
+    elseif ([string]$b.entry.phase -cne 'SHUTDOWN_REQUESTING' -and ($Deadline -or [string]$b.entry.phase -ceq 'SHUTDOWN_REQUESTED')) { $phase = 'ACPI_VALIDATION_UNRESOLVED' }
     if ($phase) { $b.entry.phase = $phase }
     Add-P9SAcpiEvent $b.entry $(if ($Deadline) { 'acpi-watch' } else { 'confirm-off' }) "$($W.end) after $($W.elapsed) s, $($W.queries) queries; phase $($b.entry.phase)"
     $ok = Save-P9SAcpiLedger $Ctx $b.ledger
@@ -1022,11 +1027,21 @@ function Invoke-P9SAcpiFinalize($Ctx, [hashtable]$Request, $Res) {
     if ($reasons.Count) { Set-P9SRefused $Res @($reasons) $null; return $Res }
     $Res.session = $b.session.session_id
     $target = [string]$b.auth.target_vm; $Res.vm = $target
+    # an entry finalized before is history: when a later emergency left its
+    # session record open again, only the session record is closed
+    if ($b.entry.finalized_utc) {
+        if ($dry) { $Res.outcome = 'DRYRUN'; $Res.lines.Add("dry run: validation $($b.entry.authorization_id) is finalized already; would close the session record only"); return $Res }
+        $b.session.lifecycle = 'CLOSED'; $b.session.inflight = $null
+        try { Save-P9SSession $Ctx $b.session } catch { $Res.reasons.Add('EVIDENCE_WRITE_FAILED') }
+        $Res.outcome = 'DONE'
+        $Res.lines.Add("ACPI validation $($b.entry.authorization_id) was finalized before (outcome $($b.entry.outcome)): its entry is kept as it is; the session record is closed again")
+        return $Res
+    }
     $note = $null
     if ($b.session.inflight) {
         $note = "in-flight $($b.session.inflight.action) of an ended coordinator discarded; its effect is unknown"
+        # an ACPI dispatch never confirmed keeps SHUTDOWN_REQUESTING
         if ([string]$b.entry.phase -ceq 'STARTING') { $b.entry.phase = 'START_UNCERTAIN' }
-        elseif ([string]$b.entry.phase -ceq 'SHUTDOWN_REQUESTING') { $b.entry.phase = 'ACPI_VALIDATION_UNRESOLVED' }
     }
     $obs = if ((Get-P9SVBoxGate $Ctx).ok) { Get-P9SVmObservation $Ctx $target 'finalize' } else { $null }
     $outcome = Get-P9SAcpiOutcome $b.entry

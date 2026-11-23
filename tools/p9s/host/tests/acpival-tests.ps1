@@ -1551,6 +1551,169 @@ Case 'L26' 'an emergency for one VM never erases the record of the request sent 
     Expect ($q.ok -and $q.doc.acpi.Contains('P9S-D12') -and $q.doc.acpi.Contains('P9S-U24') -and $q.doc.unresolved.Contains('P9S-D12') -and $q.doc.unresolved.Contains('P9S-U24')) 'a record of the stop request was lost'
 }
 
+# ---- interruptions: a request without a recorded end, an unconfirmed dispatch, a finished validation ----
+# The state the Debian session left: its ledger entry and its closed
+# session record. Returns its authorization.
+function Finished-Debian($c) {
+    $a = New-Auth
+    $c.Prov.offAfter = 1
+    $r = @((AOpen $c $a), (AStart $c), (AShut $c), (AFinal $c))
+    if (@($r | Where-Object { $_.outcome -notin 'DONE', 'DISPATCHED' }).Count -or (Entry $c $a).outcome -ne 'VALIDATED') { throw "setup failed: $(@($r | ForEach-Object { Why $_ }) -join ' / ')" }
+    $c.Prov.offAfter = -1; $c.Prov.acpiSent = $false
+    $a
+}
+function EntryJson($c, [string]$Auth) { (Entry $c $Auth) | ConvertTo-Json -Depth 8 -Compress }
+# what the emergency path or acpi.shutdown writes just before its dispatch,
+# left by a coordinator that then ended
+function Set-Recorded($c, [string]$Vm) { $q = New-P9SStopRequestDoc $c; $q.acpi[$Vm] = [DateTime]::UtcNow.ToString('o'); Save-P9SStopRequest $c $q }
+function Set-Requesting($c, [string]$Source, [switch]$Inflight) {
+    $b = Get-P9SAcpiBundle $c
+    $b.entry.acpi_used = 1; $b.entry.acpi_source = $Source; $b.entry.phase = 'SHUTDOWN_REQUESTING'; $b.entry.deadline_utc = (Get-P9SUtcNow $c).AddSeconds(180).ToString('o')
+    if ($Inflight) { $b.session.inflight = [ordered]@{ action = 'acpi.shutdown'; vm = [string]$b.entry.target_vm; pid = 999999; start_ticks = 1; utc = [DateTime]::UtcNow.ToString('o') } }
+    if (-not (Save-P9SAcpiState $c $b -BeforeDispatch)) { throw 'write-ahead not written' }
+}
+Case 'I01' 'an emergency request without a recorded end keeps its stop request: session.close waits until the VM is seen off, after a restart and during the watch, so no second request follows' {
+    $c = New-VCtx; $null = Finished-Debian $c
+    Set-Recorded $c 'P9S-U24'
+    $c2 = New-VCtx -Dir $c.Dir -Vms @{ 'P9S-U24' = 'running' }
+    $m1 = Emerg $c2 'P9S-U24'; $cl = Act $c2 @{ Action = 'session.close' }; $m2 = Emerg $c2 'P9S-U24'
+    Expect ((Has $m1 'ACPI_ALREADY_REQUESTED') -and $cl.outcome -eq 'REFUSED' -and (Has $cl 'EMERGENCY_UNRESOLVED') -and (Test-Path -LiteralPath $c2.StopRequestPath) -and (Has $m2 'ACPI_ALREADY_REQUESTED') -and $c2.Calls.Count -eq 0) "after a restart: $(Why $m1) / close $(Why $cl) / $(Why $m2)"
+    $c2.VmTable['P9S-U24'] = 'aborted'
+    $cl2 = Act $c2 @{ Action = 'session.close' }
+    Expect ($cl2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c2.StopRequestPath)) "once the VM has ended: $(Why $cl2)"
+    # another coordinator closes the session while this emergency watches
+    $d = New-VCtx; $null = Finished-Debian $d
+    $d.VmTable['P9S-D12'] = 'running'
+    $d2 = New-VCtx -Dir $d.Dir -Vms @{ 'P9S-D12' = 'running' }
+    $box = @{ out = $null }
+    $d.Prov.onSleep = { if (-not $box.out) { $box.out = @((Act $d2 @{ Action = 'session.close' }), (Emerg $d2 'P9S-D12')) } }.GetNewClosure()
+    $m = Act $d @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 10 }
+    $q = Read-P9SStopRequestState $d
+    Expect ($m.dispatched -eq 1 -and $box.out[0].outcome -eq 'REFUSED' -and (Has $box.out[0] 'EMERGENCY_UNRESOLVED') -and (Has $box.out[1] 'ACPI_ALREADY_REQUESTED') -and $d2.Calls.Count -eq 0) "during the watch: close $(Why $box.out[0]) / emergency $(Why $box.out[1])"
+    Expect ($q.ok -and $q.doc.acpi.Contains('P9S-D12') -and $q.doc.unresolved.Contains('P9S-D12')) 'the record of the request was lost'
+}
+Case 'I02' 'a dispatch never confirmed stays unconfirmed: a confirmation that times out and the finalization keep SHUTDOWN_REQUESTING; the power-off is then OFF_REQUEST_UNCONFIRMED, never a late shutdown' {
+    foreach ($order in 'confirm-first', 'finalize-first') {
+        $x = Started -Target 'P9S-U24'
+        Set-Requesting $x.c 'validation' -Inflight
+        $c = New-VCtx -Dir $x.c.Dir -Vms @{ 'P9S-U24' = 'running' }
+        if ($order -eq 'confirm-first') { $k1 = AConfirm $c 10; Expect ($k1.outcome -eq 'TIMEOUT' -and (Entry $c $x.a).phase -eq 'SHUTDOWN_REQUESTING') "${order}: confirmation while on: $(Why $k1) $((Entry $c $x.a).phase)" }
+        $fin = AFinal $c
+        Expect ($fin.outcome -eq 'DONE' -and (Entry $c $x.a).phase -eq 'SHUTDOWN_REQUESTING' -and (Entry $c $x.a).outcome -eq 'ACPI_VALIDATION_UNRESOLVED') "${order}: finalize: $(Why $fin) $((Entry $c $x.a).phase)"
+        $c.VmTable['P9S-U24'] = 'off'
+        $k2 = AConfirm $c 10; $e = Entry $c $x.a
+        Expect ($k2.outcome -eq 'DONE' -and $e.phase -eq 'OFF_REQUEST_UNCONFIRMED' -and (Get-P9SAcpiOutcome $e) -eq 'OFF_AFTER_UNCONFIRMED_REQUEST' -and -not (Has $k2 'SHUTDOWN_AFTER_DEADLINE') -and $c.Calls.Count -eq 0) "${order}: power-off: $(Why $k2) $($e.phase)"
+    }
+    # a request the emergency path recorded for the validation
+    $y = Started -Target 'P9S-U24'
+    Set-Requesting $y.c 'emergency'; Set-Recorded $y.c 'P9S-U24'
+    $d = New-VCtx -Dir $y.c.Dir -Vms @{ 'P9S-U24' = 'running' }
+    $k = AConfirm $d 10; $d.VmTable['P9S-U24'] = 'off'; $k3 = AConfirm $d 10
+    Expect ($k.outcome -eq 'TIMEOUT' -and $k3.outcome -eq 'DONE' -and (Entry $d $y.a).phase -eq 'OFF_REQUEST_UNCONFIRMED' -and $d.Calls.Count -eq 0) "emergency record: $(Why $k) / $(Why $k3) $((Entry $d $y.a).phase)"
+}
+Case 'I03' 'a request recorded before its dispatch is reported as recorded, not as sent, until its dispatch is confirmed' {
+    $x = Started -Target 'P9S-U24'
+    Set-Requesting $x.c 'validation'
+    $m = Emerg $x.c 'P9S-U24'; $t = $m.lines -join ' '
+    Expect ((Has $m 'ACPI_ALREADY_REQUESTED') -and $t -match 'dispatch is not confirmed' -and $t -notmatch 'already sent') "unconfirmed: $t"
+    $y = Sent -Target 'P9S-U24'; $m2 = Emerg $y.c 'P9S-U24'
+    Expect ((Has $m2 'ACPI_ALREADY_REQUESTED') -and ($m2.lines -join ' ') -match 'already sent its request') "confirmed: $($m2.lines -join ' ')"
+    $d = New-VCtx -Vms @{ 'P9S-D12' = 'running' }
+    Set-Recorded $d 'P9S-D12'
+    $m3 = Emerg $d 'P9S-D12'; $st = Act $d @{ Action = 'emergency.status' }
+    $t3 = $m3.lines -join ' '; $ts = $st.lines -join ' '
+    Expect ((Has $m3 'ACPI_ALREADY_REQUESTED') -and $t3 -match 'recorded before its dispatch' -and $t3 -notmatch 'was already sent' -and $ts -match 'ACPI requests recorded for P9S-D12' -and $d.Calls.Count -eq 0) "stop request: $t3 / status: $ts"
+}
+Case 'I04' 'a finished validation is never finalized again: after an unresolved emergency, also under STOP, acpi.finalize closes the session record and keeps the entry as it is' {
+    $c = New-VCtx; $a = Finished-Debian $c
+    $deb = EntryJson $c $a; $f0 = LFiles $c
+    $c.VmTable['P9S-D12'] = 'running'; $c.Prov.mon = $STOP
+    $m = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 10 }
+    $s1 = Sess $c
+    Expect ($m.outcome -eq 'TIMEOUT' -and $s1.lifecycle -eq 'EMERGENCY_UNRESOLVED' -and $s1.halt.status -eq 'STOP_REQUIRED') "emergency: $(Why $m), session $($s1.lifecycle) halt $($s1.halt.status)"
+    $c.VmTable['P9S-D12'] = 'off'
+    $cl = Act $c @{ Action = 'session.close' }; $fin = AFinal $c; $cl2 = Act $c @{ Action = 'session.close' }
+    Expect ((Has $cl 'ACPI_VALIDATION_USE_FINALIZE') -and $fin.outcome -eq 'DONE' -and ($fin.lines -join ' ') -match 'finalized before' -and $cl2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath)) "close $(Why $cl) / finalize $(Why $fin) / close $(Why $cl2)"
+    Expect ((EntryJson $c $a) -eq $deb -and (LFiles $c) -eq $f0) "the finished validation was rewritten: $(EntryJson $c $a)"
+}
+Case 'I05' 'an ABORT gives no request back: an aborted test session keeps the stop request while the VM runs, after a restart, during the watch and after the abort is acknowledged; an aborted validation keeps its request spent in the ledger after finalize and close' {
+    # a coordinator that ended after recording its emergency request, in
+    # an aborted test session and with the record the abort itself creates
+    $readyB = M (Feed (NewMon 'run-B' $fxApproved) 0 300)
+    foreach ($open in $true, $false) {
+        $tag = if ($open) { 'aborted test session' } else { 'record created by the abort' }
+        $c = New-VCtx -Mon $READYAPP -Vms @{ 'P9S-D12' = 'running' }
+        if ($open) { $o = Act $c @{ Action = 'session.open'; Kind = 'Test' }; if ($o.outcome -ne 'DONE') { throw "setup failed: $(Why $o)" } }
+        $c.Prov.mon = $ABORT; $null = Act $c @{ Action = 'wait'; Seconds = 5 }
+        Set-Recorded $c 'P9S-D12'
+        $c2 = New-VCtx -Dir $c.Dir -Mon $ABORT -Vms @{ 'P9S-D12' = 'running' }
+        $cl = Act $c2 @{ Action = 'session.close' }; $m = Emerg $c2 'P9S-D12'; $s = Sess $c2
+        Expect ($s.halt.status -eq 'ABORT_REQUIRED' -and $s.lifecycle -eq $(if ($open) { 'HALTED_ABORT' } else { 'CLOSED' }) -and $cl.outcome -eq 'REFUSED' -and (Has $cl 'EMERGENCY_UNRESOLVED') -and (Test-Path -LiteralPath $c2.StopRequestPath) -and (Has $m 'ACPI_ALREADY_REQUESTED') -and $c2.Calls.Count -eq 0) "${tag}, after a restart: session $($s.lifecycle) halt $($s.halt.status) / close $(Why $cl) / emergency $(Why $m)"
+        $c2.Prov.mon = $readyB
+        $ack = Act $c2 @{ Action = 'session.open'; Kind = 'Test'; AcknowledgeAbort = [string]$s.halt.abort_id }; $m2 = Emerg $c2 'P9S-D12'
+        Expect ($ack.outcome -eq 'REFUSED' -and (Has $ack 'STOP_REQUEST_PENDING') -and -not (Sess $c2).halt.acknowledged -and (Has $m2 'ACPI_ALREADY_REQUESTED') -and $c2.Calls.Count -eq 0) "${tag}, abort acknowledged on a new monitor run: open $(Why $ack) / emergency $(Why $m2)"
+        $c2.VmTable['P9S-D12'] = 'off'
+        $cl2 = Act $c2 @{ Action = 'session.close' }
+        Expect ($cl2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c2.StopRequestPath)) "${tag}, once the VM is off: $(Why $cl2)"
+    }
+    # the session is aborted while its emergency request is watched
+    $d = New-VCtx -Mon $READYAPP -Vms @{ 'P9S-D12' = 'running' }
+    $o = Act $d @{ Action = 'session.open'; Kind = 'Test' }; if ($o.outcome -ne 'DONE') { throw "setup failed: $(Why $o)" }
+    $d.Prov.mon = $ABORT
+    $d2 = New-VCtx -Dir $d.Dir -Mon $ABORT -Vms @{ 'P9S-D12' = 'running' }
+    $box = @{ out = $null }
+    $d.Prov.onSleep = { if (-not $box.out) { $box.out = @((Sess $d2), (Act $d2 @{ Action = 'session.close' }), (Emerg $d2 'P9S-D12')) } }.GetNewClosure()
+    $w = Act $d @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 10 }
+    $q = Read-P9SStopRequestState $d
+    Expect ($w.dispatched -eq 1 -and $box.out[0].lifecycle -eq 'HALTED_ABORT' -and $box.out[1].outcome -eq 'REFUSED' -and (Has $box.out[1] 'EMERGENCY_UNRESOLVED') -and (Has $box.out[2] 'ACPI_ALREADY_REQUESTED') -and $d2.Calls.Count -eq 0) "during the watch: session $($box.out[0].lifecycle) / close $(Why $box.out[1]) / emergency $(Why $box.out[2])"
+    Expect ($q.ok -and $q.doc.acpi.Contains('P9S-D12') -and $q.doc.unresolved.Contains('P9S-D12')) 'the record of the request was lost'
+    # an aborted validation whose request was recorded before its dispatch
+    $y = Started -Target 'P9S-U24'
+    Set-Requesting $y.c 'validation' -Inflight
+    $v = New-VCtx -Dir $y.c.Dir -Mon $ABORT -Vms @{ 'P9S-U24' = 'running' }
+    $null = AObs $v 10; $h = (Sess $v).halt
+    $cl3 = Act $v @{ Action = 'session.close' }; $fin = AFinal $v; $cl4 = Act $v @{ Action = 'session.close' }
+    $v.Prov.mon = $ELIG_B
+    $m3 = Emerg $v 'P9S-U24'; $sh = AShut $v; $op = AOpen $v (New-Auth -Target 'P9S-U24'); $e = Entry $v $y.a
+    Expect ($h.status -eq 'ABORT_REQUIRED' -and (Has $cl3 'ACPI_VALIDATION_USE_FINALIZE') -and $fin.outcome -eq 'DONE' -and $cl4.outcome -eq 'DONE') "abort: halt $($h.status) / close $(Why $cl3) / finalize $(Why $fin) / close $(Why $cl4)"
+    Expect ((Has $m3 'ACPI_ALREADY_REQUESTED') -and $sh.outcome -eq 'REFUSED' -and (Has $op 'ACPI_VALIDATION_UNRESOLVED_PREVIOUS') -and [int]$e.acpi_used -eq 1 -and $e.halt -eq 'ABORT_REQUIRED' -and $v.Calls.Count -eq 0) "after the abort: emergency $(Why $m3) / request $(Why $sh) / open $(Why $op) / entry $($e.phase) used $($e.acpi_used) halt $($e.halt)"
+}
+# session.close reads the stop request, observes its VMs and removes it
+# holding the coordinator lock; every record of a request and every
+# dispatch takes the same lock. Another coordinator acting inside that
+# window is run here at the two points between the check and the removal.
+Case 'I06' 'session.close decides and removes under the coordinator lock: an emergency or a session opened between its check and its removal records and sends nothing; the next request is recorded before its dispatch and sent once' {
+    # the check observes a VM whose emergency ended unresolved, now off
+    $c = New-VCtx -Mon $READYAPP -Vms @{ 'P9S-U24' = 'running' }
+    $o = Act $c @{ Action = 'session.open'; Kind = 'Test' }; if ($o.outcome -ne 'DONE') { throw "setup failed: $(Why $o)" }
+    $q0 = New-P9SStopRequestDoc $c; $q0.acpi['P9S-D12'] = $q0.utc; $q0.unresolved['P9S-D12'] = $q0.utc; Save-P9SStopRequest $c $q0
+    $text0 = [IO.File]::ReadAllText($c.StopRequestPath)
+    $c2 = New-VCtx -Dir $c.Dir -Mon $READYAPP -Vms @{ 'P9S-U24' = 'running' }
+    $box = @{ out = $null; rec = $null }
+    $c.Prov.onVmRead = { param($vm) if ($vm -ceq 'P9S-D12' -and -not $box.out) { $box.out = @((Emerg $c2 'P9S-U24'), (Emerg $c2 'P9S-D12'), (Act $c2 @{ Action = 'session.open'; Kind = 'Test' }), [IO.File]::ReadAllText($c2.StopRequestPath)) } }.GetNewClosure()
+    $cl = Act $c @{ Action = 'session.close' }
+    Expect ($cl.outcome -eq 'DONE' -and $box.out -and (Has $box.out[0] 'EMERGENCY_LOCK_TIMEOUT') -and (Has $box.out[1] 'ACPI_ALREADY_REQUESTED') -and (Has $box.out[2] 'COORDINATOR_BUSY') -and $box.out[3] -ceq $text0 -and $c2.Calls.Count -eq 0) "while the record is checked: close $(Why $cl) / $(if ($box.out) { "emergency $(Why $box.out[0]) / emergency $(Why $box.out[1]) / open $(Why $box.out[2])" } else { 'no VM observed' })"
+    $c2.Prov.onAcpi = { $box.rec = (Read-P9SStopRequestState $c2).doc.acpi.Contains('P9S-U24') }.GetNewClosure()
+    $m = Emerg $c2 'P9S-U24'; $cl2 = Act $c2 @{ Action = 'session.close' }; $m2 = Emerg $c2 'P9S-U24'
+    Expect ($m.dispatched -eq 1 -and $box.rec -and $cl2.outcome -eq 'REFUSED' -and (Has $m2 'ACPI_ALREADY_REQUESTED') -and (Count $c2 'vm.acpi') -eq 1) "after the close: $(Why $m) recorded first $($box.rec) / close $(Why $cl2) / $(Why $m2)"
+    # no record at the check: the window is the session write before the
+    # removal. A stop request raised there, before any request is
+    # recorded, may go with the session; the request itself is recorded
+    # under the lock before its dispatch.
+    $d = New-VCtx -Mon $READYAPP -Vms @{ 'P9S-U24' = 'running' }
+    $o = Act $d @{ Action = 'session.open'; Kind = 'Test' }; if ($o.outcome -ne 'DONE') { throw "setup failed: $(Why $o)" }
+    $d2 = New-VCtx -Dir $d.Dir -Mon $READYAPP -Vms @{ 'P9S-U24' = 'running' }
+    $probe = @{ out = $null; rec = $null }
+    # in this case only, the session write runs the other coordinator first
+    $save0 = ${function:Save-P9SSession}
+    function Save-P9SSession($Ctx, $Session) { if (-not $probe.out -and $Session.lifecycle -eq 'CLOSED') { $probe.out = @((Emerg $d2 'P9S-U24'), (Act $d2 @{ Action = 'session.open'; Kind = 'Test' })) }; & $save0 $Ctx $Session }
+    $cl3 = Act $d @{ Action = 'session.close' }
+    Expect ($cl3.outcome -eq 'DONE' -and $probe.out -and (Has $probe.out[0] 'EMERGENCY_LOCK_TIMEOUT') -and (Has $probe.out[1] 'COORDINATOR_BUSY') -and $d2.Calls.Count -eq 0) "while the session is written: close $(Why $cl3) / $(if ($probe.out) { "emergency $(Why $probe.out[0]) / open $(Why $probe.out[1])" } else { 'no session write' })"
+    $d2.Prov.onAcpi = { $probe.rec = (Read-P9SStopRequestState $d2).doc.acpi.Contains('P9S-U24') }.GetNewClosure()
+    $m3 = Emerg $d2 'P9S-U24'; $cl4 = Act $d2 @{ Action = 'session.close' }; $m4 = Emerg $d2 'P9S-U24'
+    Expect ($m3.dispatched -eq 1 -and $probe.rec -and $cl4.outcome -eq 'REFUSED' -and (Has $m4 'ACPI_ALREADY_REQUESTED') -and (Count $d2 'vm.acpi') -eq 1) "after the close: $(Why $m3) recorded first $($probe.rec) / close $(Why $cl4) / $(Why $m4)"
+}
+
 # ---- low memory: no new workload, observation and recovery stay available ---------------------
 $MEM8192 = M (Feed (NewMon 'run-A') 0 300 50 8192)
 $MEM8191 = M (Feed (NewMon 'run-A') 0 300 50 8191)

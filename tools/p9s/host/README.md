@@ -67,7 +67,7 @@ does not touch Tor, Monolith or its profiles.
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
 | `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races, damaged ledgers, low memory |
 | `tests/run-all.ps1` | Runs and checks the six suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 92 targeted faults and the tests that must detect them |
+| `tests/mutants.json` | The 98 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -201,7 +201,7 @@ actions check again between chunks or every 5 s.
 | Action | What it does |
 | --- | --- |
 | `session.open -Kind Test` | Opens a test session on the current monitor run |
-| `session.close` | Closes it; discards an in-flight record and the stop request |
+| `session.close` | Closes it; discards an in-flight record and the stop request once each VM it records a request for is seen off |
 | `vm.start` | `VBoxManage startvm <vm> --type gui` |
 | `guest.type -Text` | Letters, digits, space, `-` `.` `~` (em dash); 120 at most; never Enter |
 | `guest.key -Key` | One of 18 named keys (Enter, Tab, CtrlQ, ...) |
@@ -231,7 +231,11 @@ acpipowerbutton` (the guest sees a power-button press) and watches the VM
 state for up to 180 s. It reports success only when the VM is off. If the
 request fails or the VM stays on, the emergency is UNRESOLVED: no second
 request, no keyboard input and no forced power-off are attempted; the
-operator decides, and the session cannot be closed while that VM runs. It
+operator decides, and the session cannot be closed while that VM runs.
+The request is recorded before it is sent; while its end is not
+recorded (its coordinator ended, or still watches it), the session
+cannot be closed either until the VM is seen off or in the aborted VM
+state. A monitor STOP or ABORT changes none of this. The emergency
 cannot start a VM or send text.
 
 It sends a request only when it can establish that none has been sent
@@ -239,6 +243,9 @@ to that VM: the stop request records each emergency request before it
 is sent, and the validation ledger records the request of an
 unresolved validation. Both are read again under the coordinator lock,
 so that a request another process sent while this one waited is seen.
+`session.close` reads the stop request, observes its VMs and removes it
+under the same lock, so no request is recorded or sent between its
+check and the removal.
 When either record cannot be read, is missing after use or does not
 match (see "Uncertain request history"), the history is unknown and
 nothing is sent (`SHUTDOWN_HISTORY_UNCERTAIN`). A request that cannot be
@@ -511,7 +518,7 @@ same Windows account.
 | `STARTING` | Start dispatched, outcome not recorded (the coordinator ended) | emergency path, `acpi.confirm-off`, `acpi.finalize` |
 | `RUNNING` | Start done | `acpi.observe`, `acpi.shutdown` |
 | `START_UNCERTAIN`, `START_FAILED` | Start failed; VM state unknown, or observed off | emergency path, `acpi.confirm-off`, `acpi.finalize` |
-| `SHUTDOWN_REQUESTING` | Request dispatched, not confirmed | `acpi.confirm-off`, `acpi.finalize` |
+| `SHUTDOWN_REQUESTING` | Request recorded, its dispatch never confirmed (the coordinator ended); kept until the VM is seen off | `acpi.confirm-off`, `acpi.finalize` |
 | `SHUTDOWN_REQUESTED` | Request sent, guest watched | `acpi.confirm-off` |
 | `OFF_CONFIRMED` | Observed off within the deadline | `acpi.integrity`, `acpi.finalize` |
 | `ACPI_VALIDATION_UNRESOLVED` | Still running at the deadline, state unreadable, request failed, or VirtualBox in doubt | `acpi.confirm-off`; the operator decides |
@@ -535,6 +542,9 @@ itself. When the guest does not power off:
 An unresolved validation blocks every new validation and every test
 session until `acpi.confirm-off` observes the VM off; `acpi.finalize`
 can close it as `ACPI_VALIDATION_UNRESOLVED`, which keeps that block.
+A finalized validation is not finalized again: when a later emergency
+leaves its session record open, `acpi.finalize` closes the record and
+keeps the entry as it is.
 Outcomes: `VALIDATED`, `SHUTDOWN_LATE`, `OFF_AFTER_UNCONFIRMED_REQUEST`,
 `OFF_AFTER_EMERGENCY_ACPI`, `ENDED_WITHOUT_ACPI`, `OFF_ABNORMAL`,
 `START_FAILED`, `NOT_STARTED`, `ACPI_VALIDATION_UNRESOLVED`.

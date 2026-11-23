@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 92,
+  "count": 98,
   "mutants": [
     {
       "id": "SM1",
@@ -1080,6 +1080,73 @@
       ],
       "find": "        if (-not (Test-P9SAcpiCount $e.startups_used) -or -not (Test-P9SAcpiCount $e.acpi_used)) { return 'budget count' }",
       "replace": "        if ($false) { return 'budget count' }"
+    },
+    {
+      "id": "AV49",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "session.close ignores a VM whose emergency request has no recorded end",
+      "killers": [
+        "I01",
+        "I05"
+      ],
+      "find": "            $still += @(foreach ($k in @($stopReq.acpi.Keys)) {",
+      "replace": "            $still += @(foreach ($k in @()) {"
+    },
+    {
+      "id": "AV50",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a confirmation that times out rewrites an unconfirmed dispatch as unresolved after the request",
+      "killers": [
+        "I02"
+      ],
+      "find": "    elseif ([string]$b.entry.phase -cne 'SHUTDOWN_REQUESTING' -and ($Deadline -or [string]$b.entry.phase -ceq 'SHUTDOWN_REQUESTED')) { $phase = 'ACPI_VALIDATION_UNRESOLVED' }",
+      "replace": "    elseif ($Deadline -or [string]$b.entry.phase -cin 'SHUTDOWN_REQUESTED', 'SHUTDOWN_REQUESTING') { $phase = 'ACPI_VALIDATION_UNRESOLVED' }"
+    },
+    {
+      "id": "AV51",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the finalization rewrites an unconfirmed dispatch as unresolved after the request",
+      "killers": [
+        "I02"
+      ],
+      "find": "        if ([string]$b.entry.phase -ceq 'STARTING') { $b.entry.phase = 'START_UNCERTAIN' }",
+      "replace": "        if ([string]$b.entry.phase -ceq 'STARTING') { $b.entry.phase = 'START_UNCERTAIN' } elseif ([string]$b.entry.phase -ceq 'SHUTDOWN_REQUESTING') { $b.entry.phase = 'ACPI_VALIDATION_UNRESOLVED' }"
+    },
+    {
+      "id": "AV52",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "a finished validation is finalized again",
+      "killers": [
+        "I04"
+      ],
+      "find": "    if ($b.entry.finalized_utc) {",
+      "replace": "    if ($false) {"
+    },
+    {
+      "id": "AV53",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an unconfirmed dispatch is reported as a sent request",
+      "killers": [
+        "I03"
+      ],
+      "find": "                $h.spent = if ([string]$h.entry.phase -ceq 'SHUTDOWN_REQUESTING') {",
+      "replace": "                $h.spent = if ($false) {"
+    },
+    {
+      "id": "AV54",
+      "suite": "acpival",
+      "file": "coordinator-lib.ps1",
+      "what": "session.close checks and removes the stop request without the coordinator lock",
+      "killers": [
+        "I06"
+      ],
+      "find": "    if ($class -eq 'validation') { return (Invoke-P9SValidation $Ctx $Request $v $res) }",
+      "replace": "    if ($class -eq 'validation') { return (Invoke-P9SValidation $Ctx $Request $v $res) }; if ($class -eq 'session') { return (Invoke-P9SSessionAction $Ctx $Request $v $res) }"
     }
   ]
 }

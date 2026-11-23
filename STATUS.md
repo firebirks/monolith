@@ -1171,6 +1171,31 @@ start and the observation step, and grants no request. The toolkit's
 265 declared tests and 92 targeted faults run in the CI job.
 Nothing ran live.
 
+An audit of the same records under interrupted processes ended worker
+processes at every write and dispatch of the validation request, the
+emergency request and the first save of the Debian ledger, and found
+the ledger always readable and no budget given back. It also found four
+faults, reproduced in mocks on `b0e8876`. A coordinator that ended after
+recording an emergency request, or a `session.close` while the request
+was watched, let the stop request be removed while the VM still ran, so
+a second request could follow; a monitor STOP or ABORT made this
+reachable without an earlier session, since it creates a session
+record when there is none. A dispatch never confirmed was later
+recorded as a late shutdown. Such a request was reported as sent. And
+an unresolved emergency reopened the closed Debian session record, so
+that `acpi.finalize` rewrote the finished Debian entry. The session now
+stays open until every VM with a recorded request is seen off, an
+unconfirmed dispatch keeps `SHUTDOWN_REQUESTING`, the messages say
+recorded rather than sent, and a finalized entry is never finalized
+again. `session.close` already checked and removed the stop request
+under the coordinator lock that every record of a request and every
+dispatch takes; a test now runs another coordinator inside that window.
+A dispatch that fails without a crash is still recorded as
+`SHUTDOWN_LATE` once the VM is seen off, though the request may not
+have reached the guest; that case stays open. The toolkit's 271
+declared tests and 98 targeted faults run in the CI job. Nothing ran
+live.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is

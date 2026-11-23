@@ -632,9 +632,13 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
+        # A VM that got a request whose end was never recorded (its
+        # coordinator ended, or still watches it) counts as unresolved too,
+        # until it is seen off or aborted.
         $stopReq = $sq.doc
-        if ($stopReq -and $stopReq.unresolved) {
+        if ($stopReq) {
             $still = @(foreach ($k in @($stopReq.unresolved.Keys)) { if ((Get-P9SVmObservation $Ctx $k 'session').state -ne 'off') { $k } })
+            $still += @(foreach ($k in @($stopReq.acpi.Keys)) { if (-not $stopReq.unresolved.Contains($k) -and (Get-P9SVmObservation $Ctx $k 'session').state -notin 'off', 'aborted') { $k } })
             if ($still.Count) {
                 Set-P9SRefused $Res @('EMERGENCY_UNRESOLVED') $null
                 $Res.lines.Add("not closed: $($still -join ', ') did not power off after the ACPI request; the operator decides outside the coordinator, then closes the session")
@@ -761,7 +765,7 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
         if ($sq.present -and -not $sq.ok) {
             $Res.lines.Add('stop request: UNREADABLE / SHUTDOWN_HISTORY_UNCERTAIN: the ACPI requests it records are unknown; it is kept as it is and no ACPI request is sent through the toolkit.')
             foreach ($r in 'STOP_REQUEST_UNREADABLE', 'SHUTDOWN_HISTORY_UNCERTAIN') { if (-not $Res.reasons.Contains($r)) { $Res.reasons.Add($r) } }
-        } elseif ($sq.ok) { $Res.lines.Add("stop request: ACPI requests sent to $(if ($sq.doc.acpi.Count) { @($sq.doc.acpi.Keys) -join ', ' } else { 'none' }); unresolved $(if ($sq.doc.unresolved.Count) { @($sq.doc.unresolved.Keys) -join ', ' } else { 'none' })") }
+        } elseif ($sq.ok) { $Res.lines.Add("stop request: ACPI requests recorded for $(if ($sq.doc.acpi.Count) { @($sq.doc.acpi.Keys) -join ', ' } else { 'none' }); unresolved $(if ($sq.doc.unresolved.Count) { @($sq.doc.unresolved.Keys) -join ', ' } else { 'none' })") }
         $Res.outcome = 'DONE'
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
         return $Res
