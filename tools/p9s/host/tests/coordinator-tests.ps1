@@ -440,6 +440,126 @@ Case 'K34' 'calibration preflight lists the bootstrap conditions, read only' {
     Expect (($r2.lines -join ' ') -match 'CALIBRATION_REQUIRES_CALIBRATE_MODE') 'monitor mode not refused'
 }
 
+# ---- the emergency hold ----------------------------------------------------------------
+# A handle opened here stands for another coordinator process: shared as
+# an emergency holds the hold, exclusive as session.close holds it.
+function HoldOpen($ctx, [switch]$Exclusive) {
+    if ($Exclusive) { [IO.FileStream]::new((Get-P9SEmergencyHoldPath $ctx), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+    else { [IO.FileStream]::new((Get-P9SEmergencyHoldPath $ctx), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
+}
+function HoldFree($ctx) { try { (HoldOpen $ctx -Exclusive).Dispose(); $true } catch { $false } }
+function LockFree($ctx) { try { [IO.FileStream]::new($ctx.LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None).Dispose(); $true } catch { $false } }
+function Bytes([string]$p) { if (Test-Path -LiteralPath $p) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($p)) } else { '<absent>' } }
+Case 'K39' 'session.close changes nothing while an emergency holds the emergency hold, dry run included, in every monitor state; it closes once the hold is free' {
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+    $o = Open $c; if ($o.outcome -ne 'DONE') { throw "setup: open $($o.outcome)" }
+    if (-not (Add-P9SStopRequestIfAbsent $c)) { throw 'setup: no stop request' }
+    $before = (Bytes $c.SessionPath) + '|' + (Bytes $c.StopRequestPath)
+    $h = HoldOpen $c
+    try {
+        foreach ($mon in $READY_A, $STOP_A, $ABORT_A) {
+            $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($mon)
+            foreach ($dry in $true, $false) {
+                $r = Act $c @{ Action = 'session.close'; DryRun = $dry }
+                Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_IN_PROGRESS') -and ($r.lines -join ' ') -match 'coordinator-emergency\.hold') "close (dry run $dry): $($r.outcome) $($r.reasons -join ',')"
+            }
+        }
+    } finally { $h.Dispose() }
+    Expect (((Bytes $c.SessionPath) + '|' + (Bytes $c.StopRequestPath)) -eq $before) 'a refused close changed the session record or the stop request'
+    Expect ($c.Calls.Count -eq 0) "dispatches: $($c.Calls.Count)"
+    $r2 = Act $c @{ Action = 'session.close' }
+    Expect ($r2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath) -and (Sess $c).lifecycle -eq 'CLOSED') "close once the hold is free: $($r2.outcome) $($r2.reasons -join ',')"
+    Expect (HoldFree $c) 'the close kept the emergency hold'
+}
+Case 'K40' 'an emergency that cannot take the emergency hold in time raises nothing, sends nothing and says so, under READY, STOP and ABORT' {
+    foreach ($mon in $READY_A, $STOP_A, $ABORT_A) {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+        $o = Open $c; if ($o.outcome -ne 'DONE') { throw "setup: open $($o.outcome)" }
+        $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($mon); $c.EmergencyLockWaitMs = 600
+        $s0 = Bytes $c.SessionPath
+        $x = HoldOpen $c -Exclusive
+        try { $sw = [Diagnostics.Stopwatch]::StartNew(); $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }; $ms = $sw.ElapsedMilliseconds }
+        finally { $x.Dispose() }
+        $l = $r.lines -join ' '
+        Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_LOCK_TIMEOUT') -and $c.Calls.Count -eq 0) "while a close holds the hold: $($r.outcome) $($r.reasons -join ',') calls $($c.Calls.Count)"
+        Expect (-not (Test-Path -LiteralPath $c.StopRequestPath)) 'a stop request was raised without the hold'
+        Expect ($l -match 'coordinator-emergency\.hold' -and $l -match 'nothing raised' -and $l -match 'is not in place') "lines: $l"
+        Expect ((Bytes $c.SessionPath) -eq $s0) 'the session record changed'
+        Expect ($ms -ge 500 -and $ms -lt 2500 -and (LockFree $c)) "waited $ms ms for a deadline of 600 ms; lock free $(LockFree $c)"
+        $r2 = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+        Expect ($r2.outcome -eq 'DONE' -and $r2.dispatched -eq 1 -and $c.Calls.Count -eq 1) "once the hold is free: $($r2.outcome) $($r2.reasons -join ',')"
+        Expect (HoldFree $c) 'the emergency kept the hold'
+    }
+    # a stop request raised by another emergency stays, and the message says so
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    $null = Add-P9SStopRequestIfAbsent $c; $q0 = Bytes $c.StopRequestPath; $c.EmergencyLockWaitMs = 600
+    $x = HoldOpen $c -Exclusive
+    try { $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' } } finally { $x.Dispose() }
+    Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_LOCK_TIMEOUT') -and ($r.lines -join ' ') -match 'stays in place until a session\.close removes it' -and (Bytes $c.StopRequestPath) -eq $q0 -and $c.Calls.Count -eq 0) "with a stop request in place: $($r.outcome) $($r.lines -join ' ')"
+}
+Case 'K41' 'an emergency holds the emergency hold from before its stop request until its decision under the lock, and releases it on every path' {
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    $seen = @{ hold = $null; stop = $null }; $hp = Get-P9SEmergencyHoldPath $c; $sp = $c.StopRequestPath; $calls = $c.Calls; $tbl = $c.VmTable
+    $c.Dispatch['vm.acpi'] = {
+        param($vm)
+        try { [IO.FileStream]::new($hp, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None).Dispose(); $seen.hold = $false } catch { $seen.hold = $true }
+        $seen.stop = (Test-Path -LiteralPath $sp)
+        $calls.Add([pscustomobject]@{ kind = 'vm.acpi'; vm = $vm; arg = $null }); $tbl[$vm] = 'off'
+    }.GetNewClosure()
+    $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    Expect ($r.outcome -eq 'DONE' -and $r.dispatched -eq 1 -and $c.Calls.Count -eq 1) "sent: $($r.outcome) $($r.reasons -join ',')"
+    Expect ($seen.hold -eq $true -and $seen.stop -eq $true) "at the dispatch, under the lock: hold held $($seen.hold), stop request $($seen.stop)"
+    Expect ((HoldFree $c) -and (LockFree $c)) 'held after the request was sent'
+    # refused for an unknown history (the stop request unreadable)
+    $u = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $u
+    Write-StateAtomic -Path $u.StopRequestPath -Text '{broken'
+    $ru = Act $u @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    Expect ((Has $ru 'SHUTDOWN_HISTORY_UNCERTAIN') -and $u.Calls.Count -eq 0 -and (HoldFree $u) -and (LockFree $u)) "unknown history: $($ru.outcome) $($ru.reasons -join ',')"
+    # the VM already off: nothing to send
+    $off = New-MockCtx @($READY_A); $null = Open $off
+    $rf = Act $off @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    Expect ($rf.outcome -eq 'DONE' -and $off.Calls.Count -eq 0 -and (HoldFree $off) -and (LockFree $off)) "VM off: $($rf.outcome)"
+    # the request fails
+    $e = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $e
+    $e.Dispatch['vm.acpi'] = { param($vm) throw 'the request failed' }
+    $re = Act $e @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    Expect ($re.outcome -eq 'FAILED' -and (Has $re 'ACPI_REQUEST_FAILED') -and (HoldFree $e) -and (LockFree $e)) "failed request: $($re.outcome) $($re.reasons -join ',')"
+    # an exception under the lock leaves the action
+    $x = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $x
+    $x.ReadState = { param($p) throw 'the monitor state reader failed' }
+    $thrown = $false; try { $null = Act $x @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' } } catch { $thrown = $true }
+    Expect ($thrown -and $x.Calls.Count -eq 0 -and (HoldFree $x) -and (LockFree $x)) "exception: thrown $thrown, hold free $(HoldFree $x), lock free $(LockFree $x)"
+}
+Case 'K42' 'an emergency that times out on the coordinator lock raised its stop request before it waited, says so truly and releases the hold' {
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    $c.EmergencyLockWaitMs = 600
+    $lk = [IO.FileStream]::new($c.LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try { $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }; $free = HoldFree $c; $raised = Test-Path -LiteralPath $c.StopRequestPath } finally { $lk.Dispose() }
+    Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_LOCK_TIMEOUT') -and $c.Calls.Count -eq 0) "lock held: $($r.outcome) $($r.reasons -join ',')"
+    Expect ($raised -and ($r.lines -join ' ') -match 'stays in place until a session\.close removes it') "the halt was not in place while the emergency waited for the lock: raised $raised; $($r.lines -join ' ')"
+    Expect $free 'the emergency kept the hold after its lock timeout'
+    $cl = Act $c @{ Action = 'session.close' }
+    Expect ($cl.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath)) "the empty request goes with the next close: $($cl.outcome)"
+}
+Case 'K43' 'one deadline covers the emergency hold and the coordinator lock' {
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    $c.EmergencyLockWaitMs = 1500
+    $ready = [Threading.ManualResetEventSlim]::new($false)
+    $job = Start-ThreadJob -ArgumentList (Get-P9SEmergencyHoldPath $c), $c.LockPath, $ready -ScriptBlock {
+        param($holdPath, $lockPath, $ready)
+        $x = [IO.FileStream]::new($holdPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $l = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $ready.Set()
+        Start-Sleep -Milliseconds 900; $x.Dispose()
+        Start-Sleep -Milliseconds 2600; $l.Dispose()
+    }
+    if (-not $ready.Wait(10000)) { throw 'setup: the holder did not start' }
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }; $ms = $sw.ElapsedMilliseconds
+    Receive-Job $job -Wait | Out-Null; Remove-Job $job
+    Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_LOCK_TIMEOUT') -and $c.Calls.Count -eq 0 -and (Test-Path -LiteralPath $c.StopRequestPath)) "hold for 0.9 s, then the lock: $($r.outcome) $($r.reasons -join ',')"
+    Expect ($ms -ge 1400 -and $ms -lt 2100) "the hold and the lock took $ms ms for one deadline of 1500 ms"
+}
+
 # ---- command line, shims, real-process crash (no VM is touched) -----------------
 $cli = Join-Path $kit 'p9s-action.ps1'
 $pw = (Get-Process -Id $PID).Path

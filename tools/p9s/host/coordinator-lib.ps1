@@ -324,6 +324,30 @@ function Enter-P9SLock($Ctx, [int]$WaitMs = 0) {
     }
 }
 
+# The emergency hold (coordinator-emergency.hold, next to the lock): an
+# emergency.acpi-shutdown keeps a shared handle on it from before it
+# raises the stop request until it has decided under the lock, and
+# session.close removes the stop request only while it holds the file
+# exclusively. A close therefore never removes a stop request that a
+# waiting emergency raised or relies on, whatever the timing. The kernel
+# closes the handles of a process that ends, also when it is terminated.
+# Order: an emergency takes the hold, then the lock, and holds nothing
+# while it waits for the hold; session.close holds the lock and only
+# tries the hold, never waiting for it. No process waits for one while
+# holding the other in the opposite order, so the two cannot deadlock.
+function Get-P9SEmergencyHoldPath($Ctx) { [IO.Path]::Combine([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath([string]$Ctx.LockPath)), 'coordinator-emergency.hold') }
+function Enter-P9SEmergencyHold($Ctx, [int]$WaitMs = 0) {
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        try { return [IO.FileStream]::new((Get-P9SEmergencyHoldPath $Ctx), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
+        catch { if ($sw.ElapsedMilliseconds -ge $WaitMs) { return $null }; [Threading.Thread]::Sleep(20) }
+    }
+}
+# $null while an emergency holds it (or when it cannot be opened)
+function Enter-P9SEmergencyHoldExclusive($Ctx) {
+    try { [IO.FileStream]::new((Get-P9SEmergencyHoldPath $Ctx), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } catch { $null }
+}
+
 # ------------------------------------------------------------ monitor state
 function Get-P9SGate($Ctx) {
     $r = & $Ctx.ReadState $Ctx.StatePath
@@ -646,13 +670,24 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
                 return $Res
             }
         }
+        # an emergency that holds the emergency hold raised the stop request
+        # or relies on it, and has not decided yet: it is kept for it
+        $xhold = Enter-P9SEmergencyHoldExclusive $Ctx
+        if (-not $xhold) {
+            Set-P9SRefused $Res @('EMERGENCY_IN_PROGRESS') $null
+            $Res.lines.Add('not closed: an emergency.acpi-shutdown is waiting for the coordinator lock (it holds coordinator-emergency.hold); the stop request is kept for it. Close the session once it has ended.')
+            Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+            return $Res
+        }
         $note = $null
         if ($sess -and $sess.inflight) { $note = "in-flight record of $($sess.inflight.action) discarded by the operator (its effect is unknown)" }
-        if (-not $dry -and $sess) {
-            $sess.lifecycle = 'CLOSED'; $sess.inflight = $null
-            Save-P9SSession $Ctx $sess
-            if (Test-Path -LiteralPath $Ctx.StopRequestPath) { Remove-Item -LiteralPath $Ctx.StopRequestPath }
-        }
+        try {
+            if (-not $dry -and $sess) {
+                $sess.lifecycle = 'CLOSED'; $sess.inflight = $null
+                Save-P9SSession $Ctx $sess
+                if (Test-Path -LiteralPath $Ctx.StopRequestPath) { Remove-Item -LiteralPath $Ctx.StopRequestPath }
+            }
+        } finally { $xhold.Dispose() }
         $Res.outcome = $(if ($dry) { 'DRYRUN' } else { 'DONE' })
         $Res.lines.Add($(if ($sess) { "session $($sess.session_id) closed$(if ($note) { "; $note" })" } else { 'no session to close' }))
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V -Note $note
@@ -795,12 +830,27 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
             return $Res
         }
         # the stop request halts every other action at its next checkpoint;
-        # one that exists is left as it is
+        # one that exists is left as it is. The emergency hold is taken
+        # first and kept until this emergency has decided under the lock:
+        # session.close removes the stop request only while it holds the
+        # hold exclusively, so it never removes a request this emergency
+        # raised or relies on. Nothing is raised without the hold: a close
+        # holds it only while it holds the lock, so the lock could not be
+        # had sooner. One deadline covers the hold and the lock.
+        $wait = [Diagnostics.Stopwatch]::StartNew()
+        $hold = Enter-P9SEmergencyHold $Ctx $Ctx.EmergencyLockWaitMs
+        if (-not $hold) {
+            Set-P9SRefused $Res (@('EMERGENCY_LOCK_TIMEOUT') + @($h.reasons)) $null
+            $Res.lines.Add("the emergency hold (coordinator-emergency.hold) could not be taken in time: a session.close holds it, or it cannot be opened; nothing raised, no request sent. $(if (Test-Path -LiteralPath $Ctx.StopRequestPath) { 'The stop request stays in place until a session.close removes it.' } else { 'The stop request is not in place.' })")
+            Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+            return $Res
+        }
         $null = Add-P9SStopRequestIfAbsent $Ctx
-        $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs
+        $lock = Enter-P9SLock $Ctx ([Math]::Max(0, $Ctx.EmergencyLockWaitMs - [int]$wait.ElapsedMilliseconds))
         if (-not $lock) {
             Set-P9SRefused $Res (@('EMERGENCY_LOCK_TIMEOUT') + @($h.reasons)) $null
-            $Res.lines.Add('another coordinator action did not reach a checkpoint in time; no request sent. The stop request stays in place.')
+            $Res.lines.Add("another coordinator action did not reach a checkpoint in time; no request sent. $(if (Test-Path -LiteralPath $Ctx.StopRequestPath) { 'The stop request stays in place until a session.close removes it.' } else { 'The stop request is not in place.' })")
+            if ($hold) { $hold.Dispose() }
             Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
             return $Res
         }
@@ -870,7 +920,7 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
                     }
                 }
             }
-        } finally { $lock.Dispose() }
+        } finally { if ($hold) { $hold.Dispose() }; $lock.Dispose() }
         if ($sent) {
             $elapsed = 0; $st = $null; $vq = $null
             while ($true) {

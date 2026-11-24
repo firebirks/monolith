@@ -67,7 +67,7 @@ does not touch Tor, Monolith or its profiles.
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
 | `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races, damaged ledgers, low memory |
 | `tests/run-all.ps1` | Runs and checks the six suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 98 targeted faults and the tests that must detect them |
+| `tests/mutants.json` | The 104 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -182,8 +182,9 @@ prints `HOST GATE OK` (exit 0) or `HOST GATE REFUSED` with every reason.
 
 Exit 0 for DISPATCHED, DONE or DRYRUN, 1 for a refusal or an unfinished
 outcome, 2 for FAILED. Next to the state file it keeps
-`coordinator-session.json`, `coordinator.lock`, `coordinator-stop.request`
-and `coordinator-audit.jsonl`, and the VirtualBox layer keeps its files
+`coordinator-session.json`, `coordinator.lock`,
+`coordinator-emergency.hold`, `coordinator-stop.request` and
+`coordinator-audit.jsonl`, and the VirtualBox layer keeps its files
 there too (see "VirtualBox operations").
 
 Start it only with `pwsh -File` (as above) or dot-sourced at a prompt.
@@ -201,7 +202,7 @@ actions check again between chunks or every 5 s.
 | Action | What it does |
 | --- | --- |
 | `session.open -Kind Test` | Opens a test session on the current monitor run |
-| `session.close` | Closes it; discards an in-flight record and the stop request once each VM it records a request for is seen off |
+| `session.close` | Closes it; discards an in-flight record and the stop request once each VM it records a request for is seen off; refused while an emergency waits for the lock |
 | `vm.start` | `VBoxManage startvm <vm> --type gui` |
 | `guest.type -Text` | Letters, digits, space, `-` `.` `~` (em dash); 120 at most; never Enter |
 | `guest.key -Key` | One of 18 named keys (Enter, Tab, CtrlQ, ...) |
@@ -226,7 +227,8 @@ Emergency shutdown (`emergency.acpi-shutdown`): available in every state,
 including STOP, ABORT, UNKNOWN, low memory and with no monitor at all.
 It writes a
 stop request that every running action honours, waits up to 30 s for any
-running action to stop, sends one `VBoxManage controlvm <vm>
+running action to stop (see "The emergency hold" below), sends one
+`VBoxManage controlvm <vm>
 acpipowerbutton` (the guest sees a power-button press) and watches the VM
 state for up to 180 s. It reports success only when the VM is off. If the
 request fails or the VM stays on, the emergency is UNRESOLVED: no second
@@ -250,6 +252,24 @@ When either record cannot be read, is missing after use or does not
 match (see "Uncertain request history"), the history is unknown and
 nothing is sent (`SHUTDOWN_HISTORY_UNCERTAIN`). A request that cannot be
 recorded first is not sent either (`ACPI_REQUEST_NOT_SENT`).
+
+The emergency hold: an emergency takes `coordinator-emergency.hold`
+(shared) before it writes or relies on the stop request and keeps it
+until it has decided under the coordinator lock. `session.close`, under
+the lock and after its checks, tries to take the file exclusively,
+without waiting; while an emergency holds it the close is refused
+(`EMERGENCY_IN_PROGRESS`), dry run included, and changes nothing, so a
+close never removes the stop request an emergency waiting for the lock
+raised or relies on. One deadline of 30 s covers the hold and the lock.
+An emergency that cannot take the hold in time raises nothing and sends
+nothing (`EMERGENCY_LOCK_TIMEOUT`); one that took it but not the lock
+sends nothing and says whether the stop request is in place. Neither
+retries. An emergency takes the hold before the lock and holds nothing
+while it waits for the hold; the close tries the hold only while it
+holds the lock, never waiting for it, so the two cannot deadlock. A
+process that ends, also by a crash or a forced termination, loses its
+handles. The hold file must stay on a local NTFS volume; if it cannot
+be opened, emergencies and closes are refused until it can.
 
 Audit records hold action names, reason codes, the monitor run and
 sanitized parameters: text only as its length, paths as file names.

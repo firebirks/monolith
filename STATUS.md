@@ -1196,6 +1196,34 @@ have reached the guest; that case stays open. The toolkit's 271
 declared tests and 98 targeted faults run in the CI job. Nothing ran
 live.
 
+A deterministic audit with one process per coordinator action then found
+that the halt an emergency raises before it waits for the coordinator
+lock could lapse. A `session.close` holding the lock removed the empty
+stop request the emergency had just raised, since nothing told it that
+an emergency was waiting; a session could then open and a long action
+run before the emergency decided, and its lock-timeout message said the
+stop request stayed in place when it did not. No interleaving sent a
+second request or a request without its record. An emergency now holds
+`coordinator-emergency.hold` from before it writes or relies on the stop
+request until it has decided under the lock, and `session.close` removes
+the stop request only while it holds that file exclusively; otherwise it
+is refused (`EMERGENCY_IN_PROGRESS`) and changes nothing. An emergency
+that cannot take the hold in time raises nothing and sends nothing; one
+deadline covers the hold and the lock, the messages say whether the stop
+request is in place, and nothing retries. An emergency takes the hold
+before the lock; the close tries it only while it holds the lock and
+never waits for it. The interleavings that showed the lapse ran 50
+times each on separate processes, on the commit before the change and
+on the change after it. Still open: the request
+history lives only in the coordinator folder, so a stop request deleted
+outside the toolkit after its request was sent, alone or with the
+ledger, lets a second request follow; an emergency without a session
+record leaves a stop request that no action ends; the folder is under
+`%TEMP%` by default, where cleanup tools may delete it; and a dispatch
+that fails without a crash is still recorded as `SHUTDOWN_LATE`. The
+toolkit's 276 declared tests and 104 targeted faults run in the CI job.
+Nothing ran live.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is

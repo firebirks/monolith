@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 98,
+  "count": 104,
   "mutants": [
     {
       "id": "SM1",
@@ -122,7 +122,7 @@
       "killers": [
         "H17"
       ],
-      "find": "        $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs",
+      "find": "        $lock = Enter-P9SLock $Ctx ([Math]::Max(0, $Ctx.EmergencyLockWaitMs - [int]$wait.ElapsedMilliseconds))",
       "replace": "        $lock = [IO.MemoryStream]::new()"
     },
     {
@@ -261,6 +261,73 @@
       ],
       "find": "    $lock = Enter-P9SLock $Ctx 0",
       "replace": "    $lock = Enter-P9SLock $Ctx 3000"
+    },
+    {
+      "id": "CM13",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "NO_HOLD: the emergency raises the stop request and waits for the lock without the emergency hold",
+      "killers": [
+        "K40",
+        "K41"
+      ],
+      "find": "        $hold = Enter-P9SEmergencyHold $Ctx $Ctx.EmergencyLockWaitMs",
+      "replace": "        $hold = [IO.MemoryStream]::new()"
+    },
+    {
+      "id": "CM14",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "EARLY_RELEASE: the emergency releases the emergency hold after raising the stop request, before the lock",
+      "killers": [
+        "K41"
+      ],
+      "find": "        $null = Add-P9SStopRequestIfAbsent $Ctx",
+      "replace": "        $null = Add-P9SStopRequestIfAbsent $Ctx; $hold.Dispose()"
+    },
+    {
+      "id": "CM15",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "HOLD_TIMEOUT_CONTINUE: an emergency whose wait for the emergency hold ran out goes on without it",
+      "killers": [
+        "K40"
+      ],
+      "find": "        if (-not $hold) {",
+      "replace": "        if ($false) {"
+    },
+    {
+      "id": "CM16",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "LOCK_ORDER_INVERSION: the emergency takes the coordinator lock before the emergency hold, and raises the stop request only then",
+      "killers": [
+        "K42"
+      ],
+      "find": "        $wait = [Diagnostics.Stopwatch]::StartNew()\n        $hold = Enter-P9SEmergencyHold $Ctx $Ctx.EmergencyLockWaitMs\n        if (-not $hold) {\n            Set-P9SRefused $Res (@('EMERGENCY_LOCK_TIMEOUT') + @($h.reasons)) $null\n            $Res.lines.Add(\"the emergency hold (coordinator-emergency.hold) could not be taken in time: a session.close holds it, or it cannot be opened; nothing raised, no request sent. $(if (Test-Path -LiteralPath $Ctx.StopRequestPath) { 'The stop request stays in place until a session.close removes it.' } else { 'The stop request is not in place.' })\")\n            Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V\n            return $Res\n        }\n        $null = Add-P9SStopRequestIfAbsent $Ctx\n        $lock = Enter-P9SLock $Ctx ([Math]::Max(0, $Ctx.EmergencyLockWaitMs - [int]$wait.ElapsedMilliseconds))",
+      "replace": "        $wait = [Diagnostics.Stopwatch]::StartNew()\n        $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs\n        $hold = $null\n        if ($lock) {\n            $hold = Enter-P9SEmergencyHold $Ctx ([Math]::Max(0, $Ctx.EmergencyLockWaitMs - [int]$wait.ElapsedMilliseconds))\n            if ($hold) {\n                $null = Add-P9SStopRequestIfAbsent $Ctx\n            } else { $lock.Dispose(); $lock = $null }\n        }"
+    },
+    {
+      "id": "CM17",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "CLOSE_WITHOUT_HOLD_CHECK: session.close removes the stop request without the exclusive emergency hold",
+      "killers": [
+        "K39"
+      ],
+      "find": "        $xhold = Enter-P9SEmergencyHoldExclusive $Ctx",
+      "replace": "        $xhold = [IO.MemoryStream]::new()"
+    },
+    {
+      "id": "CM18",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the emergency waits for the coordinator lock for a full deadline after its wait for the emergency hold",
+      "killers": [
+        "K43"
+      ],
+      "find": "        $lock = Enter-P9SLock $Ctx ([Math]::Max(0, $Ctx.EmergencyLockWaitMs - [int]$wait.ElapsedMilliseconds))",
+      "replace": "        $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs"
     },
     {
       "id": "VB1",
