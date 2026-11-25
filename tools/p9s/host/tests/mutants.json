@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 104,
+  "count": 109,
   "mutants": [
     {
       "id": "SM1",
@@ -328,6 +328,66 @@
       ],
       "find": "        $lock = Enter-P9SLock $Ctx ([Math]::Max(0, $Ctx.EmergencyLockWaitMs - [int]$wait.ElapsedMilliseconds))",
       "replace": "        $lock = Enter-P9SLock $Ctx $Ctx.EmergencyLockWaitMs"
+    },
+    {
+      "id": "CM19",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "F4: session.close removes the stop request only when a session record exists (the behaviour of 26d1389)",
+      "killers": [
+        "K44",
+        "K45",
+        "K46",
+        "K47",
+        "K49"
+      ],
+      "find": "            if (-not $dry -and ($sess -or $stopReq)) {",
+      "replace": "            if (-not $dry -and $sess) {"
+    },
+    {
+      "id": "CM20",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "session.close without a session record does not check the VMs its stop request names, and removes it while one runs",
+      "killers": [
+        "K45",
+        "K46"
+      ],
+      "find": "        if ($stopReq) {",
+      "replace": "        if ($stopReq -and $sess) {"
+    },
+    {
+      "id": "CM21",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "session.close without a session record takes an unknown state of a VM with an ACPI request for off",
+      "killers": [
+        "K46"
+      ],
+      "find": "-notin 'off', 'aborted') { $k } })",
+      "replace": "-notin 'off', 'aborted', $(if (-not $sess) { 'unreadable' })) { $k } })"
+    },
+    {
+      "id": "CM22",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "session.close without a session record does not try the emergency hold, and removes the stop request while an emergency holds it",
+      "killers": [
+        "K47"
+      ],
+      "find": "        $xhold = Enter-P9SEmergencyHoldExclusive $Ctx",
+      "replace": "        $xhold = if ($sess) { Enter-P9SEmergencyHoldExclusive $Ctx } else { [IO.MemoryStream]::new() }"
+    },
+    {
+      "id": "CM23",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "a dry run of session.close without a session record removes the stop request",
+      "killers": [
+        "K44"
+      ],
+      "find": "            if (-not $dry -and ($sess -or $stopReq)) {",
+      "replace": "            if ((-not $dry -and $sess) -or (-not $sess -and $stopReq)) {"
     },
     {
       "id": "VB1",

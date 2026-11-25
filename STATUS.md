@@ -1224,6 +1224,37 @@ that fails without a crash is still recorded as `SHUTDOWN_LATE`. The
 toolkit's 276 declared tests and 104 targeted faults run in the CI job.
 Nothing ran live.
 
+An emergency under a monitor that has not halted writes no session
+record, and `session.close` without one answered "no session to close"
+and kept the emergency's stop request for good, although its checks
+never read the session record; only deleting the file by hand, the
+deletion the open request-history problem is about, let a session open
+again. The close now removes that stop request after the same checks,
+under the coordinator lock and the exclusive emergency hold: a VM the
+request names that runs or whose state is unknown, an unreadable
+request or an emergency holding the hold still refuses the close, which
+then changes nothing; a dry run changes nothing; only the stop request
+the close read is removed, and the audit names the VMs it recorded. A
+request recorded but never sent stays spent until its VM is seen off.
+The missing record permits nothing by itself, and STOP and ABORT still
+need a new monitor run and, after ABORT, the acknowledgement. On the
+commit before the change the scenario failed 50 times in 50 on separate
+processes; on the change the VM off, running and unknown, a request
+recorded but not sent, a dispatch whose process ended, a close against
+a concurrent emergency, STOP and ABORT, a close killed before, at and
+after the removal and restarted, and a missing, corrupt or older stop
+request ran 50 times each, with the step 1 interleavings. One
+repetition failed when the PowerShell runtime of a worker crashed after
+it took the lock, with nothing sent; the crash did not recur and that
+scenario passed 50 more times. Still open:
+a stop request deleted, or replaced by a version from before its
+request was recorded, cannot be told from an unused one, with or
+without a session record; the folder is under `%TEMP%` by default; a
+dispatch that fails without a crash is still recorded as
+`SHUTDOWN_LATE`; and losing every record at once is not detected. The
+toolkit's 282 declared tests and 109 targeted faults run in the CI job.
+Nothing ran live.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is

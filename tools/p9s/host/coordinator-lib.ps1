@@ -681,15 +681,25 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
         }
         $note = $null
         if ($sess -and $sess.inflight) { $note = "in-flight record of $($sess.inflight.action) discarded by the operator (its effect is unknown)" }
+        # Without a session record (an emergency under a monitor without a
+        # halt creates none) the stop request checked above ends the same
+        # way. The checks above never read the session record, so its
+        # absence permits nothing by itself; only the stop request they
+        # checked is removed, and the audit names what it recorded.
+        if (-not $sess -and $stopReq) {
+            $note = "$(if ($dry) { 'dry run: would remove' } else { 'removed' }) the stop request without a session record (ACPI requests to $(if ($stopReq.acpi.Count) { @($stopReq.acpi.Keys) -join ', ' } else { 'no VM' }); unresolved $(if ($stopReq.unresolved.Count) { @($stopReq.unresolved.Keys) -join ', ' } else { 'none' })); this close observed each VM it names off (or aborted, after its ACPI request)"
+        }
         try {
             if (-not $dry -and $sess) {
                 $sess.lifecycle = 'CLOSED'; $sess.inflight = $null
                 Save-P9SSession $Ctx $sess
+            }
+            if (-not $dry -and ($sess -or $stopReq)) {
                 if (Test-Path -LiteralPath $Ctx.StopRequestPath) { Remove-Item -LiteralPath $Ctx.StopRequestPath }
             }
         } finally { $xhold.Dispose() }
         $Res.outcome = $(if ($dry) { 'DRYRUN' } else { 'DONE' })
-        $Res.lines.Add($(if ($sess) { "session $($sess.session_id) closed$(if ($note) { "; $note" })" } else { 'no session to close' }))
+        $Res.lines.Add($(if ($sess) { "session $($sess.session_id) closed$(if ($note) { "; $note" })" } elseif ($note) { "no session to close; $note" } else { 'no session to close' }))
         Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V -Note $note
         return $Res
     }

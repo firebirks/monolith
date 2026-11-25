@@ -67,7 +67,7 @@ does not touch Tor, Monolith or its profiles.
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
 | `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races, damaged ledgers, low memory |
 | `tests/run-all.ps1` | Runs and checks the six suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 104 targeted faults and the tests that must detect them |
+| `tests/mutants.json` | The 109 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -202,7 +202,7 @@ actions check again between chunks or every 5 s.
 | Action | What it does |
 | --- | --- |
 | `session.open -Kind Test` | Opens a test session on the current monitor run |
-| `session.close` | Closes it; discards an in-flight record and the stop request once each VM it records a request for is seen off; refused while an emergency waits for the lock |
+| `session.close` | Closes it; discards an in-flight record and the stop request once each VM it records a request for is seen off, also when there is no session record; refused while an emergency waits for the lock |
 | `vm.start` | `VBoxManage startvm <vm> --type gui` |
 | `guest.type -Text` | Letters, digits, space, `-` `.` `~` (em dash); 120 at most; never Enter |
 | `guest.key -Key` | One of 18 named keys (Enter, Tab, CtrlQ, ...) |
@@ -247,7 +247,11 @@ unresolved validation. Both are read again under the coordinator lock,
 so that a request another process sent while this one waited is seen.
 `session.close` reads the stop request, observes its VMs and removes it
 under the same lock, so no request is recorded or sent between its
-check and the removal.
+check and the removal. It does the same when there is no session record
+(an emergency under a monitor that has not halted writes none): the
+checks are the same and do not read the session record, a dry run
+changes nothing, only the stop request the close read is removed, and
+its audit record names the VMs that stop request recorded.
 When either record cannot be read, is missing after use or does not
 match (see "Uncertain request history"), the history is unknown and
 nothing is sent (`SHUTDOWN_HISTORY_UNCERTAIN`). A request that cannot be

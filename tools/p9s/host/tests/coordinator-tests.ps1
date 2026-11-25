@@ -560,6 +560,144 @@ Case 'K43' 'one deadline covers the emergency hold and the coordinator lock' {
     Expect ($ms -ge 1400 -and $ms -lt 2100) "the hold and the lock took $ms ms for one deadline of 1500 ms"
 }
 
+# ---- session.close without a session record -------------------------------------------
+# An emergency under a monitor without a halt writes no session record; its
+# stop request ends after the same checks as with one.
+function StopWith($ctx, [string[]]$Acpi = @(), [string[]]$Unresolved = @()) {
+    $q = New-P9SStopRequestDoc $ctx
+    foreach ($v in $Acpi) { $q.acpi[$v] = '2026-11-25T10:00:00.0000000Z' }
+    foreach ($v in $Unresolved) { $q.unresolved[$v] = '2026-11-25T10:00:00.0000000Z' }
+    Save-P9SStopRequest $ctx $q
+}
+function CloseNote($ctx) { $l = @((Audit $ctx) -split "`n" | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.action -eq 'session.close' }); if ($l.Count) { [string]$l[-1].note } else { '' } }
+Case 'K44' 'session.close without a session record removes the stop request of an emergency whose VM is off, after a dry run that changes nothing; a session then opens' {
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+    $em = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    if ($em.outcome -ne 'DONE' -or $c.Calls.Count -ne 1) { throw "setup: emergency $($em.outcome) $($em.reasons -join ',')" }
+    Expect (-not (Test-Path -LiteralPath $c.SessionPath) -and (Test-Path -LiteralPath $c.StopRequestPath)) 'setup: the emergency wrote a session record, or no stop request'
+    $q0 = Bytes $c.StopRequestPath
+    $dr = Act $c @{ Action = 'session.close'; DryRun = $true }
+    Expect ($dr.outcome -eq 'DRYRUN' -and (Bytes $c.StopRequestPath) -eq $q0 -and -not (Test-Path -LiteralPath $c.SessionPath) -and ($dr.lines -join ' ') -match 'dry run: would remove the stop request without a session record') "dry run: $($dr.outcome) $($dr.lines -join ' ')"
+    $r = Act $c @{ Action = 'session.close' }
+    Expect ($r.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath) -and -not (Test-Path -LiteralPath $c.SessionPath)) "close: $($r.outcome) $($r.reasons -join ','); stop request $(Test-Path -LiteralPath $c.StopRequestPath)"
+    Expect (($r.lines -join ' ') -match 'removed the stop request without a session record \(ACPI requests to P9S-D12; unresolved none\)') "lines: $($r.lines -join ' ')"
+    Expect ((CloseNote $c) -match '^removed the stop request without a session record \(ACPI requests to P9S-D12') "audit note: $(CloseNote $c)"
+    Expect (HoldFree $c) 'the close kept the emergency hold'
+    $o = Open $c
+    Expect ($o.outcome -eq 'DONE') "open: $($o.outcome) $($o.reasons -join ',')"
+    Expect ($c.Calls.Count -eq 1) "dispatches: $($c.Calls.Count)"
+}
+Case 'K45' 'session.close without a session record is refused and changes nothing while a VM its stop request names runs, the request sent or only recorded; the request stays spent; once the VM is off the close removes it' {
+    # sent: the guest ignores the request and keeps running
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+    $cl = $c.Calls
+    $c.Dispatch['vm.acpi'] = { param($vm) $cl.Add([pscustomobject]@{ kind = 'vm.acpi'; vm = $vm; arg = $null }) }.GetNewClosure()
+    $em = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 2 }
+    if ($em.outcome -ne 'TIMEOUT' -or $c.Calls.Count -ne 1) { throw "setup: emergency $($em.outcome) $($em.reasons -join ',')" }
+    # recorded before a crash, never sent
+    $c2 = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+    StopWith $c2 -Acpi 'P9S-D12'
+    foreach ($x in $c, $c2) {
+        $b0 = (Bytes $x.StopRequestPath) + '|' + (Bytes $x.SessionPath)
+        foreach ($dry in $true, $false) {
+            $r = Act $x @{ Action = 'session.close'; DryRun = $dry }
+            Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_UNRESOLVED') -and ($r.lines -join ' ') -match 'P9S-D12 did not power off') "close (dry run $dry) while the VM runs: $($r.outcome) $($r.reasons -join ',')"
+        }
+        Expect (((Bytes $x.StopRequestPath) + '|' + (Bytes $x.SessionPath)) -eq $b0) 'a refused close changed the stop request or wrote a session record'
+        $n = $x.Calls.Count
+        $e2 = Act $x @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+        Expect ($e2.outcome -eq 'REFUSED' -and (Has $e2 'ACPI_ALREADY_REQUESTED') -and $x.Calls.Count -eq $n) "second emergency: $($e2.outcome) $($e2.reasons -join ',')"
+        $o = Open $x
+        Expect ($o.outcome -eq 'REFUSED' -and (Has $o 'STOP_REQUEST_PENDING')) "open while the VM runs: $($o.outcome) $($o.reasons -join ',')"
+        $x.VmTable['P9S-D12'] = 'off'
+        $r2 = Act $x @{ Action = 'session.close' }
+        Expect ($r2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $x.StopRequestPath)) "close once the VM is off: $($r2.outcome) $($r2.reasons -join ',')"
+        $o2 = Open $x
+        Expect ($o2.outcome -eq 'DONE') "open after the close: $($o2.outcome) $($o2.reasons -join ',')"
+    }
+    Expect ($c.Calls.Count -eq 1 -and $c2.Calls.Count -eq 0) "dispatches: $($c.Calls.Count), $($c2.Calls.Count)"
+}
+Case 'K46' 'session.close without a session record is refused and changes nothing while the state of a VM its stop request names is unknown, and takes aborted for off only after an ACPI request' {
+    $answers = @(
+        @('unreadable', { param($vm) 'unreadable' }), @('quarantined', { param($vm) 'quarantined' }), @('busy', { param($vm) 'busy' }),
+        @('unknown', { param($vm) 'unknown' }), @('empty', { param($vm) '' }), @('none', { param($vm) $null }),
+        @('a failed read', { param($vm) throw 'VirtualBox did not answer' }), @('two answers', { param($vm) @('off', 'off') }))
+    foreach ($kind in 'acpi', 'unresolved') {
+        $c = New-MockCtx @($READY_A)
+        if ($kind -eq 'acpi') { StopWith $c -Acpi 'P9S-D12' } else { StopWith $c -Acpi 'P9S-D12' -Unresolved 'P9S-D12' }
+        $b0 = (Bytes $c.StopRequestPath) + '|' + (Bytes $c.SessionPath)
+        $all = @($answers) + @(, @('aborted', { param($vm) 'aborted' }))
+        foreach ($a in $all) {
+            if ($kind -eq 'acpi' -and $a[0] -eq 'aborted') { continue }
+            $c.ReadVmState = $a[1]
+            foreach ($dry in $true, $false) {
+                $r = Act $c @{ Action = 'session.close'; DryRun = $dry }
+                Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_UNRESOLVED')) "$kind, the reader answers $($a[0]) (dry run $dry): $($r.outcome) $($r.reasons -join ',')"
+            }
+        }
+        Expect (((Bytes $c.StopRequestPath) + '|' + (Bytes $c.SessionPath)) -eq $b0) "$kind`: a refused close changed the stop request or wrote a session record"
+        $c.ReadVmState = $(if ($kind -eq 'acpi') { { param($vm) 'aborted' } } else { { param($vm) 'off' } })
+        $r2 = Act $c @{ Action = 'session.close' }
+        Expect ($r2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath)) "$kind, the VM seen $(if ($kind -eq 'acpi') { 'aborted' } else { 'off' }): $($r2.outcome) $($r2.reasons -join ',')"
+        Expect ($c.Calls.Count -eq 0) "$kind`: dispatches $($c.Calls.Count)"
+    }
+}
+Case 'K47' 'session.close without a session record changes nothing while an emergency holds the emergency hold, dry run included, in every monitor state; it removes the stop request once the hold is free' {
+    $c = New-MockCtx @($READY_A)
+    StopWith $c -Acpi 'P9S-U24'
+    $b0 = (Bytes $c.SessionPath) + '|' + (Bytes $c.StopRequestPath)
+    $h = HoldOpen $c
+    try {
+        foreach ($mon in $READY_A, $STOP_A, $ABORT_A) {
+            $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($mon)
+            foreach ($dry in $true, $false) {
+                $r = Act $c @{ Action = 'session.close'; DryRun = $dry }
+                Expect ($r.outcome -eq 'REFUSED' -and (Has $r 'EMERGENCY_IN_PROGRESS')) "close (dry run $dry): $($r.outcome) $($r.reasons -join ',')"
+            }
+        }
+    } finally { $h.Dispose() }
+    Expect (((Bytes $c.SessionPath) + '|' + (Bytes $c.StopRequestPath)) -eq $b0) 'a refused close changed the stop request or wrote a session record'
+    $r2 = Act $c @{ Action = 'session.close' }
+    Expect ($r2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath) -and -not (Test-Path -LiteralPath $c.SessionPath)) "close once the hold is free: $($r2.outcome) $($r2.reasons -join ',')"
+    Expect (HoldFree $c) 'the close kept the emergency hold'
+    Expect ($c.Calls.Count -eq 0) "dispatches: $($c.Calls.Count)"
+}
+Case 'K48' 'session.close without a session record: with no stop request it writes nothing; an unreadable one is refused and kept as it is' {
+    $c = New-MockCtx @($READY_A)
+    $r = Act $c @{ Action = 'session.close' }
+    Expect ($r.outcome -eq 'DONE' -and ($r.lines -join ' ') -ceq 'no session to close' -and -not (Test-Path -LiteralPath $c.SessionPath) -and -not (Test-Path -LiteralPath $c.StopRequestPath)) "no stop request: $($r.outcome) $($r.lines -join ' ')"
+    foreach ($txt in '{broken', '', '[]', '{"acpi":[]}', '{"unresolved":"P9S-D12"}') {
+        $x = New-MockCtx @($READY_A)
+        [IO.File]::WriteAllText($x.StopRequestPath, $txt)
+        $b0 = Bytes $x.StopRequestPath
+        $rx = Act $x @{ Action = 'session.close' }
+        Expect ($rx.outcome -eq 'REFUSED' -and (Has $rx 'STOP_REQUEST_UNREADABLE') -and (Bytes $x.StopRequestPath) -eq $b0 -and -not (Test-Path -LiteralPath $x.SessionPath)) "stop request '$txt': $($rx.outcome) $($rx.reasons -join ',')"
+    }
+}
+Case 'K49' 'after session.close without a session record, a monitor STOP still needs a new run and an ABORT also its acknowledgement with the VMs off' {
+    foreach ($halt in 'STOP', 'ABORT') {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+        $em = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+        if ($em.outcome -ne 'DONE' -or (Test-Path -LiteralPath $c.SessionPath)) { throw "setup: emergency $($em.outcome)" }
+        $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($(if ($halt -eq 'STOP') { $STOP_A } else { $ABORT_A }))
+        $r = Act $c @{ Action = 'session.close' }
+        Expect ($r.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath)) "$halt`: close $($r.outcome) $($r.reasons -join ',')"
+        $o1 = Open $c
+        Expect ($o1.outcome -eq 'REFUSED' -and (Sess $c).halt.status -eq "$($halt)_REQUIRED") "$halt`: open under the halt $($o1.outcome) $($o1.reasons -join ',')"
+        $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($READY_A)
+        $o2 = Open $c
+        Expect ($o2.outcome -eq 'REFUSED' -and (Has $o2 'STOP_REQUIRES_NEW_MONITOR_RUN')) "$halt`: open on the same run $($o2.outcome) $($o2.reasons -join ',')"
+        $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($READY_B)
+        $o3 = Open $c
+        if ($halt -eq 'STOP') { Expect ($o3.outcome -eq 'DONE') "STOP: open on a new run $($o3.outcome) $($o3.reasons -join ',')" }
+        else {
+            Expect ($o3.outcome -eq 'REFUSED' -and (Has $o3 'ABORT_NOT_ACKNOWLEDGED')) "ABORT: open on a new run without the acknowledgement $($o3.outcome) $($o3.reasons -join ',')"
+            $o4 = Act $c @{ Action = 'session.open'; Kind = 'Test'; AcknowledgeAbort = [string](Sess $c).halt.abort_id }
+            Expect ($o4.outcome -eq 'DONE') "ABORT: open with the acknowledgement $($o4.outcome) $($o4.reasons -join ',')"
+        }
+    }
+}
+
 # ---- command line, shims, real-process crash (no VM is touched) -----------------
 $cli = Join-Path $kit 'p9s-action.ps1'
 $pw = (Get-Process -Id $PID).Path
