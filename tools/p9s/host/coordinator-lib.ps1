@@ -432,7 +432,7 @@ function Test-P9SCheckpoint($Ctx, $Session, $Res) {
     if (-not $g.ok) { foreach ($r in $g.reasons) { $reasons.Add($r) } }
     if ($Session.lifecycle -ne 'ACTIVE') { $reasons.Add("SESSION_$($Session.lifecycle)") }
     if ($g.run_id -and $g.run_id -ne $Session.monitor_run_id) { $reasons.Add('MONITOR_RUN_CHANGED') }
-    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
+    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
     foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }
     [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }
 }
@@ -504,7 +504,7 @@ function Invoke-P9SNormal {
         if ($g.run_id -and $g.run_id -ne $Session.monitor_run_id) { $reasons.Add('MONITOR_RUN_CHANGED') }
         if ($Session.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') }
     }
-    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
+    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
     if ($active -and $vg.ok) {
         $actual = @{}
         foreach ($n in Get-P9SVmNames) {
@@ -720,7 +720,7 @@ function Invoke-P9SSessionAction($Ctx, [hashtable]$Request, $V, $Res) {
     foreach ($r in $vg.reasons) { $reasons.Add($r) }
     if ($sess -and $sess.session_id -and $sess.lifecycle -eq 'ACTIVE') { $reasons.Add('SESSION_ALREADY_OPEN') }
     if ($sess -and $sess.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') }
-    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('STOP_REQUEST_PENDING') }
+    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('STOP_REQUEST_PENDING') }
     # a restricted ACPI validation must be finalized, and resolved, first
     if ($sess -and [string]$sess.kind -ceq 'AcpiValidation' -and [string]$sess.lifecycle -cne 'CLOSED') { $reasons.Add('ACPI_VALIDATION_NOT_FINALIZED') }
     if (Get-Prop $Ctx 'LedgerPath') {

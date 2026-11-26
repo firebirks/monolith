@@ -1550,6 +1550,96 @@ Case 'L26' 'an emergency for one VM never erases the record of the request sent 
     Expect ($m1.dispatched -eq 1 -and $m2.dispatched -eq 1 -and (Has $m3 'ACPI_ALREADY_REQUESTED') -and (Has $m4 'ACPI_ALREADY_REQUESTED') -and (Count $c 'vm.acpi') -eq 2) "$(Why $m1) / $(Why $m2) / $(Why $m3) / $(Why $m4); $(Kinds $c)"
     Expect ($q.ok -and $q.doc.acpi.Contains('P9S-D12') -and $q.doc.acpi.Contains('P9S-U24') -and $q.doc.unresolved.Contains('P9S-D12') -and $q.doc.unresolved.Contains('P9S-U24')) 'a record of the stop request was lost'
 }
+# Records present but inaccessible: deny entries for this account on
+# synthetic records only, removed by each case. 'inaccessible' denies a
+# record its data and attributes and its folder the listing (an existence
+# test then answers false), 'data' denies only its data.
+$aclSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+function Add-AclDeny([string]$Path, [string]$Rights, [switch]$Dir) {
+    $i = if ($Dir) { [IO.DirectoryInfo]::new($Path) } else { [IO.FileInfo]::new($Path) }
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($aclSid, [Security.AccessControl.FileSystemRights]$Rights, 'None', 'None', 'Deny')
+    $s = [IO.FileSystemAclExtensions]::GetAccessControl($i, [Security.AccessControl.AccessControlSections]::Access); $s.AddAccessRule($rule); [IO.FileSystemAclExtensions]::SetAccessControl($i, $s)
+    [pscustomobject]@{ path = $Path; dir = [bool]$Dir; rule = $rule }
+}
+function Lock-Record([string]$Path, [string]$How = 'inaccessible') {
+    $l = [System.Collections.Generic.List[object]]::new()
+    if ($How -ceq 'data') { $l.Add((Add-AclDeny $Path 'ReadData')) }
+    else { $l.Add((Add-AclDeny $Path 'ReadData, ReadAttributes')); $l.Add((Add-AclDeny ([IO.Path]::GetDirectoryName($Path)) 'ReadData' -Dir)) }
+    , $l
+}
+function Unlock-Record($l) {
+    for ($i = $l.Count - 1; $i -ge 0; $i--) {
+        $h = $l[$i]; $x = if ($h.dir) { [IO.DirectoryInfo]::new($h.path) } else { [IO.FileInfo]::new($h.path) }
+        $s = [IO.FileSystemAclExtensions]::GetAccessControl($x, [Security.AccessControl.AccessControlSections]::Access); $null = $s.RemoveAccessRule($h.rule); [IO.FileSystemAclExtensions]::SetAccessControl($x, $s)
+    }
+}
+# a step's result, or the exception it raised
+function TryA([scriptblock]$Step) { try { $x = & $Step; [pscustomobject]@{ outcome = [string]$x.outcome; reasons = @($x.reasons); dispatched = [int]$x.dispatched; lines = @($x.lines) } } catch { [pscustomobject]@{ outcome = "EXCEPTION $($_.Exception.Message)"; reasons = @(); dispatched = 0; lines = @() } } }
+Case 'L27' 'a ledger restored to an older revision while its revision record cannot be read: the validation request and the emergency refuse, the older copy is never read as current; readable again it is stale' {
+    $x = Started -Target 'P9S-U24'; $c = $x.c
+    $old = LText $c
+    $t = AShut $c 10
+    if ($t.outcome -ne 'TIMEOUT') { throw "setup: request $(Why $t)" }
+    [IO.File]::WriteAllText($c.LedgerPath, $old)
+    $f0 = LFiles $c
+    foreach ($how in 'data', 'inaccessible') {
+        $l = Lock-Record (Get-P9SAcpiLedgerRevisionPath $c) $how
+        try { $r = Read-P9SAcpiLedger $c; $s = TryA { AShut $c }; $m = TryA { Emerg $c 'P9S-U24' } } finally { Unlock-Record $l }
+        Expect (-not $r.ok -and $r.reason -eq 'ACPI_LEDGER_INCONSISTENT') "${how}: read as $($r.ok) $($r.reason) ($($r.detail))"
+        Expect ($s.outcome -eq 'REFUSED' -and (Has $s 'ACPI_LEDGER_INCONSISTENT')) "${how}: validation request $(Why $s)"
+        Expect ($m.outcome -eq 'REFUSED' -and (Has $m 'ACPI_LEDGER_INCONSISTENT') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m.dispatched -eq 0) "${how}: emergency $(Why $m)"
+        Expect ((Count $c 'vm.acpi') -eq 1 -and (LFiles $c) -eq $f0) "${how}: $(Kinds $c); ledger files changed $((LFiles $c) -ne $f0)"
+    }
+    $r2 = Read-P9SAcpiLedger $c
+    Expect (-not $r2.ok -and $r2.reason -eq 'ACPI_LEDGER_STALE') "readable again: $($r2.reason) ($($r2.detail))"
+}
+Case 'L28' 'a ledger from before the revision record (no revision, no revision record, no session record) that cannot be read is never "absent, never used": the emergency and a new validation refuse; readable again its request stays spent' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    $d = LText $c | ConvertFrom-Json -AsHashtable; $d.Remove('revision')
+    [IO.File]::WriteAllText($c.LedgerPath, ($d | ConvertTo-Json -Depth 8))
+    Remove-Item -LiteralPath (Get-P9SAcpiLedgerRevisionPath $c), $c.SessionPath
+    $r0 = Read-P9SAcpiLedger $c
+    if (-not $r0.ok -or $r0.detail -cne 'revision 0') { throw "setup: $($r0.reason) ($($r0.detail))" }
+    $b0 = (Get-FileHash -LiteralPath $c.LedgerPath).Hash
+    foreach ($how in 'data', 'inaccessible') {
+        $l = Lock-Record $c.LedgerPath $how
+        try { $r = Read-P9SAcpiLedger $c; $m = TryA { Emerg $c 'P9S-U24' }; $o = TryA { AOpen $c (New-Auth -Target 'P9S-U24') } } finally { Unlock-Record $l }
+        Expect (-not $r.ok -and $r.reason -eq 'ACPI_LEDGER_UNREADABLE') "${how}: read as $($r.ok) $($r.reason) ($($r.detail))"
+        Expect ($m.outcome -eq 'REFUSED' -and (Has $m 'ACPI_LEDGER_UNREADABLE') -and (Has $m 'SHUTDOWN_HISTORY_UNCERTAIN') -and $m.dispatched -eq 0) "${how}: emergency $(Why $m)"
+        Expect ($o.outcome -eq 'REFUSED' -and (Has $o 'ACPI_LEDGER_UNREADABLE')) "${how}: new validation $(Why $o)"
+        Expect ((Count $c 'vm.acpi') -eq 1 -and (Get-FileHash -LiteralPath $c.LedgerPath).Hash -eq $b0 -and -not (Test-Path -LiteralPath (Get-P9SAcpiLedgerRevisionPath $c)) -and -not (Test-Path -LiteralPath $c.SessionPath)) "${how}: $(Kinds $c); ledger changed $((Get-FileHash -LiteralPath $c.LedgerPath).Hash -ne $b0); revision record $(Test-Path -LiteralPath (Get-P9SAcpiLedgerRevisionPath $c)); session record $(Test-Path -LiteralPath $c.SessionPath)"
+    }
+    $m2 = Emerg $c 'P9S-U24'
+    Expect ($m2.outcome -eq 'REFUSED' -and (Has $m2 'ACPI_ALREADY_REQUESTED') -and (Count $c 'vm.acpi') -eq 1) "readable again: $(Why $m2); $(Kinds $c)"
+}
+Case 'L29' 'a stop request that cannot be read halts the validation steps and refuses a new validation whatever ErrorActionPreference the caller set; nothing is dispatched, no error is written' {
+    foreach ($pref in 'Stop', 'Continue', 'SilentlyContinue') {
+        $x = Started; $c = $x.c
+        $n = New-VCtx
+        foreach ($y in $c, $n) { $q = New-P9SStopRequestDoc $y; $q.acpi['P9S-U24'] = '2026-11-25T10:00:00.0000000Z'; Save-P9SStopRequest $y $q }
+        $a = New-Auth
+        $l1 = Lock-Record $c.StopRequestPath; $l2 = Lock-Record $n.StopRequestPath
+        try {
+            $all = @(& { $ErrorActionPreference = $pref; [pscustomobject]@{ obs = (TryA { AObs $c 5 }); shut = (TryA { AShut $c 5 }); open = (TryA { AOpen $n $a }) } } 2>&1)
+        } finally { Unlock-Record $l2; Unlock-Record $l1 }
+        $errs = @($all | Where-Object { $_ -is [Management.Automation.ErrorRecord] }); $w = @($all | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] })[-1]
+        Expect ($w.obs.outcome -eq 'REFUSED' -and (Has $w.obs 'EMERGENCY_STOP_REQUESTED')) "${pref}: observation $(Why $w.obs)"
+        Expect ($w.shut.outcome -eq 'REFUSED' -and (Has $w.shut 'EMERGENCY_STOP_REQUESTED') -and $w.shut.dispatched -eq 0) "${pref}: validation request $(Why $w.shut)"
+        Expect ($w.open.outcome -eq 'REFUSED' -and (Has $w.open 'STOP_REQUEST_PENDING') -and -not (Test-Path -LiteralPath $n.SessionPath)) "${pref}: new validation $(Why $w.open)"
+        Expect ((Count $c 'vm.acpi') -eq 0 -and $n.Calls.Count -eq 0) "${pref}: $(Kinds $c)"
+        Expect ($errs.Count -eq 0) "${pref}: $($errs.Count) errors written: $(@($errs | ForEach-Object { $_.Exception.Message }) -join ' / ')"
+    }
+}
+Case 'L30' 'the ledger diagnosis never calls a file that cannot be read absent' {
+    $x = Sent -Target 'P9S-U24'; $c = $x.c
+    $l = Lock-Record $c.LedgerPath
+    try { $r = Read-P9SAcpiLedger $c; $dg = Get-P9SAcpiLedgerDiagnosis $c $r; $m = TryA { Emerg $c 'P9S-U24' } } finally { Unlock-Record $l }
+    Expect ($dg -notmatch 'acpi-validation-ledger\.json absent' -and $dg -match 'acpi-validation-ledger\.json present, not inspected') "diagnosis: $dg"
+    Expect ($m.outcome -eq 'REFUSED' -and ($m.lines -join ' ') -notmatch 'acpi-validation-ledger\.json absent') "emergency: $(Why $m) $($m.lines -join ' | ')"
+    Remove-Item -LiteralPath $c.LedgerPath
+    $dg2 = Get-P9SAcpiLedgerDiagnosis $c $null
+    Expect ($dg2 -match 'acpi-validation-ledger\.json absent') "an absent ledger: $dg2"
+}
 
 # ---- interruptions: a request without a recorded end, an unconfirmed dispatch, a finished validation ----
 # The state the Debian session left: its ledger entry and its closed

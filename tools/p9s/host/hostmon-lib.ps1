@@ -550,18 +550,48 @@ function Write-StateAtomic {
         throw
     }
 }
-# Shared read (the writer may replace the file meanwhile).
+# What a failed open or read of a state file means. 'missing' only when
+# the system reports the file, or a folder of its path, not found; then
+# 'denied' (access refused, a folder at the path, a file being deleted),
+# 'busy' (a sharing or lock violation), 'invalid' (not UTF-8), 'io' (any
+# other input/output error), 'error' (anything else).
+function Get-StateFileError([Exception]$E) {
+    while ($E -is [Management.Automation.MethodInvocationException] -and $E.InnerException) { $E = $E.InnerException }
+    if ($E -is [IO.FileNotFoundException] -or $E -is [IO.DirectoryNotFoundException]) { return 'missing' }
+    if ($E -is [UnauthorizedAccessException]) { return 'denied' }
+    if ($E -is [Text.DecoderFallbackException]) { return 'invalid' }
+    if ($E -is [IO.IOException]) { if (($E.HResult -band 0xFFFF) -in 32, 33) { return 'busy' }; return 'io' }
+    'error'
+}
+# $true only when the system reports the file not found. An existence test
+# is no proof of absence: [IO.File]::Exists answers false for a file whose
+# attributes cannot be read, and Test-Path then writes an error and answers
+# false, or throws, as $ErrorActionPreference decides. This answer depends
+# on neither.
+function Test-StateFileAbsent([string]$Path) {
+    try { $null = [IO.File]::GetAttributes($Path); $false }
+    catch { (Get-StateFileError $_.Exception) -ceq 'missing' }
+}
+# Shared read (the writer may replace the file meanwhile). The file is
+# opened directly, never tested first, so a missing file is told from one
+# that cannot be read. Up to five tries 20 ms apart, then the last error;
+# 'missing' at once. Every caller takes any error but 'missing' as an
+# unreadable record.
 function Read-StateFile {
     param([Parameter(Mandatory)][string]$Path)
+    $e = 'error'
     for ($i = 0; $i -lt 5; $i++) {
-        if (-not [IO.File]::Exists($Path)) { return [pscustomobject]@{ ok = $false; text = $null; error = 'missing' } }
         try {
             $fs = [IO.FileStream]::new($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
-            try { $t = [IO.StreamReader]::new($fs, [Text.UTF8Encoding]::new($false)).ReadToEnd() } finally { $fs.Dispose() }
+            try { $t = [IO.StreamReader]::new($fs, [Text.UTF8Encoding]::new($false, $true)).ReadToEnd() } finally { $fs.Dispose() }
             return [pscustomobject]@{ ok = $true; text = $t; error = $null }
-        } catch { Start-Sleep -Milliseconds 20 }
+        } catch {
+            $e = Get-StateFileError $_.Exception
+            if ($e -ceq 'missing') { return [pscustomobject]@{ ok = $false; text = $null; error = 'missing' } }
+            Start-Sleep -Milliseconds 20
+        }
     }
-    [pscustomobject]@{ ok = $false; text = $null; error = 'busy' }
+    [pscustomobject]@{ ok = $false; text = $null; error = $e }
 }
 
 # --------------------------------------------------------------- 4. reader

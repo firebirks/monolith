@@ -698,6 +698,221 @@ Case 'K49' 'after session.close without a session record, a monitor STOP still n
     }
 }
 
+# ---- records present but inaccessible -------------------------------------------------
+# Deny entries for this account on synthetic records only, removed by each
+# case: 'inaccessible' denies a record its data and attributes and its
+# folder the listing (an existence test then answers false), 'data' denies
+# only its data. A record that cannot be read is never an absent one.
+$aclSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+function Add-AclDeny([string]$Path, [string]$Rights, [switch]$Dir) {
+    $i = if ($Dir) { [IO.DirectoryInfo]::new($Path) } else { [IO.FileInfo]::new($Path) }
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new($aclSid, [Security.AccessControl.FileSystemRights]$Rights, 'None', 'None', 'Deny')
+    $s = [IO.FileSystemAclExtensions]::GetAccessControl($i, [Security.AccessControl.AccessControlSections]::Access); $s.AddAccessRule($rule); [IO.FileSystemAclExtensions]::SetAccessControl($i, $s)
+    [pscustomobject]@{ path = $Path; dir = [bool]$Dir; rule = $rule }
+}
+function Lock-Record([string]$Path, [string]$How = 'inaccessible') {
+    $l = [System.Collections.Generic.List[object]]::new()
+    if ($How -ceq 'data') { $l.Add((Add-AclDeny $Path 'ReadData')) }
+    else { $l.Add((Add-AclDeny $Path 'ReadData, ReadAttributes')); $l.Add((Add-AclDeny ([IO.Path]::GetDirectoryName($Path)) 'ReadData' -Dir)) }
+    , $l
+}
+function Unlock-Record($l) {
+    for ($i = $l.Count - 1; $i -ge 0; $i--) {
+        $h = $l[$i]; $x = if ($h.dir) { [IO.DirectoryInfo]::new($h.path) } else { [IO.FileInfo]::new($h.path) }
+        $s = [IO.FileSystemAclExtensions]::GetAccessControl($x, [Security.AccessControl.AccessControlSections]::Access); $null = $s.RemoveAccessRule($h.rule); [IO.FileSystemAclExtensions]::SetAccessControl($x, $s)
+    }
+}
+# an action's result, or the exception it raised
+function Try-Act($ctx, [hashtable]$r) {
+    try { $x = Act $ctx $r; [pscustomobject]@{ outcome = [string]$x.outcome; reasons = @($x.reasons); dispatched = [int]$x.dispatched } }
+    catch { [pscustomobject]@{ outcome = "EXCEPTION $($_.Exception.Message)"; reasons = @(); dispatched = 0 } }
+}
+function Why($r) { "$($r.outcome) [$(@($r.reasons) -join ',')]" }
+# runs $Body with the caller's ErrorActionPreference set to $Pref; returns
+# its last output and the errors it wrote
+function With-Preference([string]$Pref, [scriptblock]$Body) {
+    $all = @(& { $ErrorActionPreference = $Pref; & $Body } 2>&1)
+    [pscustomobject]@{ out = @($all | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] })[-1]; errors = @($all | Where-Object { $_ -is [Management.Automation.ErrorRecord] }) }
+}
+Case 'K50' 'a state file is missing only when the system reports it not found: a record that is inaccessible, held, not UTF-8 or a folder is an error, never missing; an existence test is no proof of absence' {
+    $d = Join-Path $OutDir 'k50'; New-Item -ItemType Directory -Path $d | Out-Null
+    $p = Join-Path $d 'record.json'
+    function Check([string]$Label, [string]$Path, [string]$Want, [bool]$Absent) {
+        $r = Read-StateFile -Path $Path
+        $got = if ($r.ok) { 'ok' } else { [string]$r.error }
+        Expect ($got -ceq $Want) "${Label}: read $got, expected $Want"
+        $a = Test-StateFileAbsent $Path
+        Expect ($a -eq $Absent) "${Label}: absent $a, expected $Absent"
+        $r
+    }
+    $null = Check 'absent' $p 'missing' $true
+    $null = Check 'absent with its folder' (Join-Path $d 'no-folder\record.json') 'missing' $true
+    [IO.File]::WriteAllText($p, '{"a":1}')
+    $r = Check 'readable' $p 'ok' $false; Expect ($r.text -ceq '{"a":1}') "readable: text $($r.text)"
+    [IO.File]::WriteAllText($p, '')
+    $r = Check 'empty' $p 'ok' $false; Expect ($r.text -ceq '') "empty: text '$($r.text)'"
+    [IO.File]::WriteAllBytes($p, [byte[]](0x7B, 0xC3, 0x28, 0x7D))
+    $null = Check 'not UTF-8' $p 'invalid' $false
+    [IO.File]::WriteAllText($p, '{"a":2}')
+    $l = Lock-Record $p 'data'
+    try { $null = Check 'data denied' $p 'denied' $false } finally { Unlock-Record $l }
+    $l = Lock-Record $p
+    try {
+        Expect (-not [IO.File]::Exists($p)) 'inaccessible: [IO.File]::Exists answered true (the case does not test what it names)'
+        $null = Check 'inaccessible' $p 'denied' $false
+    } finally { Unlock-Record $l }
+    $h = [IO.FileStream]::new($p, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try { $null = Check 'held without sharing' $p 'busy' $false } finally { $h.Dispose() }
+    $q = Join-Path $d 'folder.json'; New-Item -ItemType Directory -Path $q | Out-Null
+    $null = Check 'a folder' $q 'denied' $false
+    # replaced, then deleted, while a reader holds it open (as Read-StateFile
+    # opens it): the reader reads the document it opened, whole. A replace
+    # either waits for the reader and fails after its tries (NTFS without
+    # POSIX rename: the old document stays, no temporary file is left) or
+    # takes effect for the next read; a deleted file is never read again.
+    $v1 = '{"v":1}'; $v2 = '{"v":2,"pad":"xxxxxxxxxxxxxxxx"}'
+    Write-StateAtomic -Path $p -Text $v1
+    $h = [IO.FileStream]::new($p, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    try {
+        $threw = $false; try { Write-StateAtomic -Path $p -Text $v2 } catch { $threw = $true }
+        $r = Read-StateFile -Path $p
+        Expect ($r.ok -and $r.text -ceq $(if ($threw) { $v1 } else { $v2 })) "replaced while read (replace failed $threw): next read $($r.ok) $($r.error) $($r.text)"
+        $old = [IO.StreamReader]::new($h, [Text.UTF8Encoding]::new($false)).ReadToEnd()
+        Expect ($old -ceq $v1) "replaced while read: the open reader read '$old'"
+        Expect (@(Get-ChildItem -LiteralPath $d -Force -Filter '*.tmp').Count -eq 0) 'replaced while read: a temporary file left'
+    } finally { $h.Dispose() }
+    Write-StateAtomic -Path $p -Text $v2
+    $r = Read-StateFile -Path $p
+    Expect ($r.ok -and $r.text -ceq $v2) "replaced after the read: $($r.ok) $($r.error) $($r.text)"
+    $h = [IO.FileStream]::new($p, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    try {
+        Remove-Item -LiteralPath $p
+        $r = Read-StateFile -Path $p
+        Expect (-not $r.ok) "deleted while read: read ok again ($($r.text))"
+        $old = [IO.StreamReader]::new($h, [Text.UTF8Encoding]::new($false)).ReadToEnd()
+        Expect ($old -ceq $v2) "deleted while read: the open reader read '$old'"
+    } finally { $h.Dispose() }
+    $null = Check 'deleted' $p 'missing' $true
+}
+Case 'K51' 'a stop request that records an ACPI request and cannot be read (its data, or its data and attributes in a folder that cannot be listed): the emergency sends and writes nothing, session.close and session.open are refused; readable again, the request stays spent' {
+    foreach ($how in 'data', 'inaccessible') {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+        StopWith $c -Acpi 'P9S-D12'
+        $b0 = Bytes $c.StopRequestPath
+        $l = Lock-Record $c.StopRequestPath $how
+        try {
+            $em = Try-Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 2 }
+            $cl = Try-Act $c @{ Action = 'session.close' }
+            $op = Try-Act $c @{ Action = 'session.open'; Kind = 'Test' }
+        } finally { Unlock-Record $l }
+        Expect ($em.outcome -eq 'REFUSED' -and (Has $em 'STOP_REQUEST_UNREADABLE') -and (Has $em 'SHUTDOWN_HISTORY_UNCERTAIN') -and $em.dispatched -eq 0) "${how}: emergency $(Why $em)"
+        Expect ($cl.outcome -eq 'REFUSED' -and (Has $cl 'STOP_REQUEST_UNREADABLE')) "${how}: close $(Why $cl)"
+        Expect ($op.outcome -eq 'REFUSED' -and (Has $op 'STOP_REQUEST_PENDING')) "${how}: open $(Why $op)"
+        Expect ($c.Calls.Count -eq 0 -and (Bytes $c.StopRequestPath) -eq $b0 -and -not (Test-Path -LiteralPath $c.SessionPath)) "${how}: calls $($c.Calls.Count); stop request changed $((Bytes $c.StopRequestPath) -ne $b0); session record $(Test-Path -LiteralPath $c.SessionPath)"
+        Expect (@(Get-ChildItem -LiteralPath $c.Dir -Force -Filter '*.tmp').Count -eq 0 -and (HoldFree $c) -and (LockFree $c)) "${how}: a temporary file, the hold or the lock left"
+        $e2 = Try-Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; Seconds = 2 }
+        Expect ($e2.outcome -eq 'REFUSED' -and (Has $e2 'ACPI_ALREADY_REQUESTED') -and $c.Calls.Count -eq 0) "${how}, readable again: emergency $(Why $e2); calls $($c.Calls.Count)"
+        $c.VmTable['P9S-D12'] = 'off'
+        $c2 = Try-Act $c @{ Action = 'session.close' }; $o2 = Try-Act $c @{ Action = 'session.open'; Kind = 'Test' }
+        Expect ($c2.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath) -and $o2.outcome -eq 'DONE') "${how}, the VM off: close $(Why $c2), open $(Why $o2)"
+    }
+}
+Case 'K52' 'a stop request that cannot be read halts every ordinary action whatever ErrorActionPreference the caller set: a test action, the checkpoint of a running one and session.open are refused, nothing is dispatched, no error is written' {
+    foreach ($pref in 'Stop', 'Continue', 'SilentlyContinue') {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+        $o = Open $c; if ($o.outcome -ne 'DONE') { throw "setup: open $($o.outcome)" }
+        $s = (Read-P9SSession $c).session; $s.expected_vm['P9S-D12'] = 'running'; Save-P9SSession $c $s
+        $n = New-MockCtx @($READY_A)
+        foreach ($x in $c, $n) { StopWith $x -Acpi 'P9S-U24' }
+        $l1 = Lock-Record $c.StopRequestPath; $l2 = Lock-Record $n.StopRequestPath
+        try {
+            $w = With-Preference $pref {
+                $k = Try-Act $c @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' }
+                $ck = try { Test-P9SCheckpoint $c $s (New-P9SResult 'wait' $null) } catch { [pscustomobject]@{ ok = "EXCEPTION $($_.Exception.Message)"; reasons = @() } }
+                $op = Try-Act $n @{ Action = 'session.open'; Kind = 'Test' }
+                [pscustomobject]@{ k = $k; ck = $ck; op = $op }
+            }
+        } finally { Unlock-Record $l2; Unlock-Record $l1 }
+        Expect ($w.out.k.outcome -eq 'REFUSED' -and (Has $w.out.k 'EMERGENCY_STOP_REQUESTED') -and $c.Calls.Count -eq 0) "${pref}: test action $(Why $w.out.k); calls $($c.Calls.Count)"
+        Expect ($w.out.ck.ok -eq $false -and (Has $w.out.ck 'EMERGENCY_STOP_REQUESTED')) "${pref}: checkpoint ok $($w.out.ck.ok) [$(@($w.out.ck.reasons) -join ',')]"
+        Expect ($w.out.op.outcome -eq 'REFUSED' -and (Has $w.out.op 'STOP_REQUEST_PENDING') -and -not (Test-Path -LiteralPath $n.SessionPath)) "${pref}: open $(Why $w.out.op)"
+        Expect ($w.errors.Count -eq 0) "${pref}: $($w.errors.Count) errors written: $(@($w.errors | ForEach-Object { $_.Exception.Message }) -join ' / ')"
+    }
+}
+Case 'K53' 'a session record that cannot be read is never "no session": a session halted by ABORT stays halted for session.open, a test action and session.close, and nothing replaces its record; readable again, the ABORT still needs its acknowledgement' {
+    foreach ($how in 'data', 'inaccessible') {
+        $c = New-MockCtx @($READY_A)
+        $o = Open $c; if ($o.outcome -ne 'DONE') { throw "setup: open $($o.outcome)" }
+        $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($ABORT_A)
+        $null = Act $c @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' }
+        $h = (Sess $c).halt
+        if ([string]$h.status -ne 'ABORT_REQUIRED' -or -not $h.abort_id) { throw "setup: halt $($h.status)" }
+        $c.Prov.queue.Clear(); $c.Prov.queue.Enqueue($READY_B)
+        $b0 = Bytes $c.SessionPath
+        $l = Lock-Record $c.SessionPath $how
+        try {
+            $op = Try-Act $c @{ Action = 'session.open'; Kind = 'Test' }
+            $k = Try-Act $c @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' }
+            $cl = Try-Act $c @{ Action = 'session.close' }
+        } finally { Unlock-Record $l }
+        Expect ($op.outcome -eq 'REFUSED' -and (Has $op 'SESSION_UNREADABLE')) "${how}: open $(Why $op)"
+        Expect ($k.outcome -eq 'REFUSED' -and (Has $k 'SESSION_UNREADABLE') -and $c.Calls.Count -eq 0) "${how}: test action $(Why $k); calls $($c.Calls.Count)"
+        Expect ($cl.outcome -eq 'REFUSED' -and (Has $cl 'SESSION_UNREADABLE')) "${how}: close $(Why $cl)"
+        Expect ((Bytes $c.SessionPath) -eq $b0) "${how}: the session record was replaced ($((Sess $c).session_id) $((Sess $c).lifecycle))"
+        $o2 = Try-Act $c @{ Action = 'session.open'; Kind = 'Test' }
+        Expect ($o2.outcome -eq 'REFUSED' -and (Has $o2 'ABORT_NOT_ACKNOWLEDGED')) "${how}, readable again: open $(Why $o2)"
+        $o3 = Try-Act $c @{ Action = 'session.open'; Kind = 'Test'; AcknowledgeAbort = [string]$h.abort_id }
+        Expect ($o3.outcome -eq 'DONE') "${how}, readable again: open with the acknowledgement $(Why $o3)"
+    }
+}
+Case 'K54' 'a VirtualBox quarantine or operation record that cannot be read blocks as an unreadable one does, whatever ErrorActionPreference the caller set, and a second quarantine never replaces the first' {
+    foreach ($pref in 'Stop', 'Continue', 'SilentlyContinue') {
+        $c = New-MockCtx @($READY_A)
+        $vb = New-P9SVBoxContext -Dir (Join-Path $c.Dir 'vbox') -VmNames @('P9S-D12', 'P9S-U24') -MutexName "Local\P9S-test-k54-$PID-$pref" -ExePath (Join-Path $c.Dir 'no-vboxmanage.exe')
+        New-Item -ItemType Directory -Path $vb.Dir | Out-Null
+        $c | Add-Member -NotePropertyName VBox -NotePropertyValue $vb
+        $g0 = Get-P9SVBoxGate $c
+        Expect ($g0.ok) "${pref}: nothing recorded, the gate refuses: $($g0.reasons -join ',')"
+        $lp = Get-P9SVBoxPath $vb 'latch'; $rp = Get-P9SVBoxPath $vb 'record'
+        [IO.File]::WriteAllText($lp, ([ordered]@{ schema = 'p9s-vbox-quarantine/1'; reason = 'VBOX_TIMEOUT'; operation_id = 'op-first'; utc = 'x' } | ConvertTo-Json))
+        $b0 = Bytes $lp
+        $l = Lock-Record $lp
+        try {
+            $w = With-Preference $pref {
+                $g = try { Get-P9SVBoxGate $c } catch { [pscustomobject]@{ ok = "EXCEPTION $($_.Exception.Message)"; reasons = @() } }
+                $op = Try-Act $c @{ Action = 'session.open'; Kind = 'Test' }
+                $set = try { Set-P9SVBoxLatch $vb 'VBOX_TEST_SECOND' $null 'second' } catch { "EXCEPTION $($_.Exception.Message)" }
+                [pscustomobject]@{ g = $g; op = $op; set = $set }
+            }
+        } finally { Unlock-Record $l }
+        Expect ($w.out.g.ok -eq $false -and (Has $w.out.g 'VBOX_API_QUARANTINED') -and (Has $w.out.g 'VBOX_LATCH_UNREADABLE')) "${pref}: quarantine, gate ok $($w.out.g.ok) [$(@($w.out.g.reasons) -join ',')]"
+        Expect ($w.out.op.outcome -eq 'REFUSED' -and (Has $w.out.op 'VBOX_API_QUARANTINED') -and -not (Test-Path -LiteralPath $c.SessionPath)) "${pref}: quarantine, open $(Why $w.out.op)"
+        Expect ($w.out.set -eq $true -and (Bytes $lp) -eq $b0) "${pref}: a second quarantine returned '$($w.out.set)', the first replaced $((Bytes $lp) -ne $b0)"
+        Expect ($w.errors.Count -eq 0) "${pref}: quarantine, $($w.errors.Count) errors written: $(@($w.errors | ForEach-Object { $_.Exception.Message }) -join ' / ')"
+        Remove-Item -LiteralPath $lp
+        [IO.File]::WriteAllText($rp, ([ordered]@{ schema = 'p9s-vbox-operation/1'; operation_id = 'op-2'; operation = 'vm.acpi'; vm = 'P9S-D12'; owner_pid = $PID; owner_start_ticks = 1; utc = 'x' } | ConvertTo-Json))
+        $l = Lock-Record $rp
+        try { $w = With-Preference $pref { try { Get-P9SVBoxGate $c } catch { [pscustomobject]@{ ok = "EXCEPTION $($_.Exception.Message)"; reasons = @() } } } } finally { Unlock-Record $l }
+        Expect ($w.out.ok -eq $false -and (Has $w.out 'VBOX_OPERATION_UNFINISHED') -and $w.errors.Count -eq 0) "${pref}: operation record, gate ok $($w.out.ok) [$(@($w.out.reasons) -join ',')], $($w.errors.Count) errors written"
+    }
+}
+Case 'K55' 'records that are really absent keep the protocol of a new installation: a session opens, the first emergency records its request and sends it once, a close with the VM off removes it, a session opens again' {
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }
+    foreach ($p in $c.SessionPath, $c.StopRequestPath) { $r = Read-StateFile -Path $p; Expect (-not $r.ok -and $r.error -ceq 'missing') "$([IO.Path]::GetFileName($p)): $($r.error)" }
+    $o = Open $c
+    Expect ($o.outcome -eq 'DONE') "open: $(Why $o)"
+    $em = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    $q = Read-P9SStopRequestState $c
+    Expect ($em.outcome -eq 'DONE' -and $em.dispatched -eq 1 -and $c.Calls.Count -eq 1 -and $q.ok -and $q.doc.acpi.Contains('P9S-D12')) "emergency: $(Why $em); calls $($c.Calls.Count); recorded $($q.ok -and $q.doc.acpi.Contains('P9S-D12'))"
+    $cl = Act $c @{ Action = 'session.close' }
+    Expect ($cl.outcome -eq 'DONE' -and -not (Test-Path -LiteralPath $c.StopRequestPath)) "close: $(Why $cl)"
+    $o2 = Open $c
+    Expect ($o2.outcome -eq 'DONE' -and $c.Calls.Count -eq 1) "open again: $(Why $o2); calls $($c.Calls.Count)"
+    $n = New-MockCtx @($READY_A); Remove-Item -LiteralPath $n.Dir -Recurse
+    $q2 = Read-P9SStopRequestState $n; $s2 = Read-P9SSession $n
+    Expect (-not $q2.present -and $s2.ok -and -not $s2.session) "a state folder not created yet: stop request present $($q2.present), session record ok $($s2.ok)"
+}
+
 # ---- command line, shims, real-process crash (no VM is touched) -----------------
 $cli = Join-Path $kit 'p9s-action.ps1'
 $pw = (Get-Process -Id $PID).Path

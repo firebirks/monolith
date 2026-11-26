@@ -613,6 +613,13 @@ no command that resets a ledger.
 What follows from these rules:
 
 - an unreadable ledger is not an unused budget;
+- a record that exists but cannot be read (access denied, held by
+  another program, not UTF-8, a folder in its place) is unreadable,
+  never missing: the toolkit opens its records instead of testing
+  whether they exist, because an existence test answers false for a
+  file whose attributes cannot be read; the checks of the stop request
+  and of the VirtualBox quarantine give the same answer whatever
+  `$ErrorActionPreference` the caller set;
 - low memory blocks new workload, not observation;
 - low memory does not authorize a second shutdown request;
 - a second ACPI request is never an automatic fallback;
@@ -775,6 +782,10 @@ inside mocked VirtualBox calls; holding that name is its only use of a
 production name, and only to show that the monitor never needs it. The
 `acpival` suite uses mock contexts with a simulated clock, and worker
 processes on file-backed mock contexts for races and crashes. The
+`coordinator` and `acpival` suites also deny the account access to
+synthetic records (their data and attributes, and the listing of their
+folder) to show that a record that cannot be read is never taken for a
+missing one; the deny entries are removed by the same case. The
 `persist` suite builds synthetic state folders, earlier-version folders,
 junctions, hard links, ACL entries and test registry keys under
 `HKCU\Software\Monolith-P9S-Test` (removed at the end), and brackets

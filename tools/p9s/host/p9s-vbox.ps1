@@ -120,8 +120,8 @@ function Test-P9SChildAlive($Id, $Ticks) {
 
 # ------------------------------------------------------------ records
 function Read-P9SVBoxJson([string]$Path, [string]$Schema) {
-    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ present = $false; ok = $true; doc = $null } }
     $r = Read-StateFile -Path $Path
+    if (-not $r.ok -and $r.error -ceq 'missing') { return [pscustomobject]@{ present = $false; ok = $true; doc = $null } }
     if (-not $r.ok) { return [pscustomobject]@{ present = $true; ok = $false; doc = $null } }
     $d = $null; try { $d = $r.text | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch {}
     if ($d -isnot [System.Collections.IDictionary] -or $d.schema -ne $Schema) { return [pscustomobject]@{ present = $true; ok = $false; doc = $null } }
@@ -135,13 +135,14 @@ function Save-P9SVBoxRecord($VBox, $Rec) {
     Write-StateAtomic -Path (Get-P9SVBoxPath $VBox 'record') -Text ($Rec | ConvertTo-Json -Depth 4)
 }
 function Remove-P9SVBoxRecord($VBox) { $p = Get-P9SVBoxPath $VBox 'record'; if (Test-Path -LiteralPath $p -PathType Leaf) { Remove-Item -LiteralPath $p -Force } }
-# Writes the quarantine unless one is already in place (the first one stays,
-# with its operation id). Returns $true when a quarantine now blocks every
+# Writes the quarantine unless one is already in place, readable or not
+# (the first one stays, with its operation id; one that cannot be read
+# blocks as an unreadable one). Returns $true when a quarantine now blocks every
 # operation, $false when none could be written: the caller must then keep
 # the mutex.
 function Set-P9SVBoxLatch($VBox, [string]$Reason, $Rec, [string]$Detail) {
     $p = Get-P9SVBoxPath $VBox 'latch'
-    if (Test-Path -LiteralPath $p) { return $true }
+    if (-not (Test-StateFileAbsent $p)) { return $true }
     if ($VBox.FailLatchWrite) { return $false }
     $l = [ordered]@{
         schema = 'p9s-vbox-quarantine/1'; reason = $Reason; operation_id = $(if ($Rec -and $Rec.operation_id) { [string]$Rec.operation_id } else { New-P9SVBoxOperationId })

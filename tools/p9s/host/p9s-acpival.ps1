@@ -355,8 +355,9 @@ function Get-P9SAcpiLedgerDiagnosis($Ctx, $Read) {
         if (-not $p) { continue }
         $n = [IO.Path]::GetFileName([string]$p)
         try {
-            if (-not [IO.File]::Exists($p)) { "$n absent"; continue }
+            if (Test-StateFileAbsent $p) { "$n absent"; continue }
             $i = [IO.FileInfo]::new($p)
+            if (-not $i.Exists) { "$n present, not inspected (its attributes cannot be read)"; continue }
             $h = try { (Get-FileSha256 $p).Substring(0, 16) } catch { 'not readable' }
             "$n $($i.Length) bytes, written $($i.LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)), sha256 $h..."
         } catch { "$n not inspected ($($_.Exception.GetType().Name))" }
@@ -533,7 +534,7 @@ function Test-P9SAcpiConditions($Ctx, $B, $Res, [double]$MinAvailableMb = 0, [sw
     if ($B.session -and $g.run_id -and $g.run_id -ne $B.session.monitor_run_id) { $reasons.Add('MONITOR_RUN_CHANGED') }
     $e = Test-P9SAcpiValidationState -Text $g.text -NowQpc (& $Ctx.NowQpc) -QpcFrequency $Ctx.QpcFrequency -IsMonitorAlive $Ctx.IsMonitorAlive -MinAvailableMb $MinAvailableMb -ForShutdown:$ForShutdown
     foreach ($r in $e.reasons) { $reasons.Add($r) }
-    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
+    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
     foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }
     if ($B.auth) { $w = Test-P9SAcpiAuthorizationTime $B.auth (Get-P9SUtcNow $Ctx); if ($w) { $reasons.Add($w) } }
     [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g; eligibility = $e }
@@ -683,7 +684,7 @@ function Invoke-P9SAcpiOpen($Ctx, [hashtable]$Request, $Res) {
     if ($sess -and $sess.session_id -and [string]$sess.lifecycle -ceq 'ACTIVE') { $reasons.Add('SESSION_ALREADY_OPEN') }
     if ($sess -and [string]$sess.kind -ceq 'AcpiValidation' -and [string]$sess.lifecycle -cne 'CLOSED') { $reasons.Add('ACPI_VALIDATION_NOT_FINALIZED') }
     if ($sess -and $sess.inflight) { $reasons.Add('INFLIGHT_UNRESOLVED') }
-    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('STOP_REQUEST_PENDING') }
+    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('STOP_REQUEST_PENDING') }
     $g = Get-P9SGate $Ctx; $Res.status = $g.status; $Res.run_id = $g.run_id
     if ($sr.ok) { $sess = Update-P9SHalt $Ctx $sess $g $Res }
     $ackOk = $false

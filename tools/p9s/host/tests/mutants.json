@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 132,
+  "count": 151,
   "mutants": [
     {
       "id": "SM1",
@@ -1535,6 +1535,223 @@
       ],
       "find": "-RequireProtected:($d -eq $C.Root)",
       "replace": "-RequireProtected:$false"
+    },
+    {
+      "id": "FS1",
+      "suite": "coordinator",
+      "file": "hostmon-lib.ps1",
+      "what": "Read-StateFile tests existence first: an inaccessible record reads as missing",
+      "killers": [
+        "K50",
+        "K51",
+        "K53"
+      ],
+      "find": "    $e = 'error'\n    for ($i = 0; $i -lt 5; $i++) {\n",
+      "replace": "    $e = 'error'\n    for ($i = 0; $i -lt 5; $i++) {\n        if (-not [IO.File]::Exists($Path)) { return [pscustomobject]@{ ok = $false; text = $null; error = 'missing' } }\n"
+    },
+    {
+      "id": "FS2",
+      "suite": "acpival",
+      "file": "hostmon-lib.ps1",
+      "what": "Read-StateFile tests existence first: an inaccessible ledger or revision record reads as missing",
+      "killers": [
+        "L27",
+        "L28"
+      ],
+      "find": "    $e = 'error'\n    for ($i = 0; $i -lt 5; $i++) {\n",
+      "replace": "    $e = 'error'\n    for ($i = 0; $i -lt 5; $i++) {\n        if (-not [IO.File]::Exists($Path)) { return [pscustomobject]@{ ok = $false; text = $null; error = 'missing' } }\n"
+    },
+    {
+      "id": "FS3",
+      "suite": "coordinator",
+      "file": "hostmon-lib.ps1",
+      "what": "access denied classified as missing",
+      "killers": [
+        "K50",
+        "K51",
+        "K53"
+      ],
+      "find": "    if ($E -is [UnauthorizedAccessException]) { return 'denied' }",
+      "replace": "    if ($E -is [UnauthorizedAccessException]) { return 'missing' }"
+    },
+    {
+      "id": "FS4",
+      "suite": "acpival",
+      "file": "hostmon-lib.ps1",
+      "what": "access denied classified as missing (ledger files)",
+      "killers": [
+        "L27",
+        "L28"
+      ],
+      "find": "    if ($E -is [UnauthorizedAccessException]) { return 'denied' }",
+      "replace": "    if ($E -is [UnauthorizedAccessException]) { return 'missing' }"
+    },
+    {
+      "id": "FS5",
+      "suite": "coordinator",
+      "file": "hostmon-lib.ps1",
+      "what": "a file whose attributes cannot be read taken as absent",
+      "killers": [
+        "K50",
+        "K52",
+        "K54"
+      ],
+      "find": "    catch { (Get-StateFileError $_.Exception) -ceq 'missing' }",
+      "replace": "    catch { $true }"
+    },
+    {
+      "id": "FS6",
+      "suite": "coordinator",
+      "file": "hostmon-lib.ps1",
+      "what": "a record that is not UTF-8 read as text",
+      "killers": [
+        "K50"
+      ],
+      "find": "[Text.UTF8Encoding]::new($false, $true)",
+      "replace": "[Text.UTF8Encoding]::new($false)"
+    },
+    {
+      "id": "FS7",
+      "suite": "coordinator",
+      "file": "hostmon-lib.ps1",
+      "what": "a sharing or lock violation classified as missing",
+      "killers": [
+        "K50"
+      ],
+      "find": "{ return 'busy' }; return 'io' }",
+      "replace": "{ return 'missing' }; return 'io' }"
+    },
+    {
+      "id": "FS8",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the stop request reader takes access denied for absence",
+      "killers": [
+        "K51"
+      ],
+      "find": "    if (-not $r.ok) { return [pscustomobject]@{ present = ($r.error -ne 'missing'); ok = $false; doc = $null } }",
+      "replace": "    if (-not $r.ok) { return [pscustomobject]@{ present = ($r.error -notin 'missing', 'denied'); ok = $false; doc = $null } }"
+    },
+    {
+      "id": "FS9",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the session reader takes access denied for no session",
+      "killers": [
+        "K53"
+      ],
+      "find": "    if (-not $r.ok) { return [pscustomobject]@{ ok = ($r.error -eq 'missing'); session = $null } }",
+      "replace": "    if (-not $r.ok) { return [pscustomobject]@{ ok = ($r.error -in 'missing', 'denied'); session = $null } }"
+    },
+    {
+      "id": "FS10",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the revision record reader takes access denied for absence",
+      "killers": [
+        "L27"
+      ],
+      "find": "    if (-not $r.ok) { $bad.present = ($r.error -ne 'missing'); return $bad }",
+      "replace": "    if (-not $r.ok) { $bad.present = ($r.error -notin 'missing', 'denied'); return $bad }"
+    },
+    {
+      "id": "FS11",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the ledger reader takes access denied for a ledger never used",
+      "killers": [
+        "L28"
+      ],
+      "find": "    if (-not $r.ok -and $r.error -eq 'missing') {",
+      "replace": "    if (-not $r.ok -and $r.error -in 'missing', 'denied') {"
+    },
+    {
+      "id": "FS12",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the checkpoint tests the stop request with Test-Path",
+      "killers": [
+        "K52"
+      ],
+      "find": "    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }\n    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }",
+      "replace": "    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }\n    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }"
+    },
+    {
+      "id": "FS13",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "a test action tests the stop request with Test-Path",
+      "killers": [
+        "K52"
+      ],
+      "find": "    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    if ($active -and $vg.ok) {",
+      "replace": "    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    if ($active -and $vg.ok) {"
+    },
+    {
+      "id": "FS14",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "session.open tests the stop request with Test-Path",
+      "killers": [
+        "K52"
+      ],
+      "find": "    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('STOP_REQUEST_PENDING') }",
+      "replace": "    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('STOP_REQUEST_PENDING') }"
+    },
+    {
+      "id": "FS15",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the validation conditions test the stop request with Test-Path",
+      "killers": [
+        "L29"
+      ],
+      "find": "    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }",
+      "replace": "    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }"
+    },
+    {
+      "id": "FS16",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "acpi.open tests the stop request with Test-Path",
+      "killers": [
+        "L29"
+      ],
+      "find": "    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('STOP_REQUEST_PENDING') }",
+      "replace": "    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('STOP_REQUEST_PENDING') }"
+    },
+    {
+      "id": "FS17",
+      "suite": "coordinator",
+      "file": "p9s-vbox.ps1",
+      "what": "the quarantine and operation record reader tests existence with Test-Path",
+      "killers": [
+        "K54"
+      ],
+      "find": "    $r = Read-StateFile -Path $Path\n    if (-not $r.ok -and $r.error -ceq 'missing') { return [pscustomobject]@{ present = $false; ok = $true; doc = $null } }",
+      "replace": "    if (-not (Test-Path -LiteralPath $Path)) { return [pscustomobject]@{ present = $false; ok = $true; doc = $null } }\n    $r = Read-StateFile -Path $Path"
+    },
+    {
+      "id": "FS18",
+      "suite": "coordinator",
+      "file": "p9s-vbox.ps1",
+      "what": "a second quarantine written over one that cannot be read",
+      "killers": [
+        "K54"
+      ],
+      "find": "    if (-not (Test-StateFileAbsent $p)) { return $true }",
+      "replace": "    if (Test-Path -LiteralPath $p) { return $true }"
+    },
+    {
+      "id": "FS19",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the ledger diagnosis calls a file that cannot be read absent",
+      "killers": [
+        "L30"
+      ],
+      "find": "            if (Test-StateFileAbsent $p) { \"$n absent\"; continue }",
+      "replace": "            if (-not [IO.File]::Exists($p)) { \"$n absent\"; continue }"
     }
   ]
 }

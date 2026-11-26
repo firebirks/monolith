@@ -1275,6 +1275,29 @@ earlier version keeps using `%TEMP%` until the change of folder. The
 toolkit's 323 declared tests and 132 targeted faults run in the CI job.
 Nothing ran live.
 
+A record that existed but could not be read was taken for a missing
+one: the file reader tested existence first, and an existence test
+answers false when the account cannot read a file's attributes in a
+folder it cannot list. An emergency then sent a second ACPI request over
+a stop request that recorded the first, a session halted by ABORT read
+as no session, a ledger restored to an older revision read as current
+when its revision record could not be read, and a ledger of the earlier
+version without a revision record read as never used. The reader now
+opens the file and reports it missing only when Windows reports it not
+found; a record that is denied, held, not UTF-8 or a folder is
+unreadable, which every caller already refuses. The checks of the stop
+request before an action and the reader of the VirtualBox quarantine and
+operation record either threw or answered "absent" on an access error,
+depending on the caller's error preference; they now answer the same in
+every case and take a record they cannot see for one in place. The
+monitor's STOP file ends the monitor on an access error and is
+unchanged. The four cases were reproduced on synthetic folders with deny
+entries before the change and refused after it; ten interleavings on
+separate processes (access lost before a read and while an emergency
+holds the lock, crashes, restarts with access still denied, access
+restored) ran 50 times each. The toolkit's 333 declared tests and 151
+targeted faults run in the CI job. Nothing ran live.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is
