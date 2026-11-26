@@ -10,9 +10,10 @@
 # equal. The last access time is not compared: Windows may update it when a
 # file is read. Real Windows facts are used where they exist: the known
 # folder, the package identity and token of this process, junctions, hard
-# links, ACLs and registry keys created by the test. P62 runs the entry
-# point against this machine's real locations, and only where none of them
-# exists (a clean runner); elsewhere it is NOT_RUN.
+# links, ACLs and registry keys created by the test. P62 and P63 run the
+# entry point against this machine's real locations, and only where none
+# of them exists (a clean runner); elsewhere they are NOT_RUN. The state.init
+# cases that need separate processes are in tests/setup-tests.ps1.
 #   pwsh -NoProfile -File tests\persist-tests.ps1 -OutDir <new folder>
 param([Parameter(Mandatory)][string]$OutDir)
 $ErrorActionPreference = 'Stop'
@@ -20,6 +21,7 @@ $kit = Split-Path $PSScriptRoot -Parent
 . (Join-Path $kit 'hostmon-lib.ps1')
 . (Join-Path $kit 'coordinator-lib.ps1')
 . (Join-Path $kit 'p9s-state.ps1')
+. (Join-Path $kit 'p9s-state-init.ps1')
 if (Test-Path -LiteralPath $OutDir) { throw "$OutDir exists" }
 New-Item -ItemType Directory -Path $OutDir | Out-Null
 $OutDir = (Resolve-Path -LiteralPath $OutDir).Path
@@ -557,6 +559,356 @@ Case 'P50' 'concurrent classifications by eight processes change nothing' {
     Expect ($s2 -ceq (Get-EnvSnap $e2)) "earlier folder changed: $(Get-SnapDiff $s2 (Get-EnvSnap $e2))"
 }
 
+# ================================================================ state.init
+# state.init (p9s-state-init.ps1) on the same synthetic environments: the
+# known folder, the temporary folder and the anchor key injected, the VM
+# states and the count of VirtualBox VM processes mocked (no VirtualBox),
+# the anchor written with the real registry API into the test keys, the
+# folders and ACLs real. The cases that need separate processes (crash
+# points, races) are in tests/setup-tests.ps1.
+if (-not (Initialize-P9SSetupNative)) { throw 'the native calls of p9s-state-init.ps1 could not be compiled' }
+$vmOff = @{ 'P9S-D12' = 'off'; 'P9S-U24' = 'off' }
+function New-InitCtx($E, [hashtable]$O = @{}) {
+    $vms = if ($O.Vms) { $O.Vms } else { $vmOff }
+    $reads = [System.Collections.Generic.List[string]]::new()
+    $E | Add-Member -NotePropertyName reads -NotePropertyValue $reads -Force
+    $a = @{ State = (New-EnvCtx $E $(if ($O.More) { $O.More } else { @{} })); VmNames = @('P9S-D12', 'P9S-U24')
+        ReadVmStateIn = { param($vm, $dir) $reads.Add("$vm|$dir"); $vms[$vm] }.GetNewClosure()
+        CountVmProcesses = $(if ($O.Procs) { $O.Procs } else { { 0 } }) }
+    if ($O.OnStep) { $a.OnStep = $O.OnStep }
+    if ($O.UtcNow) { $a.UtcNow = $O.UtcNow }
+    New-P9SStateInitContext @a
+}
+function Invoke-Init($E, [string]$Supersede, [switch]$DryRun, [hashtable]$O = @{}) {
+    $i = New-InitCtx $E $O
+    $a = @{ I = $i; DryRun = [bool]$DryRun }
+    if ($PSBoundParameters.ContainsKey('Supersede')) { $a.Supersede = $Supersede }
+    $r = Invoke-P9SStateInit @a
+    $r | Add-Member -NotePropertyName trace -NotePropertyValue @($i.Trace) -Force
+    $r
+}
+function Why($R) { "$($R.outcome) [$(@($R.reasons) -join ',')]" }
+function Test-Refused($R, [string]$Reason, [string]$Label) { Expect ($R.outcome -ceq 'REFUSED' -and @($R.reasons | Where-Object { $_ -clike $Reason }).Count -gt 0) "${Label}: $(Why $R), expected $Reason" }
+# every file under a folder with its bytes; every value of an anchor key
+function Get-Files([string]$Root) {
+    $h = @{}
+    if (Test-Path -LiteralPath $Root) {
+        foreach ($f in @(Get-ChildItem -LiteralPath $Root -Recurse -Force -File)) {
+            $v = $null
+            try { $v = [IO.File]::ReadAllBytes($f.FullName) } catch { $v = [Text.Encoding]::ASCII.GetBytes("<not readable: $($_.Exception.GetType().Name)>") }
+            $h[$f.FullName.Substring($Root.Length)] = $v
+        }
+    }
+    $h
+}
+function Get-KeyValues($E) {
+    $h = @{}; $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($E.key, $false)
+    if ($k) { try { foreach ($v in $k.GetValueNames()) { $h[$v] = [string]$k.GetValue($v) } } finally { $k.Dispose() } }
+    $h
+}
+function Get-Hex($B) { if ($null -eq $B -or $B.Length -eq 0) { '' } else { [Convert]::ToHexString([byte[]]$B) } }
+# nothing that existed is gone or changed; a history (.jsonl) may only grow
+function Test-Kept($Before, $After, [string]$Label, [string]$Except) {
+    foreach ($p in $Before.Keys) {
+        if ($Except -and $p.StartsWith($Except, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if (-not $After.ContainsKey($p)) { Expect $false "${Label}: $p is gone"; continue }
+        $a = Get-Hex $Before[$p]; $b = Get-Hex $After[$p]
+        Expect ($a -ceq $b -or ($p -like '*.jsonl' -and $b.StartsWith($a, [StringComparison]::Ordinal))) "${Label}: $p changed"
+    }
+}
+function Test-SameFiles($A, $B) {
+    if (@($A.Keys).Count -ne @($B.Keys).Count) { return $false }
+    foreach ($p in $A.Keys) { if (-not $B.ContainsKey($p) -or (Get-Hex $A[$p]) -cne (Get-Hex $B[$p])) { return $false } }
+    $true
+}
+function Get-Stagings($E) { @(if (Test-Path -LiteralPath $E.root) { Get-ChildItem -LiteralPath $E.root -Directory -Force | Where-Object Name -like 'state.staging-*' }) }
+$newSteps = 'P0', 'I1', 'I2', 'I4', 'V:P9S-D12', 'V:P9S-U24', 'V', 'I5', 'I6-ledger-tmp', 'I6-ledger', 'I6-revision-tmp', 'I6-revision', 'I6', 'I7', 'I8', 'I9', 'I10'
+$supSteps = 'P0', 'I1', 'I2a', 'I2', 'I4', 'V:P9S-D12', 'V:P9S-U24', 'V', 'I3', 'I5', 'I6-ledger-tmp', 'I6-ledger', 'I6-revision-tmp', 'I6-revision', 'I6', 'I7', 'I8', 'I9', 'I10'
+# an installation whose ledger is gone: STATE_UNCERTAIN, the status a supersede starts from here
+function New-Uncertain($E) { $r = Invoke-Init $E; if ($r.outcome -cne 'DONE') { throw "fixture: $(Why $r)" }; [IO.File]::Delete((Get-LedgerPath $E)); $E.id = $r.installation_id }
+
+Case 'P70' 'state.init on NOT_INITIALIZED: a new installation, READY, every record as the design writes it, the VM states observed into the staging folder' {
+    $e = New-Env 'p70'
+    $r = Invoke-Init $e
+    Expect ($r.outcome -ceq 'DONE' -and $r.mode -ceq 'new' -and $r.status_before -ceq 'NOT_INITIALIZED' -and $r.status_after -ceq 'READY' -and $r.dispatched -eq 0) (Why $r)
+    Expect ((@($r.trace) -join ',') -ceq ($newSteps -join ',')) "steps $(@($r.trace) -join ',')"
+    $st = Test-Status $e 'READY'
+    Expect ($st.installation_id -ceq $r.installation_id) "status names $($st.installation_id)"
+    $a = Get-Anchor $e
+    Expect ($a.phase -ceq 'READY' -and $a.installation_id -ceq $r.installation_id -and $a.op_id -ceq $r.op_id -and $a.account -ceq $me -and (Test-P9SStateSamePath $a.state_dir $e.state) -and $a.origin -ceq 'new' -and $null -eq $a.supersedes) "anchor $($a | ConvertTo-Json -Compress)"
+    $ct = ConvertFrom-P9SStateUtcText $a.created_utc; $it = ConvertFrom-P9SStateUtcText $a.initialized_utc
+    Expect ($ct -and $it -and $it -ge $ct -and $a.initialized_utc -cmatch '\.\d{7}Z$' -and $a.created_utc -cmatch '\.\d{7}Z$') "times $($a.created_utc) $($a.initialized_utc)"
+    $ins = ConvertFrom-P9SStateJson ([IO.File]::ReadAllBytes((Join-Path $e.state $names.install)))
+    Expect ($ins.installation_id -ceq $a.installation_id -and $ins.created_utc -ceq $a.created_utc -and $ins.origin -ceq 'new' -and $null -eq $ins.migration_id -and $null -eq $ins.supersedes -and (Test-P9SStateSamePath $ins.state_dir $e.state)) "install record $($ins | ConvertTo-Json -Compress)"
+    $m = Get-Mark (Get-LedgerPath $e)
+    Expect ($m.revision -eq 1 -and $a.ledger.revision -eq 1 -and $a.ledger.sha256 -ceq $m.sha256) "mark $($a.ledger | ConvertTo-Json -Compress), ledger $($m | ConvertTo-Json -Compress)"
+    $lg = Read-P9SAcpiLedger ([pscustomobject]@{ LedgerPath = (Get-LedgerPath $e); SessionPath = (Join-Path $e.state 'coordinator-session.json') })
+    Expect ($lg.ok -and $lg.detail -ceq 'revision 1' -and @($lg.doc.entries).Count -eq 0) "ledger $($lg.detail) $($lg.reason)"
+    Expect (@(Get-P9SStateAclReasons $e.root $me -RequireProtected).Count -eq 0 -and @(Get-P9SStateAclReasons $e.state $me).Count -eq 0) 'ACL of the root or the state folder'
+    $dirs = @($e.reads | ForEach-Object { ($_ -split '\|', 2)[1] } | Select-Object -Unique)
+    Expect (@($e.reads).Count -eq 2 -and $dirs.Count -eq 1 -and [IO.Path]::GetFileName($dirs[0]) -clike "state.staging-$($r.op_id)-1") "VM reads $(@($e.reads) -join '; ')"
+    $obs = @(Get-Content -LiteralPath (Join-Path $e.state 'vm-observations.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
+    Expect ($obs.Count -eq 2 -and @($obs | Where-Object { $_.state -ceq 'off' -and $_.observed -and $_.purpose -ceq 'state.init' }).Count -eq 2) "observations $($obs | ConvertTo-Json -Compress)"
+    $aud = @(Get-Content -LiteralPath (Join-Path $e.state 'coordinator-audit.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
+    Expect ($aud.Count -eq 1 -and $aud[0].action -ceq 'state.init' -and $aud[0].outcome -ceq 'DONE' -and $aud[0].installation_id -ceq $r.installation_id -and $aud[0].dispatched -eq 0) "audit $($aud | ConvertTo-Json -Compress)"
+    Expect ((@(Get-ChildItem -LiteralPath $e.root -Force | ForEach-Object Name | Sort-Object) -join ',') -ceq 'setup.lock,state') "root holds $(@(Get-ChildItem -LiteralPath $e.root -Force | ForEach-Object Name) -join ',')"
+    Expect ((@(Get-ChildItem -LiteralPath $e.state -Force | ForEach-Object Name | Sort-Object) -join ',') -ceq 'acpi-validation-ledger.json,acpi-validation-ledger.revision.json,coordinator-audit.jsonl,install.json,vm-observations.jsonl') "state folder holds $(@(Get-ChildItem -LiteralPath $e.state -Force | ForEach-Object Name) -join ',')"
+    Expect (-not (Test-Path -LiteralPath $e.legacy) -and -not (Test-Path -LiteralPath $e.legacy2)) 'an earlier-version folder was created'
+}
+Case 'P71' 'state.init -DryRun: the decision and the checks only; nothing written, no VM state read' {
+    $e = New-Env 'p71'; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e -DryRun
+    Expect ($r.outcome -ceq 'DRYRUN' -and $r.mode -ceq 'new' -and (@($r.trace) -join ',') -ceq 'P0') "$(Why $r) steps $(@($r.trace) -join ',')"
+    Expect ($before -ceq (Get-EnvSnap $e)) "the dry run changed: $(Get-SnapDiff $before (Get-EnvSnap $e))"
+    Expect (@($e.reads).Count -eq 0 -and -not (Test-Path -LiteralPath $e.root)) 'a VM state read or the root created'
+}
+Case 'P72' 'nothing initializes implicitly: only the state.init branch of p9s-action.ps1 calls it, the coordinator does not know the action, -Supersede is refused elsewhere' {
+    $calls = @(Get-ChildItem -LiteralPath $kit -Filter '*.ps1' | ForEach-Object { $f = $_; Select-String -LiteralPath $f.FullName -Pattern 'Invoke-P9SStateInit\b' -CaseSensitive | Where-Object { $_.Line -notmatch '^\s*#' -and $_.Line -notmatch '^\s*function ' } | ForEach-Object { "$($f.Name):$($_.LineNumber)" } })
+    Expect ($calls.Count -eq 1 -and $calls[0] -like 'p9s-action.ps1:*') "calls of Invoke-P9SStateInit: $($calls -join ', ')"
+    $t = [IO.File]::ReadAllText((Join-Path $kit 'p9s-action.ps1')).Replace("`r`n", "`n")
+    $b = $t.IndexOf("if (`$Action -ceq 'state.init') {"); $c = $t.IndexOf('Invoke-P9SStateInit @ia'); $end = if ($b -ge 0) { $t.IndexOf("`n}", $b) } else { -1 }
+    Expect ($b -gt 0 -and $c -gt $b -and $end -gt $c) 'the call is not inside the state.init branch'
+    $v = Test-P9SRequest -Request @{ Action = 'state.init' }
+    Expect (-not $v.ok -and @($v.reasons) -ccontains 'UNKNOWN_ACTION') "the coordinator on state.init: $(@($v.reasons) -join ',')"
+    $v = Test-P9SRequest -Request @{ Action = 'session.open'; Kind = 'Test'; Supersede = 'inst-0000' }
+    Expect (-not $v.ok -and @($v.reasons) -ccontains 'PARAMETER_NOT_ALLOWED:Supersede') "-Supersede on session.open: $(@($v.reasons) -join ',')"
+}
+Case 'P73' 'state.init on a READY installation: refused, nothing written; -Supersede on READY: refused' {
+    $e = New-Env 'p73'; $r0 = Invoke-Init $e; Expect ($r0.outcome -ceq 'DONE') (Why $r0)
+    $before = Get-EnvSnap $e
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:READY' 'again'
+    $r = Invoke-Init $e -Supersede $r0.installation_id; Test-Refused $r 'NOTHING_TO_SUPERSEDE:READY' 'supersede'
+    Expect ($before -ceq (Get-EnvSnap $e)) "changed: $(Get-SnapDiff $before (Get-EnvSnap $e))"
+    Expect (@($e.reads).Count -eq 0) 'a VM state was read'
+    $e = New-Env 'p73b'; Install-New $e; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:READY' 'an installation made by the fixture'
+    Expect ($before -ceq (Get-EnvSnap $e)) 'the fixture installation changed'
+}
+Case 'P74' 'state.init without -Supersede refuses every status but NOT_INITIALIZED and its own interruption, before anything is written or a VM is read' {
+    $mk = [ordered]@{
+        'MIGRATION_REQUIRED' = { param($e) New-Legacy $e.legacy }
+        'MIGRATION_SOURCES_AMBIGUOUS' = { param($e) New-Legacy $e.legacy; New-Legacy $e.legacy2 }
+        'INSTALLATION_LOST' = { param($e) Install-Migrated $e; Remove-Tree $e.root; [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($e.key) }
+        'SETUP_LEFTOVER' = { param($e) New-Root $e; [IO.Directory]::Delete($e.state); New-Item -ItemType Directory -Path (Join-Path $e.root 'state.staging-op-1-1') | Out-Null }
+        'ANCHOR_MISSING' = { param($e) Install-New $e; [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($e.key) }
+        'ANCHOR_UNREADABLE' = { param($e) Install-New $e; Write-Anchor $e $null -Raw '{"schema":' }
+        'ACCOUNT_MISMATCH' = { param($e) Install-New $e; $a = Get-Anchor $e; $a.account = 'S-1-5-21-0-0-0-1001'; Write-Anchor $e $a }
+        'STATE_MISSING' = { param($e) Install-New $e; Remove-Tree $e.state }
+        'STATE_INCOMPLETE' = { param($e) Install-New $e; [IO.File]::Delete((Join-Path $e.state $names.install)) }
+        'STATE_MISMATCH' = { param($e) Install-New $e; $a = Get-Anchor $e; $a.installation_id = New-Id; Write-Anchor $e $a }
+        'STATE_UNCERTAIN' = { param($e) Install-New $e; [IO.File]::Delete((Get-LedgerPath $e)) }
+        'STATE_DIVERGED' = { param($e) Install-Migrated $e; Write-Text (Join-Path $e.legacy 'coordinator-stop.request') '{}' }
+        'INTERRUPTED' = { param($e) New-Legacy $e.legacy; Write-Anchor $e (New-AnchorDoc $e (New-Id) 'MIGRATING' 'migrated' $null $e.legacy ('0' * 64)) }
+        'LOCATION_UNSAFE' = { param($e) $real = Join-Path $e.base 'real-lad'; [IO.Directory]::Move($e.lad, $real); New-Item -ItemType Junction -Path $e.lad -Target $real | Out-Null }
+    }
+    $i = 0
+    foreach ($s in $mk.Keys) {
+        $i++; $e = New-Env "p74-$i"; & $mk[$s] $e
+        $null = Test-Status $e $s -Label "fixture $s"
+        $before = Get-EnvSnap $e
+        $r = Invoke-Init $e
+        Test-Refused $r "STATE_NOT_NEW:$s" $s
+        Expect ($r.status_before -ceq $s) "${s}: decided on $($r.status_before)"
+        Expect ($before -ceq (Get-EnvSnap $e)) "${s}: changed $(Get-SnapDiff $before (Get-EnvSnap $e))"
+        Expect (@($e.reads).Count -eq 0) "${s}: a VM state was read"
+    }
+}
+Case 'P75' 'access errors are never absence for state.init: an anchor key that cannot be read, an earlier folder whose attributes cannot be read, a root that cannot be listed, a VirtualBox record that cannot be inspected, an anchor that cannot be written' {
+    $e = New-Env 'p75a'; Install-New $e
+    $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($e.key, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [Security.AccessControl.RegistryRights]'ChangePermissions, ReadPermissions')
+    $rule = [Security.AccessControl.RegistryAccessRule]::new([Security.Principal.SecurityIdentifier]::new($me), [Security.AccessControl.RegistryRights]'QueryValues, EnumerateSubKeys', 'Deny')
+    $sec = $k.GetAccessControl(); $sec.AddAccessRule($rule); $k.SetAccessControl($sec)
+    try {
+        $before = Get-TreeSnap $e.base
+        $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:ANCHOR_UNREADABLE' 'unreadable anchor key'
+        $r = Invoke-Init $e -Supersede $e.id; Test-Refused $r 'NOT_SUPERSEDABLE:ANCHOR_UNREADABLE' 'unreadable anchor key, supersede'
+        Expect (-not (Get-P9SStateInstallation (New-EnvCtx $e)).known) 'the installation is known through an unreadable anchor'
+        Expect ($before -ceq (Get-TreeSnap $e.base)) 'files changed'
+    } finally { $sec = $k.GetAccessControl(); $null = $sec.RemoveAccessRule($rule); $k.SetAccessControl($sec); $k.Dispose() }
+    $e = New-Env 'p75b'; New-Legacy $e.legacy
+    $r1 = Add-Rule $e.legacy $me 'ReadAttributes, ReadData' 'Deny'; $r2 = Add-Rule $e.tmp $me 'ReadData' 'Deny'
+    try { $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:MIGRATION_REQUIRED' 'earlier folder not readable'; Expect (-not (Test-Path -LiteralPath $e.root)) 'root created' }
+    finally { Remove-Rule $e.tmp $r2; Remove-Rule $e.legacy $r1 }
+    $e = New-Env 'p75c'; New-Uncertain $e
+    $rule = Add-Rule $e.root $me 'ReadData' 'Deny'
+    try {
+        $r = Invoke-Init $e -Supersede $e.id; Test-Refused $r 'NOT_SUPERSEDABLE:LOCATION_UNSAFE' 'root not listable'
+        # the anchor, readable, still names the installation and its time
+        $inst = Get-P9SStateInstallation (New-EnvCtx $e); Expect ($inst.known -and $inst.installed -and $inst.installation_id -ceq $e.id) "the installation through its anchor: $($inst | ConvertTo-Json -Compress)"
+    } finally { Remove-Rule $e.root $rule }
+    Expect (Test-Path -LiteralPath $e.state) 'the state folder was moved'
+    # an interrupted initialization whose staging folder holds a record that cannot be inspected
+    $e = New-Env 'p75d'; $r = Invoke-Init $e -O @{ Vms = @{ 'P9S-D12' = 'unreadable'; 'P9S-U24' = 'off' } }; Test-Refused $r 'VM_NOT_OFF:P9S-D12:unreadable' 'fixture'
+    $q = Join-Path $r.staging 'vbox-quarantine.json'; Write-Text $q '{}'
+    $r1 = Add-Rule $q $me 'ReadAttributes, ReadData' 'Deny'; $r2 = Add-Rule $r.staging $me 'ReadData' 'Deny'
+    try { Expect ((Get-P9SStateEntry $q).kind -eq 'denied') "the probe says $((Get-P9SStateEntry $q).kind)"; $x = Invoke-Init $e; Test-Refused $x 'SETUP_VBOX_RECORD:*vbox-quarantine.json' 'a denied record'; Expect (@($e.reads).Count -eq 0) 'a VM state was read' }
+    finally { Remove-Rule $r.staging $r2; Remove-Rule $q $r1 }
+    # an anchor key that cannot be created: nothing but the root and the setup lock
+    $e = New-Env 'p75e'; $e.key = "$keyRoot\p75e-parent\anchor"
+    $pk = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("$keyRoot\p75e-parent")
+    $prule = [Security.AccessControl.RegistryAccessRule]::new([Security.Principal.SecurityIdentifier]::new($me), [Security.AccessControl.RegistryRights]'CreateSubKey', 'Deny')
+    $ps = $pk.GetAccessControl(); $ps.AddAccessRule($prule); $pk.SetAccessControl($ps)
+    try {
+        $r = Invoke-Init $e; Test-Refused $r 'ANCHOR_WRITE_FAILED' 'anchor key not creatable'
+        Expect (-not (Test-Path -LiteralPath $e.state) -and @(Get-Stagings $e).Count -eq 0) 'a folder was created after the anchor failed'
+        $null = Test-Status $e 'NOT_INITIALIZED' -Label 'after the failed anchor'
+    } finally { $ps = $pk.GetAccessControl(); $null = $ps.RemoveAccessRule($prule); $pk.SetAccessControl($ps); $pk.Dispose() }
+}
+Case 'P76' 'folders already there: a root without the protected ACL, a root with a write entry for another account, a root that is a file, a state folder without anchor: refused, nothing written or repaired; a protected root holding only the setup lock: initialized' {
+    $e = New-Env 'p76a'; New-Item -ItemType Directory -Path $e.root | Out-Null; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:LOCATION_UNSAFE' 'root with an inherited ACL'
+    Expect ($before -ceq (Get-EnvSnap $e) -and -not (Get-Acl -LiteralPath $e.root).AreAccessRulesProtected) 'the root was changed or its ACL repaired'
+    $e = New-Env 'p76b'; New-Root $e; [IO.Directory]::Delete($e.state); $null = Add-Rule $e.root 'S-1-5-32-545' 'Write' 'Allow'; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:LOCATION_UNSAFE' 'root writable by Users'
+    Expect ($before -ceq (Get-EnvSnap $e)) 'changed'
+    $e = New-Env 'p76c'; Write-Text $e.root 'x'; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:LOCATION_UNSAFE' 'a file at the root'
+    Expect ($before -ceq (Get-EnvSnap $e)) 'changed'
+    $e = New-Env 'p76d'; New-Root $e; $null = Test-Status $e 'NOT_INITIALIZED' -Label 'empty state folder'; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_FOLDER_EXISTS' 'an empty state folder and no anchor'
+    Expect ($before -ceq (Get-EnvSnap $e)) "changed: $(Get-SnapDiff $before (Get-EnvSnap $e))"
+    $e = New-Env 'p76e'; New-Root $e; [IO.Directory]::Delete($e.state); Write-Text (Join-Path $e.root $names.setup_lock) ''
+    $r = Invoke-Init $e; Expect ($r.outcome -ceq 'DONE') "protected root with the setup lock: $(Why $r)"
+}
+Case 'P77' 'junctions: the root or the state folder a junction: refused, nothing written at the target; a folder or file already at a name is never taken; a rename never replaces' {
+    $e = New-Env 'p77a'; $t = Join-Path $e.base 'elsewhere'; New-Item -ItemType Directory -Path $t | Out-Null; New-Item -ItemType Junction -Path $e.root -Target $t | Out-Null
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:LOCATION_UNSAFE' 'root junction'
+    Expect (@(Get-ChildItem -LiteralPath $t -Force).Count -eq 0 -and -not ([Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($e.key))) 'written through the junction or the anchor written'
+    $e = New-Env 'p77b'; New-Root $e; [IO.Directory]::Delete($e.state); $t = Join-Path $e.base 'elsewhere'; New-Item -ItemType Directory -Path $t | Out-Null; New-Item -ItemType Junction -Path $e.state -Target $t | Out-Null
+    $r = Invoke-Init $e; Test-Refused $r 'STATE_NOT_NEW:LOCATION_UNSAFE' 'state folder junction'
+    Expect (@(Get-ChildItem -LiteralPath $t -Force).Count -eq 0) 'written through the junction'
+    $j = Join-Path $base 'p77-junction'; New-Item -ItemType Junction -Path $j -Target $t | Out-Null
+    Expect ((New-P9SStateFolder $j $me) -ceq 'EXISTS') 'a junction taken as a new folder'
+    $f = Join-Path $base 'p77-file'; Write-Text $f 'x'
+    Expect ((New-P9SStateFolder $f $me) -ceq 'EXISTS' -and (Get-Content -Raw -LiteralPath $f) -ceq 'x') 'a file taken as a new folder'
+    $src = Join-Path $base 'p77-src'; $dst = Join-Path $base 'p77-dst'; New-Item -ItemType Directory -Path $src, $dst | Out-Null; Write-Text (Join-Path $dst 'keep') 'k'
+    $x = Move-P9SStateEntry $src $dst
+    Expect ($x -ne 0 -and (Test-Path -LiteralPath $src) -and (Get-Content -Raw -LiteralPath (Join-Path $dst 'keep')) -ceq 'k') "rename over an existing folder returned $x"
+}
+Case 'P78' 'the VMs: a VM process refuses before anything is written; a VM not observed off refuses before the install record, its observations kept; once every VM is off the same command completes the same installation' {
+    $e = New-Env 'p78a'; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e -O @{ Procs = { 1 } }; Test-Refused $r 'VM_PROCESS_RUNNING:1' 'a VM process'
+    $r = Invoke-Init $e -O @{ Procs = { throw 'no process list' } }; Test-Refused $r 'VM_PROCESSES_UNKNOWN' 'count failed'
+    $r = Invoke-Init $e -O @{ Procs = { 'two' } }; Test-Refused $r 'VM_PROCESSES_UNKNOWN' 'count not a number'
+    Expect ($before -ceq (Get-EnvSnap $e) -and @($e.reads).Count -eq 0) 'written or read before the VM process check'
+    foreach ($s in 'running', 'saved', 'paused', 'aborted', 'unreadable') {
+        $e = New-Env "p78$($s.Substring(0, 3))"
+        $r = Invoke-Init $e -O @{ Vms = @{ 'P9S-D12' = 'off'; 'P9S-U24' = $s } }
+        Test-Refused $r "VM_NOT_OFF:P9S-U24:$s" $s
+        $null = Test-Status $e 'INTERRUPTED' -Label $s
+        $sg = @(Get-Stagings $e)
+        Expect ($sg.Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $sg[0].FullName $names.install)) -and @(Get-Content -LiteralPath (Join-Path $sg[0].FullName 'vm-observations.jsonl')).Count -eq 2 -and -not (Test-Path -LiteralPath $e.state)) "${s}: staging $(@($sg | ForEach-Object Name) -join ',')"
+        $r2 = Invoke-Init $e
+        Expect ($r2.outcome -ceq 'DONE' -and $r2.installation_id -ceq $r.installation_id) "${s}: then off: $(Why $r2), $($r2.installation_id) vs $($r.installation_id)"
+        Expect (@(Get-Stagings $e).Count -eq 1 -and (Test-Path -LiteralPath $sg[0].FullName)) "${s}: the first staging folder is not kept"
+    }
+    $e = New-Env 'p78b'; $n = [System.Collections.Generic.List[int]]::new()
+    $r = Invoke-Init $e -O @{ Procs = { $n.Add(1); if ($n.Count -ge 4) { 1 } else { 0 } }.GetNewClosure() }
+    Test-Refused $r 'VM_PROCESS_RUNNING:1' 'a VM process started during the VM queries'
+    Expect (-not (Test-Path -LiteralPath $e.state)) 'state folder created'
+}
+Case 'P79' 'a VirtualBox operation or quarantine record left in a folder under the root, or in the coordinator folder of this version, refuses state.init before any VM is read' {
+    $e = New-Env 'p79a'; $r = Invoke-Init $e -O @{ Vms = @{ 'P9S-D12' = 'unreadable'; 'P9S-U24' = 'off' } }
+    Write-Doc (Join-Path $r.staging 'vbox-quarantine.json') ([ordered]@{ schema = 'p9s-vbox-quarantine/1' })
+    $before = Get-EnvSnap $e
+    $x = Invoke-Init $e; Test-Refused $x "SETUP_VBOX_RECORD:$([IO.Path]::GetFileName($r.staging))\vbox-quarantine.json" 'a quarantine in a staging folder'
+    Expect ($before -ceq (Get-EnvSnap $e) -and @($e.reads).Count -eq 0) 'written or read'
+    $e = New-Env 'p79b'; New-Uncertain $e; Write-Doc (Join-Path $e.state 'vbox-operation.json') ([ordered]@{ schema = 'p9s-vbox-operation/1' })
+    $x = Invoke-Init $e -Supersede $e.id; Test-Refused $x 'SETUP_VBOX_RECORD:state\vbox-operation.json' 'an operation record in the folder being superseded'
+    Expect (Test-Path -LiteralPath $e.state) 'the folder was moved'
+    $e = New-Env 'p79c'; New-Uncertain $e; New-Item -ItemType Directory -Path $e.legacy | Out-Null; Write-Doc (Join-Path $e.legacy 'vbox-quarantine.json') ([ordered]@{ schema = 'p9s-vbox-quarantine/1' })
+    $x = Invoke-Init $e -Supersede $e.id; Test-Refused $x "SETUP_VBOX_RECORD:$($e.legacy)\vbox-quarantine.json" 'a quarantine in the coordinator folder of this version'
+}
+Case 'P90' 'the clock: initialized_utc at 100 ns, never before created_utc; a resumed or superseding run with the clock behind the evidence refuses, writing nothing' {
+    # an initialization interrupted at I5 (an exception from the step: the anchor stays INITIALIZING)
+    $e = New-Env 'p90a'; try { $null = Invoke-Init $e -O @{ OnStep = { param($s) if ($s -ceq 'I5') { throw 'interrupted at I5' } } } } catch { }
+    $a = Get-Anchor $e; $c = ConvertFrom-P9SStateUtcText $a.created_utc; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e -O @{ UtcNow = { $c.AddTicks(-1) }.GetNewClosure() }; Test-Refused $r 'CLOCK_BEHIND_EVIDENCE' 'resume, clock 100 ns before created_utc'
+    Expect ($before -ceq (Get-EnvSnap $e)) "changed: $(Get-SnapDiff $before (Get-EnvSnap $e))"
+    $r = Invoke-Init $e; Expect ($r.outcome -ceq 'DONE') "resume: $(Why $r)"
+    $b = Get-Anchor $e; Expect ((ConvertFrom-P9SStateUtcText $b.initialized_utc) -ge (ConvertFrom-P9SStateUtcText $b.created_utc)) "initialized $($b.initialized_utc) before created $($b.created_utc)"
+    $e = New-Env 'p90b'; New-Uncertain $e; $t0 = ConvertFrom-P9SStateUtcText (Get-Anchor $e).initialized_utc; $before = Get-EnvSnap $e
+    $r = Invoke-Init $e -Supersede $e.id -O @{ UtcNow = { $t0.AddMilliseconds(-1) }.GetNewClosure() }; Test-Refused $r 'CLOCK_BEHIND_EVIDENCE' 'supersede before the old initialization'
+    Expect ($before -ceq (Get-EnvSnap $e)) 'changed'
+    $f = [datetime]::new(2026, 11, 26, 12, 0, 0, [DateTimeKind]::Utc).AddTicks(1234567)
+    Expect ((ConvertTo-P9SStateUtcText $f) -ceq '2026-11-26T12:00:00.1234567Z' -and (ConvertFrom-P9SStateUtcText '2026-11-26T12:00:00.1234567Z') -eq $f -and (ConvertFrom-P9SStateUtcText '2026-11-26T12:00:00Z') -eq $f.AddTicks(-1234567)) 'UTC text at 100 ns'
+    foreach ($bad in '2026-11-26T12:00:00', '2026-11-26 12:00:00Z', '2026-11-26T12:00:00+01:00', '2026-11-26T12:00:00.12345678Z') { Expect ($null -eq (ConvertFrom-P9SStateUtcText $bad)) "accepted $bad" }
+}
+Case 'P91' 'state.init -Supersede: an explicit id that the evidence names, from each status the design allows; the folder kept aside byte for byte, the replaced anchor kept beside it, the earlier coordinator folder untouched, a VM not off refuses before the folder is moved' {
+    $r = Invoke-Init (New-Env 'p91x') -Supersede ''; Expect ($r.outcome -ceq 'REJECTED' -and @($r.reasons) -ccontains 'SUPERSEDE_ID_INVALID') "empty id: $(Why $r)"
+    $r = Invoke-Init (New-Env 'p91y') -Supersede 'not an id!'; Expect ($r.outcome -ceq 'REJECTED') "bad id: $(Why $r)"
+    $r = Invoke-Init (New-Env 'p91z') -Supersede 'inst-00000000'; Test-Refused $r 'NOTHING_TO_SUPERSEDE:NOT_INITIALIZED' 'nothing there'
+    $mk = [ordered]@{
+        'STATE_MISSING' = { param($e) Install-New $e; Remove-Tree $e.state }
+        'STATE_INCOMPLETE' = { param($e) Install-New $e; [IO.File]::Delete((Join-Path $e.state $names.install)) }
+        'STATE_MISMATCH' = { param($e) Install-New $e; $a = Get-Anchor $e; $a.installation_id = New-Id; Write-Anchor $e $a }
+        'STATE_UNCERTAIN' = { param($e) New-Uncertain $e }
+        # (the finished VirtualBox operation record of the fixture removed: a record would refuse, P79)
+        'STATE_DIVERGED' = { param($e) Install-Migrated $e; Remove-Item -LiteralPath (Join-Path $e.legacy 'vbox-operation.json'), (Join-Path $e.state 'vbox-operation.json'); Write-Text (Join-Path $e.legacy 'coordinator-stop.request') '{}' }
+        'INSTALLATION_LOST' = { param($e) Install-Migrated $e; Remove-Item -LiteralPath (Join-Path $e.legacy 'vbox-operation.json'); Remove-Tree $e.root; [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($e.key) }
+    }
+    $i = 0
+    foreach ($s in $mk.Keys) {
+        $i++; $e = New-Env "p91-$i"; & $mk[$s] $e
+        $st = Test-Status $e $s -Label "fixture $s"; $old = $st.installation_id
+        $oldFiles = Get-Files $e.state; $hadState = Test-Path -LiteralPath $e.state; $oldRaw = Read-P9SStateAnchorRaw (New-EnvCtx $e); $legacy = Get-Files $e.legacy
+        $before = Get-EnvSnap $e
+        $r = Invoke-Init $e -Supersede 'inst-00000000'; Test-Refused $r 'SUPERSEDE_ID_MISMATCH' "$s, another id"
+        $r = Invoke-Init $e; Test-Refused $r "STATE_NOT_NEW:$s" "$s, no -Supersede"
+        Expect ($before -ceq (Get-EnvSnap $e)) "${s}: a refusal changed something"
+        $r = Invoke-Init $e -Supersede $old -O @{ Vms = @{ 'P9S-D12' = 'running'; 'P9S-U24' = 'off' } }; Test-Refused $r 'VM_NOT_OFF:P9S-D12:running' "$s, a VM running"
+        Expect ((Test-Path -LiteralPath $e.state) -eq $hadState -and (Test-SameFiles $oldFiles (Get-Files $e.state))) "${s}: the folder was touched before the VMs were confirmed off"
+        $r = Invoke-Init $e; Expect ($r.outcome -ceq 'DONE' -and $r.supersedes -ceq $old) "${s}: the resumed supersede $(Why $r)"
+        $st2 = Test-Status $e 'READY' -Label "$s, after"
+        $a = Get-Anchor $e; $ins = ConvertFrom-P9SStateJson ([IO.File]::ReadAllBytes((Join-Path $e.state $names.install)))
+        Expect ($a.supersedes -ceq $old -and $ins.supersedes -ceq $old -and $a.installation_id -cne $old) "${s}: supersedes $($a.supersedes) / $($ins.supersedes)"
+        if ($hadState) { Expect (@(Get-ChildItem -LiteralPath $e.root -Directory -Force | Where-Object Name -like 'state.superseded-*' | Where-Object { Test-SameFiles $oldFiles (Get-Files $_.FullName) }).Count -eq 1) "${s}: the old folder is not kept byte for byte" }
+        if ($oldRaw) { $kv = Get-KeyValues $e; Expect (@($kv.Keys | Where-Object { $_ -clike 'Superseded-*' -and $kv[$_] -ceq $oldRaw }).Count -eq 1) "${s}: the replaced anchor is not kept" }
+        Expect (Test-SameFiles $legacy (Get-Files $e.legacy)) "${s}: the earlier coordinator folder changed"
+    }
+}
+Case 'P92' 'the installation the authorization rule sees: none, a setup lock only, READY with its time, in progress, unreadable, of another account, a folder without its anchor, a root that cannot be listed' {
+    $e = New-Env 'p92'; $i = Get-P9SStateInstallation (New-EnvCtx $e); Expect ($i.known -and -not $i.installed) "nothing: $($i | ConvertTo-Json -Compress)"
+    New-Root $e; [IO.Directory]::Delete($e.state); Write-Text (Join-Path $e.root $names.setup_lock) ''
+    $i = Get-P9SStateInstallation (New-EnvCtx $e); Expect ($i.known -and -not $i.installed) "setup lock only: $($i | ConvertTo-Json -Compress)"
+    $r = Invoke-Init $e; $a = Get-Anchor $e
+    $i = Get-P9SStateInstallation (New-EnvCtx $e)
+    Expect ($i.known -and $i.installed -and $i.installation_id -ceq $r.installation_id -and $i.initialized_utc -eq (ConvertFrom-P9SStateUtcText $a.initialized_utc) -and $i.initialized_utc.Kind -eq [DateTimeKind]::Utc) "READY: $($i | ConvertTo-Json -Compress)"
+    $x = [ordered]@{}; foreach ($k in $a.Keys) { $x[$k] = $a[$k] }; $x.phase = 'INITIALIZING'; $x.initialized_utc = $null; $x.ledger = $null; Write-Anchor $e $x
+    $i = Get-P9SStateInstallation (New-EnvCtx $e); Expect (-not $i.known -and $i.reason -ceq 'INSTALLATION_IN_PROGRESS:INITIALIZING') "in progress: $($i | ConvertTo-Json -Compress)"
+    Write-Anchor $e $null -Raw 'x'; $i = Get-P9SStateInstallation (New-EnvCtx $e); Expect (-not $i.known -and $i.reason -ceq 'ANCHOR_UNREADABLE') "unreadable: $($i.reason)"
+    $x = [ordered]@{}; foreach ($k in $a.Keys) { $x[$k] = $a[$k] }; $x.account = 'S-1-5-21-0-0-0-1001'; Write-Anchor $e $x
+    $i = Get-P9SStateInstallation (New-EnvCtx $e); Expect (-not $i.known -and $i.reason -ceq 'ANCHOR_ACCOUNT') "another account: $($i.reason)"
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($e.key)
+    $i = Get-P9SStateInstallation (New-EnvCtx $e); Expect (-not $i.known -and $i.reason -ceq 'INSTALLATION_WITHOUT_ANCHOR') "no anchor: $($i.reason)"
+    $rule = Add-Rule $e.root $me 'ReadData' 'Deny'
+    try { $i = Get-P9SStateInstallation (New-EnvCtx $e); Expect (-not $i.known -and $i.reason -ceq 'ROOT_NOT_LISTABLE') "root not listable: $($i.reason)" } finally { Remove-Rule $e.root $rule }
+}
+Case 'P93' 'authorizations approved or valid before the installation are refused after it, at 100 ns, equal included; later ones pass; without an installation nothing changes; the real context asks the installation' {
+    $e = New-Env 'p93'; $r = Invoke-Init $e; $t = ConvertFrom-P9SStateUtcText (Get-Anchor $e).initialized_utc
+    $ctx = [pscustomobject]@{ Installation = { Get-P9SStateInstallation (New-EnvCtx $e) }.GetNewClosure() }
+    $au = { param($ap, $from) [pscustomobject]@{ approved_utc = $ap.ToString('o'); valid_from_utc = $from.ToString('o'); expires_utc = $from.AddHours(2).ToString('o') } }
+    $now = $t.AddHours(1)
+    $cases = @(
+        @('approved before, valid after', (& $au $t.AddTicks(-1) $t.AddMinutes(1)), 'AUTHORIZATION_BEFORE_INSTALLATION'),
+        @('approved after, valid before', (& $au $t.AddMinutes(1) $t.AddTicks(-1)), 'AUTHORIZATION_BEFORE_INSTALLATION'),
+        @('both equal to the installation', (& $au $t $t), 'AUTHORIZATION_BEFORE_INSTALLATION'),
+        @('both 100 ns after', (& $au $t.AddTicks(1) $t.AddTicks(1)), $null),
+        @('both a minute after', (& $au $t.AddMinutes(1) $t.AddMinutes(1)), $null))
+    foreach ($c in $cases) { $w = Test-P9SAcpiAuthorizationTime $c[1] $now $ctx; Expect ($w -ceq $c[2]) "$($c[0]): $w" }
+    $sec = [datetime]::new($t.Year, $t.Month, $t.Day, $t.Hour, $t.Minute, $t.Second, [DateTimeKind]::Utc)
+    $iv = [Globalization.CultureInfo]::InvariantCulture; $fmt = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+    $txt = [pscustomobject]@{ approved_utc = $sec.ToString($fmt, $iv); valid_from_utc = $sec.ToString($fmt, $iv); expires_utc = $sec.AddHours(2).ToString($fmt, $iv) }
+    Expect ((Test-P9SAcpiAuthorizationTime $txt $now $ctx) -ceq 'AUTHORIZATION_BEFORE_INSTALLATION') 'a time without fraction in the second of the installation: the start of that second, before it'
+    $old = & $au $t.AddDays(-1) $t.AddMinutes(-30)
+    Expect ($null -eq (Test-P9SAcpiAuthorizationTime $old $now ([pscustomobject]@{}))) 'a context without the installation member applies no installation rule'
+    Expect ((Test-P9SAcpiAuthorizationTime $old $now ([pscustomobject]@{ Installation = { $null } })) -ceq 'AUTHORIZATION_INSTALLATION_UNKNOWN') 'an installation that is not read refuses'
+    $e2 = New-Env 'p93b'; $ctx2 = [pscustomobject]@{ Installation = { Get-P9SStateInstallation (New-EnvCtx $e2) }.GetNewClosure() }
+    Expect ($null -eq (Test-P9SAcpiAuthorizationTime $old $now $ctx2)) 'no installation: the rule voids nothing'
+    $rc = New-P9SRealContext -StatePath (Join-Path $base 'p93-real\state.json') -KitDir $kit -Config $null
+    Expect ($rc.Installation -is [scriptblock] -and $rc.Installation.ToString() -match 'Get-P9SStateInstallation \(New-P9SStateContext\)') 'the real context does not ask the installation'
+}
+
 # ================================================================ the entry point
 $cli = Join-Path $kit 'p9s-action.ps1'
 Case 'P60' 'state.status with a -StatePath elsewhere: SANDBOX, exit 0, nothing created' {
@@ -572,18 +924,33 @@ Case 'P61' 'state.status with another parameter: refused, exit 1, nothing read' 
     Expect ($code -eq 1 -and ($o -ccontains 'outcome: REFUSED; STATE_STATUS_PARAMETER')) "exit $code; $($o -join ' / ')"
     Expect ($before -ceq (Get-RealSnap)) 'real locations changed'
 }
+Case 'P64' 'state.init with another parameter (-StatePath, -Vm): refused, exit 1, nothing read' {
+    $before = Get-RealSnap
+    foreach ($x in @(@('-StatePath', (Join-Path $base 'p64\state.json')), @('-Vm', 'P9S-D12'))) {
+        $o = @(& $pw -NoProfile -NonInteractive -File $cli -Action state.init $x[0] $x[1] 2>&1 | ForEach-Object { "$_" }); $code = $LASTEXITCODE
+        Expect ($code -eq 1 -and ($o -ccontains 'outcome: REFUSED; STATE_INIT_PARAMETER')) "$($x[0]): exit $code; $($o -join ' / ')"
+    }
+    Expect ($before -ceq (Get-RealSnap) -and -not (Test-Path -LiteralPath (Join-Path $base 'p64'))) 'something was created'
+}
 $p62 = "state.status on this machine's real locations: NOT_INITIALIZED, nothing created"
+$p63 = "state.init -DryRun on this machine's real locations: NOT_INITIALIZED, DRYRUN, nothing created"
 # only on a clean runner, in the main run of run-all.ps1 -CleanRunner: the
 # real locations are not even looked at elsewhere
-if (-not $env:P9S_TEST_REAL_LOCATIONS) { NotRun 'P62' $p62 'runs only in the main run of run-all.ps1 -CleanRunner (a clean runner)' }
+if (-not $env:P9S_TEST_REAL_LOCATIONS) { NotRun 'P62' $p62 'runs only in the main run of run-all.ps1 -CleanRunner (a clean runner)'; NotRun 'P63' $p63 'runs only in the main run of run-all.ps1 -CleanRunner (a clean runner)' }
 else {
 $realLegacy = @((Join-Path ([IO.Path]::GetTempPath()) $names.legacy), (Join-Path (Join-Path $realLad 'Temp') $names.legacy))
 $realBusy = @(@($realLegacy | Where-Object { Test-Path -LiteralPath $_ }) + @(if ($realAtStart -ne 'real root False; real anchor key False') { 'state root or anchor' }))
-if ($realBusy.Count) { NotRun 'P62' $p62 "the real state root, the anchor key or an earlier-version folder exists here ($($realBusy.Count) paths)" }
+if ($realBusy.Count) { NotRun 'P62' $p62 "the real state root, the anchor key or an earlier-version folder exists here ($($realBusy.Count) paths)"; NotRun 'P63' $p63 "the real state root, the anchor key or an earlier-version folder exists here ($($realBusy.Count) paths)" }
 else {
 Case 'P62' $p62 {
     $o = @(& $pw -NoProfile -NonInteractive -File $cli -Action state.status 2>&1 | ForEach-Object { "$_" }); $code = $LASTEXITCODE
     Expect ($code -eq 0 -and ($o -ccontains 'status: NOT_INITIALIZED') -and ($o -ccontains 'outcome: DONE')) "exit $code; $($o -join ' / ')"
+    Expect ((Get-RealSnap) -ceq 'real root False; real anchor key False') "after: $(Get-RealSnap)"
+    foreach ($l in $realLegacy) { Expect (-not (Test-Path -LiteralPath $l)) "created $l" }
+}
+Case 'P63' $p63 {
+    $o = @(& $pw -NoProfile -NonInteractive -File $cli -Action state.init -DryRun 2>&1 | ForEach-Object { "$_" }); $code = $LASTEXITCODE
+    Expect ($code -eq 0 -and ($o -ccontains 'status: NOT_INITIALIZED') -and ($o -ccontains 'outcome: DRYRUN')) "exit $code; $($o -join ' / ')"
     Expect ((Get-RealSnap) -ceq 'real root False; real anchor key False') "after: $(Get-RealSnap)"
     foreach ($l in $realLegacy) { Expect (-not (Test-Path -LiteralPath $l)) "created $l" }
 }

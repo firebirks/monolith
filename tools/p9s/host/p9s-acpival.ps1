@@ -202,12 +202,40 @@ function Read-P9SAcpiAuthorization {
 }
 function Get-P9SAuthorizedActionsList { @(Get-P9SAcpiAuthorizedActions) }
 # The time window, checked at every use against the stored copy (editing
-# the file later changes nothing).
-function Test-P9SAcpiAuthorizationTime($Auth, [datetime]$Now) {
+# the file later changes nothing), and the installation rule.
+function Test-P9SAcpiAuthorizationTime($Auth, [datetime]$Now, $Ctx) {
     $from = ConvertTo-P9SAuthTime $Auth.valid_from_utc; $to = ConvertTo-P9SAuthTime $Auth.expires_utc
     if (-not $from -or -not $to) { return 'AUTHORIZATION_TIME_INVALID' }
+    $w = Get-P9SAcpiInstallationReason $Auth $from $Ctx
+    if ($w) { return $w }
     if ($Now -lt $from) { return 'AUTHORIZATION_NOT_YET_VALID' }
     if ($Now -ge $to) { return 'AUTHORIZATION_EXPIRED' }
+    $null
+}
+
+# Once an installation of the persistent state exists (state.init,
+# p9s-state-init.ps1), an authorization is usable only when its approval
+# (approved_utc) and the start of its window (valid_from_utc) are both
+# later than the installation's initialized_utc: a new installation voids
+# every permit issued, or valid, before it, so that a permit spent in a
+# history that was lost or replaced is never spent again. The times are
+# compared as instants in UTC at the precision they are written with (a
+# time without a fraction is the start of its second); equal is not later.
+# No installation (no anchor and nothing under the state root): nothing to
+# void. An installation whose state cannot be established (an unreadable
+# anchor, an initialization in progress, a folder without its anchor, an
+# access error) refuses. A context without the Installation member (the
+# test contexts) has no installation.
+function Get-P9SAcpiInstallationReason($Auth, [datetime]$From, $Ctx) {
+    $f = Get-Prop $Ctx 'Installation'
+    if (-not $f) { return $null }
+    $i = $null
+    try { $i = & $f } catch { $i = $null }
+    if (-not $i -or -not $i.known) { return 'AUTHORIZATION_INSTALLATION_UNKNOWN' }
+    if (-not $i.installed) { return $null }
+    if ($i.initialized_utc -isnot [datetime]) { return 'AUTHORIZATION_INSTALLATION_UNKNOWN' }
+    $ap = ConvertTo-P9SAuthTime $Auth.approved_utc
+    if (-not $ap -or $From -le $i.initialized_utc -or $ap -le $i.initialized_utc) { return 'AUTHORIZATION_BEFORE_INSTALLATION' }
     $null
 }
 
@@ -461,7 +489,7 @@ function Get-P9SAcpiUnauthorized($Ctx, [hashtable]$Request) {
     if ($a -ceq 'acpi.open') {
         $au = Read-P9SAcpiAuthorization -Path ([string]$Request.Authorization) -KitDir (Split-Path -Parent $Ctx.ThresholdsPath)
         if (-not $au.ok) { return (& $no $au.reasons) }
-        $w = Test-P9SAcpiAuthorizationTime $au.auth $now
+        $w = Test-P9SAcpiAuthorizationTime $au.auth $now $Ctx
         if ($w) { return (& $no $w) }
         return [pscustomobject]@{ reasons = @(); vm = [string]$au.auth.target_vm }
     }
@@ -473,7 +501,7 @@ function Get-P9SAcpiUnauthorized($Ctx, [hashtable]$Request) {
         if (-not $lg.ok) { return (& $no @($lg.reason, 'SHUTDOWN_HISTORY_UNCERTAIN')) }
         $bind = @(Get-P9SAcpiBindingReasons $sr.session $lg.doc)
         if ($bind.Count) { return (& $no $bind) }
-        $w = Test-P9SAcpiAuthorizationTime $sr.session.validation $now
+        $w = Test-P9SAcpiAuthorizationTime $sr.session.validation $now $Ctx
         if ($w) { return (& $no $w) }
         return [pscustomobject]@{ reasons = @(); vm = [string]$sr.session.validation.target_vm }
     }
@@ -536,7 +564,7 @@ function Test-P9SAcpiConditions($Ctx, $B, $Res, [double]$MinAvailableMb = 0, [sw
     foreach ($r in $e.reasons) { $reasons.Add($r) }
     if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
     foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }
-    if ($B.auth) { $w = Test-P9SAcpiAuthorizationTime $B.auth (Get-P9SUtcNow $Ctx); if ($w) { $reasons.Add($w) } }
+    if ($B.auth) { $w = Test-P9SAcpiAuthorizationTime $B.auth (Get-P9SUtcNow $Ctx) $Ctx; if ($w) { $reasons.Add($w) } }
     [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g; eligibility = $e }
 }
 function Add-P9SAcpiReasons($List, $Items) { foreach ($r in @($Items)) { if ($r -and -not $List.Contains([string]$r)) { $List.Add([string]$r) } } }
@@ -612,7 +640,7 @@ function Invoke-P9SAcpiPreflight($Ctx, [hashtable]$Request, $V, $Res) {
         $au = Read-P9SAcpiAuthorization -Path ([string]$Request.Authorization) -KitDir (Split-Path -Parent $Ctx.ThresholdsPath)
         if ($au.ok) {
             $tg = Get-P9SAcpiValidationTarget ([string]$au.auth.target_vm)
-            $w = Test-P9SAcpiAuthorizationTime $au.auth (Get-P9SUtcNow $Ctx)
+            $w = Test-P9SAcpiAuthorizationTime $au.auth (Get-P9SUtcNow $Ctx) $Ctx
             $Res.lines.Add("authorization $($au.id) ($($au.auth.schema)): valid$(if ($w) { ", but $w (outside its window it names no target: no VM state is read)" } else { '' }); target $($tg.vm); window $($au.auth.valid_from_utc) to $($au.auth.expires_utc); actions $(@($au.auth.permitted_actions) -join ' '); memory minimum $($au.auth.min_available_mib) MiB, approved for this session")
             if ($w) { $Res.reasons.Add($w); $tg = $null } else { $Res.vm = $tg.vm }
             $minMb = [double]$au.auth.min_available_mib
@@ -669,7 +697,7 @@ function Invoke-P9SAcpiOpen($Ctx, [hashtable]$Request, $Res) {
     $target = if ($tg) { $tg.vm } else { $null }
     if (-not $target) { Add-P9SAcpiReasons $reasons @('AUTHORIZATION_TARGET_NOT_ALLOWED') }
     if ($au.ok) {
-        $w = Test-P9SAcpiAuthorizationTime $au.auth (Get-P9SUtcNow $Ctx); if ($w) { $reasons.Add($w) }
+        $w = Test-P9SAcpiAuthorizationTime $au.auth (Get-P9SUtcNow $Ctx) $Ctx; if ($w) { $reasons.Add($w) }
         if (@($au.auth.permitted_actions) -cnotcontains 'acpi.open') { $reasons.Add('ACTION_NOT_AUTHORIZED:acpi.open') }
     }
     $lg = Read-P9SAcpiLedger $Ctx

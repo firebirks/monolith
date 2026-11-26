@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 151,
+  "count": 176,
   "mutants": [
     {
       "id": "SM1",
@@ -923,7 +923,7 @@
       "killers": [
         "U06"
       ],
-      "find": "        $w = Test-P9SAcpiAuthorizationTime $au.auth $now",
+      "find": "        $w = Test-P9SAcpiAuthorizationTime $au.auth $now $Ctx",
       "replace": "        $w = $null"
     },
     {
@@ -1752,6 +1752,283 @@
       ],
       "find": "            if (Test-StateFileAbsent $p) { \"$n absent\"; continue }",
       "replace": "            if (-not [IO.File]::Exists($p)) { \"$n absent\"; continue }"
+    },
+    {
+      "id": "SI1",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "state.init starts over any status but READY",
+      "killers": [
+        "P74"
+      ],
+      "find": "        if ($s -ceq 'NOT_INITIALIZED') { $d.mode = 'new' }",
+      "replace": "        if ($s -cne 'READY') { $d.mode = 'new' }"
+    },
+    {
+      "id": "SI2",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "-Supersede without comparing the id the evidence names",
+      "killers": [
+        "P91"
+      ],
+      "find": "            if (-not $st.installation_id -or $Supersede -cne [string]$st.installation_id) { $d.reasons.Add('SUPERSEDE_ID_MISMATCH') } else { $d.mode = 'supersede' }",
+      "replace": "            $d.mode = 'supersede'"
+    },
+    {
+      "id": "SI3",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "a VM not observed off accepted",
+      "killers": [
+        "P78",
+        "P91"
+      ],
+      "find": "        if (-not $o.observed -or [string]$o.state -cne 'off') { $out.Add(\"VM_NOT_OFF:$($vm):$($o.state)\") }",
+      "replace": "        if ($false) { $out.Add(\"VM_NOT_OFF:$($vm):$($o.state)\") }"
+    },
+    {
+      "id": "SI4",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "no VM process check before anything is written",
+      "killers": [
+        "P78"
+      ],
+      "find": "    $pre = @(@(Get-P9SStateInitProcessReasons $I) + @(Get-P9SStateInitVBoxReasons $C))\n    if ($pre.Count) { return (& $refuse $pre) }\n    $now = Get-P9SStateInitNow $I",
+      "replace": "    $pre = @(Get-P9SStateInitVBoxReasons $C)\n    if ($pre.Count) { return (& $refuse $pre) }\n    $now = Get-P9SStateInitNow $I"
+    },
+    {
+      "id": "SI5",
+      "suite": "setup",
+      "file": "p9s-state-init.ps1",
+      "what": "the setup lock shared",
+      "killers": [
+        "J03",
+        "J05"
+      ],
+      "find": "[IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } catch { $lock = $null }",
+      "replace": "[IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::ReadWrite) } catch { $lock = $null }"
+    },
+    {
+      "id": "SI6",
+      "suite": "setup",
+      "file": "p9s-state-init.ps1",
+      "what": "the decision not taken again under the setup lock",
+      "killers": [
+        "J04"
+      ],
+      "find": "        $d2 = Get-P9SStateInitDecision $I $Supersede\n",
+      "replace": "        $d2 = $d\n"
+    },
+    {
+      "id": "SI7",
+      "suite": "setup",
+      "file": "p9s-state-init.ps1",
+      "what": "READY written without checking the state folder",
+      "killers": [
+        "J09"
+      ],
+      "find": "        if ($chk.reasons.Count) { return (& $refuse (@('STATE_FOLDER_NOT_COMPLETE') + @($chk.reasons))) }",
+      "replace": "        if ($false) { return (& $refuse (@('STATE_FOLDER_NOT_COMPLETE') + @($chk.reasons))) }"
+    },
+    {
+      "id": "SI8",
+      "suite": "setup",
+      "file": "p9s-state-init.ps1",
+      "what": "READY written over an anchor someone else changed",
+      "killers": [
+        "J06"
+      ],
+      "find": "        if (-not $cur.ok -or [string]$cur.doc.phase -cne 'INITIALIZING' -or [string]$cur.doc.op_id -cne $op -or [string]$cur.doc.installation_id -cne [string]$A.installation_id) { return (& $refuse 'ANCHOR_CHANGED') }",
+      "replace": "        if (-not $cur.ok) { return (& $refuse 'ANCHOR_CHANGED') }"
+    },
+    {
+      "id": "SI9",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "a VirtualBox record that cannot be inspected taken as absent",
+      "killers": [
+        "P75"
+      ],
+      "find": "            if ($x.kind -ne 'absent') { $out.Add(\"SETUP_VBOX_RECORD:$($d.label)\\$n\") }",
+      "replace": "            if ($x.kind -eq 'file') { $out.Add(\"SETUP_VBOX_RECORD:$($d.label)\\$n\") }"
+    },
+    {
+      "id": "SI10",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "the superseded folder deleted instead of renamed aside",
+      "killers": [
+        "P91"
+      ],
+      "find": "                $e = Move-P9SStateEntry $C.StateDir $aside\n",
+      "replace": "                [IO.Directory]::Delete($C.StateDir, $true); [IO.Directory]::CreateDirectory($aside) | Out-Null; $e = 0; $id0 = Get-P9SStateIdentity $aside\n"
+    },
+    {
+      "id": "SI11",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "the replaced anchor value not kept",
+      "killers": [
+        "P91"
+      ],
+      "find": "                Write-P9SStateRegistryValue $C \"$($nn.kept_anchor)$op\" $raw\n",
+      "replace": "                $null = $raw\n"
+    },
+    {
+      "id": "SI12",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "an existing folder or junction taken as a new folder",
+      "killers": [
+        "P77"
+      ],
+      "find": "    if ($e -eq 183) { return 'EXISTS' }",
+      "replace": "    if ($e -eq 183) { return $null }"
+    },
+    {
+      "id": "SI13",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "a clock behind the evidence accepted",
+      "killers": [
+        "P90"
+      ],
+      "find": "    if (@($times | Where-Object { $_ -gt $now }).Count) { return (& $refuse 'CLOCK_BEHIND_EVIDENCE') }",
+      "replace": "    if ($false) { return (& $refuse 'CLOCK_BEHIND_EVIDENCE') }"
+    },
+    {
+      "id": "SI14",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "an existing state folder taken over by a new installation",
+      "killers": [
+        "P76"
+      ],
+      "find": "    if ($d.mode -ceq 'new' -and (Get-P9SSetupEntry $C.StateDir).kind -ne 'absent') { return (& $refuse 'STATE_FOLDER_EXISTS') }",
+      "replace": "    if ($false) { return (& $refuse 'STATE_FOLDER_EXISTS') }"
+    },
+    {
+      "id": "SI15",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "a resumed initialization starts another installation",
+      "killers": [
+        "P78"
+      ],
+      "find": "        if ($d.mode -ceq 'resume') { $A = $d.anchor }",
+      "replace": "        if ($false) { $A = $d.anchor }"
+    },
+    {
+      "id": "SI16",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "the dry run writes",
+      "killers": [
+        "P71"
+      ],
+      "find": "    if ($DryRun) {\n        $res.outcome = 'DRYRUN'",
+      "replace": "    if ($false -and $DryRun) {\n        $res.outcome = 'DRYRUN'"
+    },
+    {
+      "id": "SI17",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "the VM states observed outside the staging folder",
+      "killers": [
+        "P70"
+      ],
+      "find": "            $v = Test-P9SStateInitVms $I $stage\n",
+      "replace": "            $v = Test-P9SStateInitVms $I $C.Root\n"
+    },
+    {
+      "id": "SI18",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "a quarantine in the coordinator folder of this version ignored",
+      "killers": [
+        "P79"
+      ],
+      "find": "    foreach ($d in @($C.LegacyDirs)) { $dirs.Add([pscustomobject]@{ path = $d; label = $d }) }",
+      "replace": "    foreach ($d in @()) { $dirs.Add([pscustomobject]@{ path = $d; label = $d }) }"
+    },
+    {
+      "id": "SI19",
+      "suite": "setup",
+      "file": "p9s-state-init.ps1",
+      "what": "the ACL of the staging folder not checked",
+      "killers": [
+        "J08"
+      ],
+      "find": "            if ($acl.Count) { return (& $refuse @($acl)) }",
+      "replace": "            if ($false) { return (& $refuse @($acl)) }"
+    },
+    {
+      "id": "SI20",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "an initialization in progress taken for a ready installation by the rule",
+      "killers": [
+        "P92"
+      ],
+      "find": "        if ([string]$A.phase -cne 'READY') { $o.reason = \"INSTALLATION_IN_PROGRESS:$($A.phase)\"; return $o }",
+      "replace": "        if ($false) { $o.reason = \"INSTALLATION_IN_PROGRESS:$($A.phase)\"; return $o }"
+    },
+    {
+      "id": "SI21",
+      "suite": "persist",
+      "file": "p9s-state-init.ps1",
+      "what": "a state folder without its anchor taken for no installation by the rule",
+      "killers": [
+        "P92"
+      ],
+      "find": "    if (@($l.items | Where-Object { $_.Name -cne (Get-P9SStateNames).setup_lock }).Count) { $o.reason = 'INSTALLATION_WITHOUT_ANCHOR'; return $o }",
+      "replace": "    if ($false) { $o.reason = 'INSTALLATION_WITHOUT_ANCHOR'; return $o }"
+    },
+    {
+      "id": "SI22",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "an installation that cannot be established taken for none",
+      "killers": [
+        "L31"
+      ],
+      "find": "    if (-not $i -or -not $i.known) { return 'AUTHORIZATION_INSTALLATION_UNKNOWN' }",
+      "replace": "    if (-not $i) { return 'AUTHORIZATION_INSTALLATION_UNKNOWN' }"
+    },
+    {
+      "id": "SI23",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the approval time of an authorization not compared with the installation",
+      "killers": [
+        "L31"
+      ],
+      "find": "    if (-not $ap -or $From -le $i.initialized_utc -or $ap -le $i.initialized_utc) { return 'AUTHORIZATION_BEFORE_INSTALLATION' }",
+      "replace": "    if ($From -le $i.initialized_utc) { return 'AUTHORIZATION_BEFORE_INSTALLATION' }"
+    },
+    {
+      "id": "SI24",
+      "suite": "persist",
+      "file": "p9s-acpival.ps1",
+      "what": "an authorization valid from the instant of the installation accepted",
+      "killers": [
+        "P93"
+      ],
+      "find": "    if (-not $ap -or $From -le $i.initialized_utc -or $ap -le $i.initialized_utc) { return 'AUTHORIZATION_BEFORE_INSTALLATION' }",
+      "replace": "    if (-not $ap -or $From -lt $i.initialized_utc -or $ap -lt $i.initialized_utc) { return 'AUTHORIZATION_BEFORE_INSTALLATION' }"
+    },
+    {
+      "id": "SI25",
+      "suite": "persist",
+      "file": "coordinator-lib.ps1",
+      "what": "the real context without the installation for the authorization rule",
+      "killers": [
+        "P93"
+      ],
+      "find": "        Installation = { if (Get-Command -Name Get-P9SStateInstallation -CommandType Function -ErrorAction SilentlyContinue) { Get-P9SStateInstallation (New-P9SStateContext) } else { $null } }\n",
+      "replace": ""
     }
   ]
 }

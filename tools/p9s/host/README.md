@@ -56,6 +56,7 @@ does not touch Tor, Monolith or its profiles.
 | `p9s-vbox.ps1` | Every VirtualBox operation: one host-wide lock, bounded waits, quarantine, recovery |
 | `p9s-config.ps1` | Local configuration and the local secret store |
 | `p9s-state.ps1` | Read-only status of the persistent state folder of later versions (`state.status`) |
+| `p9s-state-init.ps1` | Explicit initialization of that folder (`state.init`) and the rule that voids the ACPI validation authorizations issued before it |
 | `p9s-local.example.json` | Example of the local configuration |
 | `acpi-validation-authorization.example.json` | Example of a version-1 authorization for `P9S-D12` (never valid as it is) |
 | `acpi-validation-authorization-u24.example.json` | Example of a version-2 authorization for `P9S-U24` (never valid as it is) |
@@ -67,9 +68,10 @@ does not touch Tor, Monolith or its profiles.
 | `tests/vbox-tests.ps1` | The VirtualBox layer: serialization, timeouts, crashes, recovery, coordinator use |
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
 | `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races, damaged ledgers, low memory |
-| `tests/persist-tests.ps1` | The state status: the 17 statuses and their order, access errors, junctions, hard links, ACLs, no side effects |
-| `tests/run-all.ps1` | Runs and checks the seven suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 132 targeted faults and the tests that must detect them |
+| `tests/persist-tests.ps1` | The state status: the 17 statuses and their order, access errors, junctions, hard links, ACLs, no side effects; `state.init` in process: refusals, supersede, the VMs, the clock, the authorization rule |
+| `tests/setup-tests.ps1` | `state.init` in separate processes: every step as a crash point, the races |
+| `tests/run-all.ps1` | Runs and checks the eight suites, and the mutants (local and CI) |
+| `tests/mutants.json` | The targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -437,6 +439,13 @@ its window, is refused before the coordinator lock, any VirtualBox
 query or any dispatch (dry runs too). `acpi.preflight` reads no VM state
 without a valid file in its window. Recovery stays available after the
 window: `acpi.confirm-off`, `acpi.finalize`, `emergency.acpi-shutdown`.
+Once `state.init` has made an installation of the persistent state, an
+authorization whose `approved_utc` or `valid_from_utc` is not later than
+its `initialized_utc` is refused (`AUTHORIZATION_BEFORE_INSTALLATION`),
+at `acpi.open` and at every later step that checks the stored copy; an
+installation whose state cannot be established refuses too
+(`AUTHORIZATION_INSTALLATION_UNKNOWN`). See "Persistent state
+initialization".
 A context whose live switch is off (the tests use one) refuses every
 live step with `ACPI_VALIDATION_LIVE_DISABLED` before anything is read.
 
@@ -697,6 +706,108 @@ What it cannot do, by design:
   until a controlled change of folder; this status sees that folder,
   it does not stop that version.
 
+## Persistent state initialization
+
+    pwsh -NoProfile -File p9s-action.ps1 -Action state.init [-DryRun]
+    pwsh -NoProfile -File p9s-action.ps1 -Action state.init -Supersede <installation id>
+
+creates the state folder of a new installation. It is the only way to
+one: no other action initializes, repairs or recreates state, and an
+absent or empty folder is never taken as permission. It takes no
+parameter but `-Supersede`, `-DryRun` and `-ConfigPath`. The coordinator
+of this version keeps its files in `%TEMP%\p9s-hostmon`; nothing but
+`state.status`, `state.init` and the authorization rule below reads the
+new folder yet.
+
+It decides on the status of `state.status`, computed before anything is
+written and again under the setup lock:
+
+- `NOT_INITIALIZED`: a new installation;
+- `INTERRUPTED` with the anchor in phase INITIALIZING: the same
+  initialization, resumed (the same installation id);
+- `INSTALLATION_LOST`, `STATE_MISSING`, `STATE_INCOMPLETE`,
+  `STATE_MISMATCH`, `STATE_UNCERTAIN`, `STATE_DIVERGED`: only with
+  `-Supersede` naming the installation the evidence names (the anchor's
+  id, or the id of a migration marker);
+- anything else is refused, with the status as the reason
+  (`STATE_NOT_NEW:<status>`, `NOT_SUPERSEDABLE:<status>`,
+  `NOTHING_TO_SUPERSEDE:<status>`): an installation in place, an
+  earlier coordinator folder with evidence (`MIGRATION_REQUIRED`: a later
+  version migrates it), an unreadable anchor, an unsafe location, the
+  leftovers of a setup. A state folder already there without an anchor
+  is refused too (`STATE_FOLDER_EXISTS`).
+
+Every configured VM must be off. The count of VirtualBox VM processes
+(the Windows process list, no VirtualBox call) is checked before
+anything is written; the VM states are read through the VirtualBox layer
+once the staging folder exists, one query per VM, and the layer's
+records and the observations are written into that folder, where they
+become the first history of the new installation. A VM in any state but
+off (running, paused, saved, aborted, unreadable) refuses. A VirtualBox
+operation or quarantine record in any folder under the root, or in the
+coordinator folder of this version, refuses every run until the operator
+resolves it: a new folder would not see it.
+
+Steps, each a point where the process may end:
+
+1. the root `<LocalApplicationData>\Monolith-P9S`, created with the
+   protected ACL (the account, SYSTEM and Administrators; nothing
+   inherited), and `setup.lock`, held exclusively, no wait
+   (`SETUP_BUSY`);
+2. with `-Supersede`, the anchor value it replaces copied to the value
+   `Superseded-<operation id>` of the same key; then the anchor in phase
+   INITIALIZING with a new installation id, written in one value and
+   flushed;
+3. the staging folder `state.staging-<operation id>-<n>`, created with
+   the protected ACL; it must not exist;
+4. the VM states, observed into it;
+5. with `-Supersede`, the state folder renamed to
+   `state.superseded-<operation id>`, only now that the VMs are off;
+6. `install.json` (exclusive create, written through), the empty ledger
+   at revision 1 and its revision record by the toolkit's save (each
+   file written beside its name, then renamed with write-through);
+7. the ACL of the staging folder and of each file checked;
+8. the staging folder renamed to `state`, refused if `state` exists;
+9. the folder checked against what this run wrote (install record, the
+   empty ledger and its record, no other record, the location), the
+   anchor checked unchanged, then the anchor in phase READY with
+   `initialized_utc` and the ledger's mark; the result is `READY` only if
+   `state.status` says so;
+10. the first line of the new folder's `coordinator-audit.jsonl`.
+
+An interruption before step 9 leaves `INTERRUPTED` (or, before step 2,
+`NOT_INITIALIZED`), never `READY`; the same command completes it. A
+staging folder left by an interruption stays where it is; the next run
+uses a new one. Nothing is ever deleted: a superseded folder is renamed
+aside, a replaced anchor value is kept beside it, the earlier coordinator
+folder is not touched.
+
+Time. `created_utc` and `initialized_utc` are written in UTC with seven
+decimals (100 ns). A run refuses (`CLOCK_BEHIND_EVIDENCE`) when the clock
+is earlier than a time the evidence holds: the anchor's `created_utc` or
+`initialized_utc`, the install record's `created_utc`; `initialized_utc`
+is never earlier than `created_utc`. Once an installation is READY,
+`acpi.open` and every later validation step refuse an authorization
+whose `approved_utc` or `valid_from_utc` is not strictly later than
+`initialized_utc` (`AUTHORIZATION_BEFORE_INSTALLATION`): times are
+compared as instants in UTC at the precision they are written with (a
+time without decimals is the start of its second), and equal is not
+later. A permit issued, or valid, before an installation can therefore
+never be used after it, whatever was lost; one that is still to be used
+must be written again. The rule does not depend on the clock at the
+time of use, so a restart changes nothing. Without an installation (no
+anchor and nothing under the root but the setup lock) no permit is
+voided; an installation whose state cannot be established (an
+unreadable anchor, one in phase INITIALIZING, a folder without its
+anchor, an access error) refuses every authorization
+(`AUTHORIZATION_INSTALLATION_UNKNOWN`).
+
+What it does not do: it migrates nothing (`state.migrate`, a later
+version), it switches no action to the new folder, and a superseding
+initialization starts a history that knows nothing of the one it
+replaces except its id; the VMs being off and every earlier permit being
+void are what keep a lost history from giving a budget back.
+
 ## Calibration (preparation only)
 
 A calibration measures the host with both VMs and both Tor environments
@@ -743,8 +854,8 @@ determined local user.
     pwsh -NoProfile -File tests/run-all.ps1 -OutDir <new folder>
          [-Mutants]
 
-runs the seven suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
-`decouple`, `acpival`, `persist`), each in a new `pwsh -File` process, and judges
+runs the eight suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
+`decouple`, `acpival`, `persist`, `setup`), each in a new `pwsh -File` process, and judges
 them by their `results.json`:
 every declared case must be reported once, as PASS, FAIL or NOT_RUN; the
 exit code of a suite must agree with its results; anything on the error
@@ -791,9 +902,15 @@ junctions, hard links, ACL entries and test registry keys under
 `HKCU\Software\Monolith-P9S-Test` (removed at the end), and brackets
 every classification with a snapshot of all of them, taken through file
 handles, which must not change; one case starts eight processes that
-classify at the same time. Its case P62 runs `state.status` against the
-machine's real locations, only in the main run of `-CleanRunner` and
-only where none of them exists; elsewhere it is NOT_RUN.
+classify at the same time. Its `state.init` cases, and those of the
+`setup` suite, mock the VM states and the VM process count and write the
+anchor with the registry API into the test keys; in the `setup` suite
+child processes end at each step (TerminateProcess) or wait at one on
+named events to show the crash points and the races, never with a
+sleep. Its cases P62 and P63 run `state.status` and
+`state.init -DryRun` against the machine's real locations, only in the
+main run of `-CleanRunner` and only where none of them exists;
+elsewhere they are NOT_RUN.
 
 CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs
 
@@ -805,7 +922,7 @@ requires that the runner has no VirtualBox (no `VBoxManage.exe`, no
 VirtualBox COM class), no `p9s-local.json`, no `P9S_HOST_CONFIG` and no
 default state folder, so that a fault in a test cannot reach a real VM
 or secret. The job also checks that Windows PowerShell 5.1 refuses the
-entry point. P62 of the `persist` suite runs only there. One case cannot run there: K37 starts the real coordinator,
+entry point. P62 and P63 of the `persist` suite run only there. One case cannot run there: K37 starts the real coordinator,
 which reads the VM states with VBoxManage; it is reported as NOT_RUN and
 runs only on a host with VirtualBox (K28 covers the same rule in
 process). CI cannot show how a guest answers the ACPI power button, how

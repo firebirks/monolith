@@ -1005,6 +1005,8 @@ Case 'U06' 'no valid Ubuntu authorization: no coordinator lock, no VirtualBox lo
     $rc.ReadVmConfig = { param($vm) Get-P9SVmConfigReal $vm $vb }.GetNewClosure()
     $rc.Dispatch = @{ 'vm.start' = { param($vm) Assert-P9SVBoxCompleted (Invoke-P9SVBoxOperation -VBox $vb -Operation 'vm.start' -Vm $vm) }.GetNewClosure(); 'vm.acpi' = { param($vm) Assert-P9SVBoxCompleted (Invoke-P9SVBoxOperation -VBox $vb -Operation 'vm.acpi' -Vm $vm) }.GetNewClosure() }
     $rc.CountVmProcesses = { 0 }
+    # no installation of the persistent state: the tests never read the real anchor
+    $rc.Installation = { [pscustomobject]@{ known = $true; installed = $false; installation_id = $null; initialized_utc = $null; reason = $null } }
     $ux = Join-Path $kit 'acpi-validation-authorization-u24.example.json'
     $uxOut = Join-Path $authDir 'u24-example-copy.json'; Copy-Item -LiteralPath $ux -Destination $uxOut
     $old = New-Auth -Real -Target 'P9S-U24' -From ([DateTime]::UtcNow.AddHours(-3)) -To ([DateTime]::UtcNow.AddMinutes(-5))
@@ -1639,6 +1641,56 @@ Case 'L30' 'the ledger diagnosis never calls a file that cannot be read absent' 
     Remove-Item -LiteralPath $c.LedgerPath
     $dg2 = Get-P9SAcpiLedgerDiagnosis $c $null
     Expect ($dg2 -match 'acpi-validation-ledger\.json absent') "an absent ledger: $dg2"
+}
+
+# ---- an installation of the persistent state (state.init) and the authorizations ----
+# The context's Installation member answers what Get-P9SStateInstallation
+# would: no installation, one initialized at a time, or one that cannot be
+# established.
+function Set-Installation($c, $Init, [switch]$Unknown) {
+    $i = if ($Unknown) { [pscustomobject]@{ known = $false; installed = $false; installation_id = $null; initialized_utc = $null; reason = 'ANCHOR_UNREADABLE' } }
+         elseif ($null -eq $Init) { [pscustomobject]@{ known = $true; installed = $false; installation_id = $null; initialized_utc = $null; reason = $null } }
+         else { [pscustomobject]@{ known = $true; installed = $true; installation_id = 'inst-test-0001'; initialized_utc = ([datetime]$Init).ToUniversalTime(); reason = $null } }
+    $c | Add-Member -NotePropertyName Installation -NotePropertyValue ({ $i }.GetNewClosure()) -Force
+}
+Case 'L31' 'after an installation every authorization approved or valid before it is void: acpi.open and acpi.preflight refuse it, nothing read or sent; one approved and valid after it opens; no installation changes nothing; an installation that cannot be established refuses' {
+    $c = New-VCtx; Set-Installation $c $T0.AddMinutes(-5)
+    $x = AOpen $c (New-Auth)
+    Expect ($x.outcome -eq 'REFUSED' -and (Has $x 'AUTHORIZATION_BEFORE_INSTALLATION') -and $c.Calls.Count -eq 0 -and $null -eq (Sess $c)) "approved and valid before: $(Why $x)"
+    $x = AOpen $c (New-Auth -From $T0.AddMinutes(-1))
+    Expect ($x.outcome -eq 'REFUSED' -and (Has $x 'AUTHORIZATION_BEFORE_INSTALLATION')) "valid after, approved before: $(Why $x)"
+    $x = AOpen $c (New-Auth -From $T0.AddMinutes(-10) -Set @{ approved_utc = (Z $T0.AddMinutes(-2)) })
+    Expect ($x.outcome -eq 'REFUSED' -and (Has $x 'AUTHORIZATION_BEFORE_INSTALLATION')) "approved after, valid before: $(Why $x)"
+    $p = Act $c @{ Action = 'acpi.preflight'; Authorization = (New-Auth) }
+    Expect ((Has $p 'AUTHORIZATION_BEFORE_INSTALLATION') -and $c.Calls.Count -eq 0) "preflight: $(Why $p)"
+    $o = AOpen $c (New-Auth -From $T0.AddMinutes(-1) -Set @{ approved_utc = (Z $T0.AddMinutes(-2)) })
+    Expect ($o.outcome -eq 'DONE') "approved and valid after: $(Why $o)"
+    $c2 = New-VCtx; Set-Installation $c2 $null; $o2 = AOpen $c2 (New-Auth)
+    Expect ($o2.outcome -eq 'DONE') "no installation: $(Why $o2)"
+    $c3 = New-VCtx; Set-Installation $c3 $null -Unknown; $o3 = AOpen $c3 (New-Auth)
+    Expect ($o3.outcome -eq 'REFUSED' -and (Has $o3 'AUTHORIZATION_INSTALLATION_UNKNOWN') -and $c3.Calls.Count -eq 0) "installation unknown: $(Why $o3)"
+}
+Case 'L32' 'a validation opened before an installation stops at its next step: acpi.start, acpi.observe and acpi.shutdown refuse the stored authorization, nothing is started or sent' {
+    $c = New-VCtx; Set-Installation $c $null; $a = New-Auth
+    $o = AOpen $c $a; Expect ($o.outcome -eq 'DONE') "open: $(Why $o)"
+    Set-Installation $c $T0.AddMinutes(1); $c.Clock.utc = $T0.AddMinutes(2)
+    $s = AStart $c
+    Expect ($s.outcome -eq 'REFUSED' -and (Has $s 'AUTHORIZATION_BEFORE_INSTALLATION') -and (Count $c 'vm.start') -eq 0 -and (Entry $c $a).startups_used -eq 0) "start: $(Why $s)"
+    $b = AObs $c 10; Expect ($b.outcome -eq 'REFUSED' -and (Has $b 'AUTHORIZATION_BEFORE_INSTALLATION')) "observe: $(Why $b)"
+    $h = AShut $c; Expect ($h.outcome -eq 'REFUSED' -and (Has $h 'AUTHORIZATION_BEFORE_INSTALLATION') -and (Count $c 'vm.acpi') -eq 0) "shutdown: $(Why $h)"
+    $x = Started; Set-Installation $x.c $T0.AddMinutes(1); $x.c.Clock.utc = $T0.AddMinutes(2)
+    $h = AShut $x.c; Expect ($h.outcome -eq 'REFUSED' -and (Has $h 'AUTHORIZATION_BEFORE_INSTALLATION') -and (Count $x.c 'vm.acpi') -eq 0) "shutdown of a started validation: $(Why $h)"
+}
+Case 'L33' 'the installation rule only adds refusals: the emergency, acpi.confirm-off and the outcome of every step without an installation are the same with and without the member' {
+    $x1 = Sent; $x2 = Sent; Set-Installation $x2.c $null -Unknown
+    $e1 = Emerg $x1.c; $e2 = Emerg $x2.c
+    Expect ($e1.outcome -eq $e2.outcome -and (@($e1.reasons) -join ',') -ceq (@($e2.reasons) -join ',') -and (Count $x1.c 'vm.acpi') -eq (Count $x2.c 'vm.acpi')) "emergency: $(Why $e1) / $(Why $e2)"
+    $f1 = AConfirm $x1.c 5; $f2 = AConfirm $x2.c 5
+    Expect ($f1.outcome -eq $f2.outcome -and (@($f1.reasons) -join ',') -ceq (@($f2.reasons) -join ',')) "confirm-off: $(Why $f1) / $(Why $f2)"
+    $c1 = New-VCtx; $c2 = New-VCtx; Set-Installation $c2 $null
+    $a = New-Auth -From $T0.AddMinutes(5)
+    $y1 = AOpen $c1 $a; $y2 = AOpen $c2 $a
+    Expect ((Why $y1) -ceq (Why $y2) -and (Has $y1 'AUTHORIZATION_NOT_YET_VALID')) "not yet valid: $(Why $y1) / $(Why $y2)"
 }
 
 # ---- interruptions: a request without a recorded end, an unconfirmed dispatch, a finished validation ----

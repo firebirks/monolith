@@ -1432,6 +1432,10 @@ function New-P9SRealContext([string]$StatePath, [string]$AuditPath, [Parameter(M
         # running VirtualBox VMs of the whole host, from the Windows process
         # list (the names the monitor counts); no VirtualBox call
         CountVmProcesses = { @(Get-Process -Name 'VirtualBoxVM', 'VBoxHeadless' -ErrorAction SilentlyContinue).Count }
+        # the installation of the persistent state, for the authorization
+        # rule (p9s-state-init.ps1); $null, which refuses, when that file is
+        # not loaded
+        Installation = { if (Get-Command -Name Get-P9SStateInstallation -CommandType Function -ErrorAction SilentlyContinue) { Get-P9SStateInstallation (New-P9SStateContext) } else { $null } }
         Config = $cfg; ConfigError = $(if ($cfg -and $cfg.present -and -not $cfg.ok) { 'CONFIG_INVALID' } else { $null })
     }
 }

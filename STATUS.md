@@ -1298,6 +1298,31 @@ holds the lock, crashes, restarts with access still denied, access
 restored) ran 50 times each. The toolkit's 333 declared tests and 151
 targeted faults run in the CI job. Nothing ran live.
 
+The state folder can now be created, by one explicit action:
+`state.init` (`p9s-state-init.ps1`). It starts only from
+`NOT_INITIALIZED`, completes its own interruption, and replaces an
+installation whose state is missing, incomplete, mismatched, uncertain
+or diverged only with `-Supersede` and the id the evidence names; every
+other status is refused, an earlier coordinator folder with evidence
+included, and so is a state folder that is already there. Every
+configured VM must be off: the count of VirtualBox VM processes is
+checked before anything is written, and the VM states are read through
+the VirtualBox layer once the staging folder exists, with their records
+kept in it as the first history of the installation. The anchor goes to
+INITIALIZING, the staging folder is renamed into place, the folder is
+checked against what the run wrote, and only then does the anchor go to
+READY; nothing is deleted (a superseded folder is renamed aside, a
+replaced anchor value is kept beside it). Every ACPI validation
+authorization approved or valid before the installation's
+`initialized_utc` is refused afterwards, so that a permit spent in a
+lost or replaced history is never spent again. The coordinator still
+keeps its files in `%TEMP%\p9s-hostmon`; nothing else uses the new
+folder yet. Each step was ended as a crash point, and each race (two
+initializations, two resumes after a restart, writers acting while one
+waits) ran on separate processes, 50 times each. The toolkit's 363
+declared tests and 176 targeted faults run in the CI job. Nothing ran
+live, and `state.init` never ran on the laboratory's state.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is
@@ -1312,6 +1337,11 @@ sudo password.
   shutdown of `P9S-U24`: one start, one request, the power-off observed.
 - A calibration with both VMs running, separately authorized, and the
   owner's approval of the paging values that follow from it.
+- Before the coordinator moves to the state folder (C4), whatever it
+  wrote to `%TEMP%\p9s-hostmon` after a `state.init` must be carried
+  over, or refuse `READY`: an installation made in this version does not
+  look at that folder, so a history recorded there in between would be
+  left behind.
 - The diagnostic SOCKS observer of the guests correlates by descriptor
   number only; it can misclassify a connection when another thread reuses
   the number. It is to be corrected before scenarios that rely on its
