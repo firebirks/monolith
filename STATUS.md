@@ -1255,6 +1255,26 @@ dispatch that fails without a crash is still recorded as
 toolkit's 282 declared tests and 109 targeted faults run in the CI job.
 Nothing ran live.
 
+The coordinator folder is to leave `%TEMP%` for a folder of the
+account's profile that only an explicit initialization or migration
+creates, recorded by an anchor under `HKCU\Software\Monolith-P9S`. The
+first part changes nothing: `state.status` reads that folder, the
+anchor, the folders of earlier versions and the facts of the process
+(the known folder, the package identity and token, reparse points, hard
+links, ACLs) and reports one of 17 statuses; it writes nothing, takes no
+lock and gates no action. A missing file is never taken for an
+installation that never existed, and an access error never for a
+missing file. Every status, and the order between them when several
+conditions hold at once, ran on synthetic folders and test registry
+keys, with everything compared before and after each reading, also with
+eight processes reading at once. Still open: the folder itself, its
+initialization and migration, and the gate on it; a folder and an
+anchor lost together cannot be told from an account where the toolkit
+never ran; each Windows account would have its own budget; and an
+earlier version keeps using `%TEMP%` until the change of folder. The
+toolkit's 323 declared tests and 132 targeted faults run in the CI job.
+Nothing ran live.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is

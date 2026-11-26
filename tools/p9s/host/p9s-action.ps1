@@ -10,6 +10,10 @@
 #   pwsh -NoProfile -File p9s-action.ps1 -Action calib.dry-run -Scenario nominal
 #   pwsh -NoProfile -File p9s-action.ps1 -Action vbox.status
 #   pwsh -NoProfile -File p9s-action.ps1 -Action acpi.preflight [-Authorization <file>]
+#   pwsh -NoProfile -File p9s-action.ps1 -Action state.status
+# state.status only reads (p9s-state.ps1): it prints the status of the
+# persistent state folder of later versions, creates nothing, writes no
+# audit record and changes nothing any other action does.
 # Start it with pwsh -File (as above). Started with & from a prompt or
 # another script it refuses with exit 2 and does nothing: its closures could
 # not find the toolkit's functions there.
@@ -33,6 +37,16 @@ $inv = Test-P9SSupportedInvocation
 if (-not $inv.ok) {
     "refused: $($inv.reason) ($($inv.missing) not visible to the toolkit's closures). Start the coordinator with: pwsh -NoProfile -File p9s-action.ps1 -Action <name> ... Nothing was done."
     exit 2
+}
+if ($Action -ceq 'state.status') {
+    $extra = @($PSBoundParameters.Keys | Where-Object { $_ -notin 'Action', 'StatePath' })
+    if ($extra.Count) { "refused: state.status takes no parameter but -StatePath (given: $($extra -join ', ')). Nothing was read or written."; 'outcome: REFUSED; STATE_STATUS_PARAMETER'; exit 1 }
+    . (Join-Path $PSScriptRoot 'p9s-state.ps1')
+    try { $sctx = New-P9SStateContext -AskedStatePath $StatePath; $st = Get-P9SStateStatus $sctx; $lines = @(Format-P9SStateStatus $st $sctx) }
+    catch { "the state status was not computed: $($_.Exception.Message)"; 'outcome: FAILED'; exit 2 }
+    $lines
+    'outcome: DONE'
+    exit 0
 }
 $cfg = Read-P9SConfig -Path (Get-P9SConfigPath -ConfigPath $ConfigPath -ToolDir $PSScriptRoot)
 Set-P9SVmNames $cfg.vm_names

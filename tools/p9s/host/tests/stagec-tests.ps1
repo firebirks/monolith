@@ -345,7 +345,8 @@ Case 'H36' 'qualification cap and unresolved ACPI shutdown in the dry run' {
 $dist = 'README.md', 'assert-host-safe.ps1', 'com-type.ps1', 'coordinator-lib.ps1', 'host-monitor.ps1', 'hostmon-lib.ps1', 'p9s-action.ps1', 'p9s-config.ps1',
         'p9s-local.example.json', 'paging-thresholds.json', 'vm-action.ps1', 'tests\coordinator-tests.ps1', 'tests\hostmon-tests.ps1', 'tests\stagec-tests.ps1',
         'tests\run-all.ps1', 'tests\mutants.json', 'p9s-vbox.ps1', 'tests\vbox-tests.ps1', 'p9s-vmstate.ps1', 'p9s-acpival.ps1',
-        'acpi-validation-authorization.example.json', 'tests\decouple-tests.ps1', 'tests\acpival-tests.ps1', 'acpi-validation-authorization-u24.example.json'
+        'acpi-validation-authorization.example.json', 'tests\decouple-tests.ps1', 'tests\acpival-tests.ps1', 'acpi-validation-authorization-u24.example.json',
+        'p9s-state.ps1', 'tests\persist-tests.ps1'
 $localOnly = 'p9s-local.json', 'KIT-SHA256SUMS.txt'
 $distFiles = @($dist | ForEach-Object { Join-Path $kit $_ } | Where-Object { Test-Path -LiteralPath $_ })
 Case 'H40' 'the tree holds exactly the distribution files (plus known local-only files)' {

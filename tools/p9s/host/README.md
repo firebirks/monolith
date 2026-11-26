@@ -55,6 +55,7 @@ does not touch Tor, Monolith or its profiles.
 | `p9s-acpival.ps1` | The restricted single-VM ACPI validation of `P9S-D12` or `P9S-U24` (owner authorization required) |
 | `p9s-vbox.ps1` | Every VirtualBox operation: one host-wide lock, bounded waits, quarantine, recovery |
 | `p9s-config.ps1` | Local configuration and the local secret store |
+| `p9s-state.ps1` | Read-only status of the persistent state folder of later versions (`state.status`) |
 | `p9s-local.example.json` | Example of the local configuration |
 | `acpi-validation-authorization.example.json` | Example of a version-1 authorization for `P9S-D12` (never valid as it is) |
 | `acpi-validation-authorization-u24.example.json` | Example of a version-2 authorization for `P9S-U24` (never valid as it is) |
@@ -66,8 +67,9 @@ does not touch Tor, Monolith or its profiles.
 | `tests/vbox-tests.ps1` | The VirtualBox layer: serialization, timeouts, crashes, recovery, coordinator use |
 | `tests/decouple-tests.ps1` | The monitor without VirtualBox; the VM-state observer |
 | `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races, damaged ledgers, low memory |
-| `tests/run-all.ps1` | Runs and checks the six suites, and the mutants (local and CI) |
-| `tests/mutants.json` | The 109 targeted faults and the tests that must detect them |
+| `tests/persist-tests.ps1` | The state status: the 17 statuses and their order, access errors, junctions, hard links, ACLs, no side effects |
+| `tests/run-all.ps1` | Runs and checks the seven suites, and the mutants (local and CI) |
+| `tests/mutants.json` | The 132 targeted faults and the tests that must detect them |
 
 ## Local configuration
 
@@ -619,6 +621,75 @@ What follows from these rules:
   spent;
 - a completed ACPI command is no proof that the guest powered off.
 
+## Persistent state status (read only)
+
+The coordinator keeps its files in `%TEMP%\p9s-hostmon`, where Windows
+cleanup can delete them (R14). A later version will keep them in a
+folder of the account's profile, created only by an explicit
+initialization or migration and recorded by an anchor in the registry.
+This version only reports the status that folder has now:
+
+    pwsh -NoProfile -File p9s-action.ps1 -Action state.status
+
+It reads, and nothing else: it creates no file, folder or registry key,
+takes no lock, writes no audit record, and no other action uses its
+result. The coordinator still keeps its files where it always did.
+
+What it reads:
+
+- the state folder `<LocalApplicationData>\Monolith-P9S\state`, where
+  LocalApplicationData comes from the Windows known folder API
+  (`SHGetKnownFolderPath`), never from the `LOCALAPPDATA` variable, and
+  must agree with .NET's value;
+- the anchor, the value `StateAnchor` of `HKCU\Software\Monolith-P9S`
+  (one JSON document), opened read only;
+- the install, migration and ledger records of the state folder; the
+  ledger is first read by the toolkit's own reader, and must then be no
+  older than the anchor's mark (revision and SHA-256);
+- the folders of earlier versions, `%TEMP%\p9s-hostmon` through `TMP`
+  and the same name under the known folder's `Temp`, by entry name only
+  unless a migration manifest has to be compared;
+- the process: its account, whether it has a package identity
+  (`GetCurrentPackageFullName`), runs in an app container or with UAC
+  virtualization (token information), or starts from `WindowsApps`; any
+  of these turns some writes into writes to a private copy;
+- for each path component, the state folder's entries and their records:
+  reparse points, the final path of a handle (`GetFinalPathNameByHandle`),
+  hard links (`GetFileInformationByHandle`), the owner and write entries
+  of the ACL, and whether the folder can be listed.
+
+The statuses, in the order in which the first match wins:
+`SANDBOX` (a `-StatePath` folder other than the state folder),
+`LOCATION_UNSAFE`, `ANCHOR_UNREADABLE`; without an anchor
+`ANCHOR_MISSING`, `SETUP_LEFTOVER`, `INSTALLATION_LOST`,
+`MIGRATION_SOURCES_AMBIGUOUS`, `MIGRATION_REQUIRED`, `NOT_INITIALIZED`;
+with one `INTERRUPTED`, `ACCOUNT_MISMATCH`, `STATE_MISMATCH`,
+`STATE_MISSING`, `STATE_INCOMPLETE`, `STATE_UNCERTAIN`,
+`STATE_DIVERGED`, `READY`. `READY` needs positive and consistent
+evidence: an anchor in phase READY for this account and this folder,
+the install record of the same installation, the ledger as the anchor
+marks it, and for a migrated installation a manifest that matches the
+anchor and an earlier folder that still matches the manifest.
+
+Two rules hold throughout. A missing file never proves that nothing
+existed: an earlier-version folder with any coordinator file gives
+`MIGRATION_REQUIRED`, never `NOT_INITIALIZED`. An access error is never
+read as a missing file: a folder, record or anchor key that cannot be
+read gives a status that is not `READY` and names the reason. A check
+that cannot be made (no native call, an unknown package state, an
+unreadable volume) is not `READY` either.
+
+What it cannot do, by design:
+
+- a state folder and an anchor lost together look exactly like an
+  account where the toolkit never ran (`NOT_INITIALIZED`); no reading
+  can tell them apart;
+- each Windows account has its own folder and anchor; a second account
+  does not share the first one's budget;
+- an earlier version of the toolkit keeps using `%TEMP%\p9s-hostmon`
+  until a controlled change of folder; this status sees that folder,
+  it does not stop that version.
+
 ## Calibration (preparation only)
 
 A calibration measures the host with both VMs and both Tor environments
@@ -665,8 +736,8 @@ determined local user.
     pwsh -NoProfile -File tests/run-all.ps1 -OutDir <new folder>
          [-Mutants]
 
-runs the six suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
-`decouple`, `acpival`), each in a new `pwsh -File` process, and judges
+runs the seven suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
+`decouple`, `acpival`, `persist`), each in a new `pwsh -File` process, and judges
 them by their `results.json`:
 every declared case must be reported once, as PASS, FAIL or NOT_RUN; the
 exit code of a suite must agree with its results; anything on the error
@@ -703,7 +774,15 @@ operation record sit in the monitor's state folder and two workers hang
 inside mocked VirtualBox calls; holding that name is its only use of a
 production name, and only to show that the monitor never needs it. The
 `acpival` suite uses mock contexts with a simulated clock, and worker
-processes on file-backed mock contexts for races and crashes.
+processes on file-backed mock contexts for races and crashes. The
+`persist` suite builds synthetic state folders, earlier-version folders,
+junctions, hard links, ACL entries and test registry keys under
+`HKCU\Software\Monolith-P9S-Test` (removed at the end), and brackets
+every classification with a snapshot of all of them, taken through file
+handles, which must not change; one case starts eight processes that
+classify at the same time. Its case P62 runs `state.status` against the
+machine's real locations, only in the main run of `-CleanRunner` and
+only where none of them exists; elsewhere it is NOT_RUN.
 
 CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs
 
@@ -715,7 +794,7 @@ requires that the runner has no VirtualBox (no `VBoxManage.exe`, no
 VirtualBox COM class), no `p9s-local.json`, no `P9S_HOST_CONFIG` and no
 default state folder, so that a fault in a test cannot reach a real VM
 or secret. The job also checks that Windows PowerShell 5.1 refuses the
-entry point. One case cannot run there: K37 starts the real coordinator,
+entry point. P62 of the `persist` suite runs only there. One case cannot run there: K37 starts the real coordinator,
 which reads the VM states with VBoxManage; it is reported as NOT_RUN and
 runs only on a host with VirtualBox (K28 covers the same rule in
 process). CI cannot show how a guest answers the ACPI power button, how

@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 109,
+  "count": 132,
   "mutants": [
     {
       "id": "SM1",
@@ -1274,6 +1274,267 @@
       ],
       "find": "    if ($class -eq 'validation') { return (Invoke-P9SValidation $Ctx $Request $v $res) }",
       "replace": "    if ($class -eq 'validation') { return (Invoke-P9SValidation $Ctx $Request $v $res) }; if ($class -eq 'session') { return (Invoke-P9SSessionAction $Ctx $Request $v $res) }"
+    },
+    {
+      "id": "PS1",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "a state folder with content and no anchor is READY",
+      "killers": [
+        "P22",
+        "P43"
+      ],
+      "find": "return (& $done 'ANCHOR_MISSING' \"STATE_FOLDER_HOLDS:",
+      "replace": "return (& $done 'READY' \"STATE_FOLDER_HOLDS:"
+    },
+    {
+      "id": "PS2",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "no anchor and nothing else is READY",
+      "killers": [
+        "P28",
+        "P43"
+      ],
+      "find": "        return (& $done 'NOT_INITIALIZED' $null)",
+      "replace": "        return (& $done 'READY' $null)"
+    },
+    {
+      "id": "PS3",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "an access-denied probe is read as an absent file or folder",
+      "killers": [
+        "P27"
+      ],
+      "find": "        5 { 'denied' }",
+      "replace": "        5 { 'absent' }"
+    },
+    {
+      "id": "PS4",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "an anchor key that cannot be opened is taken for no anchor",
+      "killers": [
+        "P21"
+      ],
+      "find": "    catch { $r.present = $true; $r.reasons.Add('ANCHOR_KEY_NOT_READABLE'); return $r }",
+      "replace": "    catch { return $r }"
+    },
+    {
+      "id": "PS5",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "an earlier-version folder that cannot be read counts as no evidence",
+      "killers": [
+        "P27"
+      ],
+      "find": "    if ($e.kind -in 'denied', 'error') { $s.reasons.Add('LEGACY_FOLDER_NOT_ACCESSIBLE'); return $s }",
+      "replace": "    if ($e.kind -in 'denied', 'error') { $s.evidence = $false; return $s }"
+    },
+    {
+      "id": "PS6",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "a ledger older than the anchor's mark is accepted (no revision check)",
+      "killers": [
+        "P34"
+      ],
+      "find": "    if ($rev -lt [long]$mark.revision) { return @('LEDGER:STATE_STALE') }",
+      "replace": "    if ($false) { return @('LEDGER:STATE_STALE') }"
+    },
+    {
+      "id": "PS7",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "other ledger content at the anchor's revision is accepted",
+      "killers": [
+        "P34"
+      ],
+      "find": "    if ($rev -eq [long]$mark.revision -and (Get-P9SStateSha $b.bytes) -cne [string]$mark.sha256) { return @('LEDGER:ACPI_LEDGER_INCONSISTENT') }",
+      "replace": "    if ($false) { return @('LEDGER:ACPI_LEDGER_INCONSISTENT') }"
+    },
+    {
+      "id": "PS8",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "precedence: the anchor is judged before the location",
+      "killers": [
+        "P41"
+      ],
+      "find": "    if ($loc.Count) { return (& $done 'LOCATION_UNSAFE' $loc) }\n    if ($anc.present -and -not $anc.ok) { return (& $done 'ANCHOR_UNREADABLE' $anc.reasons) }",
+      "replace": "    if ($anc.present -and -not $anc.ok) { return (& $done 'ANCHOR_UNREADABLE' $anc.reasons) }\n    if ($loc.Count) { return (& $done 'LOCATION_UNSAFE' $loc) }"
+    },
+    {
+      "id": "PS9",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "precedence: two earlier folders are judged before the migration marker",
+      "killers": [
+        "P43"
+      ],
+      "find": "        if ($lost.Count) { $st.installation_id = $lost[0].marker.installation_id; return (& $done 'INSTALLATION_LOST' \"MARKER_IN:$($lost[0].dir)\") }\n        if ($ev.Count -gt 1) { return (& $done 'MIGRATION_SOURCES_AMBIGUOUS' @($ev | ForEach-Object { \"EVIDENCE_IN:$($_.dir)\" })) }",
+      "replace": "        if ($ev.Count -gt 1) { return (& $done 'MIGRATION_SOURCES_AMBIGUOUS' @($ev | ForEach-Object { \"EVIDENCE_IN:$($_.dir)\" })) }\n        if ($lost.Count) { $st.installation_id = $lost[0].marker.installation_id; return (& $done 'INSTALLATION_LOST' \"MARKER_IN:$($lost[0].dir)\") }"
+    },
+    {
+      "id": "PS10",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "precedence: the state folder is judged before the account",
+      "killers": [
+        "P44"
+      ],
+      "find": "    if ([string]$A.account -cne [string]$C.Process.account) { return (& $done 'ACCOUNT_MISMATCH' 'ANCHOR_ACCOUNT') }\n    if (-not (Test-P9SStateSamePath $A.state_dir $C.StateDir)) { return (& $done 'STATE_MISMATCH' 'STATE_DIR') }",
+      "replace": "    if (-not (Test-P9SStateSamePath $A.state_dir $C.StateDir)) { return (& $done 'STATE_MISMATCH' 'STATE_DIR') }\n    if ([string]$A.account -cne [string]$C.Process.account) { return (& $done 'ACCOUNT_MISMATCH' 'ANCHOR_ACCOUNT') }"
+    },
+    {
+      "id": "PS11",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "a probe creates the file it looks for (OPEN_ALWAYS)",
+      "killers": [
+        "P28",
+        "P22",
+        "P23"
+      ],
+      "find": "CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)",
+      "replace": "CreateFileW(path, 0x80, 7, IntPtr.Zero, 4, 0x02200000, IntPtr.Zero)"
+    },
+    {
+      "id": "PS12",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "the anchor key is created when it is read",
+      "killers": [
+        "P28",
+        "P43"
+      ],
+      "find": "OpenSubKey($C.AnchorKey, $false)",
+      "replace": "CreateSubKey($C.AnchorKey)"
+    },
+    {
+      "id": "PS13",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "a record read creates the file when it is absent",
+      "killers": [
+        "P33",
+        "P36"
+      ],
+      "find": "[IO.FileMode]::Open, [IO.FileAccess]::Read",
+      "replace": "[IO.FileMode]::OpenOrCreate, [IO.FileAccess]::Read"
+    },
+    {
+      "id": "PS14",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "hard links in the state folder are not checked",
+      "killers": [
+        "P14"
+      ],
+      "find": "            if ($e.links -gt 1) { $out.Add('STATE_ENTRY_HARD_LINKED') }",
+      "replace": "            if ($false) { $out.Add('STATE_ENTRY_HARD_LINKED') }"
+    },
+    {
+      "id": "PS15",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "reparse points on the path of the state folder are not checked",
+      "killers": [
+        "P11"
+      ],
+      "find": "        if ($e.reparse) { $out.Add('STATE_PATH_REPARSE_POINT'); break }",
+      "replace": "        if ($false) { $out.Add('STATE_PATH_REPARSE_POINT'); break }"
+    },
+    {
+      "id": "PS16",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "write entries of other accounts are not checked",
+      "killers": [
+        "P12",
+        "P41"
+      ],
+      "find": "-band $write) { $out.Add('ACL_FOREIGN_WRITE') }",
+      "replace": "-band $write) { }"
+    },
+    {
+      "id": "PS17",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "a process with a package identity is not refused",
+      "killers": [
+        "P16"
+      ],
+      "find": "{ $_ -in 0, 122 } { $out.Add('PACKAGED_PROCESS') }",
+      "replace": "{ $_ -in 0, 122 } { }"
+    },
+    {
+      "id": "PS18",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "LocalApplicationData is taken from the environment variable",
+      "killers": [
+        "P01"
+      ],
+      "find": "$api = [P9SStateNative]::LocalAppData(); $net",
+      "replace": "$api = $env:LOCALAPPDATA; $net"
+    },
+    {
+      "id": "PS19",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "the earlier folder is not compared with the migration manifest",
+      "killers": [
+        "P35"
+      ],
+      "find": "                if (-not $known.ContainsKey($x.name) -or $known[$x.name] -cne $x.sha256) { return (& $done 'STATE_DIVERGED'",
+      "replace": "                if ($false) { return (& $done 'STATE_DIVERGED'"
+    },
+    {
+      "id": "PS20",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "an installed folder without ledger is read as never used",
+      "killers": [
+        "P34"
+      ],
+      "find": "    if ($lg.detail -ceq 'absent, never used') { return @('LEDGER:ACPI_LEDGER_MISSING') }",
+      "replace": "    if ($false) { return @('LEDGER:ACPI_LEDGER_MISSING') }"
+    },
+    {
+      "id": "PS21",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "the marker of a migration is ignored",
+      "killers": [
+        "P24",
+        "P43"
+      ],
+      "find": "        $lost = @($ev | Where-Object { $_.marker })",
+      "replace": "        $lost = @()"
+    },
+    {
+      "id": "PS22",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "a migration record that disagrees with the anchor is accepted",
+      "killers": [
+        "P33"
+      ],
+      "find": "            return (& $done 'STATE_INCOMPLETE' 'MIGRATION_RECORD_INCONSISTENT')",
+      "replace": "            $null = 'MIGRATION_RECORD_INCONSISTENT'"
+    },
+    {
+      "id": "PS23",
+      "suite": "persist",
+      "file": "p9s-state.ps1",
+      "what": "the root's ACL may be inherited",
+      "killers": [
+        "P13"
+      ],
+      "find": "-RequireProtected:($d -eq $C.Root)",
+      "replace": "-RequireProtected:$false"
     }
   ]
 }
