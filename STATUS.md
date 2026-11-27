@@ -1358,6 +1358,14 @@ exists, and lost if Windows cleanup deletes it. No live action is to run
 in that interval. Nothing ran live, and `state.migrate` never ran on the
 laboratory's state.
 
+With those tests the Windows toolkit job would pass its 90 minutes, so it
+now runs in three shards: each runs all ten suites and every third
+targeted fault (`run-all.ps1 -MutantShard k/3`), the three together run
+each fault exactly once, and each must succeed on its own. The toolkit's
+402 declared tests run in every shard and its 203 targeted faults across
+the three. The migration's window between the two folders stays open
+until C4; R13, R14 and X5 are not resolved.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is

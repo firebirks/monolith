@@ -1003,7 +1003,7 @@ determined local user.
 ## Tests
 
     pwsh -NoProfile -File tests/run-all.ps1 -OutDir <new folder>
-         [-Mutants]
+         [-Mutants [-MutantShard k/n]]
 
 runs the ten suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
 `decouple`, `acpival`, `persist`, `setup`, `migrate`, `migproc`), each in a new
@@ -1014,8 +1014,14 @@ exit code of a suite must agree with its results; anything on the error
 stream fails the run; the coordinator files of the default state folder
 must not change. `-Mutants` then applies each fault of
 `tests/mutants.json` to its own copy of this folder and requires one of
-the tests named for it to fail. Exit 0 only when every check passed. A
-suite can also be run on its own:
+the tests named for it to fail. `-MutantShard k/n` applies only shard k of
+n: the faults whose position in `tests/mutants.json`, counted from 0, leaves
+k-1 when divided by n; the suites still run in full first. Before any suite
+runs it checks that the n shards together hold every fault exactly once and
+that none is empty, and refuses (exit 2) a spec that is not k/n with
+1 <= k <= n, or one given without `-Mutants`; afterwards every assigned fault
+must have exactly one verdict. Without it every fault runs. Exit 0 only when
+every check passed. A suite can also be run on its own:
 
     pwsh -NoProfile -File tests/coordinator-tests.ps1 -OutDir <new folder>
 
@@ -1072,12 +1078,16 @@ processes against a migration. Cases P62 and P63 run `state.status` and
 machine's real locations, only in the main run of `-CleanRunner` and
 only where none of them exists; elsewhere they are NOT_RUN.
 
-CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs
+CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs in three
+shards, each on its own GitHub-hosted Windows Server 2025 runner:
 
     pwsh -NoProfile -File tools/p9s/host/tests/run-all.ps1
-         -OutDir <dir> -Mutants -CleanRunner
+         -OutDir <dir> -Mutants -MutantShard <k>/3 -CleanRunner
 
-on a GitHub-hosted Windows Server 2025 runner. `-CleanRunner` first
+with k = 1, 2, 3. Every shard runs all ten suites and a third of the
+faults; the three together run each fault exactly once, and each shard
+must succeed on its own (one that fails, is cancelled or does not run
+leaves the run unsuccessful). `-CleanRunner` first
 requires that the runner has no VirtualBox (no `VBoxManage.exe`, no
 VirtualBox COM class), no `p9s-local.json`, no `P9S_HOST_CONFIG` and no
 default state folder, so that a fault in a test cannot reach a real VM

@@ -125,8 +125,16 @@ jobs:
   # dispatchers, dry runs and simulations; they cannot show how a real VM
   # or the host under load behaves.
   p9s-windows-toolkit:
+    name: p9s-windows-toolkit (shard ${{ matrix.shard }}/3)
     runs-on: windows-2025
     timeout-minutes: 90
+    # Every shard runs every suite, then every third targeted fault of
+    # tests/mutants.json (run-all.ps1 -MutantShard): the three shards together
+    # run each fault exactly once. Each shard must succeed on its own.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     defaults:
       run:
         shell: pwsh
@@ -135,7 +143,7 @@ jobs:
         with:
           persist-credentials: false
       - run: $PSVersionTable | Format-Table -AutoSize | Out-String -Width 200
-      - run: pwsh -NoProfile -File tools/p9s/host/tests/run-all.ps1 -OutDir "$env:RUNNER_TEMP/p9s-tests" -Mutants -CleanRunner
+      - run: pwsh -NoProfile -File tools/p9s/host/tests/run-all.ps1 -OutDir "$env:RUNNER_TEMP/p9s-tests" -Mutants -MutantShard ${{ matrix.shard }}/3 -CleanRunner
       # The toolkit needs PowerShell 7.4 or later; Windows PowerShell 5.1
       # must refuse it before any test starts.
       - run: |
