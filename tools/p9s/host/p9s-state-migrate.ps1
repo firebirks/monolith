@@ -147,10 +147,12 @@ function Get-P9SStatePrefixSha([byte[]]$Bytes, [long]$Length) {
 # is in place, by the rules state.status applies once it is READY: a record
 # new, changed or unreadable there diverges; a history that grew, or a
 # record that is gone, is only noted.
-function Get-P9SStateSourceAgainst($Scan, $M) {
+function Get-P9SStateSourceAgainst($Scan, $M, [string]$InstallationId) {
     $o = [pscustomobject]@{ reasons = [System.Collections.Generic.List[string]]::new(); notes = [System.Collections.Generic.List[string]]::new() }
     $known = @{}; foreach ($x in @($M.files)) { $known[[string]$x.name] = [string]$x.sha256 }
     foreach ($x in @($Scan.files)) {
+        # this migration's own tombstone (step M10t) is no change
+        if ($x.name -ceq 'vbox-quarantine.json' -and -not $known.ContainsKey($x.name) -and $InstallationId -and (ConvertFrom-P9SStateTombstone $x.bytes).installation_id -ceq $InstallationId) { continue }
         if ($x.class -ceq 'record') { if (-not $known.ContainsKey($x.name) -or $known[$x.name] -cne $x.sha256) { $o.reasons.Add("MIGRATION_SOURCE_CHANGED:$($x.name)") } }
         elseif (-not $known.ContainsKey($x.name) -or $known[$x.name] -cne $x.sha256) { $o.notes.Add("OLD_FOLDER_HISTORY_CHANGED:$($x.name)") }
     }
@@ -177,7 +179,7 @@ function Get-P9SStateResumeReasons($I, $D, $View) {
     if (-not $mr.ok -or -not $ir.ok -or [string]$mr.doc.migration_id -cne [string]$A.op_id -or [string]$mr.doc.manifest_sha256 -cne [string]$A.manifest_sha256 -or [string]$ir.doc.installation_id -cne [string]$A.installation_id) {
         $o.reasons.Add('STATE_FOLDER_NOT_THIS_MIGRATION'); return $o
     }
-    $x = Get-P9SStateSourceAgainst $View.scan $mr.doc
+    $x = Get-P9SStateSourceAgainst $View.scan $mr.doc ([string]$A.installation_id)
     foreach ($y in $x.reasons) { $o.reasons.Add($y) }
     foreach ($y in $x.notes) { $o.notes.Add($y) }
     if ($o.reasons.Count) { $o.way = 'a record of the earlier folder changed after the copy: put it back as migration.json of the state folder lists it; nothing is chosen automatically' }
@@ -348,7 +350,7 @@ function Close-P9SStateHistoryLine([string]$Path) { if ((Get-P9SSetupEntry $Path
 # a ledger the toolkit's reader accepts (the empty one when it was created),
 # the install and migration records of this migration, the protected ACL,
 # plain files only, and nothing else.
-function Get-P9SStateMigrateFolderCheck($I, $A, [string]$Dir, $M) {
+function Get-P9SStateMigrateFolderCheck($I, $A, [string]$Dir, $M, [switch]$InPlace) {
     $C = $I.State; $n = Get-P9SStateNames; $acct = [string]$C.Process.account
     $out = [System.Collections.Generic.List[string]]::new()
     $r = [pscustomobject]@{ reasons = $out; mark = $null }
@@ -363,6 +365,10 @@ function Get-P9SStateMigrateFolderCheck($I, $A, [string]$Dir, $M) {
     foreach ($x in 'vm-observations.jsonl', 'vbox-audit.jsonl', $n.install, $n.migration) { $null = $allowed.Add($x) }
     if ($created) { $null = $allowed.Add('acpi-validation-ledger.json'); $null = $allowed.Add('acpi-validation-ledger.revision.json') }
     foreach ($it in @($l.items)) {
+        # once the folder is in place the monitor may write beside the copy:
+        # its state, its lock and the temporary file of its atomic write show
+        # nothing (p9s-state.ps1)
+        if ($InPlace -and ($it.Name -cin 'state.json', 'state.json.lock' -or $it.Name -cmatch '^\.state\.json\.[0-9a-f]{32}\.tmp$')) { continue }
         $x = Get-P9SSetupEntry $it.FullName
         if ($x.kind -ne 'file' -or $x.reparse -or $x.links -gt 1) { $out.Add("ENTRY:$($it.Name)"); continue }
         if (-not $allowed.Contains($it.Name)) { $out.Add("UNEXPECTED_ENTRY:$($it.Name)"); continue }
@@ -606,13 +612,27 @@ function Invoke-P9SStateMigrate {
             if (-not $mko.ok -or [string]$mko.doc.installation_id -cne [string]$A.installation_id -or [string]$mko.doc.manifest_sha256 -cne [string]$A.manifest_sha256 -or -not (Test-P9SStateSamePath $mko.doc.state_dir $C.StateDir)) { return (& $refuse 'MIGRATION_MARKER_CONFLICT') }
         }
         Invoke-P9SStateInitStep $I 'M10'
+        # ---- M10t: the tombstone, a quarantine record of the VirtualBox layer
+        # that every earlier toolkit version with that layer honours: none of
+        # them starts a VM, sends keys, opens a session or sends an ACPI
+        # request from that folder any more (p9s-state.ps1)
+        $tp = Join-Path $src 'vbox-quarantine.json'
+        $tt = Read-P9SStateTombstone $tp
+        if ($tt.kind -ceq 'absent') {
+            $tomb = [ordered]@{ schema = 'p9s-vbox-quarantine/1'; reason = (Get-P9SStateTombstoneReason); operation_id = "state-moved-$($A.installation_id)"; operation = $null; vm = $null; child_pid = $null; child_start_ticks = $null
+                owner_pid = $PID; utc = (ConvertTo-P9SStateUtcText (Get-P9SStateInitNow $I))
+                detail = "the state of this toolkit moved to the persistent state folder (installation $($A.installation_id)); nothing may run from this folder any more; nothing here was deleted"
+                installation_id = $A.installation_id; state_dir = $C.StateDir; manifest_sha256 = $A.manifest_sha256 }
+            try { Write-P9SStateNewFile $tp ([Text.UTF8Encoding]::new($false).GetBytes(($tomb | ConvertTo-Json -Depth 3))) } catch { return (& $refuse 'TOMBSTONE_NOT_WRITTEN') }
+        } elseif ($tt.kind -cne 'tombstone' -or [string]$tt.installation_id -cne [string]$A.installation_id) { return (& $refuse 'MIGRATION_TOMBSTONE_CONFLICT') }
+        Invoke-P9SStateInitStep $I 'M10t'
         # ---- M11: the folder checked, the earlier folder still matching it, the
         # anchor unchanged, then READY
-        $chk = Get-P9SStateMigrateFolderCheck $I $A $C.StateDir $M
+        $chk = Get-P9SStateMigrateFolderCheck $I $A $C.StateDir $M -InPlace
         foreach ($x in @(Get-P9SStateLocationReasons $C)) { $chk.reasons.Add("LOCATION:$x") }
         if ($chk.reasons.Count) { return (& $refuse (@('STATE_FOLDER_NOT_COMPLETE') + @($chk.reasons))) }
         $s3 = Get-P9SStateSourceScan $src $acct
-        $ag = Get-P9SStateSourceAgainst $s3 $M
+        $ag = Get-P9SStateSourceAgainst $s3 $M ([string]$A.installation_id)
         if ($s3.reasons.Count -or $ag.reasons.Count) { $res.lines.Add('way out: a record of the earlier folder changed after the copy: put it back as migration.json of the state folder lists it; nothing is chosen automatically'); return (& $refuse (@('MIGRATION_SOURCE_CHANGED') + @($s3.reasons) + @($ag.reasons))) }
         $cur = Read-P9SStateAnchor $C
         if (-not $cur.ok -or [string]$cur.doc.phase -cne 'MIGRATING' -or [string]$cur.doc.op_id -cne $op -or [string]$cur.doc.installation_id -cne [string]$A.installation_id -or [string]$cur.doc.manifest_sha256 -cne [string]$A.manifest_sha256) { return (& $refuse 'ANCHOR_CHANGED') }
@@ -645,6 +665,147 @@ function Invoke-P9SStateMigrate {
         return $res
     } finally { if ($ohold) { $ohold.Dispose() }; if ($olock) { $olock.Dispose() }; $lock.Dispose() }
 }
+# ------------------------------------------------------------ state.reanchor
+# The anchor written again for a state folder that is in place and
+# consistent, when the anchor is gone (ANCHOR_MISSING) or, with -Replace,
+# when it cannot be parsed (ANCHOR_UNREADABLE; its text is first copied into
+# the folder's audit). Every other status refuses: an uncertain ledger is
+# never re-marked (that would accept a rollback). The folder must hold the
+# install record of this account and folder, a ledger the toolkit's reader
+# establishes, and for a migrated installation its migration record, with
+# the earlier folder still matching it; every configured VM must be off.
+# The new anchor marks the ledger as it is and takes a new initialized_utc:
+# every ACPI validation authorization issued before it is void.
+# Steps: R0 decision and checks; R1 setup lock; V the VMs, observed into the
+# state folder; R2 (-Replace) the unreadable value kept in the audit; R3 the
+# anchor READY; R4 one audit line.
+function New-P9SStateReanchorResult {
+    [pscustomobject]@{ action = 'state.reanchor'; outcome = 'REFUSED'; reasons = [System.Collections.Generic.List[string]]::new(); lines = [System.Collections.Generic.List[string]]::new()
+        status_before = $null; status_after = $null; installation_id = $null; op_id = $null; vm_states = $null; dispatched = 0 }
+}
+# What a reanchor would write, from the folder alone; reasons when it cannot.
+function Get-P9SStateReanchorPlan($I) {
+    $C = $I.State; $n = Get-P9SStateNames; $acct = [string]$C.Process.account
+    $p = [pscustomobject]@{ reasons = [System.Collections.Generic.List[string]]::new(); install = $null; migration = $null; mark = $null }
+    $ir = Read-P9SStateRecord (Join-Path $C.StateDir $n.install) 'install'
+    if (-not $ir.ok) { foreach ($x in $ir.reasons) { $p.reasons.Add("INSTALL_RECORD_$x") }; return $p }
+    $D = $ir.doc
+    if ([string]$D.account -cne $acct) { $p.reasons.Add('INSTALL_RECORD_ACCOUNT') }
+    if (-not (Test-P9SStateSamePath $D.state_dir $C.StateDir)) { $p.reasons.Add('INSTALL_RECORD_STATE_DIR') }
+    $p.install = $D
+    $lc = [pscustomobject]@{ LedgerPath = Join-Path $C.StateDir 'acpi-validation-ledger.json'; SessionPath = Join-Path $C.StateDir 'coordinator-session.json'; StopRequestPath = Join-Path $C.StateDir 'coordinator-stop.request' }
+    $lg = Read-P9SAcpiLedger $lc
+    if (-not $lg.ok) { $p.reasons.Add("LEDGER:$($lg.reason)") }
+    elseif ($lg.detail -ceq 'absent, never used') { $p.reasons.Add('LEDGER:ACPI_LEDGER_MISSING') }
+    else {
+        $b = Read-P9SStateBytes $lc.LedgerPath
+        $rev = if ($b.kind -eq 'ok') { Get-P9SStateLedgerRevision $b.bytes } else { $null }
+        if ($null -eq $rev) { $p.reasons.Add("LEDGER_NOT_READ:$($b.kind)") } else { $p.mark = [ordered]@{ revision = [long]$rev; sha256 = (Get-P9SStateSha $b.bytes) } }
+    }
+    $mr = Read-P9SStateRecord (Join-Path $C.StateDir $n.migration) 'migration'
+    if ([string]$D.origin -ceq 'new') { if ($mr.kind -ne 'absent') { $p.reasons.Add('MIGRATION_RECORD_UNEXPECTED') } }
+    else {
+        if (-not $mr.ok) { foreach ($x in $mr.reasons) { $p.reasons.Add("MIGRATION_RECORD_$x") }; return $p }
+        $M = $mr.doc
+        $dg = Get-P9SStateManifestDigest $M.files $M.absent ([string]$M.source_dir)
+        if ([string]$M.installation_id -cne [string]$D.installation_id -or [string]$M.migration_id -cne [string]$D.migration_id -or $dg -cne [string]$M.manifest_sha256) { $p.reasons.Add('MIGRATION_RECORD_INCONSISTENT') }
+        $src = @($C.LegacyDirs | Where-Object { Test-P9SStateSamePath $_ $M.source_dir })
+        if (-not $src.Count) { $p.reasons.Add('MIGRATION_SOURCE_NOT_A_KNOWN_LOCATION') }
+        elseif ((Get-P9SSetupEntry $src[0]).kind -ne 'absent') {
+            $s = Get-P9SStateSourceScan $src[0] $acct
+            foreach ($x in $s.reasons) { $p.reasons.Add($x) }
+            foreach ($x in (Get-P9SStateSourceAgainst $s $M ([string]$D.installation_id)).reasons) { $p.reasons.Add($x) }
+        }
+        $p.migration = $M
+    }
+    $p
+}
+# setup.lock of the root, exclusive, no wait; $null when another setup holds it
+function Enter-P9SStateSetupLock($C) { try { [IO.FileStream]::new((Join-Path $C.Root (Get-P9SStateNames).setup_lock), 'OpenOrCreate', 'ReadWrite', 'None') } catch { $null } }
+function Invoke-P9SStateReanchor {
+    param([Parameter(Mandatory)]$I, [switch]$Replace, [switch]$DryRun)
+    $res = New-P9SStateReanchorResult
+    $C = $I.State; $n = Get-P9SStateNames
+    $refuse = { param([string[]]$Why) foreach ($x in $Why) { if ($x) { $res.reasons.Add($x) } }; $res.outcome = 'REFUSED'; $res }
+    if (-not (Initialize-P9SSetupNative) -or -not $C.Native) { return (& $refuse 'NATIVE_CHECKS_UNAVAILABLE') }
+    $decide = {
+        $st = Get-P9SStateStatus $C
+        $why = $null
+        if ($st.status -ceq 'ANCHOR_MISSING') { if ($Replace) { $why = 'NOTHING_TO_REPLACE:ANCHOR_MISSING' } }
+        elseif ($st.status -ceq 'ANCHOR_UNREADABLE') {
+            if (-not $Replace) { $why = 'ANCHOR_UNREADABLE_NEEDS_REPLACE' }
+            elseif (@($st.reasons) -ccontains 'ANCHOR_KEY_NOT_READABLE') { $why = 'ANCHOR_KEY_NOT_READABLE' }
+        } else { $why = "NOT_REANCHORABLE:$($st.status)" }
+        [pscustomobject]@{ status = $st; why = $why }
+    }
+    $d = & $decide
+    $res.status_before = $d.status.status
+    $res.lines.Add("status: $($d.status.status)$(if (@($d.status.reasons).Count) { ' (' + (@($d.status.reasons) -join ', ') + ')' })")
+    if ($d.why) {
+        if ($d.why -clike 'NOT_REANCHORABLE:STATE_UNCERTAIN') { $res.lines.Add('way out: an uncertain ledger is never re-marked; state.init -Supersede, or put back the newer ledger') }
+        return (& $refuse $d.why)
+    }
+    $pre = @(@(Get-P9SStateInitProcessReasons $I) + @(Get-P9SStateInitVBoxReasons $C))
+    if ($pre.Count) { return (& $refuse $pre) }
+    $plan = Get-P9SStateReanchorPlan $I
+    if ($plan.reasons.Count) { return (& $refuse (@('STATE_FOLDER_NOT_CONSISTENT') + @($plan.reasons))) }
+    $now = Get-P9SStateInitNow $I
+    $ct = ConvertFrom-P9SStateUtcText $plan.install.created_utc
+    if (-not $ct -or $ct -gt $now) { return (& $refuse 'CLOCK_BEHIND_EVIDENCE') }
+    $res.installation_id = [string]$plan.install.installation_id
+    Invoke-P9SStateInitStep $I 'R0'
+    if ($DryRun) {
+        $res.outcome = 'DRYRUN'
+        $res.lines.Add("would write the anchor of installation $($res.installation_id) (origin $($plan.install.origin)), marking the ledger at revision $($plan.mark.revision); every authorization issued before the new initialized_utc would be void")
+        $res.lines.Add('the VM states are read before the anchor is written; nothing was written')
+        return $res
+    }
+    $lock = Enter-P9SStateSetupLock $C
+    if (-not $lock) { return (& $refuse 'SETUP_BUSY') }
+    try {
+        Invoke-P9SStateInitStep $I 'R1'
+        $d2 = & $decide
+        if ($d2.why -or $d2.status.status -cne $d.status.status) { $res.status_before = $d2.status.status; return (& $refuse (@("SETUP_STATE_CHANGED:$($d2.status.status)") + @($d2.why))) }
+        $plan = Get-P9SStateReanchorPlan $I
+        if ($plan.reasons.Count) { return (& $refuse (@('STATE_FOLDER_NOT_CONSISTENT') + @($plan.reasons))) }
+        $v = Test-P9SStateInitVms $I $C.StateDir 'state.reanchor'
+        $res.vm_states = $v.states
+        if ($v.reasons.Count) { return (& $refuse $v.reasons) }
+        Invoke-P9SStateInitStep $I 'V'
+        $op = 'reanchor-' + $now.ToString("yyyyMMdd'T'HHmmss'Z'", [Globalization.CultureInfo]::InvariantCulture) + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $res.op_id = $op
+        $audit = Join-Path $C.StateDir (Get-P9SStateMigrateNames).audit
+        if ($Replace) {
+            $raw = Read-P9SStateAnchorRaw $C
+            $kept = [ordered]@{ utc = (ConvertTo-P9SStateUtcText (Get-P9SStateInitNow $I)); pid = $PID; action = 'state.reanchor'; outcome = 'ANCHOR_KEPT'; op_id = $op
+                replaced_anchor_utf8_base64 = $(if ($null -ne $raw) { [Convert]::ToBase64String([Text.UTF8Encoding]::new($false).GetBytes($raw)) } else { $null }); dispatched = 0 }
+            try { Add-P9SStateHistoryBytes $audit ([Text.UTF8Encoding]::new($false).GetBytes(($kept | ConvertTo-Json -Compress) + "`n")) } catch { return (& $refuse 'ANCHOR_NOT_KEPT') }
+            Invoke-P9SStateInitStep $I 'R2'
+        }
+        $Dinst = $plan.install; $M = $plan.migration
+        $now = Get-P9SStateInitNow $I
+        $A = [ordered]@{ schema = 'p9s-state-anchor/1'; phase = 'READY'; op_id = $op; installation_id = [string]$Dinst.installation_id; account = [string]$C.Process.account; state_dir = $C.StateDir; origin = [string]$Dinst.origin
+            source_dir = $(if ($M) { [string]$M.source_dir } else { $null }); manifest_sha256 = $(if ($M) { [string]$M.manifest_sha256 } else { $null }); supersedes = $Dinst.supersedes
+            created_utc = [string]$Dinst.created_utc; initialized_utc = (ConvertTo-P9SStateUtcText $now); ledger = $plan.mark }
+        try { Write-P9SStateAnchor $C $A } catch { return (& $refuse 'ANCHOR_WRITE_FAILED') }
+        Invoke-P9SStateInitStep $I 'R3'
+        $after = Get-P9SStateStatus $C
+        $res.status_after = $after.status
+        if ($after.status -cne 'READY' -or [string]$after.installation_id -cne [string]$Dinst.installation_id) {
+            $res.outcome = 'FAILED'; $res.reasons.Add("STATUS_AFTER_REANCHOR:$($after.status)"); foreach ($x in @($after.reasons)) { $res.reasons.Add($x) }; return $res
+        }
+        try {
+            $line = [ordered]@{ utc = (ConvertTo-P9SStateUtcText (Get-P9SStateInitNow $I)); pid = $PID; action = 'state.reanchor'; outcome = 'DONE'; reasons = @(); installation_id = $A.installation_id; op_id = $op
+                initialized_utc = $A.initialized_utc; ledger_revision = $A.ledger.revision; replaced = [bool]$Replace; vm_states = $res.vm_states; dispatched = 0 }
+            Add-P9SStateHistoryBytes $audit ([Text.UTF8Encoding]::new($false).GetBytes(($line | ConvertTo-Json -Compress -Depth 4) + "`n"))
+        } catch { $res.lines.Add('the audit line was not written') }
+        Invoke-P9SStateInitStep $I 'R4'
+        $res.outcome = 'DONE'
+        $res.lines.Add("installation $($A.installation_id) anchored again; initialized $($A.initialized_utc): every ACPI validation authorization approved or valid from before it is void")
+        return $res
+    } finally { $lock.Dispose() }
+}
+
 # the value names of the anchor key ($null when it cannot be read)
 function Get-P9SStateAnchorValueNames($C) {
     $k = $null

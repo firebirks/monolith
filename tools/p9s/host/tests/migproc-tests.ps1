@@ -367,7 +367,7 @@ function New-LabSource([string]$Dir, [switch]$NoLocks) {
 $labFiles = 'acpi-validation-ledger.json', 'coordinator-audit.jsonl', 'coordinator-session.json', 'vbox-audit.jsonl', 'vm-observations.jsonl'
 function Get-MigSteps([string[]]$Files, [switch]$LedgerCreated) {
     @('P0', 'M1', 'M2', 'M3', 'M4') + @($Files | ForEach-Object { "M5:$_-tmp"; "M5:$_" }) + @('V:P9S-D12', 'V:P9S-U24', 'V') +
-        @(if ($LedgerCreated) { 'M6-ledger-tmp', 'M6-ledger', 'M6-revision-tmp', 'M6-revision', 'M6' }) + @('M7-migration', 'M7', 'M8', 'M9', 'M10', 'M11', 'M12')
+        @(if ($LedgerCreated) { 'M6-ledger-tmp', 'M6-ledger', 'M6-revision-tmp', 'M6-revision', 'M6' }) + @('M7-migration', 'M7', 'M8', 'M9', 'M10', 'M10t', 'M11', 'M12')
 }
 function New-MigCtx($E, [hashtable]$O = @{}) {
     $vms = if ($O.Vms) { $O.Vms } else { $vmOff }
@@ -504,7 +504,7 @@ Case 'W01' 'state.migrate ended by TerminateProcess at each step: never READY be
         if (-not (Test-Crashed $x $s)) { continue }
         $want = if ($s -cin 'P0', 'M1', 'M2') { 'MIGRATION_REQUIRED' } elseif ($s -cin 'M11', 'M12') { 'READY' } else { 'INTERRUPTED' }
         $st = Test-Interrupted $e $want $s
-        Test-SourceKept $x.src $e.legacy "$s, after the crash" @($names.marker)
+        Test-SourceKept $x.src $e.legacy "$s, after the crash" @($names.marker, 'vbox-quarantine.json')
         $fb = Get-Files $e.root
         $r = Invoke-Mig $e
         if ($want -ceq 'READY') { Test-Refused $r 'NOT_MIGRATABLE:READY' "$s, rerun" }
@@ -514,7 +514,7 @@ Case 'W01' 'state.migrate ended by TerminateProcess at each step: never READY be
         }
         $null = Test-Status $e 'READY' -Label "$s, after the rerun"
         Test-Kept $fb (Get-Files $e.root) $s '\state\'
-        Test-SourceKept $x.src $e.legacy "$s, after the rerun" @($names.marker)
+        Test-SourceKept $x.src $e.legacy "$s, after the rerun" @($names.marker, 'vbox-quarantine.json')
         Test-RecordsCopied $e $x.rec $s
         Expect ((Get-Marker $e).installation_id -ceq (Get-Anchor $e).installation_id) "${s}: the marker names another installation"
     }
@@ -531,11 +531,11 @@ Case 'W02' 'a migration that creates the empty ledger ended by TerminateProcess 
         $r = Invoke-Mig $e; Expect ($r.outcome -ceq 'DONE' -and $r.ledger_created) "${s}: rerun $(Why $r)"
         $lg = Read-P9SAcpiLedger ([pscustomobject]@{ LedgerPath = (Get-LedgerPath $e); SessionPath = (Join-Path $e.state 'coordinator-session.json') })
         Expect ($lg.ok -and $lg.detail -ceq 'revision 1' -and @($lg.doc.entries).Count -eq 0 -and (Get-Anchor $e).ledger.revision -eq 1) "${s}: ledger $($lg.detail)"
-        Test-SourceKept $x.src $e.legacy $s @($names.marker)
+        Test-SourceKept $x.src $e.legacy $s @($names.marker, 'vbox-quarantine.json')
     }
 }
 Case 'W03' 'a resumed migration (its state folder in place) ended by TerminateProcess at each of its steps: the next run completes the same installation' {
-    $steps = 'P0', 'M1', 'M2', 'V:P9S-D12', 'V', 'M10', 'M11', 'M12'
+    $steps = 'P0', 'M1', 'M2', 'V:P9S-D12', 'V', 'M10', 'M10t', 'M11', 'M12'
     $runs = @(for ($i = 0; $i -lt $steps.Count; $i++) {
         $e = New-Env "w03-$i"; New-LabSource $e.legacy; $r0 = Invoke-Mig $e -O @{ OnStep = (Stop-At 'M9') }
         [pscustomobject]@{ step = $steps[$i]; e = $e; id = (Get-Anchor $e).installation_id; src = (Get-Files $e.legacy); args = @{ CrashAt = $steps[$i] }; w = $null } })
@@ -548,7 +548,7 @@ Case 'W03' 'a resumed migration (its state folder in place) ended by TerminatePr
         $r = Invoke-Mig $e
         if ($want -ceq 'READY') { Test-Refused $r 'NOT_MIGRATABLE:READY' "resume $s, rerun" } else { Expect ($r.outcome -ceq 'DONE' -and $r.installation_id -ceq $x.id) "resume ${s}: rerun $(Why $r)" }
         $st = Test-Status $e 'READY' -Label "resume $s, after the rerun"; Expect ($st.installation_id -ceq $x.id) "resume ${s}: another installation"
-        Test-SourceKept $x.src $e.legacy "resume $s" @($names.marker)
+        Test-SourceKept $x.src $e.legacy "resume $s" @($names.marker, 'vbox-quarantine.json')
     }
 }
 Case 'W04' 'state.migrate -Restart ended by TerminateProcess at its first steps: the earlier anchor value kept each time, the plain rerun still refuses the changed folder, -Restart again completes' {

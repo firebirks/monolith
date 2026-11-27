@@ -1,11 +1,11 @@
 #Requires -Version 7.0
 # Entry point of the toolkit's tests, for the Windows host and for CI.
-# Runs the ten suites, each in a new pwsh process started with -File, and
+# Runs the eleven suites, each in a new pwsh process started with -File, and
 # judges them by their structured results (results.json), not by their
 # console text: every case declared in a suite must be reported exactly
 # once, as PASS, FAIL or NOT_RUN; NOT_RUN is accepted only for the cases
-# this machine cannot run (K37 without VirtualBox; P62, P63 and Q63, which
-# read the real state locations, outside a clean runner); the exit code of the
+# this machine cannot run (K37 without VirtualBox; P62, P63, Q63 and N13,
+# which read the real state locations, outside a clean runner); the exit code of the
 # suite must agree with its results; anything written to the error stream
 # fails the run.
 #   -Mutants      also applies the targeted faults of tests/mutants.json,
@@ -89,7 +89,7 @@ if ($OutDir.StartsWith($kit + [IO.Path]::DirectorySeparatorChar, [StringComparis
 New-Item -ItemType Directory -Path $OutDir | Out-Null
 $pwsh = (Get-Process -Id $PID).Path
 $problems = [System.Collections.Generic.List[string]]::new()
-$suites = 'hostmon', 'coordinator', 'stagec', 'vbox', 'decouple', 'acpival', 'persist', 'setup', 'migrate', 'migproc'
+$suites = 'hostmon', 'coordinator', 'stagec', 'vbox', 'decouple', 'acpival', 'persist', 'setup', 'migrate', 'migproc', 'enforce'
 $required = @($suites | ForEach-Object { "tests\$_-tests.ps1" }) + @('hostmon-lib.ps1', 'coordinator-lib.ps1', 'p9s-config.ps1', 'p9s-vbox.ps1', 'p9s-vmstate.ps1', 'p9s-acpival.ps1', 'p9s-state.ps1', 'p9s-state-init.ps1', 'p9s-state-migrate.ps1', 'paging-thresholds.json') + @(if ($Mutants) { 'tests\mutants.json' })
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $kit $_)) })
 if ($missing.Count) { "FAIL required files missing: $($missing -join ', ')"; [ordered]@{ schema = 'p9s-test-run/1'; ok = $false; problems = @("required files missing: $($missing -join ', ')") } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'summary.json') -Encoding utf8; exit 1 }
@@ -115,12 +115,12 @@ if ($CleanRunner) {
     if ($problems.Count) { $problems | ForEach-Object { "FAIL $_" }; $envFacts | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'environment.json') -Encoding utf8; exit 1 }
 }
 $envFacts | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutDir 'environment.json') -Encoding utf8
-$allowedNotRun = @{ hostmon = @(); coordinator = @(); stagec = @(); vbox = @(); decouple = @(); acpival = @(); persist = @(); setup = @(); migrate = @(); migproc = @() }
+$allowedNotRun = @{ hostmon = @(); coordinator = @(); stagec = @(); vbox = @(); decouple = @(); acpival = @(); persist = @(); setup = @(); migrate = @(); migproc = @(); enforce = @() }
 if (-not $envFacts.vboxmanage_present) { $allowedNotRun.coordinator = @('K37') }
-# P62, P63 and Q63 run the entry point against the machine's real state
+# P62, P63, Q63 and N13 run the entry point against the machine's real state
 # locations: only on a clean runner, and only in the main run (never in a
 # mutant's copy)
-if (-not $CleanRunner) { $allowedNotRun.persist = @('P62', 'P63'); $allowedNotRun.migrate = @('Q63') }
+if (-not $CleanRunner) { $allowedNotRun.persist = @('P62', 'P63'); $allowedNotRun.migrate = @('Q63'); $allowedNotRun.enforce = @('N13') }
 
 # the coordinator files of the default state folder, before
 function Get-DefaultCoordinatorFiles {
@@ -172,7 +172,7 @@ function Invoke-P9SSuite {
 $suiteResults = [System.Collections.Generic.List[object]]::new()
 foreach ($s in $suites) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    if ($CleanRunner -and $s -in 'persist', 'migrate') { $env:P9S_TEST_REAL_LOCATIONS = '1' }
+    if ($CleanRunner -and $s -in 'persist', 'migrate', 'enforce') { $env:P9S_TEST_REAL_LOCATIONS = '1' }
     try { $x = Invoke-P9SSuite -Pwsh $pwsh -KitDir $kit -Suite $s -Dir $OutDir -AllowedNotRun $allowedNotRun[$s] } finally { Remove-Item Env:P9S_TEST_REAL_LOCATIONS -ErrorAction SilentlyContinue }
     $x | Add-Member -NotePropertyName seconds -NotePropertyValue ([math]::Round($sw.Elapsed.TotalSeconds, 1))
     $suiteResults.Add($x)

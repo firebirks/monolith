@@ -359,7 +359,7 @@ function New-LabSource([string]$Dir, [switch]$NoLocks) {
 $labFiles = 'acpi-validation-ledger.json', 'coordinator-audit.jsonl', 'coordinator-session.json', 'vbox-audit.jsonl', 'vm-observations.jsonl'
 function Get-MigSteps([string[]]$Files, [switch]$LedgerCreated) {
     @('P0', 'M1', 'M2', 'M3', 'M4') + @($Files | ForEach-Object { "M5:$_-tmp"; "M5:$_" }) + @('V:P9S-D12', 'V:P9S-U24', 'V') +
-        @(if ($LedgerCreated) { 'M6-ledger-tmp', 'M6-ledger', 'M6-revision-tmp', 'M6-revision', 'M6' }) + @('M7-migration', 'M7', 'M8', 'M9', 'M10', 'M11', 'M12')
+        @(if ($LedgerCreated) { 'M6-ledger-tmp', 'M6-ledger', 'M6-revision-tmp', 'M6-revision', 'M6' }) + @('M7-migration', 'M7', 'M8', 'M9', 'M10', 'M10t', 'M11', 'M12')
 }
 function New-MigCtx($E, [hashtable]$O = @{}) {
     $vms = if ($O.Vms) { $O.Vms } else { $vmOff }
@@ -395,7 +395,7 @@ function Get-Marker($E) { $p = Join-Path $e.legacy $names.marker; if (Test-Path 
 $script:sources = [System.Collections.Generic.List[object]]::new()
 function Register-Source($E) { $script:sources.Add([pscustomobject]@{ dir = $E.legacy; files = (Get-Files $E.legacy) }) }
 
-Case 'Q01' 'state.migrate on the laboratory shape: READY, origin migrated, every record and history copied byte for byte, the manifest, the marker, the version 1 ledger marked as revision 0, the earlier folder unchanged but for the marker' {
+Case 'Q01' 'state.migrate on the laboratory shape: READY, origin migrated, every record and history copied byte for byte, the manifest, the marker, the version 1 ledger marked as revision 0, the earlier folder unchanged but for the marker and the tombstone' {
     $e = New-Env 'q01'; New-LabSource $e.legacy; Register-Source $e
     $null = Test-Status $e 'MIGRATION_REQUIRED'
     $src0 = Get-Files $e.legacy
@@ -423,7 +423,7 @@ Case 'Q01' 'state.migrate on the laboratory shape: READY, origin migrated, every
     Expect ($obs.Count -eq 2) "new observations $($obs.Count)"
     $aud = @(Get-Content -LiteralPath (Join-Path $e.state 'coordinator-audit.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
     Expect ($aud.Count -eq 10 -and $aud[-1].action -ceq 'state.migrate' -and $aud[-1].outcome -ceq 'DONE' -and $aud[-1].installation_id -ceq $r.installation_id -and $aud[-1].dispatched -eq 0) "audit $($aud[-1] | ConvertTo-Json -Compress)"
-    Test-SourceKept $src0 $e.legacy 'the earlier folder' @($names.marker)
+    Test-SourceKept $src0 $e.legacy 'the earlier folder' @($names.marker, 'vbox-quarantine.json')
     $mk = Get-Marker $e
     Expect ($mk -and $mk.schema -ceq 'p9s-state-moved/1' -and $mk.installation_id -ceq $r.installation_id -and $mk.manifest_sha256 -ceq $a.manifest_sha256 -and (Test-P9SStateSamePath $mk.state_dir $e.state)) "marker $($mk | ConvertTo-Json -Compress)"
     Expect ((@(Get-ChildItem -LiteralPath $e.root -Force | ForEach-Object Name | Sort-Object) -join ',') -ceq 'setup.lock,state') "root holds $(@(Get-ChildItem -LiteralPath $e.root -Force | ForEach-Object Name) -join ',')"
@@ -673,10 +673,10 @@ Case 'Q11' 'the locks: the earlier folder''s coordinator lock held by an old coo
     $h = [IO.FileStream]::new((Join-Path $e.legacy 'coordinator-emergency.hold'), 'OpenOrCreate', 'Read', 'Read')
     try { $r = Invoke-Mig $e; Test-Refused $r 'EMERGENCY_IN_PROGRESS' 'hold held'; Expect (-not (Get-KeyValues $e).Count -and -not (Test-Path -LiteralPath $e.state) -and @(Get-Stagings $e).Count -eq 0) 'anchor, state or staging folder written' } finally { $h.Dispose() }
     $r = Invoke-Mig $e; Expect ($r.outcome -ceq 'DONE') "released: $(Why $r)"
-    Test-SourceKept $src0 $e.legacy 'q11a' @($names.marker)
+    Test-SourceKept $src0 $e.legacy 'q11a' @($names.marker, 'vbox-quarantine.json')
     $e = New-Env 'q11b'; New-LabSource $e.legacy -NoLocks; Register-Source $e; $src0 = Get-Files $e.legacy
     $r = Invoke-Mig $e; Expect ($r.outcome -ceq 'DONE') (Why $r)
-    Test-SourceKept $src0 $e.legacy 'q11b' @($names.marker, 'coordinator.lock', 'coordinator-emergency.hold')
+    Test-SourceKept $src0 $e.legacy 'q11b' @($names.marker, 'vbox-quarantine.json', 'coordinator.lock', 'coordinator-emergency.hold')
     foreach ($n in 'coordinator.lock', 'coordinator-emergency.hold') { Expect ((Get-Item -LiteralPath (Join-Path $e.legacy $n)).Length -eq 0) "$n not empty" }
 }
 Case 'Q12' 'two migrations at once, interleaved at the setup lock, the earlier folder''s lock and a copy: the second is refused SETUP_BUSY and writes nothing; a migration that decided before another completed sees READY under the lock and refuses; one installation' {
@@ -717,7 +717,7 @@ Case 'Q13' 'the VMs: a VM process refuses before anything is written; a VM not o
         $r2 = Invoke-Mig $e
         Expect ($r2.outcome -ceq 'DONE' -and $r2.installation_id -ceq $r.installation_id -and $r2.mode -ceq 'resume') "${s}: then off: $(Why $r2)"
         Expect (@(Get-Stagings $e).Count -eq 1 -and (Test-Path -LiteralPath $sg[0].FullName)) "${s}: the first staging folder is not kept"
-        Test-SourceKept $src0 $e.legacy $s @($names.marker)
+        Test-SourceKept $src0 $e.legacy $s @($names.marker, 'vbox-quarantine.json')
     }
     $e = New-Env 'q13b'; New-LabSource $e.legacy; $n = [System.Collections.Generic.List[int]]::new()
     $r = Invoke-Mig $e -O @{ Procs = { $n.Add(1); if ($n.Count -ge 4) { 1 } else { 0 } }.GetNewClosure() }
@@ -792,7 +792,7 @@ Case 'Q16' 'interrupted at each kind of step (a step that throws): never READY b
         else { Expect ($r2.outcome -ceq 'DONE' -and $r2.installation_id -ceq $st.installation_id) "${at}: rerun $(Why $r2)" }
         $null = Test-Status $e 'READY' -Label "$at, after the rerun"
         Test-Kept $fb (Get-Files $e.root) $at '\state\'
-        Test-SourceKept $src0 $e.legacy $at @($names.marker)
+        Test-SourceKept $src0 $e.legacy $at @($names.marker, 'vbox-quarantine.json')
     }
 }
 Case 'Q17' '-Restart only for its own interrupted migration before anything is published: an invalid id, another id, no interruption, an interrupted initialization, a state folder in place: refused, nothing written; on an unchanged folder it completes' {
@@ -914,6 +914,45 @@ Case 'Q26' 'a marker in the earlier folder that this migration did not write: on
     $r = Invoke-Mig $e; Test-Refused $r 'MIGRATION_MARKER_WITHOUT_STATE_FOLDER' 'a marker without a state folder'
     $x = Invoke-Mig $e -Restart (Get-Anchor $e).op_id; Test-Refused $x 'RESTART_NOT_APPLICABLE:MARKER_WRITTEN' 'restart with a marker'
     Expect (-not (Test-Path -LiteralPath $e.state) -and (Get-Anchor $e).phase -ceq 'MIGRATING') 'put in place or READY'
+}
+Case 'Q27' 'the tombstone: one quarantine record of the VirtualBox layer in the earlier folder, written after the marker and before READY; the layer refuses every operation there without starting anything, and no recovery id clears it; state.status accepts it only as this installation''s' {
+    $e = New-Env 'q27'; New-LabSource $e.legacy; Register-Source $e
+    $r = Invoke-Mig $e; Expect ($r.outcome -ceq 'DONE') (Why $r)
+    $tr = @($r.trace); $it = [array]::IndexOf($tr, 'M10t')
+    Expect ($it -gt [array]::IndexOf($tr, 'M10') -and $it -lt [array]::IndexOf($tr, 'M11')) "steps $($tr -join ',')"
+    $tp = Join-Path $e.legacy 'vbox-quarantine.json'
+    $tb = Read-P9SStateTombstone $tp; $doc = ConvertFrom-P9SStateJson ([IO.File]::ReadAllBytes($tp))
+    Expect ($tb.kind -ceq 'tombstone' -and $tb.installation_id -ceq $r.installation_id -and $doc.reason -ceq 'STATE_MOVED' -and $doc.schema -ceq 'p9s-vbox-quarantine/1' -and [string]$doc.operation_id -cnotmatch (Get-P9SVBoxIdPattern)) "tombstone $($doc | ConvertTo-Json -Compress)"
+    # a VBoxManage that records every call: the layer must start none
+    $rec = Join-Path $e.base 'record-vboxmanage.ps1'; $log = Join-Path $e.base 'vboxmanage-calls.log'
+    Write-Text $rec "Add-Content -LiteralPath `$args[0] -Value ((`$args | Select-Object -Skip 1) -join ' ')"
+    $vb = New-P9SVBoxContext -Dir $e.legacy -VmNames @('P9S-D12') -MutexName "Global\P9S-TEST-$run-q27" -ExePath $pw -PrefixArgs @('-NoProfile', '-NonInteractive', '-File', $rec, $log) -LockWaitMs 1500
+    foreach ($op in 'vm.start', 'vm.acpi', 'vm.state') { $o = Invoke-P9SVBoxOperation -VBox $vb -Operation $op -Vm 'P9S-D12'; Expect ($o.outcome -ceq 'QUARANTINED' -and $o.reason -ceq 'VBOX_API_QUARANTINED' -and -not $o.child_pid) "${op}: $($o.outcome) $($o.reason)" }
+    Expect (-not (Test-Path -LiteralPath $log)) "VBoxManage was started: $(if (Test-Path -LiteralPath $log) { Get-Content -Raw -LiteralPath $log })"
+    $g = Get-P9SVBoxGate ([pscustomobject]@{ VBox = $vb }); Expect (-not $g.ok -and @($g.reasons) -ccontains 'VBOX_API_QUARANTINED') "gate $(@($g.reasons) -join ',')"
+    Expect (-not (Test-P9SRequest -Request @{ Action = 'vbox.recover'; Operation = [string]$doc.operation_id }).ok) 'vbox.recover accepts the tombstone id'
+    $null = Test-Status $e 'READY'
+    Expect (@(Get-P9SStateInitVBoxReasons (New-EnvCtx $e)).Count -eq 0) 'a setup takes the tombstone for a VirtualBox record'
+    $orig = [IO.File]::ReadAllBytes($tp)
+    $d = ConvertFrom-P9SStateJson $orig; $d.installation_id = 'inst-other0000'; $d.operation_id = 'state-moved-inst-other0000'; Write-Doc $tp $d
+    $null = Test-Status $e 'STATE_DIVERGED' -Reasons @('OLD_FOLDER_CHANGED:vbox-quarantine.json') -Label 'another installation''s tombstone'
+    Write-Doc $tp ([ordered]@{ schema = 'p9s-vbox-quarantine/1'; reason = 'VBOX_COMMAND_TIMEOUT'; operation_id = 'vbox-20261127T120000000Z-1-0000abcd' })
+    $null = Test-Status $e 'STATE_DIVERGED' -Reasons @('OLD_FOLDER_CHANGED:vbox-quarantine.json') -Label 'a real quarantine'
+    Expect (@(Get-P9SStateInitVBoxReasons (New-EnvCtx $e)).Count -eq 1) 'a real quarantine in the earlier folder no longer blocks a setup'
+    [IO.File]::Delete($tp); $null = Test-Status $e 'READY' -Notes @('OLD_FOLDER_TOMBSTONE_ABSENT') -Label 'tombstone removed'
+    [IO.File]::WriteAllBytes($tp, $orig); $null = Test-Status $e 'READY' -Label 'tombstone put back'
+}
+Case 'Q28' 'a monitor started on the state folder once it is in place: its state, its lock and the temporary file of its atomic write do not stop the migration; any other entry still does' {
+    $e = New-Env 'q28a'; New-LabSource $e.legacy
+    $hook = { param($s) if ($s -ceq 'M10t') { Write-Text (Join-Path $e.state 'state.json') '{}'; Write-Text (Join-Path $e.state 'state.json.lock') ''; Write-Text (Join-Path $e.state ".state.json.$([guid]::NewGuid().ToString('N')).tmp") '{' } }.GetNewClosure()
+    $r = Invoke-Mig $e -O @{ OnStep = $hook }
+    Expect ($r.outcome -ceq 'DONE') "monitor files: $(Why $r)"
+    $null = Test-Status $e 'READY' -Label 'monitor files'
+    $e = New-Env 'q28b'; New-LabSource $e.legacy
+    $hook = { param($s) if ($s -ceq 'M10t') { Write-Text (Join-Path $e.state 'state.json') '{}'; Write-Text (Join-Path $e.state 'notes.txt') 'x' } }.GetNewClosure()
+    $r = Invoke-Mig $e -O @{ OnStep = $hook }
+    Expect ($r.outcome -ceq 'REFUSED' -and @($r.reasons) -ccontains 'STATE_FOLDER_NOT_COMPLETE' -and @($r.reasons) -ccontains 'UNEXPECTED_ENTRY:notes.txt' -and -not (@($r.reasons) | Where-Object { $_ -clike '*state.json*' })) "another file: $(Why $r)"
+    $null = Test-Status $e 'INTERRUPTED' -Label 'another file'
 }
 $q63 = "state.migrate -DryRun on this machine's real locations: NOT_INITIALIZED, refused, nothing created"
 if (-not $env:P9S_TEST_REAL_LOCATIONS) { NotRun 'Q63' $q63 'runs only in the main run of run-all.ps1 -CleanRunner (a clean runner)' }

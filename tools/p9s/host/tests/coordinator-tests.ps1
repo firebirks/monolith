@@ -99,7 +99,7 @@ function New-MockCtx([object[]]$States, [hashtable]$Vms = @{}, [bool]$Alive = $t
         ReadVmState = { param($vm) $vmTable[$vm] }.GetNewClosure(); ReadVmConfig = { param($vm) @() }
         Dispatch = @{ 'vm.start' = (& $rec 'vm.start' $calls); 'guest.text' = (& $rec 'guest.text' $calls); 'guest.key' = (& $rec 'guest.key' $calls); 'guest.unlock' = (& $rec 'guest.unlock' $calls); 'vm.acpi' = (& $acpi $calls $vmTable) }
         Sleep = { param($ms) }; Pid = $PID; ProcessStartTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
-        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }
+        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }; StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
         Calls = $calls; Prov = $prov; VmTable = $vmTable; Dir = $dir
     }
 }
@@ -911,6 +911,163 @@ Case 'K55' 'records that are really absent keep the protocol of a new installati
     $n = New-MockCtx @($READY_A); Remove-Item -LiteralPath $n.Dir -Recurse
     $q2 = Read-P9SStopRequestState $n; $s2 = Read-P9SSession $n
     Expect (-not $q2.present -and $s2.ok -and -not $s2.session) "a state folder not created yet: stop request present $($q2.present), session record ok $($s2.ok)"
+}
+
+# ---- the persistent state gate (coordinator-lib.ps1, R14/X5) --------------------
+# A scripted gate: the statuses in turn, the last one kept; "READY@<id>" is
+# READY for another installation. Every answer is logged.
+function Set-Gate($ctx, [string[]]$Statuses) {
+    $q = [System.Collections.Generic.Queue[string]]::new(); foreach ($s in $Statuses) { $q.Enqueue($s) }
+    $log = [System.Collections.Generic.List[string]]::new()
+    $ctx | Add-Member -NotePropertyName GateLog -NotePropertyValue $log -Force
+    $ctx.StateGate = {
+        $s = if ($q.Count -gt 1) { $q.Dequeue() } else { $q.Peek() }; $log.Add($s)
+        $st, $id = $s -split '@', 2
+        [pscustomobject]@{ status = $st; installation_id = $(if ($st -ceq 'READY') { if ($id) { $id } else { 'inst-test-installed' } } else { $null }); reasons = @("TEST_$st") }
+    }.GetNewClosure()
+}
+# VM state reads counted (the quiet context must make none)
+function Watch-VmReads($ctx) {
+    $reads = [System.Collections.Generic.List[string]]::new(); $orig = $ctx.ReadVmState
+    $ctx.ReadVmState = { param($vm) $reads.Add($vm); & $orig $vm }.GetNewClosure()
+    $ctx | Add-Member -NotePropertyName VmReads -NotePropertyValue $reads -Force
+}
+function Files($ctx) { @(Get-ChildItem -LiteralPath $ctx.Dir -Force | ForEach-Object Name | Sort-Object) -join ',' }
+# the statuses of p9s-state.ps1 but READY and SANDBOX, and the one of a context without the classifier
+$notReady = 'LOCATION_UNSAFE', 'ANCHOR_UNREADABLE', 'ANCHOR_MISSING', 'SETUP_LEFTOVER', 'INSTALLATION_LOST', 'MIGRATION_SOURCES_AMBIGUOUS', 'MIGRATION_REQUIRED', 'NOT_INITIALIZED',
+    'INTERRUPTED', 'ACCOUNT_MISMATCH', 'STATE_MISMATCH', 'STATE_MISSING', 'STATE_INCOMPLETE', 'STATE_UNCERTAIN', 'STATE_DIVERGED', 'STATE_CLASSIFIER_MISSING'
+$plan56 = Join-Path $OutDir 'plan-k56.json'
+[ordered]@{ schema = 'p9s-plan/1'; name = 'one-key'; steps = @(@{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $plan56
+$budget56 = @(
+    @{ Action = 'session.open'; Kind = 'Test' }, @{ Action = 'session.close' }, @{ Action = 'vm.start'; Vm = 'P9S-D12' }, @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' },
+    @{ Action = 'guest.type'; Vm = 'P9S-D12'; Text = 'abc' }, @{ Action = 'guest.unlock'; Vm = 'P9S-D12' }, @{ Action = 'scenario.begin'; Name = 'x' }, @{ Action = 'phase.advance'; Name = 'x' },
+    @{ Action = 'wait'; Seconds = 5 }, @{ Action = 'sequence.run'; Plan = $plan56 }, @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }, @{ Action = 'emergency.wait-off'; Vm = 'P9S-D12'; Seconds = 4 },
+    @{ Action = 'vbox.recover'; Operation = 'vbox-20261127T120000000Z-1-0000abcd' }, @{ Action = 'vm.start'; Vm = 'P9S-D12'; DryRun = $true }, @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; DryRun = $true })
+Case 'K56' 'persistent state not READY: every action that can spend budget or reach a VM is refused with the status, dry runs included, before anything is read or written; the emergency says to shut down outside the toolkit' {
+    foreach ($s in $notReady) {
+        foreach ($rq in $budget56) {
+            $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; Set-Gate $c @($s); Watch-VmReads $c
+            $r = Act $c $rq
+            $tag = "$s $($rq.Action)$(if ($rq.DryRun) { ' -DryRun' })"
+            Expect ($r.outcome -ceq 'REFUSED' -and (Has $r "STATE_NOT_READY:$s") -and (Has $r "TEST_$s")) "${tag}: $(Why $r)"
+            Expect ($c.Calls.Count -eq 0 -and $c.VmReads.Count -eq 0 -and $c.Prov.reads -eq 0) "${tag}: calls $($c.Calls.Count), VM reads $($c.VmReads.Count), monitor reads $($c.Prov.reads)"
+            Expect ((Files $c) -ceq '') "${tag}: files written: $(Files $c)"
+            if ($rq.Action -ceq 'emergency.acpi-shutdown' -and -not $rq.DryRun) { Expect (($r.lines -join ' ') -match 'Nothing was raised, written or sent' -and ($r.lines -join ' ') -match 'from the guest or from VirtualBox') "${tag}: $($r.lines -join ' | ')" }
+        }
+    }
+    foreach ($how in 'missing', 'throws', 'empty') {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; Watch-VmReads $c
+        switch ($how) { 'missing' { $c.PSObject.Properties.Remove('StateGate') } 'throws' { $c.StateGate = { throw 'classifier failed' } } 'empty' { $c.StateGate = { $null } } }
+        $want = if ($how -ceq 'missing') { 'STATE_NOT_READY:STATE_GATE_MISSING' } else { 'STATE_NOT_READY:STATE_UNVERIFIABLE' }
+        foreach ($rq in @(@{ Action = 'session.open'; Kind = 'Test' }, @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' })) {
+            $r = Act $c $rq
+            Expect ($r.outcome -ceq 'REFUSED' -and (Has $r $want) -and $c.Calls.Count -eq 0 -and (Files $c) -ceq '') "gate ${how}, $($rq.Action): $(Why $r); files $(Files $c)"
+        }
+    }
+}
+Case 'K57' 'persistent state not READY: the observe actions still run, write nothing (no audit line, no observation), read no VM state and no VM configuration, and say so' {
+    $obs = @(@{ Action = 'session.status' }, @{ Action = 'audit.oob'; MonitorRun = (Join-Path $OutDir 'k57-run') }, @{ Action = 'vbox.status' }, @{ Action = 'calib.dry-run'; Scenario = 'nominal' },
+        @{ Action = 'emergency.status' }, @{ Action = 'audit.vmconfig'; Vm = 'P9S-D12'; Reference = (Join-Path $OutDir 'k57-reference.txt') }, @{ Action = 'calib.preflight' })
+    Set-Content -LiteralPath (Join-Path $OutDir 'k57-reference.txt') -Value 'memory=4096'; New-Item -ItemType Directory -Path (Join-Path $OutDir 'k57-run') | Out-Null
+    foreach ($s in @('STATE_UNCERTAIN', 'MIGRATION_REQUIRED', 'NOT_INITIALIZED', 'ANCHOR_MISSING')) {
+        foreach ($rq in $obs) {
+            $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; Set-Gate $c @($s); Watch-VmReads $c
+            $c.ReadVmConfig = { param($vm) $script:k57cfg++; @() }; $script:k57cfg = 0
+            $r = Act $c $rq
+            Expect ($r.outcome -cne 'REFUSED' -or -not (@($r.reasons) | Where-Object { $_ -clike 'STATE_NOT_READY*' })) "$s $($rq.Action): refused for the state: $(Why $r)"
+            Expect ($c.VmReads.Count -eq 0 -and $script:k57cfg -eq 0 -and $c.Calls.Count -eq 0) "$s $($rq.Action): VM reads $($c.VmReads.Count), configuration reads $script:k57cfg, calls $($c.Calls.Count)"
+            Expect ((Files $c) -ceq '') "$s $($rq.Action): files written: $(Files $c)"
+            Expect (($r.lines -join ' ') -match 'nothing is written and VirtualBox is not called') "$s $($rq.Action): $($r.lines -join ' | ')"
+        }
+    }
+    $c = New-MockCtx @($READY_A); Watch-VmReads $c
+    $r = Act $c @{ Action = 'emergency.status' }
+    Expect ($c.VmReads.Count -eq 2 -and (Files $c) -match 'coordinator-audit') "READY: the observe action reads and records as before: reads $($c.VmReads.Count), files $(Files $c)"
+}
+Case 'K58' 'SANDBOX (-StatePath elsewhere): what reaches a VM is refused, a dry run is shown, the rest runs in the sandbox; the dispatch recheck refuses a SANDBOX gate whatever the caller decided' {
+    foreach ($rq in @(@{ Action = 'vm.start'; Vm = 'P9S-D12' }, @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' }, @{ Action = 'guest.type'; Vm = 'P9S-D12'; Text = 'abc' }, @{ Action = 'guest.unlock'; Vm = 'P9S-D12' },
+                      @{ Action = 'sequence.run'; Plan = $plan56 }, @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' })) {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; Set-Gate $c @('SANDBOX'); $null = Open $c
+        $r = Act $c $rq
+        Expect ($r.outcome -ceq 'REFUSED' -and (Has $r 'STATE_SANDBOX') -and $c.Calls.Count -eq 0) "$($rq.Action): $(Why $r); calls $($c.Calls.Count)"
+        Expect (-not (Test-Path -LiteralPath $c.StopRequestPath)) "$($rq.Action): a stop request was raised"
+    }
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'off' }; Set-Gate $c @('SANDBOX')
+    $o = Open $c; Expect ($o.outcome -ceq 'DONE') "session.open in a sandbox: $(Why $o)"
+    $d = Act $c @{ Action = 'vm.start'; Vm = 'P9S-D12'; DryRun = $true }; Expect ($d.outcome -ceq 'DRYRUN' -and $c.Calls.Count -eq 0) "vm.start -DryRun: $(Why $d)"
+    $e = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12'; DryRun = $true }; Expect ($e.outcome -ceq 'DRYRUN' -and $c.Calls.Count -eq 0) "emergency -DryRun: $(Why $e)"
+    $res = New-P9SResult 'vm.start' 'P9S-D12'
+    $msg = ''; try { Invoke-P9SDispatch $c $res 'vm.start' @('P9S-D12') } catch { $msg = $_.Exception.Message }
+    Expect ($msg -match 'not dispatched: STATE_NOT_READY:SANDBOX' -and $c.Calls.Count -eq 0 -and (Has $res 'STATE_NOT_READY:SANDBOX')) "direct dispatch in a sandbox: '$msg', calls $($c.Calls.Count)"
+}
+Case 'K59' 'READY when the action starts, another status under the lock: refused before the session, the monitor or a VM is read, nothing written' {
+    foreach ($s in 'STATE_UNCERTAIN', 'ANCHOR_MISSING', 'STATE_DIVERGED', 'READY@inst-other0000') {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+        $sess = Get-Content -Raw -LiteralPath $c.SessionPath; $aud = Audit $c
+        Set-Gate $c @('READY', $s); Watch-VmReads $c; $c.Prov.reads = 0
+        $r = Act $c @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' }
+        $want = if ($s -like 'READY@*') { 'STATE_INSTALLATION_CHANGED' } else { "STATE_NOT_READY:$s" }
+        Expect ($r.outcome -ceq 'REFUSED' -and (Has $r $want) -and $c.Calls.Count -eq 0) "${s}: $(Why $r)"
+        Expect ($c.GateLog.Count -eq 2 -and $c.VmReads.Count -eq 0 -and $c.Prov.reads -eq 0) "${s}: gate asked $($c.GateLog.Count) times, VM reads $($c.VmReads.Count), monitor reads $($c.Prov.reads)"
+        Expect ((Get-Content -Raw -LiteralPath $c.SessionPath) -ceq $sess -and (Audit $c) -ceq $aud) "${s}: the session or the audit changed"
+    }
+}
+Case 'K60' 'READY at the start and under the lock, another status at the last check or at the dispatch itself: nothing is dispatched' {
+    # the gate is asked at the start, under the lock, at the last checkpoint
+    # and by the dispatch: a change at the checkpoint refuses, a change at
+    # the dispatch fails it unsent
+    foreach ($at in 3, 4) {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'off' }; $null = Open $c
+        $q = @(for ($i = 1; $i -lt $at; $i++) { 'READY' }) + @('STATE_UNCERTAIN'); Set-Gate $c $q
+        $r = Act $c @{ Action = 'vm.start'; Vm = 'P9S-D12' }
+        Expect ($c.Calls.Count -eq 0 -and $r.dispatched -eq 0 -and (Has $r 'STATE_NOT_READY:STATE_UNCERTAIN')) "change at gate call ${at}: $(Why $r); calls $($c.Calls.Count); gate log $($c.GateLog -join ',')"
+        if ($at -eq 3) { Expect ($r.outcome -ceq 'REFUSED' -and (Has $r 'STATE_CHANGED_BEFORE_DISPATCH')) "checkpoint: $(Why $r)" }
+        else { Expect ($r.outcome -ceq 'FAILED' -and (Has $r 'DISPATCH_FAILED') -and -not (Sess $c).inflight) "dispatch: $(Why $r); in flight $((Sess $c).inflight)" }
+        Expect ((Sess $c).expected_vm.'P9S-D12' -ceq 'off') "change at gate call ${at}: the session expects $((Sess $c).expected_vm.'P9S-D12')"
+    }
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    Set-Gate $c @('READY', 'READY', 'READY', 'READY@inst-other0000')
+    $r = Act $c @{ Action = 'guest.unlock'; Vm = 'P9S-D12' }
+    Expect ($c.Calls.Count -eq 0 -and (Has $r 'STATE_INSTALLATION_CHANGED')) "another installation at the dispatch: $(Why $r)"
+}
+Case 'K61' 'a long action and a sequence recheck the persistent state at every checkpoint: typing stops after the chunk already sent, a sequence runs no further step' {
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    Set-Gate $c @('READY', 'READY', 'READY', 'READY', 'STATE_UNCERTAIN')
+    $r = Act $c @{ Action = 'guest.type'; Vm = 'P9S-D12'; Text = 'abcdefghijklmnopqrstuvwx' }
+    Expect ($r.outcome -ceq 'STOPPED_AT_CHECKPOINT' -and $c.Calls.Count -eq 1 -and (Has $r 'STATE_NOT_READY:STATE_UNCERTAIN')) "type: $(Why $r); chunks $($c.Calls.Count)"
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    $plan = Join-Path $c.Dir 'plan.json'
+    [ordered]@{ schema = 'p9s-plan/1'; name = 'three-keys'; steps = @(@{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Tab' }, @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Tab' }, @{ Action = 'guest.key'; Vm = 'P9S-D12'; Key = 'Enter' }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $plan
+    Set-Gate $c @('READY', 'READY', 'READY', 'READY', 'ANCHOR_MISSING')
+    $r = Act $c @{ Action = 'sequence.run'; Plan = $plan }
+    Expect ($c.Calls.Count -eq 1 -and $r.outcome -ceq 'STOPPED_AT_CHECKPOINT' -and (Has $r 'STATE_NOT_READY:ANCHOR_MISSING')) "sequence: $(Why $r); dispatched $($c.Calls.Count)"
+}
+Case 'K62' 'emergency: READY at the start, another status once the lock is held: nothing recorded, nothing sent, the stop request raised before the wait stays; READY throughout, it sends once' {
+    foreach ($s in 'STATE_UNCERTAIN', 'READY@inst-other0000') {
+        $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+        Set-Gate $c @('READY', $s)
+        $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+        Expect ($r.outcome -ceq 'REFUSED' -and (Has $r 'EMERGENCY_UNRESOLVED') -and $c.Calls.Count -eq 0 -and $r.dispatched -eq 0) "${s}: $(Why $r); calls $($c.Calls.Count)"
+        Expect (($r.lines -join ' ') -match 'NOTHING WAS SENT and nothing was recorded') "${s}: $($r.lines -join ' | ')"
+        $q = Read-P9SStopRequestState $c
+        Expect ($q.ok -and -not $q.doc.acpi.Contains('P9S-D12') -and (Sess $c).lifecycle -ceq 'ACTIVE') "${s}: stop request $($q.ok) acpi $(@($q.doc.acpi.Keys) -join ','); session $((Sess $c).lifecycle)"
+    }
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    Expect ($r.outcome -ceq 'DONE' -and $c.Calls.Count -eq 1) "READY throughout: $(Why $r)"
+    $c = New-MockCtx @($READY_A) @{ 'P9S-D12' = 'running' }; $null = Open $c
+    Set-Gate $c @('READY', 'READY', 'STATE_UNCERTAIN')
+    $r = Act $c @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' }
+    $q = Read-P9SStopRequestState $c
+    Expect ($r.outcome -ceq 'FAILED' -and (Has $r 'EMERGENCY_UNRESOLVED') -and $c.Calls.Count -eq 0 -and $q.ok -and $q.doc.acpi.Contains('P9S-D12')) "a change at the dispatch: $(Why $r); calls $($c.Calls.Count); the request stays spent: $($q.ok -and $q.doc.acpi.Contains('P9S-D12'))"
+}
+Case 'K63' 'every VirtualBox write of the coordinator and of the ACPI validation goes through the state recheck' {
+    foreach ($f in 'coordinator-lib.ps1', 'p9s-acpival.ps1') {
+        $src = [IO.File]::ReadAllText((Join-Path $kit $f))
+        $direct = @([regex]::Matches($src, '(?m)^.*Dispatch\[.*$') | ForEach-Object { $_.Value.Trim() })
+        $allowed = @($direct | Where-Object { $_ -ceq '& $Ctx.Dispatch[$Name] @Arguments' })
+        Expect ($direct.Count -eq $allowed.Count -and ($f -cne 'coordinator-lib.ps1' -or $allowed.Count -eq 1)) "${f}: $($direct.Count) direct dispatcher calls: $($direct -join ' / ')"
+    }
 }
 
 # ---- command line, shims, real-process crash (no VM is touched) -----------------

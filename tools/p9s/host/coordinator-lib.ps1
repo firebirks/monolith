@@ -211,6 +211,8 @@ function ConvertTo-P9SAuditParams([hashtable]$Request, $V) {
 }
 function Add-P9SAudit {
     param($Ctx, $Res, [hashtable]$Request, $V, [string]$Outcome, [string[]]$Reasons, [string]$Note, [string]$Action, [string]$Vm)
+    # an action outside READY writes nothing (ConvertTo-P9SStateQuietContext)
+    if ((Get-Prop $Ctx 'StateQuiet') -or -not (Get-Prop $Ctx 'AuditPath')) { return }
     $e = [ordered]@{
         utc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ'); pid = $Ctx.Pid; session = $Res.session
         action = $(if ($Action) { $Action } else { $Res.action }); vm = $(if ($Vm) { $Vm } else { $Res.vm })
@@ -434,14 +436,98 @@ function Test-P9SCheckpoint($Ctx, $Session, $Res) {
     if ($g.run_id -and $g.run_id -ne $Session.monitor_run_id) { $reasons.Add('MONITOR_RUN_CHANGED') }
     if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
     foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }
+    # the persistent state, for an action that started on READY
+    if ([string](Get-Prop $Res 'state_status') -ceq 'READY') { foreach ($r in @(Get-P9SStateGateReasons $Ctx $Res)) { $reasons.Add($r) } }
     [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }
+}
+
+# ------------------------------------------------------------ persistent state
+# The status of the persistent state folder (p9s-state.ps1) decides what may
+# run (R14/X5 design, states.txt). The context's StateGate gives it; a
+# context without one, a gate that throws or one that answers nothing gives a
+# status that refuses. READY permits every action; SANDBOX (-StatePath
+# elsewhere) permits everything but what reaches a VM for writing or sends a
+# live ACPI request; any other status permits only the observe actions, which
+# then write nothing and make no VirtualBox call.
+function Get-P9SStateGate($Ctx) {
+    $f = Get-Prop $Ctx 'StateGate'
+    $no = { param([string]$S, [string]$R) [pscustomobject]@{ status = $S; ready = $false; sandbox = $false; installation_id = $null; reasons = @($R) } }
+    if (-not $f) { return (& $no 'STATE_GATE_MISSING' 'STATE_GATE_MISSING') }
+    $g = $null; try { $g = & $f } catch { $g = $null }
+    if (-not $g -or -not [string]$g.status) { return (& $no 'STATE_UNVERIFIABLE' 'STATE_GATE_FAILED') }
+    [pscustomobject]@{ status = [string]$g.status; ready = ([string]$g.status -ceq 'READY'); sandbox = ([string]$g.status -ceq 'SANDBOX'); installation_id = [string]$g.installation_id; reasons = @($g.reasons) }
+}
+# The gate once more, under the lock, immediately before a write that spends
+# budget or a dispatch: still READY, for the installation the action started
+# on. Empty when it is.
+function Get-P9SStateGateReasons($Ctx, $Res) {
+    $g = Get-P9SStateGate $Ctx
+    if (-not $g.ready) { return @("STATE_NOT_READY:$($g.status)") }
+    $start = [string](Get-Prop $Res 'state_installation_id')
+    if ($start -and $g.installation_id -cne $start) { return @('STATE_INSTALLATION_CHANGED') }
+    @()
+}
+# Every VirtualBox write of the coordinator and of the ACPI validation goes
+# through here: the gate is checked once more under the caller's lock, then
+# the dispatcher is called. A gate that is not READY throws, which every
+# caller handles as a dispatch that did not happen: nothing is sent, and a
+# budget recorded before stays spent.
+function Invoke-P9SDispatch($Ctx, $Res, [string]$Name, [object[]]$Arguments) {
+    $sg = @(Get-P9SStateGateReasons $Ctx $Res)
+    if ($sg.Count) {
+        if ($Res) { foreach ($r in $sg) { if (-not $Res.reasons.Contains($r)) { $Res.reasons.Add($r) } } }
+        throw "not dispatched: $($sg -join ', ')"
+    }
+    & $Ctx.Dispatch[$Name] @Arguments
+}
+# The gate of a state context ($null: the account's own, p9s-state.ps1): its
+# status, its installation and the reasons. Without the classifier loaded, a
+# status that refuses. The real context and the tests call the same code.
+function Get-P9SStateGateOf($C) {
+    if (-not (Get-Command -Name Get-P9SStateStatus -CommandType Function -ErrorAction SilentlyContinue)) { return [pscustomobject]@{ status = 'STATE_CLASSIFIER_MISSING'; installation_id = $null; reasons = @('STATE_CLASSIFIER_MISSING') } }
+    if (-not $C) { $C = New-P9SStateContext }
+    $st = Get-P9SStateStatus $C
+    [pscustomobject]@{ status = [string]$st.status; installation_id = [string]$st.installation_id; reasons = @($st.reasons) }
+}
+# The anchor's mark after a ledger save, for a state context ($null: the
+# account's own); $false when the anchor functions are not loaded.
+function Update-P9SStateLedgerMarkOf($C, [long]$Revision, [string]$Sha) {
+    if (-not (Get-Command -Name Update-P9SStateLedgerMark -CommandType Function -ErrorAction SilentlyContinue)) { return $false }
+    if (-not $C) { $C = New-P9SStateContext }
+    Update-P9SStateLedgerMark $C $Revision $Sha
+}
+# observe: reads files only; observe-vbox: an observe action that reads
+# VirtualBox; reach: writes to a VM, or is a step of the live ACPI
+# validation; budget: every other action (sessions, markers, waits, recovery).
+function Get-P9SStateActionKind([string]$Action) {
+    if ($Action -cin 'session.status', 'audit.oob', 'vbox.status', 'calib.dry-run') { return 'observe' }
+    if ($Action -cin 'emergency.status', 'audit.vmconfig', 'calib.preflight', 'acpi.preflight') { return 'observe-vbox' }
+    if ($Action -cin 'vm.start', 'guest.type', 'guest.key', 'guest.unlock', 'sequence.run', 'emergency.acpi-shutdown', 'acpi.open', 'acpi.start', 'acpi.observe', 'acpi.shutdown', 'acpi.confirm-off', 'acpi.integrity', 'acpi.finalize') { return 'reach' }
+    'budget'
+}
+# The context an observe action runs with when the state is not READY: no
+# audit line and no VM observation written (StateQuiet; the files are still
+# read), no VirtualBox read.
+function ConvertTo-P9SStateQuietContext($Ctx, $Gate) {
+    $q = $Ctx.PSObject.Copy()
+    $q | Add-Member -NotePropertyName ReadVmState -NotePropertyValue { param($vm) $null } -Force
+    $q | Add-Member -NotePropertyName ReadVmConfig -NotePropertyValue { param($vm) $null } -Force
+    $q | Add-Member -NotePropertyName CalibrationHostChecks -NotePropertyValue { @("host checks not run: the persistent state is $($Gate.status), not READY") }.GetNewClosure() -Force
+    $q | Add-Member -NotePropertyName StateQuiet -NotePropertyValue $Gate.status -Force
+    $q
 }
 
 # ----------------------------------------------------------------- entry
 function Invoke-P9SAction {
     param([Parameter(Mandatory)]$Ctx, [Parameter(Mandatory)][hashtable]$Request)
+    # the persistent state first: outside READY (and outside a sandbox)
+    # nothing is written into the state folder, not even an audit line
+    $sg = Get-P9SStateGate $Ctx
+    if (-not $sg.ready -and -not $sg.sandbox) { $Ctx = ConvertTo-P9SStateQuietContext $Ctx $sg }
     $v = Test-P9SRequest -Request $Request
     $res = New-P9SResult $(if ($v.spec) { [string]$Request.Action } else { '<unknown>' }) $(if ($v.valid.Vm) { [string]$Request.Vm } elseif ($Request.ContainsKey('Vm')) { '<invalid>' } else { $null })
+    $res | Add-Member -NotePropertyName state_status -NotePropertyValue $sg.status
+    $res | Add-Member -NotePropertyName state_installation_id -NotePropertyValue $(if ($sg.ready) { $sg.installation_id } else { $null })
     if (-not $v.ok) {
         Set-P9SRefused $res $v.reasons $null 'REJECTED'
         Add-P9SAudit -Ctx $Ctx -Res $res -Request $Request -V $v
@@ -454,6 +540,24 @@ function Invoke-P9SAction {
         Add-P9SAudit -Ctx $Ctx -Res $res -Request $Request -V $v
         return $res
     }
+    $kind = Get-P9SStateActionKind ([string]$Request.Action)
+    if (-not $sg.ready) {
+        if ($sg.sandbox) {
+            if ($kind -ceq 'reach' -and -not $Request.DryRun) {
+                Set-P9SRefused $res @('STATE_SANDBOX') $null
+                $res.lines.Add("the folder of -StatePath is not the persistent state folder (SANDBOX): $([string]$Request.Action) would reach a VM or the live ACPI validation and is refused; -DryRun shows what it would do")
+                Add-P9SAudit -Ctx $Ctx -Res $res -Request $Request -V $v
+                return $res
+            }
+        } elseif ($kind -cnotin 'observe', 'observe-vbox') {
+            Set-P9SRefused $res (@("STATE_NOT_READY:$($sg.status)") + @($sg.reasons)) $null
+            if ([string]$Request.Action -ceq 'emergency.acpi-shutdown') {
+                $res.lines.Add("*** the persistent state is $($sg.status), not READY: the ACPI request history is not known. Nothing was raised, written or sent. Shut $([string]$Request.Vm) down from the guest or from VirtualBox; state.status shows the state and the way out. ***")
+            } else { $res.lines.Add("the persistent state is $($sg.status), not READY: $([string]$Request.Action) is refused and nothing was written; state.status shows the state and the way out") }
+            return $res
+        }
+    }
+    if ($Ctx.PSObject.Properties['StateQuiet']) { $res.lines.Add("the persistent state is $($sg.status), not READY: nothing is written and VirtualBox is not called; read the VM states in VirtualBox itself") }
     if ($class -eq 'emergency') { return (Invoke-P9SEmergency $Ctx $Request $v $res) }
     if ($class -eq 'observe') { return (Invoke-P9SObserve $Ctx $Request $v $res) }
     if ($class -eq 'calibration') { return (Invoke-P9SCalibration $Ctx $Request $v $res) }
@@ -465,6 +569,15 @@ function Invoke-P9SAction {
         return $res
     }
     try {
+        # the state again under the lock, before anything is read or written
+        if ($sg.ready) {
+            $sgr = @(Get-P9SStateGateReasons $Ctx $res)
+            if ($sgr.Count) {
+                Set-P9SRefused $res $sgr $null
+                $res.lines.Add('the persistent state changed before the lock was taken; nothing was written')
+                return $res
+            }
+        }
         if ($class -eq 'session') { return (Invoke-P9SSessionAction $Ctx $Request $v $res) }
         return (Invoke-P9SNormal -Ctx $Ctx -Request $Request -V $v -Res $res)
     } finally { $lock.Dispose() }
@@ -536,9 +649,9 @@ function Invoke-P9SNormal {
     Save-P9SSession $Ctx $Session
     try {
         switch ($a) {
-            'vm.start' { & $Ctx.Dispatch['vm.start'] $vm; $Res.dispatched = 1; $Session.expected_vm[$vm] = 'running' }
-            'guest.key' { & $Ctx.Dispatch['guest.key'] $vm ([int[]]((Get-P9SKeyMap)[[string]$Request.Key])); $Res.dispatched = 1 }
-            'guest.unlock' { & $Ctx.Dispatch['guest.unlock'] $vm; $Res.dispatched = 1 }
+            'vm.start' { Invoke-P9SDispatch $Ctx $Res 'vm.start' @($vm); $Res.dispatched = 1; $Session.expected_vm[$vm] = 'running' }
+            'guest.key' { Invoke-P9SDispatch $Ctx $Res 'guest.key' @($vm, ([int[]]((Get-P9SKeyMap)[[string]$Request.Key]))); $Res.dispatched = 1 }
+            'guest.unlock' { Invoke-P9SDispatch $Ctx $Res 'guest.unlock' @($vm); $Res.dispatched = 1 }
             'guest.type' {
                 $text = [string]$Request.Text
                 $chunks = @(for ($i = 0; $i -lt $text.Length; $i += 8) { $text.Substring($i, [math]::Min(8, $text.Length - $i)) })
@@ -552,7 +665,7 @@ function Invoke-P9SNormal {
                             break
                         }
                     }
-                    & $Ctx.Dispatch['guest.text'] $vm $chunks[$i]
+                    Invoke-P9SDispatch $Ctx $Res 'guest.text' @($vm, $chunks[$i])
                     $typed += $chunks[$i].Length; $Res.dispatched++
                 }
             }
@@ -590,6 +703,7 @@ function Invoke-P9SSequence($Ctx, [hashtable]$Request, $V, $Res, $Session) {
         if ($Request.DryRun) { $h.DryRun = $true }
         $sv = Test-P9SRequest -Request $h -AsPlanStep
         $sres = New-P9SResult ([string]$h.Action) $(if ($h.Vm) { [string]$h.Vm } else { $null })
+        foreach ($k in 'state_status', 'state_installation_id') { $sres | Add-Member -NotePropertyName $k -NotePropertyValue (Get-Prop $Res $k) -Force }
         $r = Invoke-P9SNormal -Ctx $Ctx -Request $h -V $sv -Res $sres -Session $Session -InSequence
         $Res.dispatched += $r.dispatched
         if ($r.outcome -in 'DISPATCHED', 'DONE', 'DRYRUN') { $done++; $Res.lines.Add("step $($i + 1)/$n $($h.Action): $($r.outcome)"); continue }
@@ -866,6 +980,15 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
         }
         $sent = $false; $note = $null
         try {
+            # the persistent state again, under the lock, before anything is
+            # recorded: a history that is no longer the READY one is unknown
+            $sgr = @(Get-P9SStateGateReasons $Ctx $Res)
+            if ($sgr.Count) {
+                Set-P9SRefused $Res (@($sgr) + @('EMERGENCY_UNRESOLVED')) $null
+                $Res.lines.Add("*** the persistent state changed while this emergency waited ($($sgr -join ', ')): the ACPI request history is not known. NOTHING WAS SENT and nothing was recorded; the stop request stays as it is. Shut $vm down from the guest or from VirtualBox. ***")
+                Add-P9SAudit -Ctx $Ctx -Res $Res -Request $Request -V $V
+                return $Res
+            }
             $g = Get-P9SGate $Ctx; $Res.status = $g.status; $Res.run_id = $g.run_id
             $s = $null; $sr = Read-P9SSession $Ctx
             if ($sr.ok) {
@@ -917,7 +1040,7 @@ function Invoke-P9SEmergency($Ctx, [hashtable]$Request, $V, $Res) {
                         if ($s -and $s.session_id) { try { $s.lifecycle = 'EMERGENCY_UNRESOLVED'; Save-P9SSession $Ctx $s } catch {} }
                     } else {
                         try {
-                            & $Ctx.Dispatch['vm.acpi'] $vm
+                            Invoke-P9SDispatch $Ctx $Res 'vm.acpi' @($vm)
                             $Res.dispatched = 1; $sent = $true
                             $Res.lines.Add("ACPI power-button request sent to $vm")
                         } catch {
@@ -1408,9 +1531,13 @@ function Get-P9SCalibrationHostChecks($Config) {
     $out
 }
 function New-P9SRealContext([string]$StatePath, [string]$AuditPath, [Parameter(Mandatory)][string]$KitDir, $Config) {
+    $asked = if ($StatePath) { [IO.Path]::GetFullPath($StatePath) } else { $null }
     if (-not $StatePath) { $StatePath = Get-DefaultStatePath }
     $full = [IO.Path]::GetFullPath($StatePath); $dir = [IO.Path]::GetDirectoryName($full)
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    # only state.init and state.migrate create the persistent state folder;
+    # a folder given with -StatePath elsewhere is a sandbox, created as before
+    $sandbox = [bool]($asked -and -not [string]::Equals([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath((Get-DefaultStatePath))).TrimEnd('\'), $dir.TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase))
+    if ($sandbox) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     $me = Get-Process -Id $PID
     $cfg = $Config
     # the VirtualBox layer keeps its records next to the coordinator files
@@ -1424,7 +1551,8 @@ function New-P9SRealContext([string]$StatePath, [string]$AuditPath, [Parameter(M
         ReadVmState = { param($vm) Get-P9SVmStateReal $vm }
         ReadVmConfig = { param($vm) Get-P9SVmConfigReal $vm }
         VBox = $vbx
-        Dispatch = (Get-P9SRealDispatch $cfg)
+        # a sandbox reaches no VM for writing, whatever the gate says
+        Dispatch = $(if ($sandbox) { $d = [ordered]@{}; foreach ($k in @((Get-P9SRealDispatch $cfg).Keys)) { $d[$k] = { throw 'STATE_SANDBOX: no VirtualBox write from a -StatePath sandbox' } }; $d } else { Get-P9SRealDispatch $cfg })
         Sleep = { param($ms) Start-Sleep -Milliseconds $ms }; Pid = $PID; ProcessStartTicks = $me.StartTime.ToUniversalTime().Ticks
         EmergencyLockWaitMs = 30000; CalibrationHostChecks = { Get-P9SCalibrationHostChecks $cfg }.GetNewClosure()
         ObservationPath = Join-Path $dir 'vm-observations.jsonl'; LedgerPath = Join-Path $dir 'acpi-validation-ledger.json'
@@ -1436,6 +1564,13 @@ function New-P9SRealContext([string]$StatePath, [string]$AuditPath, [Parameter(M
         # rule (p9s-state-init.ps1); $null, which refuses, when that file is
         # not loaded
         Installation = { if (Get-Command -Name Get-P9SStateInstallation -CommandType Function -ErrorAction SilentlyContinue) { Get-P9SStateInstallation (New-P9SStateContext) } else { $null } }
+        # the status of the persistent state folder, computed when an action
+        # asks for it (never here); without the classifier loaded, a status
+        # that refuses
+        StateGate = $(if ($sandbox) { { [pscustomobject]@{ status = 'SANDBOX'; installation_id = $null; reasons = @('ASKED_FOLDER_IS_NOT_THE_STATE_FOLDER') } } } else { { Get-P9SStateGateOf $null } })
+        # every save of the installed ledger moves the anchor's mark
+        # (p9s-state-init.ps1); a sandbox ledger has no anchor
+        UpdateLedgerMark = $(if ($sandbox) { $null } else { { param($rev, $sha) Update-P9SStateLedgerMarkOf $null $rev $sha } })
         Config = $cfg; ConfigError = $(if ($cfg -and $cfg.present -and -not $cfg.ok) { 'CONFIG_INVALID' } else { $null })
     }
 }

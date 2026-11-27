@@ -111,7 +111,7 @@ function New-MockCtx([object[]]$States, [hashtable]$Vms = @{}, [hashtable]$AcpiE
         Dispatch = @{ 'vm.start' = (New-Recorder 'vm.start' $calls); 'guest.text' = (New-Recorder 'guest.text' $calls); 'guest.key' = (New-Recorder 'guest.key' $calls)
             'guest.unlock' = (New-P9SUnlockDispatcher -Config $Config -GetAcl $GetAcl -Sender (New-UnlockSender $calls) -ForbiddenRoots @()); 'vm.acpi' = (New-AcpiRecorder $calls $vmTable $eff) }
         Sleep = { param($ms) }; Pid = $PID; ProcessStartTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
-        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }; Config = $Config
+        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }; Config = $Config; StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
         Calls = $calls; Prov = $prov; VmTable = $vmTable; Dir = $dir
     }
 }
@@ -347,7 +347,7 @@ $dist = 'README.md', 'assert-host-safe.ps1', 'com-type.ps1', 'coordinator-lib.ps
         'tests\run-all.ps1', 'tests\mutants.json', 'p9s-vbox.ps1', 'tests\vbox-tests.ps1', 'p9s-vmstate.ps1', 'p9s-acpival.ps1',
         'acpi-validation-authorization.example.json', 'tests\decouple-tests.ps1', 'tests\acpival-tests.ps1', 'acpi-validation-authorization-u24.example.json',
         'p9s-state.ps1', 'tests\persist-tests.ps1', 'p9s-state-init.ps1', 'tests\setup-tests.ps1',
-        'p9s-state-migrate.ps1', 'tests\migrate-tests.ps1', 'tests\migproc-tests.ps1'
+        'p9s-state-migrate.ps1', 'tests\migrate-tests.ps1', 'tests\migproc-tests.ps1', 'tests\enforce-tests.ps1'
 $localOnly = 'p9s-local.json', 'KIT-SHA256SUMS.txt'
 $distFiles = @($dist | ForEach-Object { Join-Path $kit $_ } | Where-Object { Test-Path -LiteralPath $_ })
 Case 'H40' 'the tree holds exactly the distribution files (plus known local-only files)' {

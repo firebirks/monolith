@@ -55,9 +55,9 @@ does not touch Tor, Monolith or its profiles.
 | `p9s-acpival.ps1` | The restricted single-VM ACPI validation of `P9S-D12` or `P9S-U24` (owner authorization required) |
 | `p9s-vbox.ps1` | Every VirtualBox operation: one host-wide lock, bounded waits, quarantine, recovery |
 | `p9s-config.ps1` | Local configuration and the local secret store |
-| `p9s-state.ps1` | Read-only status of the persistent state folder of later versions (`state.status`) |
-| `p9s-state-init.ps1` | Explicit initialization of that folder (`state.init`) and the rule that voids the ACPI validation authorizations issued before it |
-| `p9s-state-migrate.ps1` | Explicit migration of the coordinator folder of earlier versions into that folder (`state.migrate`) |
+| `p9s-state.ps1` | Read-only status of the persistent state folder (`state.status`), on which every action is gated |
+| `p9s-state-init.ps1` | Explicit initialization of that folder (`state.init`), the anchor mark of every ledger save, and the rule that voids the ACPI validation authorizations issued before it |
+| `p9s-state-migrate.ps1` | Explicit migration of the coordinator folder of earlier versions into that folder (`state.migrate`); the anchor written again for a consistent folder (`state.reanchor`) |
 | `p9s-local.example.json` | Example of the local configuration |
 | `acpi-validation-authorization.example.json` | Example of a version-1 authorization for `P9S-D12` (never valid as it is) |
 | `acpi-validation-authorization-u24.example.json` | Example of a version-2 authorization for `P9S-U24` (never valid as it is) |
@@ -73,7 +73,8 @@ does not touch Tor, Monolith or its profiles.
 | `tests/setup-tests.ps1` | `state.init` in separate processes: every step as a crash point, the races |
 | `tests/migrate-tests.ps1` | `state.migrate` in process: the laboratory shape, every shape it refuses, the readers and the audit witness, locks, VMs, free space, resume and restart, writers at a given step |
 | `tests/migproc-tests.ps1` | `state.migrate` in separate processes: every step as a crash point, resume and restart crashes, the races, the coordinator's lock and hold against a migration |
-| `tests/run-all.ps1` | Runs and checks the ten suites, and the mutants (local and CI) |
+| `tests/enforce-tests.ps1` | The persistent state as the coordinator enforces it: the anchor mark of every ledger save, its faults and crash points, the state changed under an action in process and from another process, `state.reanchor`, the earlier folder after a migration, STOP and ABORT across a restart, the real context and the monitor on the default location |
+| `tests/run-all.ps1` | Runs and checks the eleven suites, and the mutants (local and CI) |
 | `tests/mutants.json` | The targeted faults and the tests that must detect them |
 
 ## Local configuration
@@ -141,7 +142,12 @@ toolkit, and the coordinator cannot run them.
 
 It writes `run.json`, `samples.csv` (one line per sample), `events.log`,
 `processes.csv` (image names only) and `run-end.json` into `-OutDir`, and
-replaces `%TEMP%\p9s-hostmon\state.json` atomically after every sample.
+replaces `state.json` of the persistent state folder
+(`<LocalApplicationData>\Monolith-P9S\state`, see "Persistent state
+status") atomically after every sample. Without `-StatePath` it refuses
+(exit 2) when that folder does not exist: `state.init` or `state.migrate`
+creates it, the monitor never does. `-StatePath` names another state
+file, whose folder it creates.
 Create `<OutDir>\STOP` to end it; a clean end publishes STOPPED. One
 monitor per state file.
 
@@ -642,17 +648,17 @@ What follows from these rules:
 
 ## Persistent state status (read only)
 
-The coordinator keeps its files in `%TEMP%\p9s-hostmon`, where Windows
-cleanup can delete them (R14). A later version will keep them in a
-folder of the account's profile, created only by an explicit
-initialization or migration and recorded by an anchor in the registry.
-This version only reports the status that folder has now:
+The coordinator keeps its files in a folder of the account's profile,
+created only by an explicit initialization or migration and recorded by
+an anchor in the registry. Earlier versions kept them in
+`%TEMP%\p9s-hostmon`, where Windows cleanup can delete them (R14). The
+status of the folder decides what the coordinator may do (see
+"Persistent state enforcement"):
 
     pwsh -NoProfile -File p9s-action.ps1 -Action state.status
 
 It reads, and nothing else: it creates no file, folder or registry key,
-takes no lock, writes no audit record, and no other action uses its
-result. The coordinator still keeps its files where it always did.
+takes no lock and writes no audit record.
 
 What it reads:
 
@@ -705,9 +711,11 @@ What it cannot do, by design:
   can tell them apart;
 - each Windows account has its own folder and anchor; a second account
   does not share the first one's budget;
-- an earlier version of the toolkit keeps using `%TEMP%\p9s-hostmon`
-  until a controlled change of folder; this status sees that folder,
-  it does not stop that version.
+- an earlier version of the toolkit uses `%TEMP%\p9s-hostmon`; this
+  status sees that folder, and a migration leaves a tombstone there that
+  the earlier versions with the VirtualBox layer honour, but nothing here
+  stops a version that predates that layer (see "Earlier versions after
+  a migration").
 
 ## Persistent state initialization
 
@@ -717,10 +725,9 @@ What it cannot do, by design:
 creates the state folder of a new installation. It is the only way to
 one: no other action initializes, repairs or recreates state, and an
 absent or empty folder is never taken as permission. It takes no
-parameter but `-Supersede`, `-DryRun` and `-ConfigPath`. The coordinator
-of this version keeps its files in `%TEMP%\p9s-hostmon`; nothing but
-`state.status`, `state.init` and the authorization rule below reads the
-new folder yet.
+parameter but `-Supersede`, `-DryRun` and `-ConfigPath`. Every other
+action of the coordinator runs on that folder and needs it READY (see
+"Persistent state enforcement").
 
 It decides on the status of `state.status`, computed before anything is
 written and again under the setup lock:
@@ -747,9 +754,10 @@ once the staging folder exists, one query per VM, and the layer's
 records and the observations are written into that folder, where they
 become the first history of the new installation. A VM in any state but
 off (running, paused, saved, aborted, unreadable) refuses. A VirtualBox
-operation or quarantine record in any folder under the root, or in the
-coordinator folder of this version, refuses every run until the operator
-resolves it: a new folder would not see it.
+operation or quarantine record in any folder under the root, or in an
+earlier coordinator folder, refuses every run until the operator
+resolves it: a new folder would not see it. The tombstone a migration
+leaves in an earlier folder is no such record.
 
 Steps, each a point where the process may end:
 
@@ -805,9 +813,8 @@ unreadable anchor, one in phase INITIALIZING, a folder without its
 anchor, an access error) refuses every authorization
 (`AUTHORIZATION_INSTALLATION_UNKNOWN`).
 
-What it does not do: it migrates nothing (`state.migrate`, below), it
-switches no action to the new folder, and a superseding
-initialization starts a history that knows nothing of the one it
+What it does not do: it migrates nothing (`state.migrate`, below), and a
+superseding initialization starts a history that knows nothing of the one it
 replaces except its id; the VMs being off and every earlier permit being
 void are what keep a lost history from giving a budget back.
 
@@ -818,7 +825,8 @@ void are what keep a lost history from giving a budget back.
 
 creates the state folder of a new installation from the coordinator
 folder of earlier versions (`%TEMP%\p9s-hostmon`), which it copies and
-never changes. It is the only way to migrate: no other action migrates,
+never changes but for two new files, the marker and the tombstone. It is
+the only way to migrate: no other action migrates,
 nothing migrates by itself, and it never starts a new history over an
 empty or new-looking folder. It takes no parameter but `-Restart`,
 `-DryRun` and `-ConfigPath`. `-DryRun` reads the earlier folder as the
@@ -921,22 +929,28 @@ Steps, each a point where the process may end:
 10. the staging folder renamed to `state`, refused if `state` exists;
 11. `MIGRATED-TO.json` in the earlier folder, by exclusive create: the
     installation id, the state folder and the manifest digest;
-12. the state folder checked again, the earlier folder again (a record
-    that differs from its copy refuses; a history that grew is noted),
+12. `vbox-quarantine.json` in the earlier folder, by exclusive create,
+    written through: the tombstone (see "Earlier versions after a
+    migration"); one already there must be this migration's
+    (`MIGRATION_TOMBSTONE_CONFLICT`);
+13. the state folder checked again (the monitor's files there are
+    ignored: a monitor may run on the folder once it is in place), the
+    earlier folder again (a record that differs from its copy refuses; a
+    history that grew is noted; the tombstone is no change),
     the anchor checked unchanged, then the anchor in phase READY with
     `initialized_utc` and the ledger's mark (the laboratory's version 1
     ledger, with no revision field, is revision 0 with the digest of its
     text); the result is `READY` only if `state.status` says so;
-13. the line `state.migrate DONE` in the new folder's
+14. the line `state.migrate DONE` in the new folder's
     `coordinator-audit.jsonl`.
 
-An interruption before step 12 leaves `INTERRUPTED` (or, before step 3,
+An interruption before step 13 leaves `INTERRUPTED` (or, before step 3,
 `MIGRATION_REQUIRED`), never `READY`, and every ACPI validation
 authorization is refused meanwhile (`AUTHORIZATION_INSTALLATION_UNKNOWN`);
 the same command completes it. A staging folder left by an interruption
 stays where it is; the next run uses a new one. Nothing is ever deleted:
 the earlier folder keeps every file as it was and gains only the marker
-(and the empty lock files if they were not there). Once READY, the rule
+and the tombstone (and the empty lock files if they were not there). Once READY, the rule
 of `state.init` applies: an authorization approved or valid from before
 `initialized_utc` is refused.
 
@@ -944,20 +958,133 @@ After the migration `state.status` compares the earlier folder with the
 manifest at every start: a record new or changed there gives
 `STATE_DIVERGED` (refused; `state.init -Supersede <id>`, or put the
 earlier folder back as `migration.json` lists it); a history that grew
-is a note; the folder deleted is a note (`OLD_FOLDER_GONE`).
+is a note; the folder deleted is a note (`OLD_FOLDER_GONE`); the
+tombstone missing is a note (`OLD_FOLDER_TOMBSTONE_ABSENT`: a migration
+made before the tombstone existed, or one removed by hand), and another
+installation's tombstone or a real quarantine record in its place gives
+`STATE_DIVERGED`.
 
-What it does not do. It switches nothing: the coordinator of this version
-keeps its files in `%TEMP%\p9s-hostmon` after a migration as before, and
-changes the migrated records there, which `state.status` then reports as
-`STATE_DIVERGED`. The marker is read by `state.status` only; it does not
-stop this version, or any earlier one, from using that folder. Between a
-migration and the version that uses the new folder, the two folders can
-therefore hold two independent budgets that started equal: an ACPI
-validation or emergency request recorded in the earlier folder is missing
-from the new one, and if Windows cleanup then deletes the earlier folder,
-`state.status` reads the new one as `READY` with that budget unspent.
-Run no live action between a migration and that version; an older
-checkout run after it has the same effect.
+## Persistent state enforcement
+
+Every action of the coordinator runs on the persistent state folder, and
+its status decides what may run:
+
+- READY: every action;
+- any other status: only the observe actions (`session.status`,
+  `audit.oob`, `vbox.status`, `calib.dry-run`, `emergency.status`,
+  `audit.vmconfig`, `calib.preflight`, `acpi.preflight`). They then write
+  nothing (no audit line, no VM observation) and make no VirtualBox call:
+  the VM states read as unknown and the host checks of the calibration
+  preflight are not run. Every other action is refused before anything is
+  read or written, dry runs included, with `STATE_NOT_READY:<status>` and
+  the status's reasons. `emergency.acpi-shutdown` then says to shut the VM
+  down from the guest or from VirtualBox: outside READY the ACPI request
+  history is not known, and nothing is raised, written or sent;
+- `state.status`, `state.init`, `state.migrate` and `state.reanchor`
+  decide on the status themselves.
+
+A status that cannot be computed (no classifier loaded, an exception, no
+answer) refuses like any status but READY. The status is computed when the
+action starts; again under the coordinator lock, before the session, the
+monitor or the ledger is read for a decision; at each checkpoint of a long
+action (`guest.type` between chunks, `wait`, `sequence.run` between steps,
+`acpi.observe`); and once more immediately before every VirtualBox write:
+every dispatcher of the coordinator and of the ACPI validation is called
+through one function that checks it first. Each check needs READY for the
+installation the action started on (`STATE_INSTALLATION_CHANGED`
+otherwise). A change found under the lock refuses with nothing written; at
+the last check before a dispatch it refuses as
+`STATE_CHANGED_BEFORE_DISPATCH`; at the dispatch itself the dispatch fails
+unsent, and a budget recorded before it stays spent: the start or the
+request of a validation in the ledger, the request of an emergency in the
+stop request. A refusal decided after the action started is recorded in
+the audit of the folder it started on.
+
+`-StatePath` names another state file, for tests and dry runs. Its folder
+is a sandbox (status SANDBOX, decided without reading the persistent
+state): every action that writes to a VM or sends a live ACPI validation
+request (`vm.start`, `guest.*`, `sequence.run`, `emergency.acpi-shutdown`,
+`acpi.open` to `acpi.finalize`) is refused there (`STATE_SANDBOX`) unless
+it is a dry run, the dispatchers are replaced by ones that refuse, and the
+ledger has no anchor mark. A sandbox ledger, an authorization used or
+copied there, or a state folder copied there therefore gives no budget
+that reaches a VM. The other actions run in the sandbox as before.
+`-StatePath` naming the persistent state file itself is no sandbox.
+
+Without `-StatePath` the coordinator never creates the state folder, and
+the monitor refuses to start without it.
+
+The ledger and the anchor mark. The anchor records the ledger's mark, its
+revision and the SHA-256 of its text. Every save of the ledger, under the
+coordinator lock, writes in this order: the ledger (beside its name, then
+renamed), read back and compared; its revision record; then the anchor
+with the new mark, in one registry value, flushed and read back. The save
+succeeds only once the mark is in place, and nothing is dispatched after a
+save that failed. Windows gives no atomicity across the file system and
+the registry: an interruption between the ledger and the anchor leaves
+the anchor behind the ledger, which `state.status` accepts, since the
+mark is a lower bound. The anchor is never written ahead of a ledger that
+is not on disk, and the mark only moves forward, on an anchor in phase
+READY of this account and this folder: a lower revision, other content
+for the same revision, an anchor in another phase, of another folder or
+of another account takes no mark. A ledger older than the mark (rolled
+back, replaced by an older copy), one with other content at the mark's
+revision, or one that is gone gives `STATE_UNCERTAIN`: no budget is given
+back; the way out is to put the newer ledger back, or
+`state.init -Supersede`.
+
+## Writing the anchor again
+
+    pwsh -NoProfile -File p9s-action.ps1 -Action state.reanchor [-DryRun]
+    pwsh -NoProfile -File p9s-action.ps1 -Action state.reanchor -Replace
+
+writes the anchor again for a state folder that is in place and
+consistent, when the anchor is gone (`ANCHOR_MISSING`) or, with
+`-Replace`, when it cannot be parsed (`ANCHOR_UNREADABLE`; its text is
+first kept, base64, in a line of the folder's `coordinator-audit.jsonl`).
+Every other status refuses (`NOT_REANCHORABLE:<status>`):
+`STATE_UNCERTAIN` above all, since marking an uncertain ledger again would
+accept a rollback. It takes no parameter but `-Replace`, `-DryRun` and
+`-ConfigPath`.
+
+The folder must hold the install record of this account and folder, a
+ledger the toolkit's reader establishes, and for a migrated installation
+its migration record, with the earlier folder still matching it
+(`STATE_FOLDER_NOT_CONSISTENT` otherwise). Every configured VM must be
+off, as for `state.init`: the VM process count first, then one query per
+VM, observed into the state folder. The decision is taken again under
+`setup.lock`. The new anchor takes the installation's id, origin and
+`created_utc` from the install record, the ledger's mark as it is, and a
+new `initialized_utc`: every ACPI validation authorization approved or
+valid from before it is void. One audit line records it.
+
+## Earlier versions after a migration
+
+`state.migrate` leaves two files in the earlier folder: the marker, which
+only `state.status` reads, and the tombstone, `vbox-quarantine.json` with
+the schema of the VirtualBox layer's quarantine, reason `STATE_MOVED` and
+the operation id `state-moved-<installation id>`. Every earlier version
+with that layer (from `83c9ef8`) reads any record there as a quarantine:
+it starts no VM, sends no key, opens no ACPI request and starts no
+`VBoxManage` from that folder, its emergency included, and its
+`vbox.recover` cannot clear it (the id is not one of its operation ids).
+Such a version can still write its own files there; `state.status`
+reports a changed record as `STATE_DIVERGED`, and the coordinator then
+refuses everything but the observe actions.
+
+What the tombstone does not cover, and why no live action is authorized
+by this version alone:
+
+- versions before `83c9ef8` (the kits of 2026-11-19, for example) have no
+  VirtualBox layer and ignore it;
+- an earlier version started after Windows cleanup emptied `%TEMP%`
+  creates a new `p9s-hostmon` folder without the tombstone, with a new
+  budget;
+- an earlier version started with `-StatePath` on another folder has a
+  budget of its own there; its emergency needs no permit.
+
+The cutover therefore also needs every earlier kit removed from the host
+and no earlier version running; nothing in this version can enforce that.
 
 ## Calibration (preparation only)
 
@@ -1005,9 +1132,9 @@ determined local user.
     pwsh -NoProfile -File tests/run-all.ps1 -OutDir <new folder>
          [-Mutants [-MutantShard k/n]]
 
-runs the ten suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
-`decouple`, `acpival`, `persist`, `setup`, `migrate`, `migproc`), each in a new
-`pwsh -File` process, and judges
+runs the eleven suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
+`decouple`, `acpival`, `persist`, `setup`, `migrate`, `migproc`,
+`enforce`), each in a new `pwsh -File` process, and judges
 them by their `results.json`:
 every declared case must be reported once, as PASS, FAIL or NOT_RUN; the
 exit code of a suite must agree with its results; anything on the error
@@ -1073,10 +1200,20 @@ process count and the free space mocked, and orders writers at a given
 step through the step hook of the context; the `migproc` suite ends
 migrations at each step (TerminateProcess), races two of them, and runs
 the coordinator's own lock and emergency hold functions in other
-processes against a migration. Cases P62 and P63 run `state.status` and
-`state.init -DryRun`, and Q63 `state.migrate -DryRun`, against the
-machine's real locations, only in the main run of `-CleanRunner` and
-only where none of them exists; elsewhere they are NOT_RUN.
+processes against a migration. The `enforce` suite runs the
+coordinator on synthetic state folders with the real classifier and the
+real anchor writes into the test keys: the anchor mark of every ledger
+save, faults injected at each point of a save (a registry ACL that
+refuses the write among them) and child processes ended at each point
+(TerminateProcess), the state folder changed under an action in process
+and from another process ordered by named events, `state.reanchor`, the
+earlier folder after a migration, STOP and ABORT across a restart. The
+gate itself is tested status by status in the `coordinator` and
+`acpival` suites. Cases P62 and P63 run `state.status` and
+`state.init -DryRun`, Q63 `state.migrate -DryRun`, and N13 the
+coordinator's entry points without `-StatePath`, against the machine's
+real locations, only in the main run of `-CleanRunner` and only where
+none of them exists; elsewhere they are NOT_RUN.
 
 CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs in three
 shards, each on its own GitHub-hosted Windows Server 2025 runner:
@@ -1084,7 +1221,7 @@ shards, each on its own GitHub-hosted Windows Server 2025 runner:
     pwsh -NoProfile -File tools/p9s/host/tests/run-all.ps1
          -OutDir <dir> -Mutants -MutantShard <k>/3 -CleanRunner
 
-with k = 1, 2, 3. Every shard runs all ten suites and a third of the
+with k = 1, 2, 3. Every shard runs all eleven suites and a third of the
 faults; the three together run each fault exactly once, and each shard
 must succeed on its own (one that fails, is cancelled or does not run
 leaves the run unsuccessful). `-CleanRunner` first
@@ -1092,8 +1229,8 @@ requires that the runner has no VirtualBox (no `VBoxManage.exe`, no
 VirtualBox COM class), no `p9s-local.json`, no `P9S_HOST_CONFIG` and no
 default state folder, so that a fault in a test cannot reach a real VM
 or secret. The job also checks that Windows PowerShell 5.1 refuses the
-entry point. P62 and P63 of the `persist` suite and Q63 of the
-`migrate` suite run only there. One case cannot run there: K37 starts the real coordinator,
+entry point. P62 and P63 of the `persist` suite, Q63 of the `migrate`
+suite and N13 of the `enforce` suite run only there. One case cannot run there: K37 starts the real coordinator,
 which reads the VM states with VBoxManage; it is reported as NOT_RUN and
 runs only on a host with VirtualBox (K28 covers the same rule in
 process). CI cannot show how a guest answers the ACPI power button, how
@@ -1132,9 +1269,11 @@ authorization file, and any override of the safety checks.
 
 ## Rollback
 
-The toolkit changes nothing on the host. To remove it, stop the monitor,
-delete `%TEMP%\p9s-hostmon` (state, coordinator files, VM observations,
-the validation ledger and its revision record, and the VirtualBox
-layer's records) and this
-folder's `p9s-local.json`; reverting the commit that added the folder
-removes the rest.
+The toolkit changes nothing on the host but its own state. To remove it,
+stop the monitor, delete the persistent state folder
+`<LocalApplicationData>\Monolith-P9S` (state, coordinator files, VM
+observations, the validation ledger and its revision record, and the
+VirtualBox layer's records), the key `HKCU\Software\Monolith-P9S`,
+`%TEMP%\p9s-hostmon` of earlier versions and this folder's
+`p9s-local.json`; reverting the commit that added the folder removes the
+rest. Deleting the state also deletes the record of every budget spent.

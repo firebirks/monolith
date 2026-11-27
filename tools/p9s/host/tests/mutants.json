@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 203,
+  "count": 242,
   "mutants": [
     {
       "id": "SM1",
@@ -1673,8 +1673,8 @@
       "killers": [
         "K52"
       ],
-      "find": "    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }\n    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }",
-      "replace": "    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }\n    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }"
+      "find": "    if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }",
+      "replace": "    if (Test-Path -LiteralPath $Ctx.StopRequestPath) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }\n    foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }"
     },
     {
       "id": "FS13",
@@ -2327,6 +2327,445 @@
       ],
       "find": "        $d2 = Get-P9SStateMigrateDecision $I $Restart\n",
       "replace": "        $d2 = $d\n"
+    },
+    {
+      "id": "EN01",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "no READY gate: outside READY every action runs",
+      "killers": [
+        "K56"
+      ],
+      "find": "        } elseif ($kind -cnotin 'observe', 'observe-vbox') {\n",
+      "replace": "        } elseif ($false) {\n"
+    },
+    {
+      "id": "EN02",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "no recheck of the persistent state under the coordinator lock",
+      "killers": [
+        "K59"
+      ],
+      "find": "            $sgr = @(Get-P9SStateGateReasons $Ctx $res)\n            if ($sgr.Count) {\n",
+      "replace": "            $sgr = @()\n            if ($sgr.Count) {\n"
+    },
+    {
+      "id": "EN03",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "no recheck of the persistent state at the dispatch",
+      "killers": [
+        "K58",
+        "K60",
+        "K62"
+      ],
+      "find": "    $sg = @(Get-P9SStateGateReasons $Ctx $Res)\n    if ($sg.Count) {\n",
+      "replace": "    $sg = @()\n    if ($sg.Count) {\n"
+    },
+    {
+      "id": "EN04",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "no recheck of the persistent state at the checkpoints",
+      "killers": [
+        "K60",
+        "K61"
+      ],
+      "find": "    if ([string](Get-Prop $Res 'state_status') -ceq 'READY') { foreach ($r in @(Get-P9SStateGateReasons $Ctx $Res)) { $reasons.Add($r) } }\n    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }\n",
+      "replace": "    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g }\n"
+    },
+    {
+      "id": "EN05",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "no recheck of the persistent state by the emergency under the lock",
+      "killers": [
+        "K62"
+      ],
+      "find": "            $sgr = @(Get-P9SStateGateReasons $Ctx $Res)\n            if ($sgr.Count) {\n                Set-P9SRefused $Res (@($sgr) + @('EMERGENCY_UNRESOLVED')) $null\n",
+      "replace": "            $sgr = @()\n            if ($sgr.Count) {\n                Set-P9SRefused $Res (@($sgr) + @('EMERGENCY_UNRESOLVED')) $null\n"
+    },
+    {
+      "id": "EN06",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the emergency runs outside READY",
+      "killers": [
+        "K56"
+      ],
+      "find": "        } elseif ($kind -cnotin 'observe', 'observe-vbox') {\n",
+      "replace": "        } elseif ($kind -cnotin 'observe', 'observe-vbox' -and [string]$Request.Action -cne 'emergency.acpi-shutdown') {\n"
+    },
+    {
+      "id": "EN07",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the observe actions outside READY run with the full context (they write and read VirtualBox)",
+      "killers": [
+        "K57"
+      ],
+      "find": "    if (-not $sg.ready -and -not $sg.sandbox) { $Ctx = ConvertTo-P9SStateQuietContext $Ctx $sg }\n",
+      "replace": "    if ($false) { $Ctx = ConvertTo-P9SStateQuietContext $Ctx $sg }\n"
+    },
+    {
+      "id": "EN08",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the quiet context still reads the VM states",
+      "killers": [
+        "K57"
+      ],
+      "find": "    $q | Add-Member -NotePropertyName ReadVmState -NotePropertyValue { param($vm) $null } -Force\n",
+      "replace": ""
+    },
+    {
+      "id": "EN09",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the quiet context still writes its audit line",
+      "killers": [
+        "K57"
+      ],
+      "find": "    if ((Get-Prop $Ctx 'StateQuiet') -or -not (Get-Prop $Ctx 'AuditPath')) { return }\n",
+      "replace": "    if (-not (Get-Prop $Ctx 'AuditPath')) { return }\n"
+    },
+    {
+      "id": "EN10",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "a sandbox runs the actions that reach a VM",
+      "killers": [
+        "K58"
+      ],
+      "find": "            if ($kind -ceq 'reach' -and -not $Request.DryRun) {\n",
+      "replace": "            if ($false) {\n"
+    },
+    {
+      "id": "EN11",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the installation is not compared at a recheck",
+      "killers": [
+        "K59",
+        "K60",
+        "K62"
+      ],
+      "find": "    if ($start -and $g.installation_id -cne $start) { return @('STATE_INSTALLATION_CHANGED') }\n",
+      "replace": "    $null = $start\n"
+    },
+    {
+      "id": "EN12",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "a gate that throws reads as READY",
+      "killers": [
+        "K56"
+      ],
+      "find": "    $g = $null; try { $g = & $f } catch { $g = $null }\n",
+      "replace": "    $g = $null; try { $g = & $f } catch { $g = [pscustomobject]@{ status = 'READY'; installation_id = $null; reasons = @() } }\n"
+    },
+    {
+      "id": "EN13",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "a context without a gate reads as READY",
+      "killers": [
+        "K56"
+      ],
+      "find": "    if (-not $f) { return (& $no 'STATE_GATE_MISSING' 'STATE_GATE_MISSING') }\n",
+      "replace": "    if (-not $f) { return [pscustomobject]@{ status = 'READY'; ready = $true; sandbox = $false; installation_id = $null; reasons = @() } }\n"
+    },
+    {
+      "id": "EN14",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "vm.start dispatched around the recheck",
+      "killers": [
+        "K60",
+        "K63"
+      ],
+      "find": "            'vm.start' { Invoke-P9SDispatch $Ctx $Res 'vm.start' @($vm); $Res.dispatched = 1; $Session.expected_vm[$vm] = 'running' }\n",
+      "replace": "            'vm.start' { & $Ctx.Dispatch['vm.start'] $vm; $Res.dispatched = 1; $Session.expected_vm[$vm] = 'running' }\n"
+    },
+    {
+      "id": "EN15",
+      "suite": "coordinator",
+      "file": "coordinator-lib.ps1",
+      "what": "the emergency request dispatched around the recheck",
+      "killers": [
+        "K62",
+        "K63"
+      ],
+      "find": "                            Invoke-P9SDispatch $Ctx $Res 'vm.acpi' @($vm)\n",
+      "replace": "                            & $Ctx.Dispatch['vm.acpi'] $vm\n"
+    },
+    {
+      "id": "EN16",
+      "suite": "enforce",
+      "file": "coordinator-lib.ps1",
+      "what": "every -StatePath is taken for the persistent state folder (no sandbox)",
+      "killers": [
+        "N01"
+      ],
+      "find": "    $sandbox = [bool]($asked -and -not [string]::Equals(",
+      "replace": "    $sandbox = [bool]($false -and -not [string]::Equals("
+    },
+    {
+      "id": "EN17",
+      "suite": "enforce",
+      "file": "coordinator-lib.ps1",
+      "what": "the real context creates the state folder",
+      "killers": [
+        "N01"
+      ],
+      "find": "    if ($sandbox) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }\n",
+      "replace": "    New-Item -ItemType Directory -Force -Path $dir | Out-Null\n"
+    },
+    {
+      "id": "EN18",
+      "suite": "enforce",
+      "file": "coordinator-lib.ps1",
+      "what": "a sandbox keeps the real dispatchers",
+      "killers": [
+        "N01"
+      ],
+      "find": "        Dispatch = $(if ($sandbox) { $d = [ordered]@{}; foreach ($k in @((Get-P9SRealDispatch $cfg).Keys)) { $d[$k] = { throw 'STATE_SANDBOX: no VirtualBox write from a -StatePath sandbox' } }; $d } else { Get-P9SRealDispatch $cfg })\n",
+      "replace": "        Dispatch = (Get-P9SRealDispatch $cfg)\n"
+    },
+    {
+      "id": "EN19",
+      "suite": "enforce",
+      "file": "coordinator-lib.ps1",
+      "what": "a sandbox ledger moves the anchor mark",
+      "killers": [
+        "N01"
+      ],
+      "find": "        UpdateLedgerMark = $(if ($sandbox) { $null } else {",
+      "replace": "        UpdateLedgerMark = $(if ($false) { $null } else {"
+    },
+    {
+      "id": "EN20",
+      "suite": "enforce",
+      "file": "host-monitor.ps1",
+      "what": "the monitor runs without the persistent state folder",
+      "killers": [
+        "N02"
+      ],
+      "find": "if ($defaultState -and -not [IO.Directory]::Exists((Split-Path -Parent $StatePath))) {",
+      "replace": "if ($false) {"
+    },
+    {
+      "id": "EN21",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the anchor mark not updated after a ledger save",
+      "killers": [
+        "A21"
+      ],
+      "find": "        if ($um -and -not (& $um ([long]$Doc.revision) (Get-P9STextSha256 $text))) { return $false }\n",
+      "replace": "        $null = $um\n"
+    },
+    {
+      "id": "EN22",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the anchor mark written before the ledger",
+      "killers": [
+        "A21"
+      ],
+      "find": "        $w = Get-Prop $Ctx 'WriteLedger'\n",
+      "replace": "        $u0 = Get-Prop $Ctx 'UpdateLedgerMark'; if ($u0 -and -not (& $u0 ([long]$Doc.revision) (Get-P9STextSha256 $text))) { return $false }\n        $w = Get-Prop $Ctx 'WriteLedger'\n"
+    },
+    {
+      "id": "EN23",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "no recheck of the persistent state by the validation under the lock",
+      "killers": [
+        "A19"
+      ],
+      "find": "        $sgr = @(if ([string](Get-Prop $Res 'state_status') -ceq 'READY') { Get-P9SStateGateReasons $Ctx $Res })\n",
+      "replace": "        $sgr = @()\n"
+    },
+    {
+      "id": "EN24",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "no recheck of the persistent state at the validation checkpoints",
+      "killers": [
+        "A22"
+      ],
+      "find": "    if ([string](Get-Prop $Res 'state_status') -ceq 'READY') { foreach ($r in @(Get-P9SStateGateReasons $Ctx $Res)) { $reasons.Add($r) } }\n    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g; eligibility = $e }\n",
+      "replace": "    [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g; eligibility = $e }\n"
+    },
+    {
+      "id": "EN25",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the validation start dispatched around the recheck",
+      "killers": [
+        "A08",
+        "A20"
+      ],
+      "find": "        Invoke-P9SDispatch $Ctx $Res 'vm.start' @($target)\n",
+      "replace": "        & $Ctx.Dispatch['vm.start'] $target\n"
+    },
+    {
+      "id": "EN26",
+      "suite": "acpival",
+      "file": "p9s-acpival.ps1",
+      "what": "the validation request dispatched around the recheck",
+      "killers": [
+        "A08",
+        "A20"
+      ],
+      "find": "    try { Invoke-P9SDispatch $Ctx $Res 'vm.acpi' @($target) }\n",
+      "replace": "    try { & $Ctx.Dispatch['vm.acpi'] $target }\n"
+    },
+    {
+      "id": "EN27",
+      "suite": "enforce",
+      "file": "p9s-state-init.ps1",
+      "what": "the anchor mark moves back to a lower revision",
+      "killers": [
+        "N03"
+      ],
+      "find": "    if ($Revision -lt [long]$m.revision) { return $false }\n",
+      "replace": "    if ($false) { return $false }\n"
+    },
+    {
+      "id": "EN28",
+      "suite": "enforce",
+      "file": "p9s-state-init.ps1",
+      "what": "the anchor mark takes other content for the same revision",
+      "killers": [
+        "N03"
+      ],
+      "find": "    if ($Revision -eq [long]$m.revision) { return ([string]$m.sha256 -ceq $Sha) }\n",
+      "replace": "    if ($Revision -eq [long]$m.revision) { return $true }\n"
+    },
+    {
+      "id": "EN29",
+      "suite": "enforce",
+      "file": "p9s-state-init.ps1",
+      "what": "the anchor mark written on an anchor not READY, of another account or folder",
+      "killers": [
+        "N03"
+      ],
+      "find": "    if ([string]$A.phase -cne 'READY' -or [string]$A.account -cne [string]$C.Process.account -or -not (Test-P9SStateSamePath $A.state_dir $C.StateDir)) { return $false }\n",
+      "replace": "    if ($false) { return $false }\n"
+    },
+    {
+      "id": "EN30",
+      "suite": "enforce",
+      "file": "p9s-state.ps1",
+      "what": "a ledger older than the anchor's mark is accepted (stale state READY)",
+      "killers": [
+        "N05",
+        "N11"
+      ],
+      "find": "    if ($rev -lt [long]$mark.revision) { return @('LEDGER:STATE_STALE') }\n",
+      "replace": "    if ($false) { return @('LEDGER:STATE_STALE') }\n"
+    },
+    {
+      "id": "EN31",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the migration writes no tombstone",
+      "killers": [
+        "Q27"
+      ],
+      "find": "            try { Write-P9SStateNewFile $tp ([Text.UTF8Encoding]::new($false).GetBytes(($tomb | ConvertTo-Json -Depth 3))) } catch { return (& $refuse 'TOMBSTONE_NOT_WRITTEN') }\n",
+      "replace": "            $null = $tomb\n"
+    },
+    {
+      "id": "EN32",
+      "suite": "migrate",
+      "file": "p9s-state.ps1",
+      "what": "the classifier takes any quarantine record in the earlier folder for the tombstone",
+      "killers": [
+        "Q27"
+      ],
+      "find": "(Read-P9SStateTombstone (Join-Path $src[0] $x.name)).installation_id -ceq [string]$A.installation_id) { $tomb = $true; continue }",
+      "replace": "$true) { $tomb = $true; continue }"
+    },
+    {
+      "id": "EN33",
+      "suite": "migrate",
+      "file": "p9s-state-init.ps1",
+      "what": "a setup skips any quarantine record of an earlier folder",
+      "killers": [
+        "Q27"
+      ],
+      "find": "            if ($n -ceq 'vbox-quarantine.json' -and @($C.LegacyDirs) -ccontains $d.path -and (Read-P9SStateTombstone (Join-Path $d.path $n)).kind -ceq 'tombstone') { continue }\n",
+      "replace": "            if ($n -ceq 'vbox-quarantine.json' -and @($C.LegacyDirs) -ccontains $d.path) { continue }\n"
+    },
+    {
+      "id": "EN34",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the in-place folder check of the migration ignores every entry",
+      "killers": [
+        "Q28"
+      ],
+      "find": "        if ($InPlace -and ($it.Name -cin 'state.json', 'state.json.lock' -or $it.Name -cmatch '^\\.state\\.json\\.[0-9a-f]{32}\\.tmp$')) { continue }\n",
+      "replace": "        if ($InPlace) { continue }\n"
+    },
+    {
+      "id": "EN35",
+      "suite": "enforce",
+      "file": "p9s-state-migrate.ps1",
+      "what": "state.reanchor marks an uncertain ledger",
+      "killers": [
+        "N08"
+      ],
+      "find": "        } else { $why = \"NOT_REANCHORABLE:$($st.status)\" }\n",
+      "replace": "        } elseif ($st.status -cne 'STATE_UNCERTAIN') { $why = \"NOT_REANCHORABLE:$($st.status)\" }\n"
+    },
+    {
+      "id": "EN36",
+      "suite": "enforce",
+      "file": "p9s-state-migrate.ps1",
+      "what": "state.reanchor does not compare the earlier folder with the migration record",
+      "killers": [
+        "N08"
+      ],
+      "find": "            foreach ($x in (Get-P9SStateSourceAgainst $s $M ([string]$D.installation_id)).reasons) { $p.reasons.Add($x) }\n",
+      "replace": "            $null = $s\n"
+    },
+    {
+      "id": "EN37",
+      "suite": "enforce",
+      "file": "p9s-state-migrate.ps1",
+      "what": "state.reanchor does not refuse a VM that is not off",
+      "killers": [
+        "N08"
+      ],
+      "find": "        $res.vm_states = $v.states\n        if ($v.reasons.Count) { return (& $refuse $v.reasons) }\n",
+      "replace": "        $res.vm_states = $v.states\n"
+    },
+    {
+      "id": "EN38",
+      "suite": "enforce",
+      "file": "p9s-state-migrate.ps1",
+      "what": "state.reanchor -Replace does not keep the unreadable anchor",
+      "killers": [
+        "N08"
+      ],
+      "find": "            try { Add-P9SStateHistoryBytes $audit ([Text.UTF8Encoding]::new($false).GetBytes(($kept | ConvertTo-Json -Compress) + \"`n\")) } catch { return (& $refuse 'ANCHOR_NOT_KEPT') }\n",
+      "replace": "            $null = $kept\n"
+    },
+    {
+      "id": "EN39",
+      "suite": "enforce",
+      "file": "p9s-state-init.ps1",
+      "what": "the anchor mark updated while a setup holds setup.lock",
+      "killers": [
+        "N03"
+      ],
+      "find": "    try { $lk = [IO.FileStream]::new((Join-Path $C.Root (Get-P9SStateNames).setup_lock), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } catch { return $false }\n",
+      "replace": "    $lk = [IO.MemoryStream]::new()\n"
     }
   ]
 }

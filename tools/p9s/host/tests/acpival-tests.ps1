@@ -162,7 +162,7 @@ function New-VCtx {
         ReadVmState = $readVm; ReadVmConfig = { param($vm) if ($vm -ceq 'P9S-U24') { @($prov.configU) } else { @($prov.config) } }.GetNewClosure()
         Dispatch = @{ 'vm.start' = $start; 'vm.acpi' = $acpi; 'guest.text' = $text; 'guest.key' = $key; 'guest.unlock' = $unlock }
         Sleep = $sleep; Pid = $PID; ProcessStartTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
-        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }
+        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }; StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
         ObservationPath = Join-Path $Dir 'vm-observations.jsonl'; LedgerPath = Join-Path $Dir 'acpi-validation-ledger.json'; WriteLedger = $wl; UtcNow = $utc; AcpiValidationLive = $Live
         CountVmProcesses = { [int]$prov.vmprocs }.GetNewClosure()
         Config = [pscustomobject]@{ vm_config_reference = [pscustomobject]@{ debian = $refPath; ubuntu = $refPathU } }
@@ -216,7 +216,7 @@ $ctx = [pscustomobject]@{
         'vm.acpi' = { param($vm) Add-Content -LiteralPath $log -Value "vm.acpi $vm $PID"; if ($crash -eq 'acpi') { [Environment]::Exit(9) }; Start-Sleep -Milliseconds $hold }.GetNewClosure()
     }
     Sleep = { param($ms) Start-Sleep -Milliseconds ([math]::Max(1, [int]($ms / 20))) }; Pid = $PID; ProcessStartTicks = $me.StartTime.ToUniversalTime().Ticks
-    EmergencyLockWaitMs = 10000; CalibrationHostChecks = { @() }
+    EmergencyLockWaitMs = 10000; CalibrationHostChecks = { @() }; StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
     ObservationPath = Join-Path $s.dir 'vm-observations.jsonl'; LedgerPath = Join-Path $s.dir 'acpi-validation-ledger.json'; UtcNow = { [DateTime]::UtcNow }; AcpiValidationLive = $true
     CountVmProcesses = { 0 }
 }
@@ -280,6 +280,8 @@ Case 'A01' 'nothing live by default: without an owner authorization every live s
     Expect ($cap.name -eq 'ACPI_VALIDATION' -and $cap.live_enabled -eq $true) "capability: $($cap.live_enabled)"
     $d = Join-Path $OutDir 'realctx'
     $rc = New-P9SRealContext -StatePath (Join-Path $d 'state.json') -KitDir $kit -Config $null
+    # an installed synthetic folder: the tests never read the real state
+    $rc.StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
     Expect ($rc.AcpiValidationLive -eq $true) 'the real context does not follow the capability'
     $n = & $rc.CountVmProcesses
     Expect ($n -is [int] -and $n -ge 0) "the real count of host VM processes: $n"
@@ -436,12 +438,123 @@ Case 'A08' 'nothing outside the allowlist: no input, snapshot, reset or forced p
         Expect ($x.outcome -eq 'REJECTED' -and (Has $x "PARAMETER_NOT_ALLOWED:$p")) "acpi.start -$p`: $(Why $x)"
     }
     $src = Get-Content -Raw -LiteralPath (Join-Path $kit 'p9s-acpival.ps1')
-    $keys = @([regex]::Matches($src, "Dispatch\['([^']+)'\]") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    # every dispatch goes through the state gate's recheck (coordinator-lib.ps1)
+    Expect (-not [regex]::IsMatch($src, "Dispatch\[")) 'a dispatcher is called around the state recheck'
+    $keys = @([regex]::Matches($src, 'Invoke-P9SDispatch \$Ctx \$Res ''([^'']+)''') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     Expect (($keys -join ',') -eq 'vm.acpi,vm.start') "dispatchers used by the capability: $($keys -join ',')"
     $c.Prov.offAfter = 0
     $null = AOpen $c (New-Auth); $null = AStart $c; $null = AObs $c 10; $null = AShut $c; $null = AFinal $c
     Expect ((Kinds $c) -eq 'vm.start P9S-D12, vm.acpi P9S-D12') "calls of a whole validation: $(Kinds $c)"
 }
+# ---- the persistent state gate (coordinator-lib.ps1, R14/X5) ----------------------------
+# A gate whose status the case changes ($g.s; "READY@<id>" is READY for
+# another installation), and the anchor mark of every ledger save, recorded
+# with what was on disk when it was asked for. -FlipOnMark: the status
+# becomes that value once a mark is written (a change between the ledger
+# save and the dispatch).
+function Set-VGate($c, [string]$Status = 'READY') {
+    $g = @{ s = $Status; flip = $null; markFails = $false; markThrows = $false; asked = 0 }
+    $marks = [System.Collections.Generic.List[object]]::new()
+    $c.StateGate = {
+        $g.asked++
+        $st, $id = $g.s -split '@', 2
+        [pscustomobject]@{ status = $st; installation_id = $(if ($st -ceq 'READY') { if ($id) { $id } else { 'inst-test-installed' } } else { $null }); reasons = @("TEST_$st") }
+    }.GetNewClosure()
+    $lp = $c.LedgerPath; $rp = Get-P9SAcpiLedgerRevisionPath $c
+    $c | Add-Member -NotePropertyName UpdateLedgerMark -NotePropertyValue {
+        param($rev, $sha)
+        $b = [IO.File]::ReadAllBytes($lp); $rr = if (Test-Path -LiteralPath $rp) { [IO.File]::ReadAllText($rp) | ConvertFrom-Json } else { $null }
+        $marks.Add([pscustomobject]@{ rev = [long]$rev; sha = [string]$sha; disk_rev = [long](([Text.UTF8Encoding]::new($false).GetString($b) | ConvertFrom-Json).revision)
+            disk_sha = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($b)).ToLowerInvariant(); record_rev = $(if ($rr) { [long]$rr.revision } else { $null }) })
+        if ($g.markThrows) { throw 'injected anchor write failure' }
+        if ($g.markFails) { return $false }
+        if ($g.flip) { $g.s = $g.flip; $g.flip = $null }
+        $true
+    }.GetNewClosure() -Force
+    $c | Add-Member -NotePropertyName Gate -NotePropertyValue $g -Force
+    $c | Add-Member -NotePropertyName Marks -NotePropertyValue $marks -Force
+}
+function Snap($c) { @(Get-ChildItem -LiteralPath $c.Dir -Force -File | Sort-Object Name | ForEach-Object { "$($_.Name) $((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" }) -join '; ' }
+Case 'A18' 'persistent state not READY: every live step of the validation is refused with the status, dry runs too, and writes and reads nothing; acpi.preflight still runs, writes nothing and reads no VM; a sandbox runs no live step' {
+    foreach ($s in 'STATE_UNCERTAIN', 'ANCHOR_MISSING', 'MIGRATION_REQUIRED', 'NOT_INITIALIZED', 'STATE_DIVERGED') {
+        $x = Started; $c = $x.c; Set-VGate $c $s
+        $before = Snap $c; $n = $c.Calls.Count; $vr = $c.Prov.vmreads; $mr = $c.Prov.reads
+        $reqs = @(@{ Action = 'acpi.open'; Authorization = (New-Auth) }, @{ Action = 'acpi.start' }, @{ Action = 'acpi.start'; DryRun = $true }, @{ Action = 'acpi.observe'; Seconds = 5 }, @{ Action = 'acpi.shutdown' },
+            @{ Action = 'acpi.shutdown'; DryRun = $true }, @{ Action = 'acpi.confirm-off'; Seconds = 5 }, @{ Action = 'acpi.integrity' }, @{ Action = 'acpi.finalize' }, @{ Action = 'emergency.acpi-shutdown'; Vm = 'P9S-D12' })
+        foreach ($rq in $reqs) {
+            $r = Act $c $rq
+            Expect ($r.outcome -ceq 'REFUSED' -and (Has $r "STATE_NOT_READY:$s")) "$s $($rq.Action)$(if ($rq.DryRun) { ' -DryRun' }): $(Why $r)"
+        }
+        Expect ((Snap $c) -ceq $before -and $c.Calls.Count -eq $n -and $c.Prov.vmreads -eq $vr -and $c.Prov.reads -eq $mr) "${s}: files changed $((Snap $c) -cne $before), calls $($c.Calls.Count - $n), VM reads $($c.Prov.vmreads - $vr), monitor reads $($c.Prov.reads - $mr)"
+        $p = Act $c @{ Action = 'acpi.preflight'; Authorization = $x.a }
+        Expect ($p.outcome -ceq 'DONE' -and ($p.lines -join ' ') -match 'nothing is written and VirtualBox is not called' -and $c.Prov.vmreads -eq $vr -and (Snap $c) -ceq $before) "$s acpi.preflight: $(Why $p); VM reads $($c.Prov.vmreads - $vr); files changed $((Snap $c) -cne $before)"
+    }
+    $c = New-VCtx; Set-VGate $c 'SANDBOX'
+    $o = AOpen $c (New-Auth)
+    Expect ($o.outcome -ceq 'REFUSED' -and (Has $o 'STATE_SANDBOX') -and -not (Test-Path -LiteralPath $c.LedgerPath) -and $c.Calls.Count -eq 0) "sandbox acpi.open: $(Why $o)"
+}
+Case 'A19' 'READY at the start, another status once the coordinator lock is held: the step is refused, nothing is written (no audit line either), nothing is read or sent' {
+    foreach ($s in 'STATE_UNCERTAIN', 'READY@inst-other0000') {
+        $x = Started; $c = $x.c; Set-VGate $c 'READY'
+        $c.StateGate = { $g = $c.Gate; $g.asked++; if ($g.asked -ge 2) { $st, $id = $s -split '@', 2 } else { $st = 'READY'; $id = $null }
+            [pscustomobject]@{ status = $st; installation_id = $(if ($st -ceq 'READY') { if ($id) { $id } else { 'inst-test-installed' } } else { $null }); reasons = @() } }.GetNewClosure()
+        $want = if ($s -like 'READY@*') { 'STATE_INSTALLATION_CHANGED' } else { "STATE_NOT_READY:$s" }
+        foreach ($rq in @(@{ Action = 'acpi.observe'; Seconds = 5 }, @{ Action = 'acpi.shutdown' }, @{ Action = 'acpi.finalize' })) {
+            $c.Gate.asked = 0; $before = Snap $c; $n = $c.Calls.Count; $vr = $c.Prov.vmreads
+            $r = Act $c $rq
+            Expect ($r.outcome -ceq 'REFUSED' -and (Has $r $want) -and $c.Calls.Count -eq $n -and $c.Prov.vmreads -eq $vr -and (Snap $c) -ceq $before) "$s $($rq.Action): $(Why $r); calls $($c.Calls.Count - $n), VM reads $($c.Prov.vmreads - $vr), files changed $((Snap $c) -cne $before)"
+        }
+    }
+}
+Case 'A20' 'the state changes between the ledger save and the dispatch: the start or the ACPI request is not sent, its budget stays spent, and no later request takes its place' {
+    $c = New-VCtx; Set-VGate $c; $a = New-Auth
+    $o = AOpen $c $a; Expect ($o.outcome -ceq 'DONE') "open: $(Why $o)"
+    $c.Gate.flip = 'STATE_UNCERTAIN'
+    $s = AStart $c
+    $e = Entry $c $a
+    Expect ($s.outcome -ceq 'FAILED' -and (Has $s 'STATE_NOT_READY:STATE_UNCERTAIN') -and (Count $c 'vm.start') -eq 0 -and $e -and [int]$e.startups_used -eq 1) "start: $(Why $s); starts $(Count $c 'vm.start'); startups_used $($e.startups_used)"
+    $c.Gate.s = 'READY'
+    $s2 = AStart $c; Expect ($s2.outcome -ceq 'REFUSED' -and (Count $c 'vm.start') -eq 0) "a second start: $(Why $s2)"
+    $x = Started; $c = $x.c; Set-VGate $c
+    $c.Gate.flip = 'ANCHOR_MISSING'
+    $h = AShut $c
+    $e = Entry $c $x.a
+    Expect ($h.outcome -ceq 'FAILED' -and (Has $h 'STATE_NOT_READY:ANCHOR_MISSING') -and (Count $c 'vm.acpi') -eq 0 -and [int]$e.acpi_used -eq 1) "shutdown: $(Why $h); requests $(Count $c 'vm.acpi'); acpi_used $($e.acpi_used)"
+    $m = Emerg $c; Expect ($m.outcome -ceq 'REFUSED' -and (Has $m 'STATE_NOT_READY:ANCHOR_MISSING') -and (Count $c 'vm.acpi') -eq 0) "emergency outside READY: $(Why $m)"
+    $c.Gate.s = 'READY'
+    $m2 = Emerg $c; Expect ($m2.outcome -ceq 'REFUSED' -and (Count $c 'vm.acpi') -eq 0) "emergency once READY again: $(Why $m2)"
+    $h2 = AShut $c; Expect ($h2.outcome -ceq 'REFUSED' -and (Count $c 'vm.acpi') -eq 0) "a second validation request: $(Why $h2)"
+}
+Case 'A21' 'every ledger save ends with the anchor mark of what is on disk: the ledger, then its revision record, then the mark, one revision at a time; a mark not written fails the save and nothing is dispatched, the budget written stays spent' {
+    $c = New-VCtx; Set-VGate $c; $c.Prov.offAfter = 0; $a = New-Auth
+    $null = AOpen $c $a; $null = AStart $c; $null = AObs $c 10; $null = AShut $c; $fin = AFinal $c
+    $l = Ledger $c
+    Expect ($fin.outcome -ceq 'DONE' -and $c.Marks.Count -ge 5 -and $c.Marks.Count -eq [int]$l.revision) "marks $($c.Marks.Count), ledger revision $($l.revision), finalize $(Why $fin)"
+    for ($i = 0; $i -lt $c.Marks.Count; $i++) {
+        $m = $c.Marks[$i]
+        Expect ($m.rev -eq $i + 1 -and $m.rev -eq $m.disk_rev -and $m.sha -ceq $m.disk_sha -and $m.record_rev -eq $m.rev) "mark $($i + 1): asked $($m.rev) $($m.sha.Substring(0, 8)), ledger on disk $($m.disk_rev) $($m.disk_sha.Substring(0, 8)), revision record $($m.record_rev)"
+    }
+    foreach ($how in 'fails', 'throws') {
+        $c = New-VCtx; Set-VGate $c; $a = New-Auth
+        $c.Gate.markFails = ($how -ceq 'fails'); $c.Gate.markThrows = ($how -ceq 'throws')
+        $o = AOpen $c $a
+        Expect ($o.outcome -ceq 'REFUSED' -and (Has $o 'EVIDENCE_WRITE_FAILED') -and -not (Sess $c)) "open, mark ${how}: $(Why $o); session $([bool](Sess $c)); $($o.lines -join ' | ')"
+        $c.Gate.markFails = $false; $c.Gate.markThrows = $false
+        # the authorization the failed open wrote into the ledger is spent
+        $a = New-Auth; $o = AOpen $c $a; Expect ($o.outcome -ceq 'DONE') "open with another authorization: $(Why $o); $($o.lines -join ' | ')"
+        $c.Gate.markFails = ($how -ceq 'fails'); $c.Gate.markThrows = ($how -ceq 'throws')
+        $s = AStart $c
+        $e = Entry $c $a
+        Expect ($s.outcome -ceq 'REFUSED' -and (Has $s 'EVIDENCE_WRITE_FAILED') -and (Count $c 'vm.start') -eq 0 -and [int]$e.startups_used -eq 1) "start, mark ${how}: $(Why $s); starts $(Count $c 'vm.start'); startups_used $($e.startups_used)"
+    }
+}
+Case 'A22' 'an observation stops at its next checkpoint when the persistent state changes' {
+    $x = Started; $c = $x.c; Set-VGate $c
+    $c.Prov.onSleep = { $c.Gate.s = 'STATE_UNCERTAIN' }.GetNewClosure()
+    $r = AObs $c 30
+    Expect ($r.outcome -ceq 'STOPPED_AT_CHECKPOINT' -and (Has $r 'STATE_NOT_READY:STATE_UNCERTAIN')) "observe: $(Why $r)"
+}
+
 Case 'A09' 'monitor conditions: only a fresh, qualified, uncalibrated Monitor-mode run with no warning is eligible' {
     $alive = { param($a, $b) $true }; $dead = { param($a, $b) $false }
     $t = { param($m, $min = 0, [switch]$sd, $al = $alive, [double]$age = 1) Test-P9SAcpiValidationState -Text $(if ($m) { JM $m $NOW $F $age } else { $null }) -NowQpc $NOW -QpcFrequency $F -IsMonitorAlive $al -MinAvailableMb $min -ForShutdown:$sd }
@@ -999,6 +1112,7 @@ Case 'U05' 'an Ubuntu authorization outside its window is refused at open and be
 Case 'U06' 'no valid Ubuntu authorization: no coordinator lock, no VirtualBox lock, no VM read, no dispatch, no budget; no toolkit file is a permit' {
     $d = Join-Path $OutDir 'realctx-u24'
     $rc = New-P9SRealContext -StatePath (Join-Path $d 'state.json') -KitDir $kit -Config $null
+    $rc.StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
     $log = Join-Path $d 'vboxmanage-calls.log'
     $vb = New-P9SVBoxContext -Dir $d -VmNames @('P9S-D12', 'P9S-U24') -MutexName "Global\P9S-TEST-$run-u06" -ExePath $pw -PrefixArgs @('-NoProfile', '-NonInteractive', '-File', $recvbox, $log) -LockWaitMs 1500
     $rc.ReadVmState = { param($vm) Get-P9SVmStateReal $vm $vb }.GetNewClosure()

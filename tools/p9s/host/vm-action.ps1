@@ -12,6 +12,9 @@ param([Parameter(Mandatory)][string]$Vm,
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'hostmon-lib.ps1')
 . (Join-Path $PSScriptRoot 'coordinator-lib.ps1')
+# the status of the persistent state folder, which every action needs
+. (Join-Path $PSScriptRoot 'p9s-state.ps1')
+. (Join-Path $PSScriptRoot 'p9s-state-init.ps1')
 $cfg = Read-P9SConfig -Path (Get-P9SConfigPath -ConfigPath $ConfigPath -ToolDir $PSScriptRoot)
 Set-P9SVmNames $cfg.vm_names
 if ($Action -eq 'Start') { $req = @{ Action = 'vm.start'; Vm = $Vm } }

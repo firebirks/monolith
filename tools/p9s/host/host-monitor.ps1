@@ -51,13 +51,17 @@ if ($localCfg.external_disk) {
     if (-not $ExternalProbePath) { $ExternalProbePath = $localCfg.external_disk.probe_path }
 }
 $inv = [Globalization.CultureInfo]::InvariantCulture
-if (-not $StatePath) { $StatePath = Get-DefaultStatePath }
+$defaultState = -not $StatePath
+if ($defaultState) { $StatePath = Get-DefaultStatePath }
 if (-not $StopFile) { $StopFile = Join-Path $OutDir 'STOP' }
 if (-not $ThresholdsPath) { $ThresholdsPath = Join-Path $PSScriptRoot 'paging-thresholds.json' }
 if ($TestIntervalMs -gt 0 -and -not $TestFixture) { 'refused: -TestIntervalMs is for fixture mode only'; exit 2 }
 if (Test-Path -LiteralPath (Join-Path $OutDir 'samples.csv')) { "refused: $OutDir already holds a run"; exit 2 }
+# the persistent state folder is created only by state.init or state.migrate,
+# never by the monitor; a folder given with -StatePath is created as before
+if ($defaultState -and -not [IO.Directory]::Exists((Split-Path -Parent $StatePath))) { "refused: the state folder $(Split-Path -Parent $StatePath) does not exist; state.init or state.migrate creates it, the monitor never does"; exit 2 }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $StatePath) | Out-Null
+if (-not $defaultState) { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $StatePath) | Out-Null }
 $lockPath = "$StatePath.lock"
 try { $lock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
 catch { "refused: another monitor holds $lockPath"; exit 3 }

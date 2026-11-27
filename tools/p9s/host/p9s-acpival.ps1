@@ -372,6 +372,12 @@ function Save-P9SAcpiLedger($Ctx, $Doc) {
         $rec = [ordered]@{ schema = 'p9s-acpi-validation-ledger-revision/1'; revision = [long]$Doc.revision; sha256 = (Get-P9STextSha256 $text); utc = [DateTime]::UtcNow.ToString('o') } | ConvertTo-Json
         $wr = Get-Prop $Ctx 'WriteLedgerRevision'
         if ($wr) { & $wr (Get-P9SAcpiLedgerRevisionPath $Ctx) $rec } else { Write-StateAtomic -Path (Get-P9SAcpiLedgerRevisionPath $Ctx) -Text $rec }
+        # last, the anchor's mark of the installed folder (p9s-state-init.ps1):
+        # a save whose mark is not written is a failed save, and nothing is
+        # dispatched after it; a crash before this step leaves the anchor
+        # behind the ledger, which state.status accepts (a lower bound)
+        $um = Get-Prop $Ctx 'UpdateLedgerMark'
+        if ($um -and -not (& $um ([long]$Doc.revision) (Get-P9STextSha256 $text))) { return $false }
         return $true
     } catch { return $false }
 }
@@ -565,6 +571,8 @@ function Test-P9SAcpiConditions($Ctx, $B, $Res, [double]$MinAvailableMb = 0, [sw
     if (-not (Test-StateFileAbsent $Ctx.StopRequestPath)) { $reasons.Add('EMERGENCY_STOP_REQUESTED') }
     foreach ($r in (Get-P9SVBoxGate $Ctx).reasons) { $reasons.Add($r) }
     if ($B.auth) { $w = Test-P9SAcpiAuthorizationTime $B.auth (Get-P9SUtcNow $Ctx) $Ctx; if ($w) { $reasons.Add($w) } }
+    # the persistent state, still READY for the installation the action started on
+    if ([string](Get-Prop $Res 'state_status') -ceq 'READY') { foreach ($r in @(Get-P9SStateGateReasons $Ctx $Res)) { $reasons.Add($r) } }
     [pscustomobject]@{ ok = ($reasons.Count -eq 0); reasons = @($reasons); gate = $g; eligibility = $e }
 }
 function Add-P9SAcpiReasons($List, $Items) { foreach ($r in @($Items)) { if ($r -and -not $List.Contains([string]$r)) { $List.Add([string]$r) } } }
@@ -609,6 +617,14 @@ function Invoke-P9SValidation($Ctx, [hashtable]$Request, $V, $Res) {
         return $Res
     }
     try {
+        # the persistent state again under the lock, before the ledger or the
+        # session is read for a decision (coordinator-lib.ps1)
+        $sgr = @(if ([string](Get-Prop $Res 'state_status') -ceq 'READY') { Get-P9SStateGateReasons $Ctx $Res })
+        if ($sgr.Count) {
+            Set-P9SRefused $Res $sgr $null
+            $Res.lines.Add("the persistent state changed before the lock was taken: $a is refused and nothing was written or sent")
+            return $Res
+        }
         switch -CaseSensitive ($a) {
             'acpi.open' { $null = Invoke-P9SAcpiOpen $Ctx $Request $Res }
             'acpi.start' { $null = Invoke-P9SAcpiStart $Ctx $Request $Res }
@@ -786,7 +802,7 @@ function Invoke-P9SAcpiStart($Ctx, [hashtable]$Request, $Res) {
     $b.session.inflight = [ordered]@{ action = 'acpi.start'; vm = $target; pid = $Ctx.Pid; start_ticks = $Ctx.ProcessStartTicks; utc = [DateTime]::UtcNow.ToString('o') }
     if (-not (Save-P9SAcpiState $Ctx $b -BeforeDispatch)) { Set-P9SRefused $Res @('EVIDENCE_WRITE_FAILED') $c2.gate; $Res.lines.Add("the ledger or the session could not be written: $target not started (the start budget counts as spent if the ledger was written)"); return $Res }
     try {
-        & $Ctx.Dispatch['vm.start'] $target
+        Invoke-P9SDispatch $Ctx $Res 'vm.start' @($target)
         $Res.dispatched = 1; $Res.outcome = 'DISPATCHED'
         $b.entry.phase = 'RUNNING'; $b.session.expected_vm[$target] = 'running'
         Add-P9SAcpiEvent $b.entry 'started' 'VBoxManage startvm completed'
@@ -878,7 +894,7 @@ function Invoke-P9SAcpiShutdown($Ctx, [hashtable]$Request, $Res, $Hold) {
     Add-P9SAcpiEvent $b.entry 'acpi-dispatching' "observed $($o.state) at $($o.observed_utc); deadline $limit s"
     $b.session.inflight = [ordered]@{ action = 'acpi.shutdown'; vm = $target; pid = $Ctx.Pid; start_ticks = $Ctx.ProcessStartTicks; utc = [DateTime]::UtcNow.ToString('o') }
     if (-not (Save-P9SAcpiState $Ctx $b -BeforeDispatch)) { Set-P9SRefused $Res @('EVIDENCE_WRITE_FAILED') $c2.gate; $Res.lines.Add("the ledger or the session could not be written: no request sent to $target (the ACPI budget counts as spent if the ledger was written)"); return $Res }
-    try { & $Ctx.Dispatch['vm.acpi'] $target }
+    try { Invoke-P9SDispatch $Ctx $Res 'vm.acpi' @($target) }
     catch {
         $Res.outcome = 'FAILED'; Add-P9SAcpiReasons $Res.reasons @('ACPI_REQUEST_FAILED', 'ACPI_VALIDATION_UNRESOLVED')
         $Res.lines.Add("*** the ACPI request to $target failed ($($_.Exception.Message)). ACPI_VALIDATION_UNRESOLVED: no second request, no keyboard input, no forced power-off; the operator decides outside the coordinator. ***")

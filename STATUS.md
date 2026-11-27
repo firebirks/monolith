@@ -1366,6 +1366,48 @@ each fault exactly once, and each must succeed on its own. The toolkit's
 the three. The migration's window between the two folders stays open
 until C4; R13, R14 and X5 are not resolved.
 
+The coordinator now runs on the state folder (C4). Without `-StatePath`
+every action uses `<LocalApplicationData>\Monolith-P9S\state`, which only
+`state.init` and `state.migrate` create; the monitor refuses to start
+without it. The folder's status gates every action: only READY permits an
+action that can spend ACPI budget or reach a VM. Outside READY the observe
+actions still run, write nothing and make no VirtualBox call, and every
+other action, the emergency ACPI request and dry runs included, is refused
+before anything is read or written. The status is checked when an action
+starts, again under the coordinator lock, at every checkpoint, and in the
+one function every VirtualBox write of the coordinator and of the ACPI
+validation goes through, always for the installation the action started
+on; a change found at the dispatch leaves the budget already recorded
+spent. Every ledger save moves the anchor's mark last, after the ledger
+and its revision record are on disk, under `setup.lock`, flushed and read
+back; a save whose mark is not written fails and nothing is dispatched
+after it. An interruption leaves the anchor behind the ledger, never
+ahead; a ledger older than the mark, or other content at its revision,
+gives `STATE_UNCERTAIN`. A `-StatePath` elsewhere is a sandbox that writes
+to no VM and has no mark. `state.reanchor` writes the anchor again for a
+consistent folder whose anchor is gone, or unreadable with `-Replace`,
+with the VMs off and a new installation time, never from
+`STATE_UNCERTAIN`. `state.migrate` now also leaves a tombstone in the
+earlier folder, a quarantine record of the VirtualBox layer.
+The real code of `83c9ef8` and `e7a0f1e`, run against a synthetic
+folder migrated with its tombstone and with a `VBoxManage` that records
+every call, made no VirtualBox call in any action, the emergency
+included, and could not clear the tombstone; their emergency still wrote
+its stop request and session record there, which `state.status` then
+reports as `STATE_DIVERGED`, so that only the observe actions run.
+Not covered: versions before `83c9ef8` (the kits of 2026-11-19 on D:,
+among others), an earlier version started after Windows cleanup emptied
+`%TEMP%` (a new folder without the tombstone, and a new budget) and one
+started with `-StatePath` elsewhere. The cutover therefore also needs
+every earlier kit removed and none running, which nothing in the toolkit
+enforces: R14 is not resolved, live stays NO-GO, and R5, R13 and X5 stay
+open. Each interleaving of the state folder changing under an action from
+another process, and each crash point of a ledger save, ran 50 times on
+separate processes, and the migration's crash, resume and hold points
+around the tombstone 50 times each. The toolkit's 432 declared tests run
+in every shard and its 242 targeted faults across the three. Nothing ran
+live, and no action ran on the laboratory's state.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is
@@ -1380,16 +1422,15 @@ sudo password.
   shutdown of `P9S-U24`: one start, one request, the power-off observed.
 - A calibration with both VMs running, separately authorized, and the
   owner's approval of the paging values that follow from it.
-- Before the coordinator moves to the state folder (C4), whatever it
-  wrote to `%TEMP%\p9s-hostmon` after a `state.init` must be carried
-  over, or refuse `READY`: an installation made in this version does not
-  look at that folder, so a history recorded there in between would be
-  left behind. The same holds after a `state.migrate`: a record changed
-  there gives `STATE_DIVERGED` only while the folder exists.
-- The laboratory's migration itself, separately authorized: VMs off,
-  `state.migrate -DryRun` on the real folder, the owner reads the
-  manifest, then `state.migrate`, then `state.status`; no live action
-  between it and the change of folder.
+- The laboratory's cutover, separately authorized: every earlier kit
+  removed from the host (the kits of 2026-11-19 on D: included) and none
+  running; VMs off; `state.migrate -DryRun` on the real folder, the owner
+  reads the manifest, then `state.migrate`, then `state.status`; from then
+  on only this version. An earlier version that runs after it, on an
+  emptied `%TEMP%` or with `-StatePath`, has a budget of its own that the
+  state folder never sees; after a `state.init` no earlier folder is
+  looked at at all. Until the cutover is done and verified, R14 stays
+  open and live stays NO-GO.
 - The diagnostic SOCKS observer of the guests correlates by descriptor
   number only; it can misclassify a connection when another thread reuses
   the number. It is to be corrected before scenarios that rely on its

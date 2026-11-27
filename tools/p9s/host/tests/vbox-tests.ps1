@@ -185,7 +185,7 @@ function New-MockCtx([object[]]$States, [hashtable]$Vms = @{}, $VBox) {
         ReadVmState = { param($vm) $prov.vmreads++; $vmTable[$vm] }.GetNewClosure(); ReadVmConfig = { param($vm) @() }
         Dispatch = @{ 'vm.start' = (& $rec 'vm.start' $calls); 'guest.text' = (& $text $calls $prov); 'guest.key' = (& $rec 'guest.key' $calls); 'guest.unlock' = (& $rec 'guest.unlock' $calls); 'vm.acpi' = (& $rec 'vm.acpi' $calls) }
         Sleep = { param($ms) }; Pid = $PID; ProcessStartTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
-        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }; VBox = $VBox
+        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }; VBox = $VBox; StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
         Calls = $calls; Prov = $prov; VmTable = $vmTable; Dir = $dir
     }
 }

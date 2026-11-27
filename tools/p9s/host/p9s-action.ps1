@@ -13,23 +13,26 @@
 #   pwsh -NoProfile -File p9s-action.ps1 -Action state.status
 #   pwsh -NoProfile -File p9s-action.ps1 -Action state.init [-Supersede <installation id>] [-DryRun]
 #   pwsh -NoProfile -File p9s-action.ps1 -Action state.migrate [-Restart <operation id>] [-DryRun]
+#   pwsh -NoProfile -File p9s-action.ps1 -Action state.reanchor [-Replace] [-DryRun]
 # state.status only reads (p9s-state.ps1): it prints the status of the
-# persistent state folder of later versions, creates nothing, writes no
-# audit record and changes nothing any other action does.
+# persistent state folder, creates nothing and writes no audit record.
 # state.init (p9s-state-init.ps1) creates that folder explicitly, with
 # every configured VM off; no other action ever does. state.migrate
 # (p9s-state-migrate.ps1) creates it from the coordinator folder below,
-# which it copies and never changes but for one marker file. The
-# coordinator of this version keeps using its folder below either way; a
-# new installation voids every ACPI validation authorization issued before
-# it.
+# which it copies and never changes but for the marker and the tombstone.
+# state.reanchor writes the anchor again for a consistent state folder.
+# Every other action runs on the persistent state folder and needs it READY
+# to consume ACPI budget or reach a VM (coordinator-lib.ps1); a new
+# installation voids every ACPI validation authorization issued before it.
 # Start it with pwsh -File (as above). Started with & from a prompt or
 # another script it refuses with exit 2 and does nothing: its closures could
 # not find the toolkit's functions there.
 # Machine-local settings: -ConfigPath, else P9S_HOST_CONFIG, else
 # p9s-local.json next to this script (see p9s-local.example.json).
-# Coordinator files live next to the monitor state file (default
-# %TEMP%\p9s-hostmon\): coordinator-session.json, coordinator.lock,
+# Coordinator files live next to the monitor state file (default: the
+# persistent state folder <LocalApplicationData>\Monolith-P9S\state; with
+# -StatePath elsewhere, a sandbox that writes to no VM):
+# coordinator-session.json, coordinator.lock,
 # coordinator-stop.request, coordinator-audit.jsonl, vm-observations.jsonl,
 # acpi-validation-ledger.json, and the VirtualBox layer's
 # vbox-operation.json, vbox-quarantine.json, vbox-audit.jsonl.
@@ -37,7 +40,7 @@ param(
     [Parameter(Mandatory)][string]$Action,
     [string]$Vm, [string]$Text, [string]$Key, [string]$Name, [int]$Seconds, [string]$Plan, [string]$Kind,
     [string]$Scenario, [string]$MonitorRun, [string]$Reference, [string]$AcknowledgeAbort, [string]$Operation, [string]$Authorization,
-    [switch]$DryRun, [string]$StatePath, [string]$AuditPath, [string]$ConfigPath, [string]$Supersede, [string]$Restart
+    [switch]$DryRun, [string]$StatePath, [string]$AuditPath, [string]$ConfigPath, [string]$Supersede, [string]$Restart, [switch]$Replace
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'hostmon-lib.ps1')
@@ -87,6 +90,18 @@ if ($Action -ceq 'state.migrate') {
     } catch { "state.migrate stopped: $($_.Exception.Message)"; 'outcome: FAILED'; exit 2 }
     foreach ($l in $r.lines) { $l }
     if ($r.notes.Count) { "notes: $($r.notes -join ', ')" }
+    "outcome: $($r.outcome)$(if ($r.reasons.Count) { '; ' + ($r.reasons -join ', ') })"
+    if ($r.outcome -in 'DONE', 'DRYRUN') { exit 0 } elseif ($r.outcome -eq 'FAILED') { exit 2 } else { exit 1 }
+}
+if ($Action -ceq 'state.reanchor') {
+    $extra = @($PSBoundParameters.Keys | Where-Object { $_ -notin 'Action', 'Replace', 'DryRun', 'ConfigPath' })
+    if ($extra.Count) { "refused: state.reanchor takes only -Replace, -DryRun and -ConfigPath (given: $($extra -join ', ')). Nothing was read or written."; 'outcome: REFUSED; STATE_REANCHOR_PARAMETER'; exit 1 }
+    $cfg = Read-P9SConfig -Path (Get-P9SConfigPath -ConfigPath $ConfigPath -ToolDir $PSScriptRoot)
+    if ($cfg.present -and -not $cfg.ok) { "refused: configuration $($cfg.path) is invalid ($($cfg.errors -join ', ')): the VMs that must be off are not known. Nothing was written."; 'outcome: REFUSED; CONFIG_INVALID'; exit 1 }
+    Set-P9SVmNames $cfg.vm_names
+    try { $r = Invoke-P9SStateReanchor -I (New-P9SStateInitRealContext (New-P9SStateContext)) -Replace:([bool]$Replace) -DryRun:([bool]$DryRun) }
+    catch { "state.reanchor stopped: $($_.Exception.Message)"; 'outcome: FAILED'; exit 2 }
+    foreach ($l in $r.lines) { $l }
     "outcome: $($r.outcome)$(if ($r.reasons.Count) { '; ' + ($r.reasons -join ', ') })"
     if ($r.outcome -in 'DONE', 'DRYRUN') { exit 0 } elseif ($r.outcome -eq 'FAILED') { exit 2 } else { exit 1 }
 }

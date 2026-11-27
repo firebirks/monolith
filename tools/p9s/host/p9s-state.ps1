@@ -1,13 +1,12 @@
 #Requires -Version 7.0
 # P9-S persistent state, read only. Computes the status of the state
-# folder that later versions will create and use
-# (<LocalApplicationData>\Monolith-P9S\state), from what exists now: that
-# folder and its install, migration and ledger records, the anchor value
-# under HKCU\Software\Monolith-P9S, and the coordinator folder of this and
+# folder (<LocalApplicationData>\Monolith-P9S\state), from what exists now:
+# that folder and its install, migration and ledger records, the anchor
+# value under HKCU\Software\Monolith-P9S, and the coordinator folder of
 # earlier versions (%TEMP%\p9s-hostmon). It never creates, changes or
 # deletes a file, folder or registry key, takes no lock and writes no audit
-# record. No action uses the result: the coordinator keeps its files where
-# it always did, and nothing is gated on the status yet. A missing file is
+# record. The coordinator gates on the result (coordinator-lib.ps1): every
+# action that can consume ACPI budget or reach a VM needs READY. A missing file is
 # never taken as proof that nothing existed, and an access error is never
 # taken for a missing file. Dot-source after hostmon-lib.ps1 and
 # coordinator-lib.ps1.
@@ -275,6 +274,30 @@ function Get-P9SStateManifestDigest($Files, $Absent, [string]$Source) {
     $lines = @('p9s-state-manifest/1', "source:$Source") + $body
     Get-P9SStateSha ([Text.UTF8Encoding]::new($false).GetBytes(($lines -join "`n") + "`n"))
 }
+# The tombstone a migration leaves in the earlier folder (state.migrate,
+# step M10t): a quarantine record of the VirtualBox layer
+# (vbox-quarantine.json, p9s-vbox-quarantine/1, reason STATE_MOVED), which
+# every toolkit version with that layer honours by refusing every
+# VirtualBox operation, session and ACPI request in that folder; its
+# operation id is no id vbox.recover accepts, so no version clears it.
+# kind: tombstone (with the installation it names), other (any other
+# document, a real quarantine included) or unreadable.
+function Get-P9SStateTombstoneReason { 'STATE_MOVED' }
+function ConvertFrom-P9SStateTombstone([byte[]]$Bytes) {
+    $d = ConvertFrom-P9SStateJson $Bytes
+    if ($null -eq $d) { return [pscustomobject]@{ kind = 'unreadable'; installation_id = $null } }
+    $id = [string]$d.installation_id
+    if ([string]$d.schema -ceq 'p9s-vbox-quarantine/1' -and [string]$d.reason -ceq (Get-P9SStateTombstoneReason) -and (Test-P9SStateId $id) -and [string]$d.operation_id -ceq "state-moved-$id") {
+        return [pscustomobject]@{ kind = 'tombstone'; installation_id = $id }
+    }
+    [pscustomobject]@{ kind = 'other'; installation_id = $null }
+}
+function Read-P9SStateTombstone([string]$Path) {
+    $b = Read-P9SStateBytes $Path
+    if ($b.kind -eq 'absent') { return [pscustomobject]@{ kind = 'absent'; installation_id = $null } }
+    if ($b.kind -ne 'ok') { return [pscustomobject]@{ kind = 'unreadable'; installation_id = $null } }
+    ConvertFrom-P9SStateTombstone $b.bytes
+}
 
 # ------------------------------------------------------------ context
 # Production: no argument but -AskedStatePath (the coordinator's -StatePath).
@@ -534,12 +557,17 @@ function Get-P9SStateStatus($C) {
         elseif (-not $sc.listed) { return (& $done 'STATE_DIVERGED' (@('OLD_FOLDER_NOT_VERIFIABLE') + @($sc.reasons))) }
         else {
             $known = @{}; foreach ($x in @($M.files)) { $known[[string]$x.name] = [string]$x.sha256 }
+            $tomb = $false
             foreach ($x in @($sc.entries | Where-Object class -eq 'record')) {
                 if ($x.read -ne 'ok') { return (& $done 'STATE_DIVERGED' "OLD_FOLDER_NOT_VERIFIABLE:$($x.name)") }
+                # the migration's own tombstone, naming this installation, is
+                # no change; any other quarantine record is
+                if ($x.name -ceq 'vbox-quarantine.json' -and -not $known.ContainsKey($x.name) -and (Read-P9SStateTombstone (Join-Path $src[0] $x.name)).installation_id -ceq [string]$A.installation_id) { $tomb = $true; continue }
                 if (-not $known.ContainsKey($x.name) -or $known[$x.name] -cne $x.sha256) { return (& $done 'STATE_DIVERGED' "OLD_FOLDER_CHANGED:$($x.name)") }
             }
             if (@($sc.entries | Where-Object { $_.class -eq 'history' -and (-not $known.ContainsKey($_.name) -or $known[$_.name] -cne $_.sha256) }).Count) { $st.notes.Add('OLD_FOLDER_HISTORY_CHANGED') }
             if (@($sc.entries | Where-Object class -eq 'unknown').Count) { $st.notes.Add('OLD_FOLDER_UNKNOWN_ENTRY') }
+            if (-not $tomb) { $st.notes.Add('OLD_FOLDER_TOMBSTONE_ABSENT') }
             foreach ($x in @($M.files | Where-Object { $_.class -ceq 'record' })) { if (-not @($sc.entries | Where-Object name -ceq $x.name).Count) { $st.notes.Add("OLD_FOLDER_RECORD_GONE:$($x.name)") } }
         }
     }
@@ -549,7 +577,7 @@ function Get-P9SStateStatus($C) {
 
 # ------------------------------------------------------------ report
 function Format-P9SStateStatus($St, $C) {
-    "state folder: $(if ($C.StateDir) { $C.StateDir } else { '(not resolved)' }) (known folder LocalApplicationData; no action of this version uses it)"
+    "state folder: $(if ($C.StateDir) { $C.StateDir } else { '(not resolved)' }) (known folder LocalApplicationData; the coordinator's folder)"
     "status: $($St.status)"
     if (@($St.reasons).Count) { "reasons: $(@($St.reasons) -join ', ')" }
     if (@($St.notes).Count) { "notes: $(@($St.notes) -join ', ')" }
@@ -558,6 +586,6 @@ function Format-P9SStateStatus($St, $C) {
     if ($St.installation_id) { "installation: $($St.installation_id)$(if ($St.phase) { ", anchor phase $($St.phase)" })$(if ($St.origin) { ", origin $($St.origin)" })" }
     foreach ($l in @($St.legacy)) { "earlier coordinator folder $($l.dir): $($l.kind)$(if ($l.kind -eq 'directory') { ", $($l.entries) entries, evidence $($l.evidence)$(if ($l.marker) { ', migration marker' })" })$(if (@($l.reasons).Count) { ' (' + (@($l.reasons) -join ', ') + ')' })" }
     "process: package code $($C.Process.package_code), app container $($C.Process.app_container), virtualization $($C.Process.virtualization)"
-    "this version's actions keep using $(Split-Path -Parent (Get-DefaultStatePath)) (unchanged); the status gates nothing yet"
+    "every action that can consume ACPI budget or reach a VM needs READY; outside READY only the observe actions run, and they write nothing and call no VirtualBox"
     'read only: no file, folder or registry key was created or changed'
 }

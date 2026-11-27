@@ -154,7 +154,7 @@ function New-MockCtx([object[]]$States, [hashtable]$Vms = @{}) {
         ReadVmState = { param($vm) $prov.vmreads++; $vmTable[$vm] }.GetNewClosure(); ReadVmConfig = { param($vm) @() }
         Dispatch = @{ 'vm.start' = (& $rec 'vm.start' $calls); 'guest.text' = (& $rec 'guest.text' $calls); 'guest.key' = (& $rec 'guest.key' $calls); 'guest.unlock' = (& $rec 'guest.unlock' $calls); 'vm.acpi' = (& $rec 'vm.acpi' $calls) }
         Sleep = { param($ms) }; Pid = $PID; ProcessStartTicks = (Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks
-        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }
+        EmergencyLockWaitMs = 1500; CalibrationHostChecks = { @() }; StateGate = { [pscustomobject]@{ status = 'READY'; installation_id = 'inst-test-installed'; reasons = @() } }
         ObservationPath = Join-Path $dir 'vm-observations.jsonl'; LedgerPath = Join-Path $dir 'acpi-validation-ledger.json'; AcpiValidationLive = $false
         Calls = $calls; Prov = $prov; VmTable = $vmTable; Dir = $dir
     }

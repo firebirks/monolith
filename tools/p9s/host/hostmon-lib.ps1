@@ -46,7 +46,12 @@ function Join-And($a, $b) {
     if (($a -is [bool] -and $a) -and ($b -is [bool] -and $b)) { return $true }
     $null
 }
-function Get-DefaultStatePath { Join-Path ([IO.Path]::GetTempPath()) 'p9s-hostmon\state.json' }
+# The monitor's state file in the persistent state folder of the account
+# (<LocalApplicationData>\Monolith-P9S\state, p9s-state.ps1): .NET takes
+# LocalApplicationData from the known folder API, never from the LOCALAPPDATA
+# variable, and state.status checks that both agree. The coordinator folder
+# of earlier versions (%TEMP%\p9s-hostmon) is no longer a default.
+function Get-DefaultStatePath { Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)) 'Monolith-P9S\state\state.json' }
 function Get-FileSha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
 
 # ------------------------------------------------- 1. counter arithmetic

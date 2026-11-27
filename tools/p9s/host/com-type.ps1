@@ -15,6 +15,9 @@ $ErrorActionPreference = 'Stop'
 if ($Shutdown) { throw 'retired: shutting a guest down by typing into it is no longer supported; use p9s-action.ps1 -Action emergency.acpi-shutdown' }
 . (Join-Path $PSScriptRoot 'hostmon-lib.ps1')
 . (Join-Path $PSScriptRoot 'coordinator-lib.ps1')
+# the status of the persistent state folder, which every action needs
+. (Join-Path $PSScriptRoot 'p9s-state.ps1')
+. (Join-Path $PSScriptRoot 'p9s-state-init.ps1')
 $cfg = Read-P9SConfig -Path (Get-P9SConfigPath -ConfigPath $ConfigPath -ToolDir $PSScriptRoot)
 Set-P9SVmNames $cfg.vm_names
 $req = @{ Action = 'guest.type'; Vm = $Vm; Text = $Text }

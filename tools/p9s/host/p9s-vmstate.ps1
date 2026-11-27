@@ -80,7 +80,8 @@ function Format-P9SVmObservation($O) {
 }
 function Add-P9SVmObservationRecord($Ctx, $O) {
     $p = Get-Prop $Ctx 'ObservationPath'
-    if (-not $p) { return }
+    # an action outside READY writes nothing (coordinator-lib.ps1)
+    if (-not $p -or (Get-Prop $Ctx 'StateQuiet')) { return }
     $e = [ordered]@{ schema = 'p9s-vm-observation/1'; utc = $O.observed_utc; pid = $PID; vm = $O.vm; state = $O.state; observed = $O.observed; purpose = $O.purpose
         elapsed_ms = $O.elapsed_ms; operation_id = $O.operation_id; reason = $O.reason }
     $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($e | ConvertTo-Json -Compress) + "`n")

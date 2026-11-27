@@ -472,12 +472,17 @@ Case 'P35' 'STATE_DIVERGED: the earlier folder changed, unreadable, or not at a 
     $e = New-Env 'p35d'; Install-Migrated $e (Join-Path $e.base 'elsewhere\p9s-hostmon')
     $null = Test-Status $e 'STATE_DIVERGED' @('OLD_FOLDER_NOT_A_KNOWN_LOCATION') -Label 'recorded source not computed'
 }
-Case 'P36' 'READY: new; migrated with the earlier folder intact, gone or with a longer history; anchor behind the ledger' {
+Case 'P36' 'READY: new; migrated with the earlier folder intact (with or without its tombstone), gone or with a longer history; anchor behind the ledger' {
     $e = New-Env 'p36a'; Install-New $e; Write-Text (Join-Path $e.state 'state.json') '{}'; Write-Text (Join-Path $e.state ".x.$([guid]::NewGuid().ToString('N')).tmp") '{'
     $st = Test-Status $e 'READY' -Label 'new'
     Expect ($st.installation_id -ceq $e.id -and $st.origin -ceq 'new') "installation $($st.installation_id) origin $($st.origin)"
-    $e = New-Env 'p36b'; Install-Migrated $e; $st = Test-Status $e 'READY' -Label 'migrated'
+    $e = New-Env 'p36b'; Install-Migrated $e
+    $tp = Join-Path $e.legacy 'vbox-quarantine.json'
+    Write-Doc $tp ([ordered]@{ schema = 'p9s-vbox-quarantine/1'; reason = 'STATE_MOVED'; operation_id = "state-moved-$($e.id)"; operation = $null; vm = $null; installation_id = $e.id })
+    $st = Test-Status $e 'READY' -Label 'migrated, with its tombstone'
     Expect (-not @($st.notes).Count) "notes $(@($st.notes) -join ',')"
+    Remove-Item -LiteralPath $tp; $st = Test-Status $e 'READY' -Notes @('OLD_FOLDER_TOMBSTONE_ABSENT') -Label 'migrated before the tombstone existed'
+    Expect (@($st.notes).Count -eq 1) "notes $(@($st.notes) -join ',')"
     $e = New-Env 'p36c'; Install-Migrated $e; Remove-Tree $e.legacy; $null = Test-Status $e 'READY' -Notes @('OLD_FOLDER_GONE') -Label 'earlier folder gone'
     $e = New-Env 'p36d'; Install-Migrated $e; Add-Line (Join-Path $e.legacy 'coordinator-audit.jsonl') @{ action = 'emergency.status' }
     $null = Test-Status $e 'READY' -Notes @('OLD_FOLDER_HISTORY_CHANGED') -Label 'history appended in the earlier folder'

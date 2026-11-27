@@ -191,6 +191,9 @@ function Get-P9SStateInitVBoxReasons($C) {
     } elseif ($e.kind -ne 'absent') { $out.Add('ROOT_NOT_VERIFIABLE') }
     foreach ($d in $dirs) {
         foreach ($n in 'vbox-operation.json', 'vbox-quarantine.json') {
+            # the tombstone a migration left in an earlier coordinator folder
+            # is no VirtualBox operation (p9s-state.ps1)
+            if ($n -ceq 'vbox-quarantine.json' -and @($C.LegacyDirs) -ccontains $d.path -and (Read-P9SStateTombstone (Join-Path $d.path $n)).kind -ceq 'tombstone') { continue }
             $x = Get-P9SSetupEntry (Join-Path $d.path $n)
             if ($x.kind -ne 'absent') { $out.Add("SETUP_VBOX_RECORD:$($d.label)\$n") }
         }
@@ -538,6 +541,38 @@ function Invoke-P9SStateInit {
         if ($A.supersedes) { $res.lines.Add("supersedes $($A.supersedes)$(if ($res.superseded_dir) { "; its folder is now $($res.superseded_dir)" }); every ACPI validation authorization approved or valid from before $($R.initialized_utc) is void") }
         return $res
     } finally { $lock.Dispose() }
+}
+
+# ------------------------------------------------------------ the ledger mark
+# Every save of the installed ledger ends here (Save-P9SAcpiLedger, under the
+# coordinator lock): the anchor must be READY for this account and state
+# folder, and its mark only moves forward. Order of one save: the ledger
+# (written beside its name, renamed), read back; its revision record; then
+# this anchor write, flushed and read back. Windows gives no atomicity
+# across the file system and the registry: a crash between them leaves the
+# anchor behind the ledger, which state.status accepts (a lower bound); the
+# anchor is never written ahead of a ledger that is not on disk. The anchor
+# is read and written under setup.lock, taken without waiting: a setup
+# (state.init, state.migrate, state.reanchor) holds it for its whole run, so
+# that neither can overwrite the other's anchor; while one runs the save
+# fails and nothing is dispatched. $true only once the new mark is in place.
+function Update-P9SStateLedgerMark($C, [long]$Revision, [string]$Sha) {
+    if (-not $C -or -not $C.Native -or -not $C.Root -or -not (Test-P9SStateSha256 $Sha)) { return $false }
+    $lk = $null
+    try { $lk = [IO.FileStream]::new((Join-Path $C.Root (Get-P9SStateNames).setup_lock), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } catch { return $false }
+    try {
+        $a = Read-P9SStateAnchor $C
+        if (-not $a.ok) { return $false }
+        $A = $a.doc
+        if ([string]$A.phase -cne 'READY' -or [string]$A.account -cne [string]$C.Process.account -or -not (Test-P9SStateSamePath $A.state_dir $C.StateDir)) { return $false }
+        $m = $A.ledger
+        if ($Revision -lt [long]$m.revision) { return $false }
+        if ($Revision -eq [long]$m.revision) { return ([string]$m.sha256 -ceq $Sha) }
+        $R = [ordered]@{}; foreach ($k in $A.Keys) { $R[$k] = $A[$k] }
+        $R.ledger = [ordered]@{ revision = $Revision; sha256 = $Sha }
+        try { Write-P9SStateAnchor $C $R } catch { return $false }
+        $true
+    } finally { $lk.Dispose() }
 }
 
 # ------------------------------------------------------------ installation time (authorizations)
