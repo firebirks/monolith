@@ -1323,6 +1323,41 @@ waits) ran on separate processes, 50 times each. The toolkit's 363
 declared tests and 176 targeted faults run in the CI job. Nothing ran
 live, and `state.init` never ran on the laboratory's state.
 
+The coordinator folder of earlier versions can now be migrated into the
+state folder, by one explicit action: `state.migrate`
+(`p9s-state-migrate.ps1`), with `-DryRun` and `-Restart <operation id>`.
+It starts only from `MIGRATION_REQUIRED` or its own interruption, never
+from an empty or new-looking folder, and never through `state.init` or
+`-Supersede`. It reads the earlier folder with the toolkit's own readers
+(the ledger and its revision record, the stop request, the session
+record, the request history of every VM) and with the coordinator audit
+as a second witness, and refuses before writing anything when that
+history cannot be established: a damaged or stale ledger, a validation or
+an emergency request the audit records but no record holds, a folder
+whose ledger never existed and whose audit cannot show why, an entry it
+does not know, cannot read or that another path can change (a junction,
+a hard link). It holds the earlier folder's coordinator lock and
+emergency hold for its whole run, requires every VM off, copies each
+record and history into a staging folder on the state volume, checks
+each copy and the whole folder, reads the earlier folder once more,
+renames the staging folder into place, writes `MIGRATED-TO.json` beside
+the earlier files and only then sets the anchor READY. Nothing of the
+earlier folder is changed or deleted. Each step was ended as a crash
+point, and each race (two migrations, the coordinator's lock and hold
+against a migration, writers acting at a step) ran on separate
+processes, 50 times each. The earlier folder's ACL is reported, not
+changed: on the laboratory host `%TEMP%` itself gives write access to
+other accounts, and folders created in it inherit those entries, so a
+refusal on that ground would block the migration there.
+The migration switches nothing: the coordinator of this version, and any
+earlier one, keeps using `%TEMP%\p9s-hostmon`, and the marker does not
+stop them. Between a migration and the change of folder (C4) the two
+folders can hold two budgets that started equal; a request recorded only
+in the earlier folder is detected (`STATE_DIVERGED`) while that folder
+exists, and lost if Windows cleanup deletes it. No live action is to run
+in that interval. Nothing ran live, and `state.migrate` never ran on the
+laboratory's state.
+
 What remains unverified: the toolkit has started and shut down only
 `P9S-D12`, once; the Ubuntu guest's answer to the power button is not
 known; no calibration with both VMs has run, no paging value is
@@ -1341,7 +1376,12 @@ sudo password.
   wrote to `%TEMP%\p9s-hostmon` after a `state.init` must be carried
   over, or refuse `READY`: an installation made in this version does not
   look at that folder, so a history recorded there in between would be
-  left behind.
+  left behind. The same holds after a `state.migrate`: a record changed
+  there gives `STATE_DIVERGED` only while the folder exists.
+- The laboratory's migration itself, separately authorized: VMs off,
+  `state.migrate -DryRun` on the real folder, the owner reads the
+  manifest, then `state.migrate`, then `state.status`; no live action
+  between it and the change of folder.
 - The diagnostic SOCKS observer of the guests correlates by descriptor
   number only; it can misclassify a connection when another thread reuses
   the number. It is to be corrected before scenarios that rely on its

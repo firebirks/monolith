@@ -12,13 +12,17 @@
 #   pwsh -NoProfile -File p9s-action.ps1 -Action acpi.preflight [-Authorization <file>]
 #   pwsh -NoProfile -File p9s-action.ps1 -Action state.status
 #   pwsh -NoProfile -File p9s-action.ps1 -Action state.init [-Supersede <installation id>] [-DryRun]
+#   pwsh -NoProfile -File p9s-action.ps1 -Action state.migrate [-Restart <operation id>] [-DryRun]
 # state.status only reads (p9s-state.ps1): it prints the status of the
 # persistent state folder of later versions, creates nothing, writes no
 # audit record and changes nothing any other action does.
 # state.init (p9s-state-init.ps1) creates that folder explicitly, with
-# every configured VM off; no other action ever does. The coordinator of
-# this version keeps using its folder below; the new installation voids
-# every ACPI validation authorization issued before it.
+# every configured VM off; no other action ever does. state.migrate
+# (p9s-state-migrate.ps1) creates it from the coordinator folder below,
+# which it copies and never changes but for one marker file. The
+# coordinator of this version keeps using its folder below either way; a
+# new installation voids every ACPI validation authorization issued before
+# it.
 # Start it with pwsh -File (as above). Started with & from a prompt or
 # another script it refuses with exit 2 and does nothing: its closures could
 # not find the toolkit's functions there.
@@ -33,7 +37,7 @@ param(
     [Parameter(Mandatory)][string]$Action,
     [string]$Vm, [string]$Text, [string]$Key, [string]$Name, [int]$Seconds, [string]$Plan, [string]$Kind,
     [string]$Scenario, [string]$MonitorRun, [string]$Reference, [string]$AcknowledgeAbort, [string]$Operation, [string]$Authorization,
-    [switch]$DryRun, [string]$StatePath, [string]$AuditPath, [string]$ConfigPath, [string]$Supersede
+    [switch]$DryRun, [string]$StatePath, [string]$AuditPath, [string]$ConfigPath, [string]$Supersede, [string]$Restart
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'hostmon-lib.ps1')
@@ -45,6 +49,7 @@ if (-not $inv.ok) {
 }
 . (Join-Path $PSScriptRoot 'p9s-state.ps1')
 . (Join-Path $PSScriptRoot 'p9s-state-init.ps1')
+. (Join-Path $PSScriptRoot 'p9s-state-migrate.ps1')
 if ($Action -ceq 'state.status') {
     $extra = @($PSBoundParameters.Keys | Where-Object { $_ -notin 'Action', 'StatePath' })
     if ($extra.Count) { "refused: state.status takes no parameter but -StatePath (given: $($extra -join ', ')). Nothing was read or written."; 'outcome: REFUSED; STATE_STATUS_PARAMETER'; exit 1 }
@@ -66,6 +71,22 @@ if ($Action -ceq 'state.init') {
         $r = Invoke-P9SStateInit @ia
     } catch { "state.init stopped: $($_.Exception.Message)"; 'outcome: FAILED'; exit 2 }
     foreach ($l in $r.lines) { $l }
+    "outcome: $($r.outcome)$(if ($r.reasons.Count) { '; ' + ($r.reasons -join ', ') })"
+    if ($r.outcome -in 'DONE', 'DRYRUN') { exit 0 } elseif ($r.outcome -eq 'FAILED') { exit 2 } else { exit 1 }
+}
+if ($Action -ceq 'state.migrate') {
+    $extra = @($PSBoundParameters.Keys | Where-Object { $_ -notin 'Action', 'Restart', 'DryRun', 'ConfigPath' })
+    if ($extra.Count) { "refused: state.migrate takes only -Restart <operation id>, -DryRun and -ConfigPath (given: $($extra -join ', ')). Nothing was read or written."; 'outcome: REFUSED; STATE_MIGRATE_PARAMETER'; exit 1 }
+    $cfg = Read-P9SConfig -Path (Get-P9SConfigPath -ConfigPath $ConfigPath -ToolDir $PSScriptRoot)
+    if ($cfg.present -and -not $cfg.ok) { "refused: configuration $($cfg.path) is invalid ($($cfg.errors -join ', ')): the VMs that must be off are not known. Nothing was written."; 'outcome: REFUSED; CONFIG_INVALID'; exit 1 }
+    Set-P9SVmNames $cfg.vm_names
+    try {
+        $ma = @{ I = (New-P9SStateMigrateRealContext (New-P9SStateContext)); DryRun = [bool]$DryRun }
+        if ($PSBoundParameters.ContainsKey('Restart')) { $ma.Restart = $Restart }
+        $r = Invoke-P9SStateMigrate @ma
+    } catch { "state.migrate stopped: $($_.Exception.Message)"; 'outcome: FAILED'; exit 2 }
+    foreach ($l in $r.lines) { $l }
+    if ($r.notes.Count) { "notes: $($r.notes -join ', ')" }
     "outcome: $($r.outcome)$(if ($r.reasons.Count) { '; ' + ($r.reasons -join ', ') })"
     if ($r.outcome -in 'DONE', 'DRYRUN') { exit 0 } elseif ($r.outcome -eq 'FAILED') { exit 2 } else { exit 1 }
 }

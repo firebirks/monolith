@@ -1,7 +1,7 @@
 {
   "schema": "p9s-mutants/1",
   "note": "Targeted single-line faults of the toolkit. Each must make at least one of its killer tests fail. tests/run-all.ps1 -Mutants applies them to copies of this folder, never to it.",
-  "count": 176,
+  "count": 203,
   "mutants": [
     {
       "id": "SM1",
@@ -2029,6 +2029,304 @@
       ],
       "find": "        Installation = { if (Get-Command -Name Get-P9SStateInstallation -CommandType Function -ErrorAction SilentlyContinue) { Get-P9SStateInstallation (New-P9SStateContext) } else { $null } }\n",
       "replace": ""
+    },
+    {
+      "id": "MG1",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the earlier folder's coordinator lock not required (an old coordinator acting)",
+      "killers": [
+        "Q11"
+      ],
+      "find": "        if (-not $olock) { return (& $refuse 'MIGRATION_SOURCE_BUSY') }",
+      "replace": "        if ($false) { return (& $refuse 'MIGRATION_SOURCE_BUSY') }"
+    },
+    {
+      "id": "MG2",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the earlier folder's emergency hold not required (an old emergency waiting)",
+      "killers": [
+        "Q11"
+      ],
+      "find": "        if (-not $ohold) { return (& $refuse 'EMERGENCY_IN_PROGRESS') }",
+      "replace": "        if ($false) { return (& $refuse 'EMERGENCY_IN_PROGRESS') }"
+    },
+    {
+      "id": "MG3",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a copy not checked against the manifest",
+      "killers": [
+        "Q15"
+      ],
+      "find": "                if ($b.kind -ne 'ok' -or (Get-P9SStateSha $b.bytes) -cne $fi.sha256) { return (& $refuse \"MIGRATION_SOURCE_CHANGED:$($fi.name)\") }",
+      "replace": "                if ($b.kind -ne 'ok') { return (& $refuse \"MIGRATION_SOURCE_CHANGED:$($fi.name)\") }"
+    },
+    {
+      "id": "MG4",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the earlier folder not read again before the rename",
+      "killers": [
+        "Q15"
+      ],
+      "find": "            if ($s2.reasons.Count -or $s2.digest -cne $v.digest) { return (& $refuse (@('MIGRATION_SOURCE_CHANGED') + @($s2.reasons))) }",
+      "replace": "            if ($false) { return (& $refuse (@('MIGRATION_SOURCE_CHANGED') + @($s2.reasons))) }"
+    },
+    {
+      "id": "MG5",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the migration moves instead of copying (each file deleted from the earlier folder)",
+      "killers": [
+        "Q01",
+        "Q97"
+      ],
+      "find": "                try { Write-P9SStateMigrateCopy $I (Join-Path $stage $fi.name) $b.bytes \"M5:$($fi.name)\" } catch {",
+      "replace": "                try { Write-P9SStateMigrateCopy $I (Join-Path $stage $fi.name) $b.bytes \"M5:$($fi.name)\"; [IO.File]::Delete((Join-Path $src $fi.name)) } catch {"
+    },
+    {
+      "id": "MG6",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "an unknown file in the earlier folder ignored",
+      "killers": [
+        "Q05"
+      ],
+      "find": "        if ($c -eq 'unknown') { $s.reasons.Add(\"MIGRATION_SOURCE_UNKNOWN_ENTRY:$n\"); continue }",
+      "replace": "        if ($c -eq 'unknown') { continue }"
+    },
+    {
+      "id": "MG7",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the audit witness of a validation without a ledger removed",
+      "killers": [
+        "Q07"
+      ],
+      "find": "    if ($w.ledger_used -and $Ledger.ok -and $Ledger.detail -ceq 'absent, never used') { $w.reasons.Add('MIGRATION_SOURCE_UNCERTAIN:LEDGER_USED_BUT_MISSING') }",
+      "replace": "    if ($false) { $w.reasons.Add('MIGRATION_SOURCE_UNCERTAIN:LEDGER_USED_BUT_MISSING') }"
+    },
+    {
+      "id": "MG8",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the audit witness of an emergency without its stop request removed",
+      "killers": [
+        "Q07"
+      ],
+      "find": "        if (-not $Stop.present) { $w.reasons.Add('MIGRATION_SOURCE_UNCERTAIN:STOP_REQUEST_USED_BUT_MISSING') }",
+      "replace": "        if ($false) { $w.reasons.Add('MIGRATION_SOURCE_UNCERTAIN:STOP_REQUEST_USED_BUT_MISSING') }"
+    },
+    {
+      "id": "MG9",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a record left out of the manifest (the stop request lost)",
+      "killers": [
+        "Q10"
+      ],
+      "find": "        if ($c -in 'monitor', 'temporary') { $s.ignored.Add($n); continue }",
+      "replace": "        if ($c -in 'monitor', 'temporary' -or $n -ceq 'coordinator-stop.request') { $s.ignored.Add($n); continue }"
+    },
+    {
+      "id": "MG10",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a record of the manifest not copied (a partial staging folder)",
+      "killers": [
+        "Q01"
+      ],
+      "find": "            foreach ($fi in @($sc.files)) {",
+      "replace": "            foreach ($fi in @($sc.files | Where-Object { $_.name -cne 'coordinator-session.json' })) {"
+    },
+    {
+      "id": "MG11",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the staging folder not checked before the rename",
+      "killers": [
+        "Q20"
+      ],
+      "find": "            if ($chk.reasons.Count) { return (& $refuse (@('STAGING_NOT_COMPLETE') + @($chk.reasons))) }",
+      "replace": "            if ($false) { return (& $refuse (@('STAGING_NOT_COMPLETE') + @($chk.reasons))) }"
+    },
+    {
+      "id": "MG12",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "READY written without checking the state folder in place",
+      "killers": [
+        "Q25"
+      ],
+      "find": "        if ($chk.reasons.Count) { return (& $refuse (@('STATE_FOLDER_NOT_COMPLETE') + @($chk.reasons))) }",
+      "replace": "        if ($false) { return (& $refuse (@('STATE_FOLDER_NOT_COMPLETE') + @($chk.reasons))) }"
+    },
+    {
+      "id": "MG13",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a resumed migration accepts an earlier folder that no longer matches its manifest",
+      "killers": [
+        "Q15"
+      ],
+      "find": "        if ($View.digest -cne [string]$A.manifest_sha256) {",
+      "replace": "        if ($false) {"
+    },
+    {
+      "id": "MG14",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "READY written while a record of the earlier folder diverges from the copy",
+      "killers": [
+        "Q15"
+      ],
+      "find": "        if ($s3.reasons.Count -or $ag.reasons.Count) {",
+      "replace": "        if ($false) {"
+    },
+    {
+      "id": "MG15",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "state.migrate runs on NOT_INITIALIZED",
+      "killers": [
+        "Q04"
+      ],
+      "find": "        if ($s -ceq 'MIGRATION_REQUIRED') { $d.mode = 'new' }",
+      "replace": "        if ($s -cin 'MIGRATION_REQUIRED', 'NOT_INITIALIZED') { $d.mode = 'new' }"
+    },
+    {
+      "id": "MG16",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "an empty ledger created for a folder whose ACPI history cannot be verified (a new budget)",
+      "killers": [
+        "Q08"
+      ],
+      "find": "    if ($v.never_used -and (-not $w.present -or $w.entries -eq 0)) { $v.reasons.Add('MIGRATION_SOURCE_UNCERTAIN:ACPI_HISTORY_UNVERIFIABLE') }",
+      "replace": "    if ($false) { $v.reasons.Add('MIGRATION_SOURCE_UNCERTAIN:ACPI_HISTORY_UNVERIFIABLE') }"
+    },
+    {
+      "id": "MG17",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "no VM process check before anything is written",
+      "killers": [
+        "Q13"
+      ],
+      "find": "    if ($d.mode -ceq 'restart' -and $ne.kind -ne 'absent') { $res.lines.Add('way out: the state folder is in place; state.migrate completes this migration'); return (& $refuse 'RESTART_NOT_APPLICABLE:STATE_FOLDER_IN_PLACE') }\n    $pre = @(@(Get-P9SStateInitProcessReasons $I) + @(Get-P9SStateInitVBoxReasons $C))",
+      "replace": "    if ($d.mode -ceq 'restart' -and $ne.kind -ne 'absent') { $res.lines.Add('way out: the state folder is in place; state.migrate completes this migration'); return (& $refuse 'RESTART_NOT_APPLICABLE:STATE_FOLDER_IN_PLACE') }\n    $pre = @(Get-P9SStateInitVBoxReasons $C)"
+    },
+    {
+      "id": "MG18",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the setup lock shared",
+      "killers": [
+        "Q12"
+      ],
+      "find": "[IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) } catch { $lock = $null }",
+      "replace": "[IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::ReadWrite) } catch { $lock = $null }"
+    },
+    {
+      "id": "MG19",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a junction as the earlier folder followed",
+      "killers": [
+        "Q05"
+      ],
+      "find": "    if ($e.reparse) { $s.reasons.Add('MIGRATION_SOURCE_REPARSE_POINT'); return $s }",
+      "replace": "    if ($false) { $s.reasons.Add('MIGRATION_SOURCE_REPARSE_POINT'); return $s }"
+    },
+    {
+      "id": "MG20",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a hard-linked record of the earlier folder accepted",
+      "killers": [
+        "Q05"
+      ],
+      "find": "        if ($x.links -gt 1) { $s.reasons.Add(\"MIGRATION_SOURCE_ENTRY_HARD_LINKED:$n\"); continue }",
+      "replace": "        if ($false) { $s.reasons.Add(\"MIGRATION_SOURCE_ENTRY_HARD_LINKED:$n\"); continue }"
+    },
+    {
+      "id": "MG21",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a marker this migration did not write accepted",
+      "killers": [
+        "Q26"
+      ],
+      "find": "            if (-not $mko.ok -or [string]$mko.doc.installation_id -cne [string]$A.installation_id -or [string]$mko.doc.manifest_sha256 -cne [string]$A.manifest_sha256 -or -not (Test-P9SStateSamePath $mko.doc.state_dir $C.StateDir)) { return (& $refuse 'MIGRATION_MARKER_CONFLICT') }",
+      "replace": "            if ($false) { return (& $refuse 'MIGRATION_MARKER_CONFLICT') }"
+    },
+    {
+      "id": "MG22",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the free space of the state volume not checked",
+      "killers": [
+        "Q14"
+      ],
+      "find": "    if ([long]$free -lt $need) { return (& $refuse \"STATE_VOLUME_FREE_SPACE:$([long]$free):$need\") }",
+      "replace": "    if ($false) { return (& $refuse \"STATE_VOLUME_FREE_SPACE:$([long]$free):$need\") }"
+    },
+    {
+      "id": "MG23",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a record of the earlier folder that cannot be read taken as absent",
+      "killers": [
+        "Q05"
+      ],
+      "find": "        if ($b.kind -ne 'ok') { $s.reasons.Add(\"MIGRATION_SOURCE_NOT_READABLE:$($n):$($b.kind)\"); continue }",
+      "replace": "        if ($b.kind -ne 'ok') { continue }"
+    },
+    {
+      "id": "MG24",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "a clock behind the earlier folder accepted",
+      "killers": [
+        "Q21"
+      ],
+      "find": "    if (@($times | Where-Object { $_ -gt $now }).Count) { return (& $refuse 'CLOCK_BEHIND_EVIDENCE') }",
+      "replace": "    if ($false) { return (& $refuse 'CLOCK_BEHIND_EVIDENCE') }"
+    },
+    {
+      "id": "MG25",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "an uncertain ACPI request history of the earlier folder accepted",
+      "killers": [
+        "Q06"
+      ],
+      "find": "        if ($h.uncertain) { $v.reasons.Add(\"MIGRATION_SOURCE_UNCERTAIN:REQUEST_HISTORY:$vm\") }",
+      "replace": "        if ($false) { $v.reasons.Add(\"MIGRATION_SOURCE_UNCERTAIN:REQUEST_HISTORY:$vm\") }"
+    },
+    {
+      "id": "MG26",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "READY written over an anchor someone else changed",
+      "killers": [
+        "Q19"
+      ],
+      "find": "        if (-not $cur.ok -or [string]$cur.doc.phase -cne 'MIGRATING' -or [string]$cur.doc.op_id -cne $op -or [string]$cur.doc.installation_id -cne [string]$A.installation_id -or [string]$cur.doc.manifest_sha256 -cne [string]$A.manifest_sha256) { return (& $refuse 'ANCHOR_CHANGED') }",
+      "replace": "        if (-not $cur.ok) { return (& $refuse 'ANCHOR_CHANGED') }"
+    },
+    {
+      "id": "MG27",
+      "suite": "migrate",
+      "file": "p9s-state-migrate.ps1",
+      "what": "the decision not taken again under the setup lock",
+      "killers": [
+        "Q12"
+      ],
+      "find": "        $d2 = Get-P9SStateMigrateDecision $I $Restart\n",
+      "replace": "        $d2 = $d\n"
     }
   ]
 }

@@ -57,6 +57,7 @@ does not touch Tor, Monolith or its profiles.
 | `p9s-config.ps1` | Local configuration and the local secret store |
 | `p9s-state.ps1` | Read-only status of the persistent state folder of later versions (`state.status`) |
 | `p9s-state-init.ps1` | Explicit initialization of that folder (`state.init`) and the rule that voids the ACPI validation authorizations issued before it |
+| `p9s-state-migrate.ps1` | Explicit migration of the coordinator folder of earlier versions into that folder (`state.migrate`) |
 | `p9s-local.example.json` | Example of the local configuration |
 | `acpi-validation-authorization.example.json` | Example of a version-1 authorization for `P9S-D12` (never valid as it is) |
 | `acpi-validation-authorization-u24.example.json` | Example of a version-2 authorization for `P9S-U24` (never valid as it is) |
@@ -70,7 +71,9 @@ does not touch Tor, Monolith or its profiles.
 | `tests/acpival-tests.ps1` | The restricted ACPI validation: authorization, targets, budgets, recovery, races, damaged ledgers, low memory |
 | `tests/persist-tests.ps1` | The state status: the 17 statuses and their order, access errors, junctions, hard links, ACLs, no side effects; `state.init` in process: refusals, supersede, the VMs, the clock, the authorization rule |
 | `tests/setup-tests.ps1` | `state.init` in separate processes: every step as a crash point, the races |
-| `tests/run-all.ps1` | Runs and checks the eight suites, and the mutants (local and CI) |
+| `tests/migrate-tests.ps1` | `state.migrate` in process: the laboratory shape, every shape it refuses, the readers and the audit witness, locks, VMs, free space, resume and restart, writers at a given step |
+| `tests/migproc-tests.ps1` | `state.migrate` in separate processes: every step as a crash point, resume and restart crashes, the races, the coordinator's lock and hold against a migration |
+| `tests/run-all.ps1` | Runs and checks the ten suites, and the mutants (local and CI) |
 | `tests/mutants.json` | The targeted faults and the tests that must detect them |
 
 ## Local configuration
@@ -732,8 +735,8 @@ written and again under the setup lock:
 - anything else is refused, with the status as the reason
   (`STATE_NOT_NEW:<status>`, `NOT_SUPERSEDABLE:<status>`,
   `NOTHING_TO_SUPERSEDE:<status>`): an installation in place, an
-  earlier coordinator folder with evidence (`MIGRATION_REQUIRED`: a later
-  version migrates it), an unreadable anchor, an unsafe location, the
+  earlier coordinator folder with evidence (`MIGRATION_REQUIRED`:
+  `state.migrate` migrates it), an unreadable anchor, an unsafe location, the
   leftovers of a setup. A state folder already there without an anchor
   is refused too (`STATE_FOLDER_EXISTS`).
 
@@ -802,11 +805,159 @@ unreadable anchor, one in phase INITIALIZING, a folder without its
 anchor, an access error) refuses every authorization
 (`AUTHORIZATION_INSTALLATION_UNKNOWN`).
 
-What it does not do: it migrates nothing (`state.migrate`, a later
-version), it switches no action to the new folder, and a superseding
+What it does not do: it migrates nothing (`state.migrate`, below), it
+switches no action to the new folder, and a superseding
 initialization starts a history that knows nothing of the one it
 replaces except its id; the VMs being off and every earlier permit being
 void are what keep a lost history from giving a budget back.
+
+## Persistent state migration
+
+    pwsh -NoProfile -File p9s-action.ps1 -Action state.migrate [-DryRun]
+    pwsh -NoProfile -File p9s-action.ps1 -Action state.migrate -Restart <operation id>
+
+creates the state folder of a new installation from the coordinator
+folder of earlier versions (`%TEMP%\p9s-hostmon`), which it copies and
+never changes. It is the only way to migrate: no other action migrates,
+nothing migrates by itself, and it never starts a new history over an
+empty or new-looking folder. It takes no parameter but `-Restart`,
+`-DryRun` and `-ConfigPath`. `-DryRun` reads the earlier folder as the
+migration would, prints every file it would copy with its length and
+SHA-256, the records it lacks, the files it ignores and the manifest
+digest, and writes nothing: it takes no lock and creates no file, not
+even a lock file.
+
+It decides on the status of `state.status`, computed before anything is
+written and again under the setup lock:
+
+- `MIGRATION_REQUIRED`: a new migration of the one earlier folder that
+  holds evidence;
+- `INTERRUPTED` with the anchor in phase MIGRATING: the same migration,
+  resumed, only while the earlier folder is still exactly what its
+  manifest lists (once the state folder is in place, while no record of
+  the earlier folder differs from the copy);
+- `-Restart <operation id>`: only `INTERRUPTED` with that migration's
+  anchor, no state folder in place and no marker written; the same
+  migration (same operation and installation id) started again with a
+  new manifest, for an earlier folder that changed while the migration
+  was interrupted. The anchor value it replaces is first copied to the
+  value `MigrationRestarted-<operation id>-<n>`;
+- anything else is refused (`NOT_MIGRATABLE:<status>`,
+  `NOTHING_TO_RESTART:<status>`, `RESTART_ID_MISMATCH`,
+  `RESTART_NOT_APPLICABLE:<why>`), `NOT_INITIALIZED` included: an earlier
+  folder holding only the monitor's files, or no earlier folder, is
+  nothing to migrate, and this command never initializes.
+
+The earlier folder is one of the two locations `state.status` computes,
+never a path read from a record. It is refused as it is, before anything
+is written, when it or an entry is a junction or other reparse point, an
+entry is a folder, a hard-linked file or a name the toolkit does not
+write (`ACPI-VALIDATION-LEDGER.JSON.tmp`, for example), a record or a
+history cannot be read, the folder cannot be listed, or it holds a
+VirtualBox operation or quarantine record (resolve it first with the
+toolkit that wrote it). The monitor's files and the temporary files of
+an unfinished atomic write are ignored and listed; `coordinator.lock`
+and `coordinator-emergency.hold` are taken, not copied. Write entries
+of other accounts on the earlier folder or its files are reported in the
+dry run, in the result and in the audit line, not refused: the folder's
+ACL is never changed, the copies get the protected ACL of the state
+folder, and a writer outside the toolkit is caught by the second reading
+before the rename and, afterwards, by `state.status`.
+
+The history must be established before anything is copied:
+
+- the toolkit's own readers: the ledger with its revision record
+  (`ACPI_LEDGER_UNREADABLE`, `MISSING`, `STALE` and `INCONSISTENT`
+  refuse), the stop request and the session record (unreadable refuses),
+  the request history of every configured VM (uncertain refuses);
+- the coordinator audit as a second witness: every complete line must be
+  one JSON object (the last line may be cut by an interrupted append; it
+  is copied as it is and the next line starts on its own line); a
+  validation step recorded while the ledger reads "absent, never used"
+  (`LEDGER_USED_BUT_MISSING`), or an emergency ACPI request since the last
+  `session.close` with no stop request, or with one that does not hold
+  its VM (`STOP_REQUEST_USED_BUT_MISSING`), refuses;
+- a folder whose ledger never existed gets an empty ledger at revision 1
+  only when its audit shows its history: no audit, an empty one or one
+  with no complete line refuses (`ACPI_HISTORY_UNVERIFIABLE`). The lock
+  files of an earlier coordinator alone are therefore never migrated into
+  a new budget;
+- the readers' verdict must be about the bytes of the manifest: the
+  folder is read again after them, and any difference refuses.
+
+Every configured VM must be off. The count of VirtualBox VM processes is
+checked before anything is written; the VM states are read through the
+VirtualBox layer once the copies are in the staging folder, and the
+observations continue the copied histories. Free space on the state
+volume must be at least twice the bytes copied plus 64 MiB.
+
+Steps, each a point where the process may end:
+
+1. the root, created with the protected ACL, and `setup.lock`, held
+   exclusively, no wait (`SETUP_BUSY`); the decision taken again;
+2. the earlier folder's `coordinator.lock` and `coordinator-emergency.hold`,
+   both opened exclusively without waiting (`MIGRATION_SOURCE_BUSY`: a
+   coordinator of any version acts there; `EMERGENCY_IN_PROGRESS`: an
+   emergency holds the hold) and held to the end, so that no coordinator
+   can change the folder meanwhile; the folder read again under them; an
+   absent lock file is created empty, as every coordinator action does;
+3. the anchor in phase MIGRATING: a new installation id, the computed
+   earlier folder, the manifest digest;
+4. the staging folder `state.staging-<operation id>-<n>`, protected,
+   on the volume of the state folder;
+5. each record and history: read, checked against the manifest, written
+   beside its name, renamed without replacing, read back and compared;
+6. the VM states, observed into it;
+7. the empty ledger, only for a folder that never had one (above);
+8. `migration.json` (the manifest, the absent records, the ignored files,
+   whether the ledger was created, the VM observations) and
+   `install.json` (origin migrated), each by exclusive create, written
+   through;
+9. the staging folder checked (each record byte for byte, each history
+   beginning with the copied bytes, no record the manifest lists as
+   absent, the ledger as the toolkit reads it, the two records of this
+   migration, the protected ACL, plain unlinked files, nothing else), then
+   the earlier folder against the manifest once more;
+10. the staging folder renamed to `state`, refused if `state` exists;
+11. `MIGRATED-TO.json` in the earlier folder, by exclusive create: the
+    installation id, the state folder and the manifest digest;
+12. the state folder checked again, the earlier folder again (a record
+    that differs from its copy refuses; a history that grew is noted),
+    the anchor checked unchanged, then the anchor in phase READY with
+    `initialized_utc` and the ledger's mark (the laboratory's version 1
+    ledger, with no revision field, is revision 0 with the digest of its
+    text); the result is `READY` only if `state.status` says so;
+13. the line `state.migrate DONE` in the new folder's
+    `coordinator-audit.jsonl`.
+
+An interruption before step 12 leaves `INTERRUPTED` (or, before step 3,
+`MIGRATION_REQUIRED`), never `READY`, and every ACPI validation
+authorization is refused meanwhile (`AUTHORIZATION_INSTALLATION_UNKNOWN`);
+the same command completes it. A staging folder left by an interruption
+stays where it is; the next run uses a new one. Nothing is ever deleted:
+the earlier folder keeps every file as it was and gains only the marker
+(and the empty lock files if they were not there). Once READY, the rule
+of `state.init` applies: an authorization approved or valid from before
+`initialized_utc` is refused.
+
+After the migration `state.status` compares the earlier folder with the
+manifest at every start: a record new or changed there gives
+`STATE_DIVERGED` (refused; `state.init -Supersede <id>`, or put the
+earlier folder back as `migration.json` lists it); a history that grew
+is a note; the folder deleted is a note (`OLD_FOLDER_GONE`).
+
+What it does not do. It switches nothing: the coordinator of this version
+keeps its files in `%TEMP%\p9s-hostmon` after a migration as before, and
+changes the migrated records there, which `state.status` then reports as
+`STATE_DIVERGED`. The marker is read by `state.status` only; it does not
+stop this version, or any earlier one, from using that folder. Between a
+migration and the version that uses the new folder, the two folders can
+therefore hold two independent budgets that started equal: an ACPI
+validation or emergency request recorded in the earlier folder is missing
+from the new one, and if Windows cleanup then deletes the earlier folder,
+`state.status` reads the new one as `READY` with that budget unspent.
+Run no live action between a migration and that version; an older
+checkout run after it has the same effect.
 
 ## Calibration (preparation only)
 
@@ -854,8 +1005,9 @@ determined local user.
     pwsh -NoProfile -File tests/run-all.ps1 -OutDir <new folder>
          [-Mutants]
 
-runs the eight suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
-`decouple`, `acpival`, `persist`, `setup`), each in a new `pwsh -File` process, and judges
+runs the ten suites (`hostmon`, `coordinator`, `stagec`, `vbox`,
+`decouple`, `acpival`, `persist`, `setup`, `migrate`, `migproc`), each in a new
+`pwsh -File` process, and judges
 them by their `results.json`:
 every declared case must be reported once, as PASS, FAIL or NOT_RUN; the
 exit code of a suite must agree with its results; anything on the error
@@ -907,10 +1059,18 @@ classify at the same time. Its `state.init` cases, and those of the
 anchor with the registry API into the test keys; in the `setup` suite
 child processes end at each step (TerminateProcess) or wait at one on
 named events to show the crash points and the races, never with a
-sleep. Its cases P62 and P63 run `state.status` and
-`state.init -DryRun` against the machine's real locations, only in the
-main run of `-CleanRunner` and only where none of them exists;
-elsewhere they are NOT_RUN.
+sleep. The `migrate` suite builds earlier coordinator folders with the
+laboratory's shape and every shape `state.migrate` refuses (junctions,
+hard links, deny entries, damaged records, audit lines that witness a
+lost record), runs the migration in process with the VM states, the VM
+process count and the free space mocked, and orders writers at a given
+step through the step hook of the context; the `migproc` suite ends
+migrations at each step (TerminateProcess), races two of them, and runs
+the coordinator's own lock and emergency hold functions in other
+processes against a migration. Cases P62 and P63 run `state.status` and
+`state.init -DryRun`, and Q63 `state.migrate -DryRun`, against the
+machine's real locations, only in the main run of `-CleanRunner` and
+only where none of them exists; elsewhere they are NOT_RUN.
 
 CI: the job `p9s-windows-toolkit` of `.github/workflows/ci.yml` runs
 
@@ -922,7 +1082,8 @@ requires that the runner has no VirtualBox (no `VBoxManage.exe`, no
 VirtualBox COM class), no `p9s-local.json`, no `P9S_HOST_CONFIG` and no
 default state folder, so that a fault in a test cannot reach a real VM
 or secret. The job also checks that Windows PowerShell 5.1 refuses the
-entry point. P62 and P63 of the `persist` suite run only there. One case cannot run there: K37 starts the real coordinator,
+entry point. P62 and P63 of the `persist` suite and Q63 of the
+`migrate` suite run only there. One case cannot run there: K37 starts the real coordinator,
 which reads the VM states with VBoxManage; it is reported as NOT_RUN and
 runs only on a host with VirtualBox (K28 covers the same rule in
 process). CI cannot show how a guest answers the ACPI power button, how

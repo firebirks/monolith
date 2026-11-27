@@ -230,7 +230,7 @@ function Get-P9SStateInitDecision($I, [string]$Supersede) {
             if (-not $st.installation_id -or $Supersede -cne [string]$st.installation_id) { $d.reasons.Add('SUPERSEDE_ID_MISMATCH') } else { $d.mode = 'supersede' }
         }
         elseif ($s -ceq 'READY' -or $s -ceq 'NOT_INITIALIZED') { $d.reasons.Add("NOTHING_TO_SUPERSEDE:$s") }
-        elseif ($s -ceq 'INTERRUPTED') { $d.reasons.Add('SUPERSEDE_NOT_APPLICABLE:INTERRUPTED'); $d.exit = 'state.init without -Supersede completes the interrupted initialization' }
+        elseif ($s -ceq 'INTERRUPTED') { $d.reasons.Add('SUPERSEDE_NOT_APPLICABLE:INTERRUPTED'); $d.exit = if ($d.anchor -and [string]$d.anchor.phase -ceq 'MIGRATING') { 'state.migrate completes the interrupted migration' } else { 'state.init without -Supersede completes the interrupted initialization' } }
         else { $d.reasons.Add("NOT_SUPERSEDABLE:$s") }
     } else {
         if ($s -ceq 'NOT_INITIALIZED') { $d.mode = 'new' }
@@ -238,7 +238,8 @@ function Get-P9SStateInitDecision($I, [string]$Supersede) {
         else {
             $d.reasons.Add("STATE_NOT_NEW:$s")
             $d.exit = switch -CaseSensitive ($s) {
-                'MIGRATION_REQUIRED' { 'state.migrate (a later version) copies the earlier coordinator folder; state.init never starts over it' }
+                'MIGRATION_REQUIRED' { 'state.migrate copies the earlier coordinator folder into a new installation; state.init never starts over it' }
+                'INTERRUPTED' { 'state.migrate completes the interrupted migration' }
                 { $_ -cin (Get-P9SStateSupersedable) } { "state.init -Supersede $($st.installation_id) starts a new installation and keeps this one aside" }
                 'READY' { 'the installation is in place; nothing to do' }
                 default { 'see state.status; nothing is chosen automatically' }
@@ -313,8 +314,9 @@ function Get-P9SStateIdentity([string]$Path) { $x = Get-P9SSetupEntry $Path; if 
 # ------------------------------------------------------------ the VM check
 # Every configured VM observed off through the reader of the context, with
 # the observations appended to the folder's vm-observations.jsonl, and the
-# process count before and after the queries.
-function Test-P9SStateInitVms($I, [string]$Dir) {
+# process count before and after the queries. Purpose: the action that
+# observes (state.init, or state.migrate in p9s-state-migrate.ps1).
+function Test-P9SStateInitVms($I, [string]$Dir, [string]$Purpose = (Get-P9SStateInitNames).purpose) {
     $out = [System.Collections.Generic.List[string]]::new(); $seen = [ordered]@{}
     foreach ($x in @(Get-P9SStateInitProcessReasons $I)) { $out.Add($x) }
     if ($out.Count) { return [pscustomobject]@{ reasons = @($out); states = $seen } }
@@ -322,7 +324,7 @@ function Test-P9SStateInitVms($I, [string]$Dir) {
     $oc = [pscustomobject]@{ ReadVmState = { param($vm) & $read $vm $Dir }.GetNewClosure(); NowQpc = $I.NowQpc; QpcFrequency = $I.QpcFrequency; UtcNow = $I.UtcNow
         ObservationPath = Join-Path $Dir 'vm-observations.jsonl' }
     foreach ($vm in $I.VmNames) {
-        $o = Get-P9SVmObservation $oc $vm (Get-P9SStateInitNames).purpose
+        $o = Get-P9SVmObservation $oc $vm $Purpose
         $seen[$vm] = [string]$o.state
         Invoke-P9SStateInitStep $I "V:$vm"
         if (-not $o.observed -or [string]$o.state -cne 'off') { $out.Add("VM_NOT_OFF:$($vm):$($o.state)") }
@@ -331,7 +333,7 @@ function Test-P9SStateInitVms($I, [string]$Dir) {
     # each observation is in the folder: the new history starts with them
     $lines = @()
     $r = Read-StateFile -Path $oc.ObservationPath
-    if ($r.ok) { $lines = @($r.text -split "`n" | Where-Object { $_ } | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } | Where-Object { $_.pid -eq $PID -and $_.purpose -ceq (Get-P9SStateInitNames).purpose }) }
+    if ($r.ok) { $lines = @($r.text -split "`n" | Where-Object { $_ } | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } | Where-Object { $_.pid -eq $PID -and $_.purpose -ceq $Purpose }) }
     foreach ($vm in $I.VmNames) { if (-not @($lines | Where-Object { $_.vm -ceq $vm }).Count) { $out.Add("VM_OBSERVATION_NOT_RECORDED:$vm") } }
     [pscustomobject]@{ reasons = @($out | Select-Object -Unique); states = $seen }
 }
